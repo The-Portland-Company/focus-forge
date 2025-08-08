@@ -1,5 +1,7 @@
 import { DatabaseAdapter } from '../db-adapter'
 import { Database, Task, Project, Organization, Tag, User } from '../types'
+import { createClient } from '../supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * Supabase database adapter
@@ -7,25 +9,20 @@ import { Database, Task, Project, Organization, Tag, User } from '../types'
  * This will be used when USE_SUPABASE=true
  */
 export class SupabaseAdapter implements DatabaseAdapter {
-  private supabaseUrl: string
-  private supabaseKey: string
+  private supabase: SupabaseClient
   private userId: string | null = null
 
   constructor() {
-    this.supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-    this.supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-    
-    if (!this.supabaseUrl || !this.supabaseKey) {
-      throw new Error('Supabase configuration missing. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY')
-    }
+    this.supabase = createClient()
   }
 
   async initialize(): Promise<void> {
-    // In a real implementation, this would:
-    // 1. Initialize Supabase client
-    // 2. Check authentication status
-    // 3. Set up real-time subscriptions if needed
-    console.log('Supabase adapter initialized (placeholder)')
+    // Check authentication status
+    const { data: { user } } = await this.supabase.auth.getUser()
+    if (user) {
+      this.userId = user.id
+    }
+    console.log('Supabase adapter initialized')
   }
 
   async getDatabase(): Promise<Database> {
@@ -47,6 +44,42 @@ export class SupabaseAdapter implements DatabaseAdapter {
     // This method would typically not be used with Supabase
     // as updates are done per-entity
     throw new Error('updateDatabase not supported in Supabase adapter. Use individual entity methods.')
+  }
+
+  // User preferences operations
+  async getUserPreferences(): Promise<any> {
+    if (!this.userId) return null
+    
+    const { data, error } = await this.supabase
+      .from('user_preferences')
+      .select('*')
+      .eq('user_id', this.userId)
+      .single()
+    
+    if (error && error.code === 'PGRST116') {
+      // No preferences found, create default
+      const { data: newData } = await this.supabase
+        .from('user_preferences')
+        .insert({
+          user_id: this.userId,
+          expanded_organizations: []
+        })
+        .select()
+        .single()
+      
+      return newData
+    }
+    
+    return data
+  }
+
+  async updateUserPreferences(updates: any): Promise<void> {
+    if (!this.userId) return
+    
+    await this.supabase
+      .from('user_preferences')
+      .update(updates)
+      .eq('user_id', this.userId)
   }
 
   // Task operations
@@ -202,9 +235,25 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
   // User operations
   async getUsers(): Promise<User[]> {
-    // Placeholder: Would query Supabase users table
-    console.log('Fetching users from Supabase (placeholder)')
-    return []
+    if (!this.userId) return []
+    
+    const { data } = await this.supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', this.userId)
+    
+    if (!data || data.length === 0) return []
+    
+    // Map Supabase profile to User type
+    return data.map(profile => ({
+      id: profile.id,
+      email: profile.email,
+      firstName: profile.first_name || '',
+      lastName: profile.last_name || '',
+      role: profile.role,
+      profileColor: profile.profile_color || '#EA580C',
+      animationsEnabled: profile.animations_enabled ?? true
+    }))
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -214,9 +263,25 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async getCurrentUser(): Promise<User | undefined> {
-    // Placeholder: Would get authenticated user
-    console.log('Fetching current user from Supabase (placeholder)')
-    return undefined
+    if (!this.userId) return undefined
+    
+    const { data } = await this.supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', this.userId)
+      .single()
+    
+    if (!data) return undefined
+    
+    return {
+      id: data.id,
+      email: data.email,
+      firstName: data.first_name || '',
+      lastName: data.last_name || '',
+      role: data.role,
+      profileColor: data.profile_color || '#EA580C',
+      animationsEnabled: data.animations_enabled ?? true
+    }
   }
 
   // Settings operations

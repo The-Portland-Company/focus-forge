@@ -7,6 +7,8 @@ import { ThemePicker } from '@/components/theme-picker'
 import { OrganizationSettingsModal } from '@/components/organization-settings-modal'
 import { Database, Organization } from '@/lib/types'
 import { getBackgroundStyle } from '@/lib/style-utils'
+import { useUserProfile } from '@/lib/supabase/hooks'
+import { applyUserTheme } from '@/lib/theme-utils'
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -18,6 +20,10 @@ export default function SettingsPage() {
   const [showThemePicker, setShowThemePicker] = useState(false)
   const [selectedOrganization, setSelectedOrganization] = useState<Organization | null>(null)
   const themePickerRef = useRef<HTMLDivElement>(null)
+  const { profile, loading: profileLoading, updateProfile } = useUserProfile()
+  
+  // Check if we're using Supabase or file-based database
+  const useSupabase = process.env.NEXT_PUBLIC_USE_SUPABASE === 'true'
 
   useEffect(() => {
     fetchData()
@@ -44,29 +50,24 @@ export default function SettingsPage() {
       })
       const data = await response.json()
       setDatabase(data)
-      
-      // Load user settings
-      if (data.users?.[0]) {
-        const userColor = data.users[0].profileColor || '#EA580C'
-        const userAnimations = data.users[0].animationsEnabled !== false
-        setProfileColor(userColor)
-        setAnimationsEnabled(userAnimations)
-        // Apply theme immediately when settings load
-        applyUserTheme(userColor, userAnimations)
-      } else {
-        // Set defaults if no user data
-        setProfileColor('#EA580C')
-        setAnimationsEnabled(true)
-        applyUserTheme('#EA580C', true)
-      }
     } catch (error) {
       console.error('Error fetching data:', error)
     }
   }
 
+  // Load profile settings from Supabase
+  useEffect(() => {
+    if (profile && !profileLoading) {
+      const userColor = profile.profile_color || '#EA580C'
+      const userAnimations = profile.animations_enabled !== false
+      setProfileColor(userColor)
+      setAnimationsEnabled(userAnimations)
+      // Apply theme immediately when profile loads
+      applyUserTheme(userColor, userAnimations)
+    }
+  }, [profile, profileLoading])
+
   const handleAutoSave = async (updates: { profileColor?: string; animationsEnabled?: boolean }) => {
-    if (!database?.users?.[0]) return
-    
     setSaveStatus('saving')
     try {
       // Apply theme immediately for instant feedback
@@ -77,22 +78,50 @@ export default function SettingsPage() {
         applyUserTheme(profileColor || '#EA580C', updates.animationsEnabled)
       }
       
-      const response = await fetch(`/api/users/${database.users[0].id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profileColor: updates.profileColor ?? profileColor,
-          animationsEnabled: updates.animationsEnabled ?? animationsEnabled
-        })
-      })
-      
-      if (response.ok) {
-        setSaveStatus('saved')
-        // Clear the saved status after 2 seconds
-        setTimeout(() => setSaveStatus('idle'), 2000)
+      if (useSupabase && updateProfile) {
+        // Update profile in Supabase
+        const profileUpdates: any = {}
+        if (updates.profileColor !== undefined) {
+          profileUpdates.profile_color = updates.profileColor
+        }
+        if (updates.animationsEnabled !== undefined) {
+          profileUpdates.animations_enabled = updates.animationsEnabled
+        }
+        
+        const result = await updateProfile(profileUpdates)
+        const error = result?.error
+        
+        if (!error) {
+          setSaveStatus('saved')
+          setTimeout(() => setSaveStatus('idle'), 2000)
+        } else {
+          setSaveStatus('error')
+          setTimeout(() => setSaveStatus('idle'), 3000)
+        }
       } else {
-        setSaveStatus('error')
-        setTimeout(() => setSaveStatus('idle'), 3000)
+        // Update file-based database
+        if (!database?.users?.[0]) {
+          setSaveStatus('error')
+          setTimeout(() => setSaveStatus('idle'), 3000)
+          return
+        }
+        
+        const response = await fetch(`/api/users/${database.users[0].id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profileColor: updates.profileColor ?? profileColor,
+            animationsEnabled: updates.animationsEnabled ?? animationsEnabled
+          })
+        })
+        
+        if (response.ok) {
+          setSaveStatus('saved')
+          setTimeout(() => setSaveStatus('idle'), 2000)
+        } else {
+          setSaveStatus('error')
+          setTimeout(() => setSaveStatus('idle'), 3000)
+        }
       }
     } catch (error) {
       console.error('Error saving settings:', error)
@@ -102,63 +131,7 @@ export default function SettingsPage() {
   }
 
 
-  const applyUserTheme = (color: string, animationsEnabled: boolean) => {
-    const root = document.documentElement
-    let primaryColor = color
-    
-    // Handle gradients
-    if (color.startsWith('linear-gradient')) {
-      const matches = color.match(/#[A-Fa-f0-9]{6}/g)
-      if (matches && matches.length > 0) {
-        primaryColor = matches[0]
-        root.style.setProperty('--user-profile-color', primaryColor)
-        root.style.setProperty('--user-profile-gradient', color)
-        // Set theme variables
-        root.style.setProperty('--theme-primary', primaryColor)
-        root.style.setProperty('--theme-gradient', color)
-      }
-    } else {
-      root.style.setProperty('--user-profile-color', color)
-      root.style.setProperty('--user-profile-gradient', color)
-      // Set theme variables
-      root.style.setProperty('--theme-primary', color)
-      root.style.setProperty('--theme-gradient', color)
-    }
-    
-    // Convert hex to RGB for use in rgba()
-    // Only convert if primaryColor is a valid hex color
-    if (primaryColor.startsWith('#') && primaryColor.length === 7) {
-      const hex = primaryColor.replace('#', '')
-      const r = parseInt(hex.substr(0, 2), 16)
-      const g = parseInt(hex.substr(2, 2), 16)
-      const b = parseInt(hex.substr(4, 2), 16)
-      
-      // Check for NaN values
-      if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
-        root.style.setProperty('--user-profile-color-rgb', `${r}, ${g}, ${b}`)
-        root.style.setProperty('--theme-primary-rgb', `${r}, ${g}, ${b}`)
-      } else {
-        // Fallback to default orange color RGB
-        root.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
-        root.style.setProperty('--theme-primary-rgb', '234, 88, 12')
-      }
-    } else {
-      // Fallback to default orange color RGB
-      root.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
-      root.style.setProperty('--theme-primary-rgb', '234, 88, 12')
-    }
-    
-    // Toggle animations
-    if (animationsEnabled) {
-      root.classList.remove('no-animations')
-    } else {
-      root.classList.add('no-animations')
-    }
-    
-    // Store in localStorage for immediate effect
-    localStorage.setItem('userProfileColor', color)
-    localStorage.setItem('animationsEnabled', animationsEnabled.toString())
-  }
+  // Theme application is now handled by the shared utility
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">

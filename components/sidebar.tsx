@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Plus, Search, Calendar, CalendarDays, Star, Hash, GripVertical, Trash2, Archive, FolderPlus, Building2, Edit, User, Settings, ChevronsUpDown, ChevronsDownUp } from 'lucide-react'
 import { Database, Project } from '@/lib/types'
 import { getBackgroundStyle } from '@/lib/style-utils'
+import { useUserPreferences } from '@/lib/supabase/hooks'
 
 interface SidebarProps {
   data: Database
@@ -33,26 +34,23 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
   const [dragOverPosition, setDragOverPosition] = useState<'top' | 'bottom' | null>(null)
   const [hoveredProject, setHoveredProject] = useState<string | null>(null)
   const [hoveredOrg, setHoveredOrg] = useState<string | null>(null)
+  const { preferences, updatePreferences } = useUserPreferences()
 
-  // Load saved expanded state after mount
+  // Load saved expanded state from Supabase
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('expandedOrgs')
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved)
-          setExpandedOrgs(parsed)
-        } catch (e) {
-          console.error('Error parsing expandedOrgs from localStorage:', e)
-        }
-      }
+    if (preferences && preferences.expanded_organizations) {
+      setExpandedOrgs(preferences.expanded_organizations)
     }
-  }, [])
+  }, [preferences])
   
-  // Save expanded state to localStorage whenever it changes
+  // Save expanded state to Supabase whenever it changes
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('expandedOrgs', JSON.stringify(expandedOrgs))
+    if (preferences) {
+      const timeoutId = setTimeout(() => {
+        updatePreferences({ expanded_organizations: expandedOrgs })
+      }, 500) // Debounce to avoid too many updates
+      
+      return () => clearTimeout(timeoutId)
     }
   }, [expandedOrgs])
 

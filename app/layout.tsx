@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
-import { AuthProvider } from "@/contexts/auth-context"
+import { AuthProvider } from "@/contexts/AuthContext"
 import { HydrationFix } from "@/components/hydration-fix"
 import "./globals.css"
 
@@ -54,50 +54,11 @@ export default function RootLayout({
                   setTimeout(() => observer.disconnect(), 5000);
                 }
                 
-                const userColor = localStorage.getItem('userProfileColor');
-                const animationsEnabled = localStorage.getItem('animationsEnabled');
-                
                 // Always set a valid RGB value to prevent hydration errors
                 document.documentElement.style.setProperty('--user-profile-color-rgb', '234, 88, 12');
                 document.documentElement.style.setProperty('--theme-primary-rgb', '234, 88, 12');
                 
-                if (userColor) {
-                  document.documentElement.style.setProperty('--user-profile-color', userColor);
-                  document.documentElement.style.setProperty('--theme-gradient', userColor);
-                  
-                  // Handle gradients vs solid colors
-                  let primaryColor = userColor;
-                  if (userColor.includes('gradient') && userColor.includes('#')) {
-                    const matches = userColor.match(/#[A-Fa-f0-9]{6}/g);
-                    if (matches && matches.length > 0) {
-                      primaryColor = matches[0];
-                    }
-                  }
-                  
-                  // Set theme primary color
-                  document.documentElement.style.setProperty('--theme-primary', primaryColor);
-                  
-                  // Convert hex to RGB only if we have a valid hex color
-                  if (primaryColor && primaryColor.startsWith('#') && primaryColor.length === 7) {
-                    try {
-                      const hex = primaryColor.substring(1);
-                      const r = parseInt(hex.substring(0, 2), 16);
-                      const g = parseInt(hex.substring(2, 4), 16);
-                      const b = parseInt(hex.substring(4, 6), 16);
-                      
-                      if (!isNaN(r) && !isNaN(g) && !isNaN(b) && r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255) {
-                        document.documentElement.style.setProperty('--user-profile-color-rgb', r + ', ' + g + ', ' + b);
-                        document.documentElement.style.setProperty('--theme-primary-rgb', r + ', ' + g + ', ' + b);
-                      }
-                    } catch (e) {
-                      // Keep default RGB on any parsing error
-                    }
-                  }
-                }
-                
-                if (animationsEnabled === 'false') {
-                  document.documentElement.classList.add('no-animations');
-                }
+                // Theme will be applied by AuthContext after Supabase loads
               })();
             `,
           }}

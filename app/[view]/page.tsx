@@ -24,6 +24,7 @@ import { SectionView } from '@/components/section-view'
 import { AddSectionModal } from '@/components/add-section-modal'
 import { AddSectionDivider } from '@/components/add-section-divider'
 import { getLocalDateString, isOverdue, isTodayOrOverdue } from '@/lib/date-utils'
+import { applyUserTheme } from '@/lib/theme-utils'
 
 export default function ViewPage() {
   const params = useParams()
@@ -68,102 +69,8 @@ export default function ViewPage() {
     fetchData()
   }, [])
   
-  // Apply user settings in a separate effect to avoid hydration issues
-  useEffect(() => {
-    // Only access localStorage on the client side
-    if (typeof window !== 'undefined') {
-      const userColor = localStorage.getItem('userProfileColor')
-      const animationsEnabled = localStorage.getItem('animationsEnabled')
-      
-      if (userColor) {
-        document.documentElement.style.setProperty('--user-profile-color', userColor)
-        document.documentElement.style.setProperty('--theme-gradient', userColor)
-        
-        // Handle gradients vs solid colors
-        let primaryColor = userColor
-        if (userColor.startsWith('linear-gradient')) {
-          const matches = userColor.match(/#[A-Fa-f0-9]{6}/g)
-          if (matches && matches.length > 0) {
-            primaryColor = matches[0]
-          }
-        }
-        
-        // Set theme primary color
-        document.documentElement.style.setProperty('--theme-primary', primaryColor)
-        
-        // Convert hex to RGB only if we have a valid hex color
-        if (primaryColor.startsWith('#') && primaryColor.length === 7) {
-          const hex = primaryColor.replace('#', '')
-          const r = parseInt(hex.substr(0, 2), 16)
-          const g = parseInt(hex.substr(2, 2), 16)
-          const b = parseInt(hex.substr(4, 2), 16)
-          
-          if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
-            document.documentElement.style.setProperty('--user-profile-color-rgb', `${r}, ${g}, ${b}`)
-            document.documentElement.style.setProperty('--theme-primary-rgb', `${r}, ${g}, ${b}`)
-          } else {
-            document.documentElement.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
-            document.documentElement.style.setProperty('--theme-primary-rgb', '234, 88, 12')
-          }
-        } else {
-          document.documentElement.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
-          document.documentElement.style.setProperty('--theme-primary-rgb', '234, 88, 12')
-        }
-      }
-      
-      if (animationsEnabled === 'false') {
-        document.documentElement.classList.add('no-animations')
-      } else {
-        document.documentElement.classList.remove('no-animations')
-      }
-    }
-  }, [])
+  // Theme is now handled by AuthContext
 
-  const applyTheme = (userColor: string, animationsEnabled: boolean) => {
-    const root = document.documentElement
-    
-    // Set user profile colors
-    root.style.setProperty('--user-profile-color', userColor)
-    root.style.setProperty('--theme-gradient', userColor)
-    
-    // Handle gradients vs solid colors
-    let primaryColor = userColor
-    if (userColor.startsWith('linear-gradient')) {
-      const matches = userColor.match(/#[A-Fa-f0-9]{6}/g)
-      if (matches && matches.length > 0) {
-        primaryColor = matches[0]
-      }
-    }
-    
-    // Set theme primary color
-    root.style.setProperty('--theme-primary', primaryColor)
-    
-    // Convert hex to RGB
-    if (primaryColor.startsWith('#') && primaryColor.length === 7) {
-      const hex = primaryColor.replace('#', '')
-      const r = parseInt(hex.substr(0, 2), 16)
-      const g = parseInt(hex.substr(2, 2), 16)
-      const b = parseInt(hex.substr(4, 2), 16)
-      
-      if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
-        root.style.setProperty('--user-profile-color-rgb', `${r}, ${g}, ${b}`)
-        root.style.setProperty('--theme-primary-rgb', `${r}, ${g}, ${b}`)
-      } else {
-        root.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
-        root.style.setProperty('--theme-primary-rgb', '234, 88, 12')
-      }
-    } else {
-      root.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
-      root.style.setProperty('--theme-primary-rgb', '234, 88, 12')
-    }
-    
-    // Toggle animations
-    if (animationsEnabled) {
-      root.classList.remove('no-animations')
-    } else {
-      root.classList.add('no-animations')
-    }
-  }
 
   const fetchData = async () => {
     try {
@@ -194,17 +101,9 @@ export default function ViewPage() {
       if (data && data.tasks && data.projects && data.organizations) {
         setDatabase(data)
         
-        // Apply user theme from database
+        // Apply theme for file-based database (AuthContext handles Supabase)
         if (data.users?.[0]?.profileColor) {
-          const userColor = data.users[0].profileColor
-          const animationsEnabled = data.users[0].animationsEnabled !== false
-          
-          // Update localStorage
-          localStorage.setItem('userProfileColor', userColor)
-          localStorage.setItem('animationsEnabled', animationsEnabled.toString())
-          
-          // Apply theme immediately
-          applyTheme(userColor, animationsEnabled)
+          applyUserTheme(data.users[0].profileColor, data.users[0].animationsEnabled ?? true)
         }
       } else {
         console.error('Invalid database structure:', data)
