@@ -1,12 +1,14 @@
 "use client"
 
 import { useState } from 'react'
-import { Calendar, Hash } from 'lucide-react'
+import { Calendar, Hash, Link2, AlertCircle } from 'lucide-react'
 import { Task, Project, Database } from '@/lib/types'
 import { format, isToday, isTomorrow, isThisWeek, addDays, startOfWeek, endOfWeek, isPast, isFuture } from 'date-fns'
+import { isTaskBlocked } from '@/lib/dependency-utils'
 
 interface KanbanViewProps {
   tasks: Task[]
+  allTasks?: Task[] // For dependency checking
   projects: Project[]
   onTaskToggle: (taskId: string) => void
   onTaskEdit: (task: Task) => void
@@ -19,7 +21,7 @@ interface KanbanColumn {
   tasks: Task[]
 }
 
-export function KanbanView({ tasks, projects, onTaskToggle, onTaskEdit, onTaskUpdate }: KanbanViewProps) {
+export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit, onTaskUpdate }: KanbanViewProps) {
   const [draggedTask, setDraggedTask] = useState<Task | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
 
@@ -178,16 +180,38 @@ export function KanbanView({ tasks, projects, onTaskToggle, onTaskEdit, onTaskUp
                     <input
                       type="checkbox"
                       checked={task.completed}
-                      onChange={() => onTaskToggle(task.id)}
-                      className="mt-0.5 rounded border-zinc-600 text-red-500 focus:ring-red-500 focus:ring-offset-0 bg-zinc-700"
+                      onChange={() => {
+                        if (!allTasks || !isTaskBlocked(task, allTasks)) {
+                          onTaskToggle(task.id)
+                        }
+                      }}
+                      disabled={allTasks && isTaskBlocked(task, allTasks)}
+                      className={`mt-0.5 rounded border-zinc-600 focus:ring-offset-0 bg-zinc-700 ${
+                        allTasks && isTaskBlocked(task, allTasks) 
+                          ? 'text-zinc-500 cursor-not-allowed' 
+                          : 'text-red-500 focus:ring-red-500'
+                      }`}
+                      title={allTasks && isTaskBlocked(task, allTasks) ? 'Complete dependencies first' : ''}
                     />
                     
                     <div className="flex-1 min-w-0">
-                      <div
-                        onClick={() => onTaskEdit(task)}
-                        className="text-sm text-white hover:text-zinc-300 cursor-pointer"
-                      >
-                        {task.title}
+                      <div className="flex items-center gap-2">
+                        <div
+                          onClick={() => onTaskEdit(task)}
+                          className={`text-sm cursor-pointer ${
+                            task.completed ? 'line-through text-zinc-500' :
+                            allTasks && isTaskBlocked(task, allTasks) ? 'text-zinc-400' : 
+                            'text-white hover:text-zinc-300'
+                          }`}
+                        >
+                          {task.name}
+                        </div>
+                        {allTasks && isTaskBlocked(task, allTasks) && !task.completed && (
+                          <div className="flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))]" title="Task is blocked by dependencies">
+                            <Link2 className="w-3 h-3" />
+                            <span className="text-xs">Blocked</span>
+                          </div>
+                        )}
                       </div>
                       
                       {task.description && (

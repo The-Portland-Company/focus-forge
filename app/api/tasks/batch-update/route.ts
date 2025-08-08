@@ -10,8 +10,8 @@ export async function POST(request: NextRequest) {
     }
     
     const db = await getDatabase()
-    const updatedTasks = []
-    const failedIds = []
+    const updatedTasks: any[] = []
+    const failedIds: string[] = []
     
     // Update all tasks in memory first
     taskIds.forEach(taskId => {

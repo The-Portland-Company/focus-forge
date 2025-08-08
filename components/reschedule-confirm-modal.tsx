@@ -30,7 +30,7 @@ export function RescheduleConfirmModal({
                 Reschedule Overdue Tasks?
               </h3>
               <p className="text-zinc-400 text-sm">
-                This will reschedule {taskCount} overdue {taskCount === 1 ? 'task' : 'tasks'} to today's date. 
+                This will reschedule {taskCount} overdue {taskCount === 1 ? 'task' : 'tasks'} to today&apos;s date. 
                 This action cannot be undone.
               </p>
             </div>

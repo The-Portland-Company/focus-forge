@@ -3,9 +3,10 @@ import { updateProject, deleteProject } from '@/lib/db'
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  props: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await props.params
     const updates = await request.json()
     const updatedProject = await updateProject(params.id, updates)
     
@@ -21,9 +22,10 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  props: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await props.params
     const deleted = await deleteProject(params.id)
     
     if (!deleted) {

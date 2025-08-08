@@ -7,7 +7,7 @@ interface AddTaskModalProps {
   isOpen: boolean
   onClose: () => void
   data: Database
-  onAddTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => void
+  onAddTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> | Partial<Task>) => void
   onDataRefresh?: () => void
   defaultProjectId?: string
 }

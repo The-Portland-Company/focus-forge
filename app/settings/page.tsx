@@ -6,12 +6,14 @@ import { ChevronLeft, User, Building2, Edit } from 'lucide-react'
 import { ThemePicker } from '@/components/theme-picker'
 import { OrganizationSettingsModal } from '@/components/organization-settings-modal'
 import { Database, Organization } from '@/lib/types'
+import { getBackgroundStyle } from '@/lib/style-utils'
 
 export default function SettingsPage() {
   const router = useRouter()
   const [database, setDatabase] = useState<Database | null>(null)
-  const [profileColor, setProfileColor] = useState('#EA580C')
-  const [animationsEnabled, setAnimationsEnabled] = useState(true)
+  // Initialize with null to avoid hydration mismatch
+  const [profileColor, setProfileColor] = useState<string | null>(null)
+  const [animationsEnabled, setAnimationsEnabled] = useState<boolean | null>(null)
   const [saving, setSaving] = useState(false)
   const [showThemePicker, setShowThemePicker] = useState(false)
   const [selectedOrganization, setSelectedOrganization] = useState<Organization | null>(null)
@@ -37,7 +39,9 @@ export default function SettingsPage() {
 
   const fetchData = async () => {
     try {
-      const response = await fetch('/api/database')
+      const response = await fetch('/api/database', {
+        credentials: 'include'
+      })
       const data = await response.json()
       setDatabase(data)
       
@@ -45,6 +49,10 @@ export default function SettingsPage() {
       if (data.users?.[0]) {
         setProfileColor(data.users[0].profileColor || '#EA580C')
         setAnimationsEnabled(data.users[0].animationsEnabled !== false)
+      } else {
+        // Set defaults if no user data
+        setProfileColor('#EA580C')
+        setAnimationsEnabled(true)
       }
     } catch (error) {
       console.error('Error fetching data:', error)
@@ -60,14 +68,14 @@ export default function SettingsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          profileColor,
-          animationsEnabled
+          profileColor: profileColor || '#EA580C',
+          animationsEnabled: animationsEnabled ?? true
         })
       })
       
       if (response.ok) {
         // Apply theme immediately
-        applyUserTheme(profileColor, animationsEnabled)
+        applyUserTheme(profileColor || '#EA580C', animationsEnabled ?? true)
         
         // Navigate back
         router.back()
@@ -97,11 +105,24 @@ export default function SettingsPage() {
     }
     
     // Convert hex to RGB for use in rgba()
-    const hex = primaryColor.replace('#', '')
-    const r = parseInt(hex.substr(0, 2), 16)
-    const g = parseInt(hex.substr(2, 2), 16)
-    const b = parseInt(hex.substr(4, 2), 16)
-    root.style.setProperty('--user-profile-color-rgb', `${r}, ${g}, ${b}`)
+    // Only convert if primaryColor is a valid hex color
+    if (primaryColor.startsWith('#') && primaryColor.length === 7) {
+      const hex = primaryColor.replace('#', '')
+      const r = parseInt(hex.substr(0, 2), 16)
+      const g = parseInt(hex.substr(2, 2), 16)
+      const b = parseInt(hex.substr(4, 2), 16)
+      
+      // Check for NaN values
+      if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+        root.style.setProperty('--user-profile-color-rgb', `${r}, ${g}, ${b}`)
+      } else {
+        // Fallback to default orange color RGB
+        root.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
+      }
+    } else {
+      // Fallback to default orange color RGB
+      root.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
+    }
     
     // Toggle animations
     if (animationsEnabled) {
@@ -146,12 +167,12 @@ export default function SettingsPage() {
                   <button
                     onClick={() => setShowThemePicker(!showThemePicker)}
                     className="w-12 h-12 rounded-full border-2 border-zinc-700 transition-transform hover:scale-105"
-                    style={{ background: profileColor }}
+                    style={getBackgroundStyle(profileColor || undefined)}
                   />
                   {showThemePicker && (
                     <div className="absolute mt-2 z-50">
                       <ThemePicker
-                        currentTheme={profileColor}
+                        currentTheme={profileColor || '#EA580C'}
                         onThemeChange={(theme) => {
                           setProfileColor(theme)
                           setShowThemePicker(false)
@@ -168,7 +189,7 @@ export default function SettingsPage() {
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={animationsEnabled}
+                    checked={animationsEnabled ?? true}
                     onChange={(e) => setAnimationsEnabled(e.target.checked)}
                     className="w-5 h-5 rounded border-zinc-600 bg-zinc-800 text-theme-primary focus:ring-2 focus:ring-theme-primary focus:ring-offset-0 focus:ring-offset-zinc-900"
                   />
@@ -289,6 +310,7 @@ export default function SettingsPage() {
           organization={selectedOrganization}
           projects={database.projects.filter(p => p.organizationId === selectedOrganization.id)}
           allProjects={database.projects}
+          users={database.users}
           onClose={() => setSelectedOrganization(null)}
           onSave={async (updates) => {
             try {
@@ -321,6 +343,94 @@ export default function SettingsPage() {
               }
             } catch (error) {
               console.error('Error updating project association:', error)
+            }
+          }}
+          onUserInvite={async (email, organizationId, firstName, lastName) => {
+            try {
+              const newUser = {
+                id: `user-${Date.now()}`,
+                email,
+                firstName,
+                lastName,
+                name: `${firstName} ${lastName}`,
+                profileColor: '#6B7280',
+                animationsEnabled: true,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                status: 'pending' as const,
+                invitedAt: new Date().toISOString(),
+                invitedBy: database?.users?.[0]?.id // Current user
+              }
+              
+              const response = await fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newUser)
+              })
+              
+              if (response.ok) {
+                // Add user to organization
+                const org = database.organizations.find(o => o.id === organizationId)
+                if (org) {
+                  const updatedMemberIds = [...(org.memberIds || []), newUser.id]
+                  
+                  await fetch(`/api/organizations/${organizationId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ memberIds: updatedMemberIds })
+                  })
+                }
+                
+                // Refresh data
+                await fetchData()
+                alert(`Invitation sent to ${firstName} ${lastName} (${email})`)
+              }
+            } catch (error) {
+              console.error('Error inviting user:', error)
+            }
+          }}
+          onUserAdd={async (userId, organizationId) => {
+            try {
+              // Get current organization
+              const org = database.organizations.find(o => o.id === organizationId)
+              if (!org) return
+              
+              // Add user to organization members
+              const updatedMemberIds = [...(org.memberIds || []), userId]
+              
+              const response = await fetch(`/api/organizations/${organizationId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ memberIds: updatedMemberIds })
+              })
+              
+              if (response.ok) {
+                await fetchData()
+              }
+            } catch (error) {
+              console.error('Error adding user to organization:', error)
+            }
+          }}
+          onUserRemove={async (userId, organizationId) => {
+            try {
+              // Get current organization
+              const org = database.organizations.find(o => o.id === organizationId)
+              if (!org) return
+              
+              // Remove user from organization members
+              const updatedMemberIds = (org.memberIds || []).filter(id => id !== userId)
+              
+              const response = await fetch(`/api/organizations/${organizationId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ memberIds: updatedMemberIds })
+              })
+              
+              if (response.ok) {
+                await fetchData()
+              }
+            } catch (error) {
+              console.error('Error removing user from organization:', error)
             }
           }}
         />

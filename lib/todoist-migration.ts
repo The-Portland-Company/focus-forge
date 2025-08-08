@@ -114,13 +114,16 @@ export async function migrateTodoistData(backupDir: string): Promise<Database> {
       if (fileName === 'TPC') {
         for (let i = 0; i < sections.length; i++) {
           const section = sections[i]
+          const now = new Date().toISOString()
           const project: Project = {
             id: `proj-${++projectCounter}`,
             name: section,
             color: PROJECT_COLORS[i % PROJECT_COLORS.length],
             organizationId: mapping.organizationId,
             isFavorite: false,
-            todoistId: `${filePath}-section-${i}`
+            todoistId: `${filePath}-section-${i}`,
+            createdAt: now,
+            updatedAt: now
           }
           database.projects.push(project)
           
@@ -156,13 +159,16 @@ export async function migrateTodoistData(backupDir: string): Promise<Database> {
         }
       } else {
         // Create single project for this file
+        const now = new Date().toISOString()
         const project: Project = {
           id: `proj-${++projectCounter}`,
           name: mapping.projectName || fileName,
           color: mapping.color || PROJECT_COLORS[projectCounter % PROJECT_COLORS.length],
           organizationId: mapping.organizationId,
           isFavorite: false,
-          todoistId: filePath
+          todoistId: filePath,
+          createdAt: now,
+          updatedAt: now
         }
         database.projects.push(project)
         
@@ -228,12 +234,16 @@ function createUser(todoistUser: TodoistUser): User {
   
   const nameData = names[todoistUser.name] || { first: todoistUser.name, last: '' }
   
+  const now = new Date().toISOString()
   return {
     id: `user-${todoistUser.id}`,
+    name: todoistUser.name,
     firstName: nameData.first,
     lastName: nameData.last,
-    email: undefined,
-    todoistId: todoistUser.id
+    email: '',
+    todoistId: todoistUser.id,
+    createdAt: now,
+    updatedAt: now
   }
 }
 
@@ -277,7 +287,7 @@ function createTask(
     name: todoistTask.content,
     description: description || undefined,
     dueDate: parseDueDate(todoistTask.date),
-    deadline: parseDueDate(todoistTask.deadline),
+    deadline: todoistTask.deadline ? parseDueDate(todoistTask.deadline) : undefined,
     priority: todoistTask.priority as 1 | 2 | 3 | 4,
     reminders: [],
     files: attachments,

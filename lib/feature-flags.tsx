@@ -126,7 +126,7 @@ export function withFeature<P extends object>(
   Component: React.ComponentType<P>,
   FallbackComponent?: React.ComponentType<P>
 ): React.ComponentType<P> {
-  return (props: P) => {
+  const WrappedComponent = (props: P) => {
     const flags = useFeatureFlags()
     
     const isEnabled = typeof feature === 'function' 
@@ -143,6 +143,10 @@ export function withFeature<P extends object>(
     
     return null
   }
+  
+  WrappedComponent.displayName = `withFeature(${Component.displayName || Component.name || 'Component'})`
+  
+  return WrappedComponent
 }
 
 /**

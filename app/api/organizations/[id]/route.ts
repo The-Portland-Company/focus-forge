@@ -3,9 +3,10 @@ import { deleteOrganization, updateOrganization } from '@/lib/db'
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  props: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await props.params
     const body = await request.json()
     const updatedOrg = await updateOrganization(params.id, body)
     
@@ -22,9 +23,10 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  props: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await props.params
     const success = await deleteOrganization(params.id)
     
     if (success) {

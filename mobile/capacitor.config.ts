@@ -4,7 +4,6 @@ const config: CapacitorConfig = {
   appId: 'com.loudandclear.app',
   appName: 'Loud & Clear',
   webDir: 'dist',
-  bundledWebRuntime: false,
   ios: {
     preferredContentMode: 'mobile',
     backgroundColor: '#000000',

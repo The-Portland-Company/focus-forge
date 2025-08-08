@@ -11,3 +11,8 @@
 - The application is mobile-first.
 - You will use a next.js frontend design kit that is optimal for admin apps.
 - You will rely on file based database for now. We will later transition to Supabase with PostGres.
+- The application port is 3244.
+- Project 8823 references should be eliminated.
+
+## Development Principles
+- Never use temporary solutions.

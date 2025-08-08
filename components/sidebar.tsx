@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Plus, Search, Calendar, CalendarDays, Star, Hash, GripVertical, Trash2, Archive, FolderPlus, Building2, Edit, User, Settings, ChevronsUpDown, ChevronsDownUp } from 'lucide-react'
 import { Database, Project } from '@/lib/types'
+import { getBackgroundStyle } from '@/lib/style-utils'
 
 interface SidebarProps {
   data: Database
@@ -23,21 +24,8 @@ interface SidebarProps {
 }
 
 export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectUpdate, onProjectDelete, onProjectEdit, onAddProject, onAddProjectGeneral, onAddOrganization, onOrganizationDelete, onOrganizationEdit, onProjectsReorder, onOrganizationsReorder }: SidebarProps) {
-  const [expandedOrgs, setExpandedOrgs] = useState<string[]>(() => {
-    // Load expanded state from localStorage
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('expandedOrgs')
-      if (saved) {
-        try {
-          return JSON.parse(saved)
-        } catch (e) {
-          console.error('Error parsing expandedOrgs from localStorage:', e)
-        }
-      }
-    }
-    // Default to all expanded
-    return data.organizations.map(org => org.id)
-  })
+  // Initialize with default state to avoid hydration mismatch
+  const [expandedOrgs, setExpandedOrgs] = useState<string[]>(data.organizations.map(org => org.id))
   const [draggedProject, setDraggedProject] = useState<string | null>(null)
   const [draggedOrg, setDraggedOrg] = useState<string | null>(null)
   const [dragOverOrg, setDragOverOrg] = useState<string | null>(null)
@@ -46,6 +34,21 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
   const [hoveredProject, setHoveredProject] = useState<string | null>(null)
   const [hoveredOrg, setHoveredOrg] = useState<string | null>(null)
 
+  // Load saved expanded state after mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('expandedOrgs')
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved)
+          setExpandedOrgs(parsed)
+        } catch (e) {
+          console.error('Error parsing expandedOrgs from localStorage:', e)
+        }
+      }
+    }
+  }, [])
+  
   // Save expanded state to localStorage whenever it changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -71,9 +74,12 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
     <div className="w-[20%] h-full bg-zinc-900 border-r border-zinc-800 flex flex-col">
       <div className="p-4">
         <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-            <div className="p-2">
-              <User className="w-5 h-5 text-zinc-400" />
+          <div className="flex items-center gap-3">
+            <div 
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white font-medium text-sm flex-shrink-0"
+              style={getBackgroundStyle(data.users?.[0]?.profileColor)}
+            >
+              {data.users?.[0]?.firstName?.charAt(0)?.toUpperCase() || 'U'}
             </div>
             <div className="text-white font-medium">{data.users?.[0]?.firstName || 'User'}</div>
           </div>

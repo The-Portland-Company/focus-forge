@@ -1,29 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readDatabase, writeDatabase } from '@/lib/db'
+import { getDatabaseAdapter } from '@/lib/db/factory'
+import { updateUser } from '@/lib/db'
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  props: { params: Promise<{ id: string }> }
 ) {
   try {
-    const data = await readDatabase()
+    const params = await props.params
     const updates = await request.json()
     
-    const userIndex = data.users.findIndex(u => u.id === params.id)
-    if (userIndex === -1) {
+    const updatedUser = await updateUser(params.id, updates)
+    
+    if (!updatedUser) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
     
-    // Update user
-    data.users[userIndex] = {
-      ...data.users[userIndex],
-      ...updates,
-      id: params.id // Ensure ID doesn't get overwritten
-    }
-    
-    await writeDatabase(data)
-    
-    return NextResponse.json(data.users[userIndex])
+    return NextResponse.json(updatedUser)
   } catch (error) {
     console.error('Error updating user:', error)
     return NextResponse.json({ error: 'Failed to update user' }, { status: 500 })

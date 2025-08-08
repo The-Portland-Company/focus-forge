@@ -2,12 +2,14 @@
 
 import { useState } from 'react'
 import { Task } from '@/lib/types'
-import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, User, ChevronRight, ChevronDown } from 'lucide-react'
+import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, User, ChevronRight, ChevronDown, Link2, AlertCircle } from 'lucide-react'
 import { format } from 'date-fns'
 import { getStartOfDay, isToday, isOverdue } from '@/lib/date-utils'
+import { isTaskBlocked, getBlockingTasks } from '@/lib/dependency-utils'
 
 interface TaskListProps {
   tasks: Task[]
+  allTasks?: Task[] // For dependency checking
   showCompleted?: boolean
   onTaskToggle: (taskId: string) => void
   onTaskEdit: (task: Task) => void
@@ -16,12 +18,12 @@ interface TaskListProps {
 
 const priorityColors = {
   1: 'text-red-500',
-  2: 'text-orange-500', 
+  2: 'text-[rgb(var(--theme-primary-rgb))]', 
   3: 'text-blue-500',
   4: 'text-gray-400'
 }
 
-export function TaskList({ tasks, showCompleted = false, onTaskToggle, onTaskEdit, onTaskDelete }: TaskListProps) {
+export function TaskList({ tasks, allTasks, showCompleted = false, onTaskToggle, onTaskEdit, onTaskDelete }: TaskListProps) {
   const [hoveredTask, setHoveredTask] = useState<string | null>(null)
   const [menuOpenTask, setMenuOpenTask] = useState<string | null>(null)
   const [showCompletedTasks, setShowCompletedTasks] = useState(showCompleted)
@@ -166,15 +168,25 @@ export function TaskList({ tasks, showCompleted = false, onTaskToggle, onTaskEdi
       )}
       
       <button
-        onClick={() => onTaskToggle(task.id)}
+        onClick={() => {
+          if (!allTasks || !isTaskBlocked(task, allTasks)) {
+            onTaskToggle(task.id)
+          }
+        }}
         className={`mt-0.5 transition-colors ${
           task.completed 
             ? 'text-zinc-400' 
+            : allTasks && isTaskBlocked(task, allTasks)
+            ? 'text-zinc-500 cursor-not-allowed'
             : priorityColors[task.priority]
         }`}
+        disabled={allTasks && isTaskBlocked(task, allTasks)}
+        title={allTasks && isTaskBlocked(task, allTasks) ? 'Complete dependencies first' : ''}
       >
         {task.completed ? (
           <CheckCircle2 className="w-5 h-5" />
+        ) : allTasks && isTaskBlocked(task, allTasks) ? (
+          <AlertCircle className="w-5 h-5" />
         ) : (
           <Circle className="w-5 h-5" />
         )}
@@ -183,9 +195,20 @@ export function TaskList({ tasks, showCompleted = false, onTaskToggle, onTaskEdi
       <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onTaskEdit(task)}>
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <p className={`text-sm break-words whitespace-normal overflow-hidden ${task.completed ? 'line-through text-zinc-500' : 'text-white'}`}>
-              {task.name}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className={`text-sm break-words whitespace-normal overflow-hidden ${
+                task.completed ? 'line-through text-zinc-500' : 
+                allTasks && isTaskBlocked(task, allTasks) ? 'text-zinc-400' : 'text-white'
+              }`}>
+                {task.name}
+              </p>
+              {allTasks && isTaskBlocked(task, allTasks) && !task.completed && (
+                <div className="flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))]" title="Task is blocked by dependencies">
+                  <Link2 className="w-3 h-3" />
+                  <span className="text-xs">Blocked</span>
+                </div>
+              )}
+            </div>
             
             {task.description && (
               <p className="text-xs text-zinc-400 mt-1 line-clamp-2 break-words">

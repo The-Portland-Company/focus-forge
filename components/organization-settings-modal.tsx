@@ -1,26 +1,35 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
-import { X, Search, Building2, Plus, Check } from 'lucide-react'
-import { Organization, Project, Database } from '@/lib/types'
+import { X, Search, Building2, Plus, Check, Users, Mail, UserPlus, Trash2 } from 'lucide-react'
+import { Organization, Project, Database, User } from '@/lib/types'
 import { ColorPicker } from './color-picker'
+import { getBackgroundStyle } from '@/lib/style-utils'
 
 interface OrganizationSettingsModalProps {
   organization: Organization
   projects: Project[]
   allProjects: Project[]
+  users: User[]
   onClose: () => void
   onSave: (updates: Partial<Organization>) => void
   onProjectAssociation: (projectId: string, organizationIds: string[]) => void
+  onUserInvite?: (email: string, organizationId: string, firstName: string, lastName: string) => void
+  onUserAdd?: (userId: string, organizationId: string) => void
+  onUserRemove?: (userId: string, organizationId: string) => void
 }
 
 export function OrganizationSettingsModal({ 
   organization, 
   projects, 
   allProjects,
+  users,
   onClose, 
   onSave,
-  onProjectAssociation
+  onProjectAssociation,
+  onUserInvite,
+  onUserAdd,
+  onUserRemove
 }: OrganizationSettingsModalProps) {
   const [name, setName] = useState(organization.name)
   const [description, setDescription] = useState(organization.description || '')
@@ -31,6 +40,18 @@ export function OrganizationSettingsModal({
     projects.map(p => p.id)
   )
   const colorPickerRef = useRef<HTMLDivElement>(null)
+  const [activeTab, setActiveTab] = useState<'details' | 'projects' | 'users'>('details')
+  const [showInviteUser, setShowInviteUser] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteFirstName, setInviteFirstName] = useState('')
+  const [inviteLastName, setInviteLastName] = useState('')
+  const [showAddUser, setShowAddUser] = useState(false)
+  const [userSearchQuery, setUserSearchQuery] = useState('')
+  
+  // Get organization members
+  const [organizationUserIds, setOrganizationUserIds] = useState<string[]>(
+    organization.memberIds || []
+  )
 
   // Close color picker when clicking outside
   useEffect(() => {
@@ -64,7 +85,8 @@ export function OrganizationSettingsModal({
     onSave({
       name,
       description,
-      color
+      color,
+      memberIds: organizationUserIds
     })
 
     // Update project associations
@@ -102,10 +124,54 @@ export function OrganizationSettingsModal({
           </button>
         </div>
 
+        {/* Tabs */}
+        <div className="flex border-b border-zinc-800">
+          <button
+            onClick={() => setActiveTab('details')}
+            className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+              activeTab === 'details' 
+                ? 'text-white' 
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Details
+            {activeTab === 'details' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-theme-primary" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('projects')}
+            className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+              activeTab === 'projects' 
+                ? 'text-white' 
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Projects
+            {activeTab === 'projects' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-theme-primary" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+              activeTab === 'users' 
+                ? 'text-white' 
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Users
+            {activeTab === 'users' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-theme-primary" />
+            )}
+          </button>
+        </div>
+
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Basic Info */}
-          <div className="space-y-4">
+        <div className="flex-1 overflow-y-auto p-6">
+          {/* Details Tab */}
+          {activeTab === 'details' && (
+            <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-2">Name</label>
               <input
@@ -150,10 +216,12 @@ export function OrganizationSettingsModal({
               </div>
             </div>
           </div>
+          )}
 
-          {/* Associated Projects */}
-          <div>
-            <h3 className="text-lg font-medium mb-4">Associated Projects</h3>
+          {/* Projects Tab */}
+          {activeTab === 'projects' && (
+            <div>
+              <h3 className="text-lg font-medium mb-4">Associated Projects</h3>
             
             {/* Search */}
             <div className="relative mb-4">
@@ -204,6 +272,228 @@ export function OrganizationSettingsModal({
               Projects can be associated with multiple organizations
             </p>
           </div>
+          )}
+
+          {/* Users Tab */}
+          {activeTab === 'users' && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium">Organization Members</h3>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowInviteUser(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
+                  >
+                    <Mail className="w-4 h-4" />
+                    Invite User
+                  </button>
+                  <button
+                    onClick={() => setShowAddUser(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-theme-primary hover:bg-theme-primary/80 rounded-lg transition-colors text-sm text-white"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    Add Existing User
+                  </button>
+                </div>
+              </div>
+
+              {/* Members List */}
+              <div className="space-y-2">
+                {organizationUserIds.length === 0 ? (
+                  <div className="text-center py-8 text-zinc-500">
+                    <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p className="text-sm">No members yet</p>
+                    <p className="text-xs mt-1">Invite or add users to get started</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {users
+                      .filter(user => organizationUserIds.includes(user.id))
+                      .map(user => (
+                        <div 
+                          key={user.id}
+                          className="flex items-center justify-between p-3 bg-zinc-800 rounded-lg"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div 
+                              className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
+                              style={getBackgroundStyle(user.profileColor)}
+                            >
+                              {(user.name || `${user.firstName} ${user.lastName}`).charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">
+                                {user.name || `${user.firstName} ${user.lastName}`}
+                                {user.status === 'pending' && (
+                                  <span className="ml-2 text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-500 rounded-full">
+                                    Pending
+                                  </span>
+                                )}
+                              </p>
+                              <p className="text-xs text-zinc-500">{user.email}</p>
+                            </div>
+                          </div>
+                          {onUserRemove && (
+                            <button
+                              onClick={() => onUserRemove(user.id, organization.id)}
+                              className="p-1.5 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-red-400"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Invite User Modal */}
+              {showInviteUser && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+                  <div className="bg-zinc-900 rounded-lg p-6 max-w-md w-full">
+                    <h3 className="text-lg font-semibold mb-4">Invite New User</h3>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium mb-2">First Name</label>
+                          <input
+                            type="text"
+                            value={inviteFirstName}
+                            onChange={(e) => setInviteFirstName(e.target.value)}
+                            placeholder="John"
+                            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-2">Last Name</label>
+                          <input
+                            type="text"
+                            value={inviteLastName}
+                            onChange={(e) => setInviteLastName(e.target.value)}
+                            placeholder="Doe"
+                            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Email Address</label>
+                        <input
+                          type="email"
+                          value={inviteEmail}
+                          onChange={(e) => setInviteEmail(e.target.value)}
+                          placeholder="user@example.com"
+                          className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex justify-end gap-3">
+                        <button
+                          onClick={() => {
+                            setShowInviteUser(false)
+                            setInviteEmail('')
+                            setInviteFirstName('')
+                            setInviteLastName('')
+                          }}
+                          className="px-4 py-2 text-zinc-400 hover:text-white transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (inviteEmail && inviteFirstName && inviteLastName && onUserInvite) {
+                              onUserInvite(inviteEmail, organization.id, inviteFirstName, inviteLastName)
+                              setShowInviteUser(false)
+                              setInviteEmail('')
+                              setInviteFirstName('')
+                              setInviteLastName('')
+                            }
+                          }}
+                          disabled={!inviteEmail || !inviteFirstName || !inviteLastName}
+                          className="px-4 py-2 bg-theme-primary text-white rounded-lg hover:bg-theme-primary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Send Invite
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Add Existing User Modal */}
+              {showAddUser && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+                  <div className="bg-zinc-900 rounded-lg p-6 max-w-md w-full">
+                    <h3 className="text-lg font-semibold mb-4">Add Existing User</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Search Users</label>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-zinc-400 w-4 h-4" />
+                          <input
+                            type="text"
+                            value={userSearchQuery}
+                            onChange={(e) => setUserSearchQuery(e.target.value)}
+                            placeholder="Search by name or email..."
+                            className="w-full pl-10 pr-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="max-h-64 overflow-y-auto space-y-2">
+                        {users
+                          .filter(user => {
+                            const userName = user.name || `${user.firstName} ${user.lastName}`
+                            return !organizationUserIds.includes(user.id) &&
+                              (userName.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+                               user.email.toLowerCase().includes(userSearchQuery.toLowerCase()))
+                          })
+                          .map(user => {
+                            const userName = user.name || `${user.firstName} ${user.lastName}`
+                            return (
+                              <button
+                                key={user.id}
+                                onClick={() => {
+                                  if (onUserAdd) {
+                                    onUserAdd(user.id, organization.id)
+                                    setOrganizationUserIds([...organizationUserIds, user.id])
+                                    setShowAddUser(false)
+                                    setUserSearchQuery('')
+                                  }
+                                }}
+                                className="w-full flex items-center gap-3 p-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-left"
+                              >
+                                <div 
+                                  className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
+                                  style={getBackgroundStyle(user.profileColor)}
+                                >
+                                  {userName.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium">{userName}</p>
+                                  <p className="text-xs text-zinc-500">{user.email}</p>
+                                </div>
+                                <Plus className="w-4 h-4 text-zinc-400" />
+                              </button>
+                            )
+                          })}
+                      </div>
+
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => {
+                            setShowAddUser(false)
+                            setUserSearchQuery('')
+                          }}
+                          className="px-4 py-2 text-zinc-400 hover:text-white transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}

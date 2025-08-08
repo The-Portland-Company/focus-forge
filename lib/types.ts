@@ -2,10 +2,16 @@ export interface User {
   id: string
   firstName: string
   lastName: string
-  email?: string
+  name: string
+  email: string
   todoistId?: string
   profileColor?: string
   animationsEnabled?: boolean
+  createdAt: string
+  updatedAt: string
+  status?: 'active' | 'pending'
+  invitedAt?: string
+  invitedBy?: string
 }
 
 export interface Organization {
@@ -15,6 +21,7 @@ export interface Organization {
   description?: string
   archived?: boolean
   order?: number
+  memberIds?: string[]
 }
 
 export interface Project {
@@ -55,6 +62,7 @@ export interface Task {
   recurringPattern?: string
   parentId?: string
   indent?: number
+  dependsOn?: string[] // Array of task IDs this task depends on
 }
 
 export interface Attachment {

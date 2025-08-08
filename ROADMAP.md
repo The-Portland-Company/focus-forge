@@ -1,0 +1,230 @@
+# Project Roadmap & Development Log
+
+## Project Overview
+A Todoist-like project management application built with Next.js, currently migrating from file-based storage to Supabase with authentication and multi-organization support.
+
+## Completed Features ✅
+
+### Core Task Management
+- ~~Create, edit, and delete tasks~~
+- ~~Task properties: name, description, due date, due time, priority (1-4)~~
+- ~~Task completion tracking with timestamps~~
+- ~~Subtasks with parent-child relationships and indentation~~
+- ~~Task tags with color coding~~
+- ~~Task reminders (preset and custom)~~
+- ~~Task attachments support~~
+- ~~Recurring task patterns~~
+- ~~Task assignment to users~~
+
+### Project & Organization Management
+- ~~Multiple organizations support~~
+- ~~Projects within organizations~~
+- ~~Project properties: name, description, color, budget, deadline~~
+- ~~Project favoriting~~
+- ~~Project archiving~~
+- ~~Drag-and-drop reordering for projects and organizations~~
+- ~~Organization settings modal with project associations~~
+- ~~Organization descriptions~~
+
+### User Interface
+- ~~Dark mode by default~~
+- ~~Mobile-first responsive design~~
+- ~~Sidebar navigation with collapsible organizations~~
+- ~~Today view~~
+- ~~Upcoming view~~
+- ~~Favorites view~~
+- ~~Search functionality~~
+- ~~Unified task modal for creating and editing~~
+- ~~Modern time picker component~~
+- ~~Theme system with solid colors and gradients~~
+- ~~User profile color customization~~
+- ~~Animation toggle setting~~
+- ~~Kanban view (component created but not fully integrated)~~
+
+### UI/UX Improvements
+- ~~Reduced font sizes in task modals~~
+- ~~Changed subtask icon to indented line (CornerDownRight)~~
+- ~~Replaced text buttons with circular + icons for Reminders, Tags, Subtasks~~
+- ~~Tag autocomplete with bounce animation for duplicates~~
+- ~~Automatic reminder saving on date selection~~
+- ~~Reorganized task form layout~~
+- ~~Collapse/expand all organizations toggle with persistent state~~
+- ~~Settings page with sections: Your Profile, Your Organization, Organizations~~
+
+### Data Management
+- ~~File-based database with JSON storage~~
+- ~~Database adapters pattern for future migration~~
+- ~~Todoist migration support~~
+- ~~Import/export functionality~~
+
+### API Routes
+- ~~/api/database - Main database operations~~
+- ~~/api/tasks/[id] - Individual task operations~~
+- ~~/api/tasks/batch-update - Bulk task updates~~
+- ~~/api/projects/[id] - Project CRUD~~
+- ~~/api/projects/reorder - Project ordering~~
+- ~~/api/organizations/[id] - Organization CRUD~~
+- ~~/api/organizations/reorder - Organization ordering~~
+- ~~/api/users/[id] - User profile updates~~
+- ~~/api/tags - Tag management~~
+
+## In Progress 🚧
+
+### Supabase Migration - Phase 1 ✅
+- ~~Install Supabase dependencies~~
+- ~~Create Supabase client configuration~~
+- ~~Create server-side Supabase client~~
+- ~~Create auth context provider~~
+- ~~Create authentication middleware~~
+- ~~Create login page UI~~
+- ~~Create database schema SQL file~~
+- ~~Set up environment variables~~
+
+### Supabase Migration - Phase 2 (Next)
+- [ ] Run schema creation in Supabase
+- [ ] Create initial users (super admin & demo)
+- [ ] Implement user signup flow (restricted)
+- [ ] Create data migration script
+- [ ] Update all API routes to use Supabase
+
+## Upcoming Features 📋
+
+### Authentication & Authorization
+- [ ] Email/password authentication via Supabase Auth
+- [ ] Role-based access control (Super Admin, Admin, Team Member)
+- [ ] Multi-organization user support
+- [ ] Organization-scoped user creation
+- [ ] Password reset functionality
+- [ ] First-time login password change requirement
+- [ ] Session management
+- [ ] Logout functionality
+
+### User Management
+- [ ] User invitation system (admin only)
+- [ ] User profile management
+- [ ] User role assignment within organizations
+- [ ] User removal from organizations
+- [ ] User activity tracking
+
+### Data Migration
+- [ ] Migrate existing organizations to Supabase
+- [ ] Migrate existing projects with proper associations
+- [ ] Migrate existing tasks with all relationships
+- [ ] Preserve all timestamps and metadata
+- [ ] Create demo organization with sample data
+
+### Security Enhancements
+- [ ] Row Level Security (RLS) implementation
+- [ ] API route authentication checks
+- [ ] Input validation and sanitization
+- [ ] Rate limiting
+- [ ] Audit logging for sensitive operations
+
+### UI Enhancements
+- [ ] Loading states during auth operations
+- [ ] Error handling for auth failures
+- [ ] Organization switcher in UI
+- [ ] User profile dropdown with logout
+- [ ] Permission-based UI elements
+- [ ] Invite user modal
+
+### Mobile App
+- [ ] iOS app using Capacitor (partially scaffolded)
+- [ ] Android app support
+- [ ] Mobile-specific optimizations
+- [ ] Push notifications
+
+### Additional Features
+- [ ] Real-time collaboration
+- [ ] Task comments
+- [ ] Activity feed
+- [ ] Email notifications
+- [ ] Calendar integration
+- [ ] Time tracking
+- [ ] Reports and analytics
+- [ ] Bulk operations UI
+- [ ] Keyboard shortcuts
+- [ ] Task templates
+- [ ] Project templates
+
+## Technical Debt & Improvements 🔧
+
+- [ ] Remove screenshot files from repository
+- [ ] Implement proper error boundaries
+- [ ] Add comprehensive test suite
+- [ ] Performance optimization
+- [ ] Accessibility improvements
+- [ ] SEO optimization
+- [ ] Documentation
+- [ ] API documentation
+- [ ] Deployment guides
+
+## Development Notes 📝
+
+### Current State (January 2025)
+- Application is functional with file-based storage
+- Beginning migration to Supabase for multi-user support
+- Auth system partially implemented but not yet connected
+- All existing features continue to work during migration
+
+### Supabase Configuration
+- Project created with credentials stored in `.env.local`
+- Database schema designed with full RLS policies
+- Using @supabase/ssr for Next.js integration
+- Service role key available for admin operations
+
+### User Accounts Plan
+1. **Super Administrator**: spencerdhill@protonmail.com (password: ***REMOVED***)
+2. **Demo Administrator**: demo@demo.com (password: Demo) - associated with Portland organization
+3. Default role for new users: Team Member
+4. Users can belong to multiple organizations
+
+### Migration Strategy
+- Incremental migration maintaining current functionality
+- Feature flags to switch between file and Supabase adapters
+- All existing data will be preserved
+- Rollback plan included if needed
+
+### Security Considerations
+- All credentials in `.env.local` (gitignored)
+- RLS policies enforce data isolation
+- Supabase handles password hashing
+- Session-based authentication
+- Organization-based data access
+
+### Next Immediate Steps
+1. Run the schema.sql in Supabase dashboard
+2. Create the two initial user accounts
+3. Begin implementing the data migration script
+4. Update API routes one by one to use Supabase
+5. Test authentication flow end-to-end
+
+### Important Files Created
+- `/lib/supabase/client.ts` - Browser Supabase client
+- `/lib/supabase/server.ts` - Server Supabase client
+- `/lib/supabase/database.types.ts` - TypeScript types
+- `/contexts/auth-context.tsx` - Auth context provider
+- `/middleware.ts` - Route protection
+- `/app/auth/login/page.tsx` - Login page
+- `/supabase/schema.sql` - Complete database schema
+- `/.env.local` - Supabase credentials (gitignored)
+- `/SUPABASE_MIGRATION_PLAN.md` - Detailed migration plan
+
+### Git Status
+- Last commit: "Add organization settings and user profile features"
+- All changes committed and pushed (push may have timed out but likely succeeded)
+- Working on Supabase migration Phase 1 (completed)
+
+### Known Issues
+- npm audit shows 1 critical vulnerability (not addressed)
+- Many screenshot PNG files in root (should be cleaned up)
+- Some TypeScript types may need updates for Supabase
+
+### Architecture Decisions
+- Using Next.js app router
+- Tailwind CSS for styling
+- Lucide React for icons
+- Shadcn/ui components
+- File-based DB transitioning to Supabase
+- React Context for state management
+- Server-side rendering where possible

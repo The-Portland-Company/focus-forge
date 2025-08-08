@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useRef, useEffect } from 'react'
-import { X, Calendar, Clock, Flag, Bell, Paperclip, Hash, User, Tag, Plus, Circle, CheckCircle2, Trash2, CornerDownRight } from 'lucide-react'
+import { X, Calendar, Clock, Flag, Bell, Paperclip, Hash, User, Tag, Plus, Circle, CheckCircle2, Trash2, CornerDownRight, Link2, AlertCircle } from 'lucide-react'
 import { Database, Task, Reminder } from '@/lib/types'
 import { format } from 'date-fns'
+import { canBeSelectedAsDependency, getBlockingTasks, isTaskBlocked } from '@/lib/dependency-utils'
 import {
   Select,
   SelectContent,
@@ -12,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { TimePicker } from '@/components/time-picker'
+import { getBackgroundStyle } from '@/lib/style-utils'
 
 interface TaskModalProps {
   isOpen: boolean
@@ -54,13 +56,20 @@ export function TaskModal({
   const [showAddTag, setShowAddTag] = useState(false)
   const [newTagName, setNewTagName] = useState('')
   const [assignedTo, setAssignedTo] = useState<string | null>(null)
-  const [showAssignInput, setShowAssignInput] = useState(false)
-  const [assignEmail, setAssignEmail] = useState('')
+  const [showUserDropdown, setShowUserDropdown] = useState(false)
+  const [userSearchQuery, setUserSearchQuery] = useState('')
   const modalRef = useRef<HTMLDivElement>(null)
   const [newSubtaskName, setNewSubtaskName] = useState('')
   const [isAddingSubtask, setIsAddingSubtask] = useState(false)
   const [tagSuggestions, setTagSuggestions] = useState<typeof data.tags>([])
   const [bouncingTagId, setBouncingTagId] = useState<string | null>(null)
+  const [showProjectSuggestions, setShowProjectSuggestions] = useState(false)
+  const [projectSearchQuery, setProjectSearchQuery] = useState('')
+  const [cursorPosition, setCursorPosition] = useState(0)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+  const [dependencies, setDependencies] = useState<string[]>([])
+  const [showDependencyPicker, setShowDependencyPicker] = useState(false)
+  const [dependencySearchQuery, setDependencySearchQuery] = useState('')
 
   // Load task data in edit mode
   useEffect(() => {
@@ -77,6 +86,7 @@ export function TaskModal({
       setSelectedTags(task.tags || [])
       setAssignedTo(task.assignedTo || null)
       setReminders(task.reminders || [])
+      setDependencies(task.dependsOn || [])
     }
   }, [task, isEditMode])
 
@@ -98,11 +108,16 @@ export function TaskModal({
       setAssignedTo(null)
       setShowReminderInput(false)
       setNewReminderDate('')
+      setShowProjectSuggestions(false)
+      setProjectSearchQuery('')
       setNewReminderTime('')
       setShowAddTag(false)
       setNewTagName('')
-      setShowAssignInput(false)
-      setAssignEmail('')
+      setShowUserDropdown(false)
+      setUserSearchQuery('')
+      setDependencies([])
+      setShowDependencyPicker(false)
+      setDependencySearchQuery('')
     }
   }, [isOpen, defaultProjectId, isEditMode])
 
@@ -153,16 +168,16 @@ export function TaskModal({
         ? `${newReminderDate}T${newReminderTime}:00`
         : `${newReminderDate}T09:00:00`
       
-      setReminders([...reminders, {
+      setReminders(prevReminders => [...prevReminders, {
         id: `reminder-${Date.now()}`,
-        datetime,
-        sent: false
+        type: 'custom' as const,
+        value: datetime
       }])
       setNewReminderDate('')
       setNewReminderTime('')
       setShowReminderInput(false)
     }
-  }, [newReminderDate, newReminderTime])
+  }, [newReminderDate, newReminderTime, showReminderInput])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -180,6 +195,7 @@ export function TaskModal({
       files: [],
       assignedTo: assignedTo || undefined,
       reminders,
+      dependsOn: dependencies.length > 0 ? dependencies : undefined,
     }
 
     if (!isEditMode) {
@@ -198,8 +214,8 @@ export function TaskModal({
       
       setReminders([...reminders, {
         id: `reminder-${Date.now()}`,
-        datetime,
-        sent: false
+        type: 'custom' as const,
+        value: datetime
       }])
       setNewReminderDate('')
       setNewReminderTime('')
@@ -272,13 +288,14 @@ export function TaskModal({
     }
   }
 
-  const handleAssignUser = () => {
-    if (assignEmail.trim() && assignEmail.includes('@')) {
-      setAssignedTo(assignEmail.trim())
-      setAssignEmail('')
-      setShowAssignInput(false)
-    }
+  const handleAssignUser = (userId: string) => {
+    setAssignedTo(userId)
+    setShowUserDropdown(false)
+    setUserSearchQuery('')
   }
+
+  // Get assigned user details
+  const assignedUser = data.users.find(u => u.id === assignedTo)
 
   const handleAddSubtask = async () => {
     if (!newSubtaskName.trim() || !task) return
@@ -314,7 +331,7 @@ export function TaskModal({
   const toggleSubtaskComplete = async (subtask: Task) => {
     try {
       const response = await fetch(`/api/tasks/${subtask.id}`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ completed: !subtask.completed })
       })
@@ -342,7 +359,7 @@ export function TaskModal({
   const deadlineHighlight = deadline && new Date(deadline) < new Date() 
     ? 'text-red-500' 
     : deadline && new Date(deadline) < new Date(Date.now() + 24 * 60 * 60 * 1000)
-    ? 'text-orange-500'
+    ? 'text-[rgb(var(--theme-primary-rgb))]'
     : ''
 
   return (
@@ -376,15 +393,100 @@ export function TaskModal({
           )}
 
           {/* Task Name */}
-          <input
-            type="text"
-            value={taskName}
-            onChange={(e) => setTaskName(e.target.value)}
-            placeholder="Task name"
-            className="w-full bg-zinc-800 rounded-lg px-4 py-3 text-sm font-medium text-white placeholder-zinc-500 border border-zinc-700 focus-theme transition-all"
-            required
-            autoFocus
-          />
+          <div className="relative">
+            <input
+              ref={titleInputRef}
+              type="text"
+              value={taskName}
+              onChange={(e) => {
+                const value = e.target.value
+                const cursorPos = e.target.selectionStart || 0
+                setTaskName(value)
+                setCursorPosition(cursorPos)
+                
+                // Check if user typed # 
+                const beforeCursor = value.substring(0, cursorPos)
+                const lastHashIndex = beforeCursor.lastIndexOf('#')
+                
+                if (lastHashIndex !== -1 && lastHashIndex === cursorPos - 1) {
+                  // Just typed #, show all projects
+                  setShowProjectSuggestions(true)
+                  setProjectSearchQuery('')
+                } else if (lastHashIndex !== -1 && showProjectSuggestions) {
+                  // Check if we're still in a project search (no space after #)
+                  const afterHash = value.substring(lastHashIndex + 1, cursorPos)
+                  if (!afterHash.includes(' ')) {
+                    setProjectSearchQuery(afterHash)
+                  } else {
+                    setShowProjectSuggestions(false)
+                  }
+                } else {
+                  setShowProjectSuggestions(false)
+                }
+              }}
+              onKeyDown={(e) => {
+                if (showProjectSuggestions && (e.key === 'Escape' || (e.key === ' ' && projectSearchQuery === ''))) {
+                  setShowProjectSuggestions(false)
+                }
+              }}
+              placeholder="Task name"
+              className="w-full bg-zinc-800 rounded-lg px-4 py-3 text-sm font-medium text-white placeholder-zinc-500 border border-zinc-700 focus-theme transition-all"
+              required
+              autoFocus
+            />
+            
+            {/* Project Suggestions Dropdown */}
+            {showProjectSuggestions && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+                {data.projects
+                  .filter(project => 
+                    project.name.toLowerCase().includes(projectSearchQuery.toLowerCase())
+                  )
+                  .map(project => {
+                    const org = data.organizations.find(o => o.id === project.organizationId)
+                    return (
+                      <button
+                        key={project.id}
+                        type="button"
+                        onClick={() => {
+                          // Replace the #query with the project name
+                          const beforeCursor = taskName.substring(0, cursorPosition)
+                          const afterCursor = taskName.substring(cursorPosition)
+                          const lastHashIndex = beforeCursor.lastIndexOf('#')
+                          
+                          if (lastHashIndex !== -1) {
+                            const newTaskName = 
+                              taskName.substring(0, lastHashIndex) + 
+                              '#' + project.name + ' ' +
+                              afterCursor
+                            setTaskName(newTaskName)
+                            setSelectedProject(project.id)
+                          }
+                          
+                          setShowProjectSuggestions(false)
+                          setProjectSearchQuery('')
+                          
+                          // Focus back on input
+                          titleInputRef.current?.focus()
+                        }}
+                        className="w-full px-4 py-2 text-left hover:bg-zinc-700 transition-colors flex items-center gap-2"
+                      >
+                        <div 
+                          className="w-3 h-3 rounded-full flex-shrink-0" 
+                          style={{ backgroundColor: project.color }} 
+                        />
+                        <span className="text-sm text-white">{project.name}</span>
+                        {org && <span className="text-xs text-zinc-400">• {org.name}</span>}
+                      </button>
+                    )
+                  })
+                }
+                {data.projects.filter(p => p.name.toLowerCase().includes(projectSearchQuery.toLowerCase())).length === 0 && (
+                  <div className="px-4 py-2 text-sm text-zinc-400">No projects found</div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Description */}
           <textarea
@@ -484,7 +586,7 @@ export function TaskModal({
               Due Date
             </div>
             <div className="grid grid-cols-2 gap-4">
-            <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-red-500">
+            <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
               <Calendar className="ml-4 w-4 h-4 text-zinc-500 flex-shrink-0" />
               <input
                 type="date"
@@ -501,7 +603,7 @@ export function TaskModal({
               </button>
             </div>
 
-            <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-red-500">
+            <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
               <Clock className="ml-4 w-4 h-4 text-zinc-500 flex-shrink-0" />
               <TimePicker
                 value={dueTime}
@@ -534,7 +636,7 @@ export function TaskModal({
               )}
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-red-500">
+              <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
                 <Calendar className="ml-4 w-4 h-4 text-zinc-500 flex-shrink-0" />
                 <input
                   type="date"
@@ -553,7 +655,7 @@ export function TaskModal({
                 </button>
               </div>
 
-              <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-red-500">
+              <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
                 <Clock className="ml-4 w-4 h-4 text-zinc-500 flex-shrink-0" />
                 <TimePicker
                   value={deadlineTime}
@@ -582,10 +684,20 @@ export function TaskModal({
                 <User className="w-4 h-4" />
                 Assigned to
               </div>
-              {assignedTo ? (
+              {assignedUser ? (
                 <div className="flex items-center gap-2 text-sm bg-zinc-800 rounded px-3 py-2.5 h-[42px]">
-                  <User className="w-3 h-3 text-zinc-400" />
-                  <span className="text-zinc-300 flex-1">{assignedTo}</span>
+                  <div 
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0"
+                    style={getBackgroundStyle(assignedUser.profileColor)}
+                  >
+                    {assignedUser.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="text-zinc-300 flex-1">
+                    {assignedUser.name}
+                    {assignedUser.status === 'pending' && (
+                      <span className="ml-2 text-xs text-yellow-500">(Pending)</span>
+                    )}
+                  </span>
                   <button
                     type="button"
                     onClick={() => setAssignedTo(null)}
@@ -594,31 +706,54 @@ export function TaskModal({
                     <X className="w-3 h-3" />
                   </button>
                 </div>
-              ) : showAssignInput ? (
-                <div className="flex gap-2">
+              ) : showUserDropdown ? (
+                <div className="relative">
                   <input
-                    type="email"
-                    value={assignEmail}
-                    onChange={(e) => setAssignEmail(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAssignUser())}
-                    placeholder="Email address"
-                    className="flex-1 bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                    type="text"
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    placeholder="Search users..."
+                    className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
                     autoFocus
                   />
-                  <button
-                    type="button"
-                    onClick={handleAssignUser}
-                    className="btn-theme-primary text-white rounded px-3 py-2 text-sm transition-all"
-                  >
-                    Assign
-                  </button>
+                  <div className="absolute top-full mt-1 w-full bg-zinc-800 rounded-lg shadow-lg border border-zinc-700 max-h-48 overflow-y-auto z-50">
+                    {data.users
+                      .filter(user => 
+                        user.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+                        user.email.toLowerCase().includes(userSearchQuery.toLowerCase())
+                      )
+                      .map(user => (
+                        <button
+                          key={user.id}
+                          type="button"
+                          onClick={() => handleAssignUser(user.id)}
+                          className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-700 transition-colors text-left"
+                        >
+                          <div 
+                            className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0"
+                            style={getBackgroundStyle(user.profileColor)}
+                          >
+                            {user.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1 text-sm">
+                            <p className="font-medium">
+                              {user.name}
+                              {user.status === 'pending' && (
+                                <span className="ml-2 text-xs text-yellow-500">(Pending)</span>
+                              )}
+                            </p>
+                            <p className="text-xs text-zinc-500">{user.email}</p>
+                          </div>
+                        </button>
+                      ))}
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
-                      setShowAssignInput(false)
-                      setAssignEmail('')
+                      setShowUserDropdown(false)
+                      setUserSearchQuery('')
                     }}
-                    className="text-zinc-400 hover:text-white p-1"
+                    className="absolute right-2 top-2 text-zinc-400 hover:text-white"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -626,7 +761,7 @@ export function TaskModal({
               ) : (
                 <button
                   type="button"
-                  onClick={() => setShowAssignInput(true)}
+                  onClick={() => setShowUserDropdown(true)}
                   className="flex items-center gap-2 px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors text-sm w-full h-[42px]"
                 >
                   <User className="w-4 h-4" />
@@ -651,7 +786,7 @@ export function TaskModal({
                         ? p === 1 
                           ? 'bg-red-500 text-white'
                           : p === 2
-                          ? 'bg-orange-500 text-white'
+                          ? 'bg-[rgb(var(--theme-primary-rgb))] text-white'
                           : p === 3
                           ? 'bg-blue-500 text-white'
                           : 'bg-zinc-700 text-white'
@@ -687,7 +822,7 @@ export function TaskModal({
                 <div className="bg-zinc-800 rounded px-3 py-1.5 flex items-center gap-2">
                   <Bell className="w-3 h-3 text-zinc-400" />
                   <span className="text-zinc-300">
-                    {format(new Date(reminder.datetime), 'MMM d, yyyy h:mm a')}
+                    {format(new Date(reminder.value), 'MMM d, yyyy h:mm a')}
                   </span>
                   <button
                     type="button"
@@ -821,6 +956,142 @@ export function TaskModal({
                 </div>
               ) : null}
             </div>
+          </div>
+
+          {/* Dependencies */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-sm text-zinc-400">
+                <Link2 className="w-4 h-4" />
+                Dependencies
+                {isTaskBlocked(task || { id: 'temp', name: taskName, completed: false, dependsOn: dependencies } as unknown as Task, data.tasks) && (
+                  <span className="text-xs text-[rgb(var(--theme-primary-rgb))] flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Blocked
+                  </span>
+                )}
+              </div>
+              {!showDependencyPicker && (
+                <div
+                  className="icon-circle-bg cursor-pointer"
+                  onClick={() => setShowDependencyPicker(true)}
+                  title="Add Dependency"
+                >
+                  <Plus className="w-4 h-4 text-white" />
+                </div>
+              )}
+            </div>
+            
+            {/* Current Dependencies */}
+            {dependencies.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {dependencies.map(depId => {
+                  const depTask = data.tasks.find(t => t.id === depId)
+                  if (!depTask) return null
+                  
+                  return (
+                    <div key={depId} className="flex items-center gap-2 bg-zinc-800 rounded px-3 py-2">
+                      <button
+                        type="button"
+                        className="text-zinc-400 hover:text-white"
+                        disabled
+                      >
+                        {depTask.completed ? (
+                          <CheckCircle2 className="w-4 h-4 text-green-500" />
+                        ) : (
+                          <Circle className="w-4 h-4" />
+                        )}
+                      </button>
+                      <span className={`flex-1 text-sm ${depTask.completed ? 'line-through text-zinc-500' : 'text-zinc-300'}`}>
+                        {depTask.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setDependencies(dependencies.filter(id => id !== depId))}
+                        className="text-zinc-500 hover:text-red-400"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            
+            {/* Dependency Picker */}
+            {showDependencyPicker && (
+              <div className="relative mb-3">
+                <input
+                  type="text"
+                  value={dependencySearchQuery}
+                  onChange={(e) => setDependencySearchQuery(e.target.value)}
+                  placeholder="Search tasks to depend on..."
+                  className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                  autoFocus
+                />
+                
+                <div className="absolute top-full mt-1 w-full bg-zinc-800 rounded-lg shadow-lg border border-zinc-700 max-h-48 overflow-y-auto z-50">
+                  {data.tasks
+                    .filter(t => {
+                      // Don't show the current task or its subtasks
+                      if (task && (t.id === task.id || t.parentId === task.id)) return false
+                      // Filter by search
+                      return t.name.toLowerCase().includes(dependencySearchQuery.toLowerCase())
+                    })
+                    .map(t => {
+                      const validation = canBeSelectedAsDependency(
+                        task?.id || 'new-task',
+                        t.id,
+                        data.tasks
+                      )
+                      
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => {
+                            if (validation.canSelect) {
+                              setDependencies([...dependencies, t.id])
+                              setShowDependencyPicker(false)
+                              setDependencySearchQuery('')
+                            }
+                          }}
+                          disabled={!validation.canSelect}
+                          className="w-full px-3 py-2 text-left hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                          <div className="flex-1">
+                            <div className="text-sm text-zinc-300">{t.name}</div>
+                            {!validation.canSelect && (
+                              <div className="text-xs text-red-400">{validation.reason}</div>
+                            )}
+                          </div>
+                          {t.completed && (
+                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          )}
+                        </button>
+                      )
+                    })}
+                  
+                  {data.tasks.filter(t => 
+                    t.name.toLowerCase().includes(dependencySearchQuery.toLowerCase()) &&
+                    (!task || t.id !== task.id)
+                  ).length === 0 && (
+                    <div className="px-3 py-2 text-sm text-zinc-500">No tasks found</div>
+                  )}
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDependencyPicker(false)
+                    setDependencySearchQuery('')
+                  }}
+                  className="absolute right-2 top-2 text-zinc-500 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Subtasks (Edit mode only) */}
