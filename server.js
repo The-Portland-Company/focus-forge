@@ -18,7 +18,10 @@ console.log('================================')
 // Start Next.js server
 const server = spawn('npx', ['next', 'start', '-H', '0.0.0.0', '-p', PORT.toString()], {
   stdio: 'inherit',
-  env: process.env
+  env: {
+    ...process.env,
+    NODE_ENV: process.env.NODE_ENV || 'production'
+  }
 })
 
 server.on('close', (code) => {
