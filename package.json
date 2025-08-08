@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --turbo -p 3244",
     "build": "next build",
-    "start": "node server.js",
+    "start": "npx next start -H 0.0.0.0 -p ${PORT:-3000}",
     "railway:start": "node server.js",
     "lint": "next lint",
     "migrate:todoist": "tsx scripts/migrate-todoist.ts",
