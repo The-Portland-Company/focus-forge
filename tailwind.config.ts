@@ -43,6 +43,11 @@ const config: Config = {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
+        theme: {
+          primary: "var(--theme-primary)",
+          gradient: "var(--theme-gradient)",
+          "primary-rgb": "var(--theme-primary-rgb)"
+        }
       },
       borderRadius: {
         lg: "var(--radius)",

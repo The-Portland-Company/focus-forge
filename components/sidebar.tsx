@@ -317,13 +317,15 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                     >
                       <Edit className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={() => onOrganizationDelete?.(org.id)}
-                      className="p-1 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-white"
-                      title="Delete organization"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {org.ownerId === data.users?.[0]?.id && (
+                      <button
+                        onClick={() => onOrganizationDelete?.(org.id)}
+                        className="p-1 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-white"
+                        title="Delete organization"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

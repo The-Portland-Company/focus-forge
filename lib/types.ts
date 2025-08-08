@@ -22,6 +22,7 @@ export interface Organization {
   archived?: boolean
   order?: number
   memberIds?: string[]
+  ownerId?: string
 }
 
 export interface Project {
@@ -86,12 +87,43 @@ export interface Tag {
   color: string
 }
 
+export interface Section {
+  id: string
+  name: string
+  projectId: string
+  parentId?: string // For nested sections
+  color?: string
+  description?: string
+  icon?: string
+  order: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TaskSection {
+  id: string
+  taskId: string
+  sectionId: string
+  createdAt: string
+}
+
+export interface UserSectionPreference {
+  id: string
+  userId: string
+  sectionId: string
+  isCollapsed: boolean
+  updatedAt: string
+}
+
 export interface Database {
   users: User[]
   organizations: Organization[]
   projects: Project[]
   tasks: Task[]
   tags: Tag[]
+  sections: Section[]
+  taskSections: TaskSection[]
+  userSectionPreferences: UserSectionPreference[]
   settings: {
     showCompletedTasks: boolean
   }

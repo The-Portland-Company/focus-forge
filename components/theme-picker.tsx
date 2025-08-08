@@ -56,7 +56,7 @@ export function ThemePicker({ onThemeChange, currentTheme = solidColors[0].value
             <button
               key={color.name}
               onClick={() => handleThemeSelect(color.value)}
-              className="relative w-full h-10 rounded-md transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-800 focus:ring-white"
+              className="relative w-full h-10 rounded-md transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-800 ring-theme"
               style={{ backgroundColor: color.value }}
               title={color.name}
             >
@@ -75,7 +75,7 @@ export function ThemePicker({ onThemeChange, currentTheme = solidColors[0].value
             <button
               key={gradient.name}
               onClick={() => handleThemeSelect(gradient.value)}
-              className="relative w-full h-10 rounded-md transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-800 focus:ring-white"
+              className="relative w-full h-10 rounded-md transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-800 ring-theme"
               style={{ background: gradient.value }}
               title={gradient.name}
             >

@@ -14,7 +14,7 @@ export default function SettingsPage() {
   // Initialize with null to avoid hydration mismatch
   const [profileColor, setProfileColor] = useState<string | null>(null)
   const [animationsEnabled, setAnimationsEnabled] = useState<boolean | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [showThemePicker, setShowThemePicker] = useState(false)
   const [selectedOrganization, setSelectedOrganization] = useState<Organization | null>(null)
   const themePickerRef = useRef<HTMLDivElement>(null)
@@ -47,45 +47,60 @@ export default function SettingsPage() {
       
       // Load user settings
       if (data.users?.[0]) {
-        setProfileColor(data.users[0].profileColor || '#EA580C')
-        setAnimationsEnabled(data.users[0].animationsEnabled !== false)
+        const userColor = data.users[0].profileColor || '#EA580C'
+        const userAnimations = data.users[0].animationsEnabled !== false
+        setProfileColor(userColor)
+        setAnimationsEnabled(userAnimations)
+        // Apply theme immediately when settings load
+        applyUserTheme(userColor, userAnimations)
       } else {
         // Set defaults if no user data
         setProfileColor('#EA580C')
         setAnimationsEnabled(true)
+        applyUserTheme('#EA580C', true)
       }
     } catch (error) {
       console.error('Error fetching data:', error)
     }
   }
 
-  const handleSave = async () => {
+  const handleAutoSave = async (updates: { profileColor?: string; animationsEnabled?: boolean }) => {
     if (!database?.users?.[0]) return
     
-    setSaving(true)
+    setSaveStatus('saving')
     try {
+      // Apply theme immediately for instant feedback
+      if (updates.profileColor !== undefined) {
+        applyUserTheme(updates.profileColor, animationsEnabled ?? true)
+      }
+      if (updates.animationsEnabled !== undefined) {
+        applyUserTheme(profileColor || '#EA580C', updates.animationsEnabled)
+      }
+      
       const response = await fetch(`/api/users/${database.users[0].id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          profileColor: profileColor || '#EA580C',
-          animationsEnabled: animationsEnabled ?? true
+          profileColor: updates.profileColor ?? profileColor,
+          animationsEnabled: updates.animationsEnabled ?? animationsEnabled
         })
       })
       
       if (response.ok) {
-        // Apply theme immediately
-        applyUserTheme(profileColor || '#EA580C', animationsEnabled ?? true)
-        
-        // Navigate back
-        router.back()
+        setSaveStatus('saved')
+        // Clear the saved status after 2 seconds
+        setTimeout(() => setSaveStatus('idle'), 2000)
+      } else {
+        setSaveStatus('error')
+        setTimeout(() => setSaveStatus('idle'), 3000)
       }
     } catch (error) {
       console.error('Error saving settings:', error)
-    } finally {
-      setSaving(false)
+      setSaveStatus('error')
+      setTimeout(() => setSaveStatus('idle'), 3000)
     }
   }
+
 
   const applyUserTheme = (color: string, animationsEnabled: boolean) => {
     const root = document.documentElement
@@ -98,10 +113,16 @@ export default function SettingsPage() {
         primaryColor = matches[0]
         root.style.setProperty('--user-profile-color', primaryColor)
         root.style.setProperty('--user-profile-gradient', color)
+        // Set theme variables
+        root.style.setProperty('--theme-primary', primaryColor)
+        root.style.setProperty('--theme-gradient', color)
       }
     } else {
       root.style.setProperty('--user-profile-color', color)
       root.style.setProperty('--user-profile-gradient', color)
+      // Set theme variables
+      root.style.setProperty('--theme-primary', color)
+      root.style.setProperty('--theme-gradient', color)
     }
     
     // Convert hex to RGB for use in rgba()
@@ -115,13 +136,16 @@ export default function SettingsPage() {
       // Check for NaN values
       if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
         root.style.setProperty('--user-profile-color-rgb', `${r}, ${g}, ${b}`)
+        root.style.setProperty('--theme-primary-rgb', `${r}, ${g}, ${b}`)
       } else {
         // Fallback to default orange color RGB
         root.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
+        root.style.setProperty('--theme-primary-rgb', '234, 88, 12')
       }
     } else {
       // Fallback to default orange color RGB
       root.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
+      root.style.setProperty('--theme-primary-rgb', '234, 88, 12')
     }
     
     // Toggle animations
@@ -139,14 +163,27 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <div className="max-w-2xl mx-auto p-8">
-        <div className="flex items-center gap-4 mb-8">
-          <button
-            onClick={() => router.back()}
-            className="p-2 rounded-lg hover:bg-zinc-800 transition-colors"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <h1 className="text-2xl font-bold">Settings</h1>
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => router.back()}
+              className="p-2 rounded-lg hover:bg-zinc-800 transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <h1 className="text-2xl font-bold">Settings</h1>
+          </div>
+          {saveStatus !== 'idle' && (
+            <div className={`text-sm transition-opacity ${
+              saveStatus === 'saving' ? 'text-zinc-400' : 
+              saveStatus === 'saved' ? 'text-green-400' : 
+              'text-red-400'
+            }`}>
+              {saveStatus === 'saving' && 'Saving...'}
+              {saveStatus === 'saved' && '✓ Saved'}
+              {saveStatus === 'error' && 'Error saving'}
+            </div>
+          )}
         </div>
 
         <div className="space-y-12">
@@ -173,9 +210,10 @@ export default function SettingsPage() {
                     <div className="absolute mt-2 z-50">
                       <ThemePicker
                         currentTheme={profileColor || '#EA580C'}
-                        onThemeChange={(theme) => {
+                        onThemeChange={async (theme) => {
                           setProfileColor(theme)
                           setShowThemePicker(false)
+                          await handleAutoSave({ profileColor: theme })
                         }}
                       />
                     </div>
@@ -190,7 +228,11 @@ export default function SettingsPage() {
                   <input
                     type="checkbox"
                     checked={animationsEnabled ?? true}
-                    onChange={(e) => setAnimationsEnabled(e.target.checked)}
+                    onChange={async (e) => {
+                      const enabled = e.target.checked
+                      setAnimationsEnabled(enabled)
+                      await handleAutoSave({ animationsEnabled: enabled })
+                    }}
                     className="w-5 h-5 rounded border-zinc-600 bg-zinc-800 text-theme-primary focus:ring-2 focus:ring-theme-primary focus:ring-offset-0 focus:ring-offset-zinc-900"
                   />
                   <div>
@@ -204,46 +246,6 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Your Organization Section */}
-          <div>
-            <h2 className="text-xl font-semibold mb-6">Your Organization</h2>
-            <div className="space-y-6">
-              {/* Organization Name */}
-              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
-                <h3 className="text-lg font-medium mb-4">Organization Name</h3>
-                <p className="text-sm text-zinc-400 mb-4">
-                  Set your default organization name.
-                </p>
-                <input
-                  type="text"
-                  placeholder="My Organization"
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none"
-                  disabled
-                />
-                <p className="text-xs text-zinc-500 mt-2">
-                  Organization settings coming soon
-                </p>
-              </div>
-
-              {/* Default Project View */}
-              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
-                <h3 className="text-lg font-medium mb-4">Default Project View</h3>
-                <p className="text-sm text-zinc-400 mb-4">
-                  Choose how projects are displayed by default.
-                </p>
-                <select
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:border-theme-primary focus:outline-none"
-                  disabled
-                >
-                  <option>List View</option>
-                  <option>Kanban View</option>
-                </select>
-                <p className="text-xs text-zinc-500 mt-2">
-                  View settings coming soon
-                </p>
-              </div>
-            </div>
-          </div>
 
           {/* Organizations Section */}
           <div>
@@ -259,13 +261,28 @@ export default function SettingsPage() {
                           style={{ backgroundColor: org.color }} 
                         />
                         <div>
-                          <h3 className="font-medium">{org.name}</h3>
+                          <h3 className="font-medium flex items-center gap-2">
+                            {org.name}
+                            {org.ownerId === database.users?.[0]?.id && (
+                              <span className="text-xs bg-zinc-700 text-zinc-300 px-2 py-0.5 rounded">Owner</span>
+                            )}
+                          </h3>
                           {org.description && (
                             <p className="text-sm text-zinc-400">{org.description}</p>
                           )}
-                          <p className="text-xs text-zinc-500 mt-1">
-                            {database.projects.filter(p => p.organizationId === org.id).length} projects
-                          </p>
+                          <div className="flex items-center gap-3 mt-1">
+                            <p className="text-xs text-zinc-500">
+                              {database.projects.filter(p => p.organizationId === org.id).length} projects
+                            </p>
+                            {org.memberIds && org.memberIds.length > 0 && (
+                              <>
+                                <span className="text-xs text-zinc-600">•</span>
+                                <p className="text-xs text-zinc-500">
+                                  {org.memberIds.length} {org.memberIds.length === 1 ? 'member' : 'members'}
+                                </p>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <button
@@ -285,22 +302,6 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Save Button */}
-          <div className="flex justify-end gap-3">
-            <button
-              onClick={() => router.back()}
-              className="px-4 py-2 text-zinc-400 hover:text-white transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-4 py-2 bg-theme-primary text-white rounded-lg hover:bg-theme-primary/80 transition-colors disabled:opacity-50"
-            >
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
         </div>
       </div>
       
@@ -311,6 +312,7 @@ export default function SettingsPage() {
           projects={database.projects.filter(p => p.organizationId === selectedOrganization.id)}
           allProjects={database.projects}
           users={database.users}
+          currentUserId={database.users?.[0]?.id}
           onClose={() => setSelectedOrganization(null)}
           onSave={async (updates) => {
             try {

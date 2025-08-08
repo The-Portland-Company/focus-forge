@@ -26,9 +26,9 @@
     --radius: 0.5rem;
     
     /* Theme variables */
-    --theme-primary: var(--user-profile-color);
-    --theme-gradient: var(--user-profile-color);
-    --theme-primary-rgb: var(--user-profile-color-rgb);
+    --theme-primary: #EA580C;
+    --theme-gradient: #EA580C;
+    --theme-primary-rgb: 234, 88, 12;
     
     /* User profile color */
     --user-profile-color: #EA580C;
@@ -192,4 +192,25 @@
 .no-animations * {
   animation: none !important;
   transition: none !important;
+}
+
+/* Tailwind theme color utilities */
+.bg-theme-primary {
+  background: var(--theme-primary);
+}
+
+.bg-theme-gradient {
+  background: var(--theme-gradient);
+}
+
+.text-theme-primary {
+  color: var(--theme-primary);
+}
+
+.border-theme-primary {
+  border-color: var(--theme-primary);
+}
+
+.ring-theme-primary {
+  --tw-ring-color: var(--theme-primary);
 }

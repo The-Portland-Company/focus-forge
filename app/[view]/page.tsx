@@ -19,7 +19,10 @@ import { ColorPicker } from '@/components/color-picker'
 import { RescheduleConfirmModal } from '@/components/reschedule-confirm-modal'
 import { RescheduleResultModal } from '@/components/reschedule-result-modal'
 import { RescheduleProgressModal } from '@/components/reschedule-progress-modal'
-import { Database, Task, Project, Organization } from '@/lib/types'
+import { Database, Task, Project, Organization, Section } from '@/lib/types'
+import { SectionView } from '@/components/section-view'
+import { AddSectionModal } from '@/components/add-section-modal'
+import { AddSectionDivider } from '@/components/add-section-divider'
 import { getLocalDateString, isOverdue, isTodayOrOverdue } from '@/lib/date-utils'
 
 export default function ViewPage() {
@@ -56,6 +59,10 @@ export default function ViewPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFilter, setSearchFilter] = useState<'all' | 'tasks' | 'projects' | 'organizations'>('all')
   const [showBlockedTasks, setShowBlockedTasks] = useState(false)
+  const [showAddSection, setShowAddSection] = useState(false)
+  const [sectionParentId, setSectionParentId] = useState<string | undefined>(undefined)
+  const [sectionOrder, setSectionOrder] = useState(0)
+  const [editingSection, setEditingSection] = useState<Section | null>(null)
 
   useEffect(() => {
     fetchData()
@@ -70,6 +77,7 @@ export default function ViewPage() {
       
       if (userColor) {
         document.documentElement.style.setProperty('--user-profile-color', userColor)
+        document.documentElement.style.setProperty('--theme-gradient', userColor)
         
         // Handle gradients vs solid colors
         let primaryColor = userColor
@@ -80,6 +88,9 @@ export default function ViewPage() {
           }
         }
         
+        // Set theme primary color
+        document.documentElement.style.setProperty('--theme-primary', primaryColor)
+        
         // Convert hex to RGB only if we have a valid hex color
         if (primaryColor.startsWith('#') && primaryColor.length === 7) {
           const hex = primaryColor.replace('#', '')
@@ -89,11 +100,14 @@ export default function ViewPage() {
           
           if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
             document.documentElement.style.setProperty('--user-profile-color-rgb', `${r}, ${g}, ${b}`)
+            document.documentElement.style.setProperty('--theme-primary-rgb', `${r}, ${g}, ${b}`)
           } else {
             document.documentElement.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
+            document.documentElement.style.setProperty('--theme-primary-rgb', '234, 88, 12')
           }
         } else {
           document.documentElement.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
+          document.documentElement.style.setProperty('--theme-primary-rgb', '234, 88, 12')
         }
       }
       
@@ -104,6 +118,52 @@ export default function ViewPage() {
       }
     }
   }, [])
+
+  const applyTheme = (userColor: string, animationsEnabled: boolean) => {
+    const root = document.documentElement
+    
+    // Set user profile colors
+    root.style.setProperty('--user-profile-color', userColor)
+    root.style.setProperty('--theme-gradient', userColor)
+    
+    // Handle gradients vs solid colors
+    let primaryColor = userColor
+    if (userColor.startsWith('linear-gradient')) {
+      const matches = userColor.match(/#[A-Fa-f0-9]{6}/g)
+      if (matches && matches.length > 0) {
+        primaryColor = matches[0]
+      }
+    }
+    
+    // Set theme primary color
+    root.style.setProperty('--theme-primary', primaryColor)
+    
+    // Convert hex to RGB
+    if (primaryColor.startsWith('#') && primaryColor.length === 7) {
+      const hex = primaryColor.replace('#', '')
+      const r = parseInt(hex.substr(0, 2), 16)
+      const g = parseInt(hex.substr(2, 2), 16)
+      const b = parseInt(hex.substr(4, 2), 16)
+      
+      if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+        root.style.setProperty('--user-profile-color-rgb', `${r}, ${g}, ${b}`)
+        root.style.setProperty('--theme-primary-rgb', `${r}, ${g}, ${b}`)
+      } else {
+        root.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
+        root.style.setProperty('--theme-primary-rgb', '234, 88, 12')
+      }
+    } else {
+      root.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
+      root.style.setProperty('--theme-primary-rgb', '234, 88, 12')
+    }
+    
+    // Toggle animations
+    if (animationsEnabled) {
+      root.classList.remove('no-animations')
+    } else {
+      root.classList.add('no-animations')
+    }
+  }
 
   const fetchData = async () => {
     try {
@@ -130,6 +190,19 @@ export default function ViewPage() {
       // Validate that the data has the expected structure
       if (data && data.tasks && data.projects && data.organizations) {
         setDatabase(data)
+        
+        // Apply user theme from database
+        if (data.users?.[0]?.profileColor) {
+          const userColor = data.users[0].profileColor
+          const animationsEnabled = data.users[0].animationsEnabled !== false
+          
+          // Update localStorage
+          localStorage.setItem('userProfileColor', userColor)
+          localStorage.setItem('animationsEnabled', animationsEnabled.toString())
+          
+          // Apply theme immediately
+          applyTheme(userColor, animationsEnabled)
+        }
       } else {
         console.error('Invalid database structure:', data)
         // Set a valid empty database structure
@@ -402,10 +475,18 @@ export default function ViewPage() {
 
   const handleAddOrganization = async (orgData: { name: string; color: string }) => {
     try {
+      // Include the current user as owner and initial member
+      const currentUserId = database?.users?.[0]?.id
+      const organizationData = {
+        ...orgData,
+        ownerId: currentUserId,
+        memberIds: currentUserId ? [currentUserId] : []
+      }
+      
       const response = await fetch('/api/organizations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orgData)
+        body: JSON.stringify(organizationData)
       })
       
       if (response.ok) {
@@ -516,6 +597,97 @@ export default function ViewPage() {
     } catch (error) {
       console.error('Error reordering organizations:', error)
     }
+  }
+
+  const handleAddSection = async (section: Omit<Section, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      const response = await fetch('/api/sections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(section)
+      })
+      
+      if (response.ok) {
+        await fetchData()
+        setShowAddSection(false)
+      }
+    } catch (error) {
+      console.error('Error creating section:', error)
+    }
+  }
+
+  const handleSectionEdit = (section: Section) => {
+    setEditingSection(section)
+    // TODO: Open edit modal
+  }
+
+  const handleSectionDelete = async (sectionId: string) => {
+    const section = database?.sections?.find(s => s.id === sectionId)
+    if (!section) return
+    
+    // Count tasks in this section
+    const tasksInSection = database.taskSections?.filter(ts => ts.sectionId === sectionId).length || 0
+    
+    const confirmMessage = tasksInSection > 0
+      ? `Are you sure you want to delete "${section.name}"? This section contains ${tasksInSection} task(s). They can be moved to "Unassigned" or deleted.`
+      : `Are you sure you want to delete "${section.name}"?`
+    
+    if (confirm(confirmMessage)) {
+      if (tasksInSection > 0) {
+        const action = confirm('Click OK to delete the tasks, or Cancel to move them to "Unassigned"')
+        // TODO: Implement task handling based on user choice
+      }
+      
+      try {
+        const response = await fetch(`/api/sections/${sectionId}`, {
+          method: 'DELETE'
+        })
+        
+        if (response.ok) {
+          await fetchData()
+        }
+      } catch (error) {
+        console.error('Error deleting section:', error)
+      }
+    }
+  }
+
+  const handleTaskDropToSection = async (taskId: string, sectionId: string) => {
+    try {
+      const response = await fetch('/api/task-sections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId, sectionId })
+      })
+      
+      if (response.ok) {
+        await fetchData()
+      }
+    } catch (error) {
+      console.error('Error adding task to section:', error)
+    }
+  }
+
+  const handleSectionReorder = async (sectionId: string, newOrder: number) => {
+    try {
+      const response = await fetch(`/api/sections/${sectionId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: newOrder })
+      })
+      
+      if (response.ok) {
+        await fetchData()
+      }
+    } catch (error) {
+      console.error('Error reordering section:', error)
+    }
+  }
+
+  const openAddSection = (projectId: string, parentId?: string, order?: number) => {
+    setSectionParentId(parentId)
+    setSectionOrder(order || 0)
+    setShowAddSection(true)
   }
 
   if (!database) {
@@ -776,7 +948,7 @@ export default function ViewPage() {
               placeholder="Search tasks, projects, and organizations..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-theme-primary focus:border-transparent"
+              className="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-400 focus:outline-none focus:ring-2 ring-theme focus:border-transparent"
               autoFocus
             />
           </div>
@@ -1126,6 +1298,16 @@ export default function ViewPage() {
       const projectId = view.replace('project-', '')
       const project = database.projects.find(p => p.id === projectId)
       const projectTasks = database.tasks.filter(t => t.projectId === projectId)
+      const projectSections = database.sections?.filter(s => s.projectId === projectId && !s.parentId)
+        .sort((a, b) => (a.order || 0) - (b.order || 0)) || []
+      
+      // Get tasks that are not in any section
+      const unassignedTasks = projectTasks.filter(task => {
+        const taskSections = database.taskSections?.filter(ts => ts.taskId === task.id) || []
+        return taskSections.length === 0
+      })
+      
+      const currentUserId = database.users[0]?.id || ''
       
       return (
         <div>
@@ -1167,13 +1349,58 @@ export default function ViewPage() {
             </div>
           </div>
           
-          <TaskList
-            tasks={projectTasks}
-            showCompleted={database.settings?.showCompletedTasks ?? true}
-            onTaskToggle={handleTaskToggle}
-            onTaskEdit={handleTaskEdit}
-            onTaskDelete={handleTaskDelete}
+          {/* Add Section divider at the top */}
+          <AddSectionDivider
+            onClick={() => openAddSection(projectId, undefined, 0)}
           />
+          
+          {/* Sections */}
+          {projectSections.map((section, index) => (
+            <div key={section.id}>
+              <SectionView
+                section={section}
+                tasks={projectTasks}
+                allTasks={database.tasks}
+                database={database}
+                onTaskToggle={handleTaskToggle}
+                onTaskEdit={handleTaskEdit}
+                onTaskDelete={handleTaskDelete}
+                onSectionEdit={handleSectionEdit}
+                onSectionDelete={handleSectionDelete}
+                onAddSection={(parentId) => openAddSection(projectId, parentId)}
+                onTaskDrop={handleTaskDropToSection}
+                onSectionReorder={handleSectionReorder}
+                userId={currentUserId}
+              />
+              
+              {/* Add Section divider between sections */}
+              <AddSectionDivider
+                onClick={() => openAddSection(projectId, undefined, (section.order || 0) + 1)}
+              />
+            </div>
+          ))}
+          
+          {/* Unassigned tasks */}
+          {unassignedTasks.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-lg font-medium text-zinc-400 mb-3">Unassigned Tasks</h3>
+              <TaskList
+                tasks={unassignedTasks}
+                allTasks={database.tasks}
+                showCompleted={database.settings?.showCompletedTasks ?? true}
+                onTaskToggle={handleTaskToggle}
+                onTaskEdit={handleTaskEdit}
+                onTaskDelete={handleTaskDelete}
+              />
+            </div>
+          )}
+          
+          {/* Add Section divider at the bottom if there are unassigned tasks */}
+          {unassignedTasks.length === 0 && projectSections.length === 0 && (
+            <div className="text-center py-8 text-zinc-500">
+              <p className="mb-4">No sections yet. Add a section to organize your tasks.</p>
+            </div>
+          )}
         </div>
       )
     }
@@ -1316,6 +1543,21 @@ export default function ViewPage() {
         successCount={rescheduleResult.successCount}
         failCount={rescheduleResult.failCount}
       />
+      
+      {view.startsWith('project-') && (
+        <AddSectionModal
+          isOpen={showAddSection}
+          onClose={() => {
+            setShowAddSection(false)
+            setSectionParentId(undefined)
+            setSectionOrder(0)
+          }}
+          onSave={handleAddSection}
+          projectId={view.replace('project-', '')}
+          parentId={sectionParentId}
+          order={sectionOrder}
+        />
+      )}
     </div>
   )
 }

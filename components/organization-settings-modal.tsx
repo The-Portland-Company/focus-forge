@@ -11,6 +11,7 @@ interface OrganizationSettingsModalProps {
   projects: Project[]
   allProjects: Project[]
   users: User[]
+  currentUserId?: string
   onClose: () => void
   onSave: (updates: Partial<Organization>) => void
   onProjectAssociation: (projectId: string, organizationIds: string[]) => void
@@ -24,6 +25,7 @@ export function OrganizationSettingsModal({
   projects, 
   allProjects,
   users,
+  currentUserId,
   onClose, 
   onSave,
   onProjectAssociation,
@@ -52,6 +54,9 @@ export function OrganizationSettingsModal({
   const [organizationUserIds, setOrganizationUserIds] = useState<string[]>(
     organization.memberIds || []
   )
+  
+  // Check if current user is the owner
+  const isOwner = currentUserId === organization.ownerId
 
   // Close color picker when clicking outside
   useEffect(() => {
@@ -178,8 +183,9 @@ export function OrganizationSettingsModal({
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none"
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="Organization name"
+                disabled={!isOwner}
               />
             </div>
 
@@ -188,8 +194,9 @@ export function OrganizationSettingsModal({
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none resize-none"
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none resize-none disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="Organization description"
+                disabled={!isOwner}
                 rows={3}
               />
             </div>
@@ -198,9 +205,10 @@ export function OrganizationSettingsModal({
               <label className="block text-sm font-medium mb-2">Color</label>
               <div className="relative" ref={colorPickerRef}>
                 <button
-                  onClick={() => setShowColorPicker(!showColorPicker)}
-                  className="w-12 h-12 rounded-lg border-2 border-zinc-700 transition-transform hover:scale-105"
+                  onClick={() => isOwner && setShowColorPicker(!showColorPicker)}
+                  className={`w-12 h-12 rounded-lg border-2 border-zinc-700 transition-transform ${isOwner ? 'hover:scale-105 cursor-pointer' : 'cursor-not-allowed opacity-50'}`}
                   style={{ backgroundColor: color }}
+                  disabled={!isOwner}
                 />
                 {showColorPicker && (
                   <div className="absolute mt-2 z-50">
@@ -279,22 +287,24 @@ export function OrganizationSettingsModal({
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-medium">Organization Members</h3>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowInviteUser(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
-                  >
-                    <Mail className="w-4 h-4" />
-                    Invite User
-                  </button>
-                  <button
-                    onClick={() => setShowAddUser(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-theme-primary hover:bg-theme-primary/80 rounded-lg transition-colors text-sm text-white"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    Add Existing User
-                  </button>
-                </div>
+                {isOwner && (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowInviteUser(true)}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
+                    >
+                      <Mail className="w-4 h-4" />
+                      Invite User
+                    </button>
+                    <button
+                      onClick={() => setShowAddUser(true)}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-theme-primary hover:bg-theme-primary/80 rounded-lg transition-colors text-sm text-white"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      Add Existing User
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Members List */}
@@ -322,10 +332,15 @@ export function OrganizationSettingsModal({
                               {(user.name || `${user.firstName} ${user.lastName}`).charAt(0).toUpperCase()}
                             </div>
                             <div>
-                              <p className="text-sm font-medium">
+                              <p className="text-sm font-medium flex items-center gap-2">
                                 {user.name || `${user.firstName} ${user.lastName}`}
+                                {organization.ownerId === user.id && (
+                                  <span className="text-xs bg-zinc-700 text-zinc-300 px-2 py-0.5 rounded">
+                                    Owner
+                                  </span>
+                                )}
                                 {user.status === 'pending' && (
-                                  <span className="ml-2 text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-500 rounded-full">
+                                  <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-500 rounded-full">
                                     Pending
                                   </span>
                                 )}
@@ -333,10 +348,11 @@ export function OrganizationSettingsModal({
                               <p className="text-xs text-zinc-500">{user.email}</p>
                             </div>
                           </div>
-                          {onUserRemove && (
+                          {onUserRemove && isOwner && organization.ownerId !== user.id && (
                             <button
                               onClick={() => onUserRemove(user.id, organization.id)}
                               className="p-1.5 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-red-400"
+                              title="Remove from organization"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -504,12 +520,16 @@ export function OrganizationSettingsModal({
           >
             Cancel
           </button>
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 bg-theme-primary text-white rounded-lg hover:bg-theme-primary/80 transition-colors"
-          >
-            Save Changes
-          </button>
+          {isOwner ? (
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 bg-theme-primary text-white rounded-lg hover:bg-theme-primary/80 transition-colors"
+            >
+              Save Changes
+            </button>
+          ) : (
+            <span className="text-sm text-zinc-500">Only the owner can make changes</span>
+          )}
         </div>
       </div>
     </div>

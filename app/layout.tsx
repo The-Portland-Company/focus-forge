@@ -59,9 +59,11 @@ export default function RootLayout({
                 
                 // Always set a valid RGB value to prevent hydration errors
                 document.documentElement.style.setProperty('--user-profile-color-rgb', '234, 88, 12');
+                document.documentElement.style.setProperty('--theme-primary-rgb', '234, 88, 12');
                 
                 if (userColor) {
                   document.documentElement.style.setProperty('--user-profile-color', userColor);
+                  document.documentElement.style.setProperty('--theme-gradient', userColor);
                   
                   // Handle gradients vs solid colors
                   let primaryColor = userColor;
@@ -71,6 +73,9 @@ export default function RootLayout({
                       primaryColor = matches[0];
                     }
                   }
+                  
+                  // Set theme primary color
+                  document.documentElement.style.setProperty('--theme-primary', primaryColor);
                   
                   // Convert hex to RGB only if we have a valid hex color
                   if (primaryColor && primaryColor.startsWith('#') && primaryColor.length === 7) {
@@ -82,6 +87,7 @@ export default function RootLayout({
                       
                       if (!isNaN(r) && !isNaN(g) && !isNaN(b) && r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255) {
                         document.documentElement.style.setProperty('--user-profile-color-rgb', r + ', ' + g + ', ' + b);
+                        document.documentElement.style.setProperty('--theme-primary-rgb', r + ', ' + g + ', ' + b);
                       }
                     } catch (e) {
                       // Keep default RGB on any parsing error
