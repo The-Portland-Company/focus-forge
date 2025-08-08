@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, updateDatabase } from '@/lib/db/factory'
+import { getDatabase, saveDatabase } from '@/lib/db'
 import { TaskSection } from '@/lib/types'
 
 export async function POST(request: NextRequest) {
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     }
     
     database.taskSections.push(newTaskSection)
-    await updateDatabase(database)
+    await saveDatabase(database)
     
     return NextResponse.json(newTaskSection)
   } catch (error) {
@@ -63,7 +63,7 @@ export async function DELETE(request: NextRequest) {
     }
     
     database.taskSections.splice(index, 1)
-    await updateDatabase(database)
+    await saveDatabase(database)
     
     return NextResponse.json({ success: true })
   } catch (error) {

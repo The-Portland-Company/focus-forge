@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, updateDatabase } from '@/lib/db/factory'
+import { getDatabase, saveDatabase } from '@/lib/db'
 import { Section } from '@/lib/types'
 
 export async function GET() {
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     database.sections = database.sections || []
     database.sections.push(newSection)
     
-    await updateDatabase(database)
+    await saveDatabase(database)
     
     return NextResponse.json(newSection)
   } catch (error) {

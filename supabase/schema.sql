@@ -35,6 +35,7 @@ CREATE TABLE organizations (
 CREATE TABLE user_organizations (
   user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
   organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+  is_owner BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   PRIMARY KEY (user_id, organization_id)
 );
@@ -330,6 +331,14 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
+-- Create user_preferences table for UI state
+CREATE TABLE user_preferences (
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE PRIMARY KEY,
+  expanded_organizations JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Create updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -351,3 +360,19 @@ CREATE TRIGGER update_projects_updated_at BEFORE UPDATE ON projects
 
 CREATE TRIGGER update_tasks_updated_at BEFORE UPDATE ON tasks
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_user_preferences_updated_at BEFORE UPDATE ON user_preferences
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Enable RLS for user_preferences
+ALTER TABLE user_preferences ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for user_preferences
+CREATE POLICY "Users can view their own preferences" ON user_preferences
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own preferences" ON user_preferences
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own preferences" ON user_preferences
+  FOR INSERT WITH CHECK (auth.uid() = user_id);

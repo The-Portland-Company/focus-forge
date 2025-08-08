@@ -182,6 +182,9 @@ export default function ViewPage() {
           projects: [],
           tasks: [],
           tags: [],
+          sections: [],
+          taskSections: [],
+          userSectionPreferences: [],
           settings: { showCompletedTasks: true }
         })
         return
@@ -212,6 +215,9 @@ export default function ViewPage() {
           projects: [],
           tasks: [],
           tags: [],
+          sections: [],
+          taskSections: [],
+          userSectionPreferences: [],
           settings: { showCompletedTasks: true }
         })
       }

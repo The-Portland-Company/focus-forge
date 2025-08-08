@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, updateDatabase } from '@/lib/db/factory'
+import { getDatabase, saveDatabase } from '@/lib/db'
 
 export async function PUT(
   request: NextRequest,
@@ -23,7 +23,7 @@ export async function PUT(
       updatedAt: new Date().toISOString()
     }
     
-    await updateDatabase(database)
+    await saveDatabase(database)
     
     return NextResponse.json(database.sections[sectionIndex])
   } catch (error) {
@@ -73,7 +73,7 @@ export async function DELETE(
       }
     }
     
-    await updateDatabase(database)
+    await saveDatabase(database)
     
     return NextResponse.json({ success: true })
   } catch (error) {

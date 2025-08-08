@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, updateDatabase } from '@/lib/db/factory'
+import { getDatabase, saveDatabase } from '@/lib/db'
 import { UserSectionPreference } from '@/lib/types'
 
 export async function POST(request: NextRequest) {
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       database.userSectionPreferences.push(newPreference)
     }
     
-    await updateDatabase(database)
+    await saveDatabase(database)
     
     return NextResponse.json({ success: true })
   } catch (error) {

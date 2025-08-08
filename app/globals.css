@@ -25,12 +25,12 @@
     --ring: 240 10% 3.9%;
     --radius: 0.5rem;
     
-    /* Theme variables */
-    --theme-primary: #EA580C;
-    --theme-gradient: #EA580C;
-    --theme-primary-rgb: 234, 88, 12;
+    /* Theme variables - will be set by JavaScript */
+    --theme-primary: var(--user-profile-color);
+    --theme-gradient: var(--user-profile-color);
+    --theme-primary-rgb: var(--user-profile-color-rgb);
     
-    /* User profile color */
+    /* User profile color - will be set by JavaScript */
     --user-profile-color: #EA580C;
     --user-profile-color-rgb: 234, 88, 12;
   }
