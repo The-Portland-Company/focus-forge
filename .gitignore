@@ -63,3 +63,6 @@ Podfile.lock
 *.pbxuser
 *.perspectivev3
 xcuserdata/
+
+# Screenshots in root directory
+/*.png
