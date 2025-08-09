@@ -16,3 +16,6 @@
 
 ## Development Principles
 - Never use temporary solutions.
+
+## Deployment Responsibilities
+- You are resposible to check Railway Build and Deploy logs after each deployment. Then debug accordingly.
