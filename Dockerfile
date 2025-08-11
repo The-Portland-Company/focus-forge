@@ -23,7 +23,7 @@ RUN npm ci --only=production && npm cache clean --force
 ENV NODE_ENV=production
 
 # Expose port (Railway will set this)
-EXPOSE 3000
+EXPOSE 3244
 
-# Start the application using our custom server
-CMD ["node", "server.js"]
+# Start the application using start.js
+CMD ["node", "start.js"]

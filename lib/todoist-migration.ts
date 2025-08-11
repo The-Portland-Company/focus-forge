@@ -77,6 +77,9 @@ export async function migrateTodoistData(backupDir: string): Promise<Database> {
     projects: [],
     tasks: [],
     tags: [],
+    sections: [],
+    taskSections: [],
+    userSectionPreferences: [],
     settings: {
       showCompletedTasks: false
     }

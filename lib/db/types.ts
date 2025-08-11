@@ -4,6 +4,9 @@ export interface Database {
   projects: any[]
   tasks: any[]
   tags: any[]
+  sections: any[]
+  taskSections: any[]
+  userSectionPreferences: any[]
   settings: {
     showCompletedTasks: boolean
   }

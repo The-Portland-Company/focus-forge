@@ -3,7 +3,7 @@ builder = "nixpacks"
 buildCommand = "npm run build"
 
 [deploy]
-startCommand = "npm run railway:start"
+startCommand = "npm start"
 numReplicas = 1
 sleepApplication = false
 restartPolicyType = "ON_FAILURE"

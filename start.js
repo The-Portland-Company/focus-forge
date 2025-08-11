@@ -3,7 +3,7 @@
 const { spawn } = require('child_process');
 
 // Railway deployment configuration
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3244;
 const HOST = '0.0.0.0';
 
 console.log('=== Railway Next.js Server Startup ===');

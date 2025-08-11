@@ -35,6 +35,9 @@ export class FileAdapter implements DatabaseAdapter {
         projects: [],
         tasks: [],
         tags: [],
+        sections: [],
+        taskSections: [],
+        userSectionPreferences: [],
         settings: {
           showCompletedTasks: true
         }

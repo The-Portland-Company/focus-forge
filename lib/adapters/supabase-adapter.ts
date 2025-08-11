@@ -36,6 +36,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       projects: await this.getProjects(),
       tasks: await this.getTasks(),
       tags: await this.getTags(),
+      sections: [],
+      taskSections: [],
+      userSectionPreferences: [],
       settings: await this.getSettings()
     }
   }
@@ -248,11 +251,13 @@ export class SupabaseAdapter implements DatabaseAdapter {
     return data.map(profile => ({
       id: profile.id,
       email: profile.email,
+      name: `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.email,
       firstName: profile.first_name || '',
       lastName: profile.last_name || '',
-      role: profile.role,
       profileColor: profile.profile_color || '#EA580C',
-      animationsEnabled: profile.animations_enabled ?? true
+      animationsEnabled: profile.animations_enabled ?? true,
+      createdAt: profile.created_at || new Date().toISOString(),
+      updatedAt: profile.updated_at || new Date().toISOString()
     }))
   }
 
@@ -276,11 +281,13 @@ export class SupabaseAdapter implements DatabaseAdapter {
     return {
       id: data.id,
       email: data.email,
+      name: `${data.first_name || ''} ${data.last_name || ''}`.trim() || data.email,
       firstName: data.first_name || '',
       lastName: data.last_name || '',
-      role: data.role,
       profileColor: data.profile_color || '#EA580C',
-      animationsEnabled: data.animations_enabled ?? true
+      animationsEnabled: data.animations_enabled ?? true,
+      createdAt: data.created_at || new Date().toISOString(),
+      updatedAt: data.updated_at || new Date().toISOString()
     }
   }
 

@@ -129,6 +129,9 @@ export default function ViewPage() {
         projects: [],
         tasks: [],
         tags: [],
+        sections: [],
+        taskSections: [],
+        userSectionPreferences: [],
         settings: { showCompletedTasks: true }
       })
     }
@@ -531,7 +534,7 @@ export default function ViewPage() {
     if (!section) return
     
     // Count tasks in this section
-    const tasksInSection = database.taskSections?.filter(ts => ts.sectionId === sectionId).length || 0
+    const tasksInSection = database?.taskSections?.filter(ts => ts.sectionId === sectionId).length || 0
     
     const confirmMessage = tasksInSection > 0
       ? `Are you sure you want to delete "${section.name}"? This section contains ${tasksInSection} task(s). They can be moved to "Unassigned" or deleted.`
