@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, Search, Calendar, CalendarDays, Star, Hash, GripVertical, Trash2, Archive, FolderPlus, Building2, Edit, User, Settings, ChevronsUpDown, ChevronsDownUp } from 'lucide-react'
+import { Plus, Search, Calendar, CalendarDays, Star, Hash, GripVertical, Trash2, Archive, FolderPlus, Building2, Edit, User, Settings, ChevronsUpDown, ChevronsDownUp, CheckSquare, Folder } from 'lucide-react'
 import { Database, Project } from '@/lib/types'
 import { getBackgroundStyle } from '@/lib/style-utils'
 import { useUserPreferences } from '@/lib/supabase/hooks'
@@ -96,8 +96,7 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
             className="flex-1 btn-theme-primary text-white rounded-lg px-3 py-2 flex items-center justify-center gap-1 text-sm font-medium transition-all"
             title="Add Task"
           >
-            <Plus className="w-4 h-4" />
-            <span>Task</span>
+            <CheckSquare className="w-4 h-4" />
           </button>
           
           <button
@@ -105,8 +104,7 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
             className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg px-3 py-2 flex items-center justify-center gap-1 text-sm font-medium transition-colors"
             title="Add Project"
           >
-            <Plus className="w-4 h-4" />
-            <span>Project</span>
+            <Folder className="w-4 h-4" />
           </button>
           
           <button
@@ -114,8 +112,7 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
             className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg px-3 py-2 flex items-center justify-center gap-1 text-sm font-medium transition-colors"
             title="Add Organization"
           >
-            <Plus className="w-4 h-4" />
-            <span>Organization</span>
+            <Building2 className="w-4 h-4" />
           </button>
         </div>
       </div>
