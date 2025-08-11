@@ -35,6 +35,9 @@ export class FileAdapter implements DatabaseAdapter {
         projects: [],
         tasks: [],
         tags: [],
+        sections: [],
+        taskSections: [],
+        userSectionPreferences: [],
         settings: {
           showCompletedTasks: true
         }
@@ -325,6 +328,24 @@ export class FileAdapter implements DatabaseAdapter {
   async getCurrentUser(): Promise<User | undefined> {
     const db = await this.getDatabase()
     return db.users[0] // Default to first user as per existing logic
+  }
+
+  async updateUser(id: string, updates: Partial<User>): Promise<User> {
+    const db = await this.getDatabase()
+    const userIndex = db.users.findIndex(u => u.id === id)
+    
+    if (userIndex === -1) {
+      throw new Error(`User with id ${id} not found`)
+    }
+    
+    db.users[userIndex] = {
+      ...db.users[userIndex],
+      ...updates,
+      updatedAt: new Date().toISOString()
+    }
+    
+    await this.updateDatabase(db)
+    return db.users[userIndex]
   }
 
   // Settings operations

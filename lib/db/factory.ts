@@ -1,6 +1,6 @@
-import { DatabaseAdapter } from './types'
-import { FileAdapter } from './file-adapter'
-import { SupabaseAdapter } from './supabase-adapter'
+import { DatabaseAdapter } from '../db-adapter'
+import { FileAdapter } from '../adapters/file-adapter'
+import { SupabaseAdapter } from '../adapters/supabase-adapter'
 
 let adapter: DatabaseAdapter | null = null
 

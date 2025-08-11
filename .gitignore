@@ -64,5 +64,10 @@ Podfile.lock
 *.perspectivev3
 xcuserdata/
 
-# Screenshots in root directory
+# Screenshots and images in root directory
 /*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.svg
+/*.webp

@@ -1,5 +1,5 @@
 import { DatabaseAdapter } from '../db-adapter'
-import { Database, Task, Project, Organization, Tag, User } from '../types'
+import { Database, Task, Project, Organization, Tag, User, Section, TaskSection, UserSectionPreference } from '../types'
 import { createClient } from '../supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -36,6 +36,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       projects: await this.getProjects(),
       tasks: await this.getTasks(),
       tags: await this.getTags(),
+      sections: await this.getSections(),
+      taskSections: await this.getTaskSections(),
+      userSectionPreferences: await this.getUserSectionPreferences(),
       settings: await this.getSettings()
     }
   }
@@ -233,6 +236,77 @@ export class SupabaseAdapter implements DatabaseAdapter {
     console.log(`Deleting tag ${id} from Supabase (placeholder)`)
   }
 
+  // Section operations
+  async getSections(): Promise<Section[]> {
+    // Placeholder: Would query Supabase sections table
+    console.log('Fetching sections from Supabase (placeholder)')
+    return []
+  }
+
+  async getSection(id: string): Promise<Section | undefined> {
+    // Placeholder: Would query specific section
+    console.log(`Fetching section ${id} from Supabase (placeholder)`)
+    return undefined
+  }
+
+  async createSection(section: Section): Promise<Section> {
+    // Placeholder: Would insert into Supabase
+    console.log('Creating section in Supabase (placeholder)', section)
+    return section
+  }
+
+  async updateSection(id: string, updates: Partial<Section>): Promise<Section> {
+    // Placeholder: Would update in Supabase
+    console.log(`Updating section ${id} in Supabase (placeholder)`, updates)
+    const existingSection = await this.getSection(id)
+    if (!existingSection) {
+      throw new Error(`Section with id ${id} not found`)
+    }
+    return { ...existingSection, ...updates }
+  }
+
+  async deleteSection(id: string): Promise<void> {
+    // Placeholder: Would delete from Supabase
+    console.log(`Deleting section ${id} from Supabase (placeholder)`)
+  }
+
+  // TaskSection operations
+  async getTaskSections(): Promise<TaskSection[]> {
+    // Placeholder: Would query Supabase taskSections table
+    console.log('Fetching taskSections from Supabase (placeholder)')
+    return []
+  }
+
+  async createTaskSection(taskSection: TaskSection): Promise<TaskSection> {
+    // Placeholder: Would insert into Supabase
+    console.log('Creating taskSection in Supabase (placeholder)', taskSection)
+    return taskSection
+  }
+
+  async deleteTaskSection(taskId: string, sectionId: string): Promise<void> {
+    // Placeholder: Would delete from Supabase
+    console.log(`Deleting taskSection ${taskId}-${sectionId} from Supabase (placeholder)`)
+  }
+
+  // UserSectionPreference operations
+  async getUserSectionPreferences(): Promise<UserSectionPreference[]> {
+    // Placeholder: Would query Supabase userSectionPreferences table
+    console.log('Fetching userSectionPreferences from Supabase (placeholder)')
+    return []
+  }
+
+  async getUserSectionPreference(userId: string, sectionId: string): Promise<UserSectionPreference | undefined> {
+    // Placeholder: Would query specific preference
+    console.log(`Fetching preference for user ${userId} section ${sectionId} from Supabase (placeholder)`)
+    return undefined
+  }
+
+  async updateUserSectionPreference(preference: UserSectionPreference): Promise<UserSectionPreference> {
+    // Placeholder: Would upsert into Supabase
+    console.log('Updating userSectionPreference in Supabase (placeholder)', preference)
+    return preference
+  }
+
   // User operations
   async getUsers(): Promise<User[]> {
     if (!this.userId) return []
@@ -248,11 +322,13 @@ export class SupabaseAdapter implements DatabaseAdapter {
     return data.map(profile => ({
       id: profile.id,
       email: profile.email,
+      name: `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.email,
       firstName: profile.first_name || '',
       lastName: profile.last_name || '',
-      role: profile.role,
       profileColor: profile.profile_color || '#EA580C',
-      animationsEnabled: profile.animations_enabled ?? true
+      animationsEnabled: profile.animations_enabled ?? true,
+      createdAt: profile.created_at || new Date().toISOString(),
+      updatedAt: profile.updated_at || new Date().toISOString()
     }))
   }
 
@@ -276,11 +352,47 @@ export class SupabaseAdapter implements DatabaseAdapter {
     return {
       id: data.id,
       email: data.email,
+      name: `${data.first_name || ''} ${data.last_name || ''}`.trim() || data.email,
       firstName: data.first_name || '',
       lastName: data.last_name || '',
-      role: data.role,
       profileColor: data.profile_color || '#EA580C',
-      animationsEnabled: data.animations_enabled ?? true
+      animationsEnabled: data.animations_enabled ?? true,
+      createdAt: data.created_at || new Date().toISOString(),
+      updatedAt: data.updated_at || new Date().toISOString()
+    }
+  }
+
+  async updateUser(id: string, updates: Partial<User>): Promise<User> {
+    // Placeholder: Would update user profile in Supabase
+    console.log(`Updating user ${id} in Supabase (placeholder)`, updates)
+    
+    const { data, error } = await this.supabase
+      .from('profiles')
+      .update({
+        first_name: updates.firstName,
+        last_name: updates.lastName,
+        profile_color: updates.profileColor,
+        animations_enabled: updates.animationsEnabled,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single()
+    
+    if (error || !data) {
+      throw new Error(`Failed to update user: ${error?.message || 'Unknown error'}`)
+    }
+    
+    return {
+      id: data.id,
+      email: data.email,
+      name: `${data.first_name || ''} ${data.last_name || ''}`.trim() || data.email,
+      firstName: data.first_name || '',
+      lastName: data.last_name || '',
+      profileColor: data.profile_color || '#EA580C',
+      animationsEnabled: data.animations_enabled ?? true,
+      createdAt: data.created_at || new Date().toISOString(),
+      updatedAt: data.updated_at || new Date().toISOString()
     }
   }
 

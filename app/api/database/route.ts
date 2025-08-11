@@ -40,11 +40,11 @@ export async function GET() {
     }
     
     // Fetch all data using the adapter methods with individual error handling
-    let organizations = []
-    let projects = []
-    let tasks = []
-    let tags = []
-    let userProfile = null
+    let organizations: any[] = []
+    let projects: any[] = []
+    let tasks: any[] = []
+    let tags: any[] = []
+    let userProfile: any = null
     
     try {
       organizations = await adapter.getOrganizations()

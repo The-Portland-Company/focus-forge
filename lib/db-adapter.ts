@@ -45,6 +45,7 @@ export interface DatabaseAdapter {
   getUsers(): Promise<User[]>
   getUser(id: string): Promise<User | undefined>
   getCurrentUser(): Promise<User | undefined>
+  updateUser(id: string, updates: Partial<User>): Promise<User>
   
   // Settings operations
   getSettings(): Promise<Database['settings']>

@@ -12,15 +12,18 @@ export async function getDatabase(): Promise<Database> {
 
 export async function saveDatabase(database: Database): Promise<void> {
   const adapter = getDatabaseAdapter()
-  if (adapter.saveDatabase) {
-    return adapter.saveDatabase(database)
-  }
-  throw new Error('saveDatabase not supported by current adapter')
+  return adapter.updateDatabase(database)
 }
 
 export async function createTask(task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<Task> {
   const adapter = getDatabaseAdapter()
-  return adapter.createTask(task)
+  const fullTask: Task = {
+    ...task,
+    id: Math.random().toString(36).substr(2, 9),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+  return adapter.createTask(fullTask)
 }
 
 export async function updateTask(id: string, updates: Partial<Task>): Promise<Task | null> {
@@ -47,12 +50,22 @@ export async function deleteProject(id: string): Promise<boolean> {
 
 export async function createProject(project: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<Project> {
   const adapter = getDatabaseAdapter()
-  return adapter.createProject(project)
+  const fullProject: Project = {
+    ...project,
+    id: Math.random().toString(36).substr(2, 9),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+  return adapter.createProject(fullProject)
 }
 
 export async function createOrganization(organization: Omit<Organization, 'id'>): Promise<Organization> {
   const adapter = getDatabaseAdapter()
-  return adapter.createOrganization(organization)
+  const fullOrganization: Organization = {
+    ...organization,
+    id: Math.random().toString(36).substr(2, 9)
+  }
+  return adapter.createOrganization(fullOrganization)
 }
 
 export async function updateOrganization(id: string, updates: Partial<Organization>): Promise<Organization | null> {
