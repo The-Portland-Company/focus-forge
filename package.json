@@ -3,7 +3,8 @@
   "version": "0.1.1",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbo -p 3244",
+    "dev": "./scripts/dev-with-logs.sh",
+    "dev:no-log": "next dev --turbo -p 3244",
     "build": "next build",
     "start": "node start.js",
     "lint": "next lint",
@@ -17,7 +18,10 @@
     "mobile:open": "cd mobile && npx cap open ios",
     "mobile:run": "cd mobile && npx cap run ios",
     "ios:build": "npm run mobile:build && npm run mobile:sync",
-    "ios:dev": "npm run ios:build && npm run mobile:open"
+    "ios:dev": "npm run ios:build && npm run mobile:open",
+    "logs:clean": "./scripts/clean-logs.sh",
+    "logs:view": "tail -f logs/latest.log",
+    "logs:list": "ls -la logs/"
   },
   "dependencies": {
     "@capacitor/cli": "7.4.2",

@@ -16,9 +16,6 @@ import { ConfirmModal } from '@/components/confirm-modal'
 import { TaskList } from '@/components/task-list'
 import { KanbanView } from '@/components/kanban-view'
 import { ColorPicker } from '@/components/color-picker'
-import { RescheduleConfirmModal } from '@/components/reschedule-confirm-modal'
-import { RescheduleResultModal } from '@/components/reschedule-result-modal'
-import { RescheduleProgressModal } from '@/components/reschedule-progress-modal'
 import { Database, Task, Project, Organization, Section } from '@/lib/types'
 import { SectionView } from '@/components/section-view'
 import { AddSectionModal } from '@/components/add-section-modal'
@@ -49,12 +46,6 @@ export default function ViewPage() {
   })
   const [editingOrgDescription, setEditingOrgDescription] = useState<string | null>(null)
   const [showProjectColorPicker, setShowProjectColorPicker] = useState(false)
-  const [showRescheduleConfirm, setShowRescheduleConfirm] = useState(false)
-  const [showRescheduleResult, setShowRescheduleResult] = useState(false)
-  const [showRescheduleProgress, setShowRescheduleProgress] = useState(false)
-  const [rescheduleProgress, setRescheduleProgress] = useState({ current: 0, total: 0 })
-  const [rescheduleResult, setRescheduleResult] = useState({ successCount: 0, failCount: 0 })
-  const [overdueTasks, setOverdueTasks] = useState<Task[]>([])
   const [sortBy, setSortBy] = useState<'dueDate' | 'deadline' | 'priority'>('dueDate')
   const [filterAssignedTo, setFilterAssignedTo] = useState<string>('me-unassigned')
   const [searchQuery, setSearchQuery] = useState('')
@@ -143,6 +134,7 @@ export default function ViewPage() {
       const response = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(taskData)
       })
       
@@ -163,6 +155,7 @@ export default function ViewPage() {
       const response = await fetch(`/api/tasks/${taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           completed: !task.completed,
           completedAt: !task.completed ? new Date().toISOString() : undefined
@@ -179,6 +172,7 @@ export default function ViewPage() {
             fetch(`/api/tasks/${subtask.id}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
               body: JSON.stringify({
                 completed: true,
                 completedAt: new Date().toISOString()
@@ -209,6 +203,7 @@ export default function ViewPage() {
       const response = await fetch(`/api/tasks/${editingTask.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(taskData)
       })
       
@@ -226,7 +221,8 @@ export default function ViewPage() {
     if (confirm('Are you sure you want to delete this task?')) {
       try {
         const response = await fetch(`/api/tasks/${taskId}`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          credentials: 'include'
         })
         
         if (response.ok) {
@@ -238,83 +234,6 @@ export default function ViewPage() {
     }
   }
 
-  const handleRescheduleAll = () => {
-    if (!database || !database.tasks) return
-    
-    // Filter for overdue tasks only (not including today's tasks)
-    const overdue = database.tasks.filter(task => {
-      if (!task.due_date || task.completed) return false
-      return isOverdue(task.due_date)
-    })
-    
-    if (overdue.length === 0) {
-      setRescheduleResult({ successCount: 0, failCount: 0 })
-      setShowRescheduleResult(true)
-      return
-    }
-    
-    setOverdueTasks(overdue)
-    setShowRescheduleConfirm(true)
-  }
-  
-  const handleConfirmReschedule = async () => {
-    setShowRescheduleConfirm(false)
-    setShowRescheduleProgress(true)
-    setRescheduleProgress({ current: 0, total: overdueTasks.length })
-    
-    // Get local date string (YYYY-MM-DD) without timezone conversion
-    const today = getLocalDateString()
-    const batchSize = 20 // Process 20 tasks at a time
-    let totalSuccess = 0
-    let totalFail = 0
-    
-    try {
-      // Process tasks in batches using the batch endpoint
-      for (let i = 0; i < overdueTasks.length; i += batchSize) {
-        const batch = overdueTasks.slice(i, i + batchSize)
-        const taskIds = batch.map(task => task.id)
-        
-        const response = await fetch('/api/tasks/batch-update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            taskIds,
-            updates: { dueDate: today }
-          })
-        })
-        
-        if (response.ok) {
-          const result = await response.json()
-          totalSuccess += result.successCount
-          totalFail += result.failCount
-        } else {
-          totalFail += taskIds.length
-        }
-        
-        // Update progress
-        setRescheduleProgress({ 
-          current: Math.min(i + batch.length, overdueTasks.length), 
-          total: overdueTasks.length 
-        })
-        
-        // Small delay between batches for UI responsiveness
-        if (i + batchSize < overdueTasks.length) {
-          await new Promise(resolve => setTimeout(resolve, 50))
-        }
-      }
-      
-      await fetchData()
-      
-      setShowRescheduleProgress(false)
-      setRescheduleResult({ successCount: totalSuccess, failCount: totalFail })
-      setShowRescheduleResult(true)
-    } catch (error) {
-      console.error('Error rescheduling tasks:', error)
-      setShowRescheduleProgress(false)
-      setRescheduleResult({ successCount: totalSuccess, failCount: overdueTasks.length - totalSuccess })
-      setShowRescheduleResult(true)
-    }
-  }
 
   const handleViewChange = (newView: string) => {
     router.push(`/${newView}`)
@@ -325,6 +244,7 @@ export default function ViewPage() {
       const response = await fetch(`/api/projects/${projectId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(updates)
       })
       
@@ -339,7 +259,8 @@ export default function ViewPage() {
   const handleProjectDelete = async (projectId: string) => {
     try {
       const response = await fetch(`/api/projects/${projectId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include'
       })
       
       if (response.ok) {
@@ -359,6 +280,7 @@ export default function ViewPage() {
       const response = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(projectData)
       })
       
@@ -395,6 +317,7 @@ export default function ViewPage() {
       const response = await fetch('/api/organizations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(organizationData)
       })
       
@@ -412,7 +335,8 @@ export default function ViewPage() {
     
     try {
       const response = await fetch(`/api/organizations/${orgId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include'
       })
       
       if (response.ok) {
@@ -432,7 +356,8 @@ export default function ViewPage() {
     if (org) {
       const projectCount = database?.projects.filter(p => p.organizationId === orgId).length || 0
       const taskCount = database?.tasks.filter(t => {
-        const project = database?.projects.find(p => p.id === t.project_id)
+        const projectId = (t as any).project_id || t.projectId
+        const project = database?.projects.find(p => p.id === projectId)
         return project?.organizationId === orgId
       }).length || 0
       
@@ -449,6 +374,7 @@ export default function ViewPage() {
       const response = await fetch(`/api/organizations/${orgId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(updates)
       })
       
@@ -475,6 +401,7 @@ export default function ViewPage() {
         await fetch(`/api/projects/${project.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ archived: true })
         })
       }
@@ -507,6 +434,7 @@ export default function ViewPage() {
       const response = await fetch('/api/projects/reorder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ organizationId, projectIds })
       })
       
@@ -523,6 +451,7 @@ export default function ViewPage() {
       const response = await fetch('/api/organizations/reorder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ organizationIds })
       })
       
@@ -539,6 +468,7 @@ export default function ViewPage() {
       const response = await fetch('/api/sections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(section)
       })
       
@@ -575,7 +505,8 @@ export default function ViewPage() {
       
       try {
         const response = await fetch(`/api/sections/${sectionId}`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          credentials: 'include'
         })
         
         if (response.ok) {
@@ -592,6 +523,7 @@ export default function ViewPage() {
       const response = await fetch('/api/task-sections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ taskId, sectionId })
       })
       
@@ -608,6 +540,7 @@ export default function ViewPage() {
       const response = await fetch(`/api/sections/${sectionId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ order: newOrder })
       })
       
@@ -633,9 +566,9 @@ export default function ViewPage() {
     return [...tasks].sort((a, b) => {
       switch (sortBy) {
         case 'dueDate':
-          // Use snake_case field from Supabase
-          const aDueDate = a.due_date
-          const bDueDate = b.due_date
+          // Handle both snake_case and camelCase fields
+          const aDueDate = (a as any).due_date || a.dueDate
+          const bDueDate = (b as any).due_date || b.dueDate
           if (!aDueDate && !bDueDate) return 0
           if (!aDueDate) return 1
           if (!bDueDate) return -1
@@ -669,19 +602,31 @@ export default function ViewPage() {
     const currentUserId = getCurrentUserId()
     
     if (filterAssignedTo === 'me-unassigned' && currentUserId) {
-      return tasks.filter(task => task.assigned_to === currentUserId || !task.assigned_to)
+      return tasks.filter(task => {
+        const assignedTo = (task as any).assigned_to || task.assignedTo
+        return assignedTo === currentUserId || !assignedTo
+      })
     }
     
     if (filterAssignedTo === 'me' && currentUserId) {
-      return tasks.filter(task => task.assigned_to === currentUserId)
+      return tasks.filter(task => {
+        const assignedTo = (task as any).assigned_to || task.assignedTo
+        return assignedTo === currentUserId
+      })
     }
     
     if (filterAssignedTo === 'unassigned') {
-      return tasks.filter(task => !task.assigned_to)
+      return tasks.filter(task => {
+        const assignedTo = (task as any).assigned_to || task.assignedTo
+        return !assignedTo
+      })
     }
     
     // Filter by specific user ID
-    return tasks.filter(task => task.assigned_to === filterAssignedTo)
+    return tasks.filter(task => {
+      const assignedTo = (task as any).assigned_to || task.assignedTo
+      return assignedTo === filterAssignedTo
+    })
   }
 
   const renderContent = () => {
@@ -692,8 +637,8 @@ export default function ViewPage() {
       tomorrow.setDate(tomorrow.getDate() + 1)
       
       let todayTasks = database.tasks.filter(task => {
-        // Use snake_case field from Supabase
-        const dueDate = task.due_date
+        // Handle both snake_case and camelCase fields
+        const dueDate = (task as any).due_date || task.dueDate
         if (!dueDate) return false
         // Show tasks due today or overdue (anything up to and including today)
         return isTodayOrOverdue(dueDate)
@@ -710,8 +655,9 @@ export default function ViewPage() {
       
       // Count overdue tasks specifically
       const overdueCount = database.tasks.filter(task => {
-        if (!task.due_date || task.completed) return false
-        return isOverdue(task.due_date)
+        const dueDate = (task as any).due_date || task.dueDate
+        if (!dueDate || task.completed) return false
+        return isOverdue(dueDate)
       }).length
       
       return (
@@ -728,14 +674,6 @@ export default function ViewPage() {
                 </div>
               </div>
               <div className="flex items-center gap-4">
-                {overdueCount > 0 && (
-                  <button
-                    onClick={handleRescheduleAll}
-                    className="px-3 py-1 text-sm bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded-md transition-colors"
-                  >
-                    Reschedule {overdueCount} Overdue
-                  </button>
-                )}
                 <span className="text-sm text-zinc-400">
                   {todayTasks.filter(t => !t.completed).length} tasks
                 </span>
@@ -813,8 +751,9 @@ export default function ViewPage() {
       let upcomingTasks = database.tasks.filter(task => {
         if (task.completed) return false
         if (upcomingFilterType === 'dueDate') {
-          // Check for snake_case field from Supabase
-          return task.due_date !== null && task.due_date !== undefined
+          // Handle both snake_case and camelCase fields
+          const dueDate = (task as any).due_date || task.dueDate
+          return dueDate !== null && dueDate !== undefined
         } else {
           return task.deadline !== null && task.deadline !== undefined
         }
@@ -830,6 +769,7 @@ export default function ViewPage() {
           const response = await fetch(`/api/tasks/${taskId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
             body: JSON.stringify(updates)
           })
           
@@ -1017,7 +957,7 @@ export default function ViewPage() {
                 <div className="grid gap-3">
                   {filteredProjects.map(project => {
                     const org = database.organizations.find(o => o.id === project.organizationId)
-                    const taskCount = database.tasks.filter(t => t.project_id === project.id).length
+                    const taskCount = database.tasks.filter(t => ((t as any).project_id || t.projectId) === project.id).length
                     
                     return (
                       <Link
@@ -1191,8 +1131,8 @@ export default function ViewPage() {
               <h2 className="text-lg font-semibold mb-4">Active Projects</h2>
               <div className="grid gap-4">
                 {activeProjects.map(project => {
-                  const taskCount = database.tasks.filter(t => t.project_id === project.id).length
-                  const completedCount = database.tasks.filter(t => t.project_id === project.id && t.completed).length
+                  const taskCount = database.tasks.filter(t => ((t as any).project_id || t.projectId) === project.id).length
+                  const completedCount = database.tasks.filter(t => ((t as any).project_id || t.projectId) === project.id && t.completed).length
                   
                   return (
                     <div key={project.id} className="bg-zinc-900 rounded-lg p-4 border border-zinc-800">
@@ -1247,7 +1187,7 @@ export default function ViewPage() {
                 <h2 className="text-lg font-semibold mb-4 text-zinc-400">Archived Projects</h2>
                 <div className="grid gap-4">
                   {archivedProjects.map(project => {
-                    const taskCount = database.tasks.filter(t => t.project_id === project.id).length
+                    const taskCount = database.tasks.filter(t => ((t as any).project_id || t.projectId) === project.id).length
                     
                     return (
                       <div key={project.id} className="bg-zinc-900/50 rounded-lg p-4 border border-zinc-800 opacity-60">
@@ -1294,7 +1234,7 @@ export default function ViewPage() {
     if (view.startsWith('project-')) {
       const projectId = view.replace('project-', '')
       const project = database.projects.find(p => p.id === projectId)
-      const projectTasks = database.tasks.filter(t => t.project_id === projectId)
+      const projectTasks = database.tasks.filter(t => ((t as any).project_id || t.projectId) === projectId)
       const projectSections = database.sections?.filter(s => s.projectId === projectId && !s.parentId)
         .sort((a, b) => (a.order || 0) - (b.order || 0)) || []
       
@@ -1522,25 +1462,6 @@ export default function ViewPage() {
         variant="destructive"
       />
       
-      <RescheduleConfirmModal
-        isOpen={showRescheduleConfirm}
-        onClose={() => setShowRescheduleConfirm(false)}
-        onConfirm={handleConfirmReschedule}
-        taskCount={overdueTasks.length}
-      />
-      
-      <RescheduleProgressModal
-        isOpen={showRescheduleProgress}
-        current={rescheduleProgress.current}
-        total={rescheduleProgress.total}
-      />
-      
-      <RescheduleResultModal
-        isOpen={showRescheduleResult}
-        onClose={() => setShowRescheduleResult(false)}
-        successCount={rescheduleResult.successCount}
-        failCount={rescheduleResult.failCount}
-      />
       
       {view.startsWith('project-') && (
         <AddSectionModal

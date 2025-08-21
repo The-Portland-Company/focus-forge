@@ -199,14 +199,33 @@ CREATE POLICY "Admins can update their organizations" ON organizations
 CREATE POLICY "Users can view their own associations" ON user_organizations
   FOR SELECT USING (user_id = auth.uid() OR is_super_admin());
 
-CREATE POLICY "Admins can manage organization users" ON user_organizations
-  FOR ALL USING (
+CREATE POLICY "Admins can view all users in their organizations" ON user_organizations
+  FOR SELECT USING (
     EXISTS (
-      SELECT 1 FROM profiles p
-      JOIN user_organizations uo ON uo.user_id = p.id
-      WHERE p.id = auth.uid()
+      SELECT 1 FROM user_organizations uo
+      WHERE uo.user_id = auth.uid()
       AND uo.organization_id = user_organizations.organization_id
-      AND p.role IN ('admin', 'super_admin')
+      AND (SELECT role FROM profiles WHERE id = auth.uid()) IN ('admin', 'super_admin')
+    ) OR is_super_admin()
+  );
+
+CREATE POLICY "Admins can add users to their organizations" ON user_organizations
+  FOR INSERT WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM user_organizations uo
+      WHERE uo.user_id = auth.uid()
+      AND uo.organization_id = user_organizations.organization_id
+      AND (SELECT role FROM profiles WHERE id = auth.uid()) IN ('admin', 'super_admin')
+    ) OR is_super_admin()
+  );
+
+CREATE POLICY "Admins can remove users from their organizations" ON user_organizations
+  FOR DELETE USING (
+    EXISTS (
+      SELECT 1 FROM user_organizations uo
+      WHERE uo.user_id = auth.uid()
+      AND uo.organization_id = user_organizations.organization_id
+      AND (SELECT role FROM profiles WHERE id = auth.uid()) IN ('admin', 'super_admin')
     ) OR is_super_admin()
   );
 
