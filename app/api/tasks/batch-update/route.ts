@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, saveDatabase } from '@/lib/db'
+import { createClient } from '@/lib/supabase/server'
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,29 +9,48 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Task IDs array is required' }, { status: 400 })
     }
     
-    const db = await getDatabase()
+    const supabase = await createClient()
     const updatedTasks: any[] = []
     const failedIds: string[] = []
     
-    // Update all tasks in memory first
-    taskIds.forEach(taskId => {
-      const taskIndex = db.tasks.findIndex(t => t.id === taskId)
-      if (taskIndex !== -1) {
-        db.tasks[taskIndex] = {
-          ...db.tasks[taskIndex],
-          ...updates,
-          updatedAt: new Date().toISOString()
-        }
-        updatedTasks.push(db.tasks[taskIndex])
+    // Convert camelCase to snake_case for database fields
+    const dbUpdates: any = {}
+    if (updates.dueDate !== undefined) dbUpdates.due_date = updates.dueDate
+    if (updates.dueTime !== undefined) dbUpdates.due_time = updates.dueTime
+    if (updates.priority !== undefined) dbUpdates.priority = updates.priority
+    if (updates.completed !== undefined) dbUpdates.completed = updates.completed
+    if (updates.completedAt !== undefined) dbUpdates.completed_at = updates.completedAt
+    if (updates.assignedTo !== undefined) dbUpdates.assigned_to = updates.assignedTo
+    if (updates.projectId !== undefined) dbUpdates.project_id = updates.projectId
+    
+    // Add updated_at timestamp
+    dbUpdates.updated_at = new Date().toISOString()
+    
+    // Update all tasks in a single query using the IN operator
+    const { data, error } = await supabase
+      .from('tasks')
+      .update(dbUpdates)
+      .in('id', taskIds)
+      .select()
+    
+    if (error) {
+      console.error('Batch update error:', error)
+      return NextResponse.json({ 
+        error: 'Failed to batch update tasks',
+        details: error.message 
+      }, { status: 500 })
+    }
+    
+    // Determine which IDs succeeded and which failed
+    const successIds = data ? data.map(task => task.id) : []
+    taskIds.forEach(id => {
+      if (successIds.includes(id)) {
+        const task = data?.find(t => t.id === id)
+        if (task) updatedTasks.push(task)
       } else {
-        failedIds.push(taskId)
+        failedIds.push(id)
       }
     })
-    
-    // Save once with all updates
-    if (updatedTasks.length > 0) {
-      await saveDatabase(db)
-    }
     
     return NextResponse.json({
       updated: updatedTasks,
