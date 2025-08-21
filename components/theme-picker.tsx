@@ -21,8 +21,8 @@ const solidColors = [
 ]
 
 const gradients = [
+  { name: 'Ocean (Default)', value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
   { name: 'Sunset', value: 'linear-gradient(135deg, #FF6B6B 0%, #FFE66D 100%)' },
-  { name: 'Ocean', value: 'linear-gradient(135deg, #667EEA 0%, #764BA2 100%)' },
   { name: 'Forest', value: 'linear-gradient(135deg, #56AB2F 0%, #A8E063 100%)' },
   { name: 'Lavender', value: 'linear-gradient(135deg, #E100FF 0%, #7F00FF 100%)' },
   { name: 'Fire', value: 'linear-gradient(135deg, #FF512F 0%, #F09819 100%)' },
@@ -35,7 +35,7 @@ const gradients = [
   { name: 'Coral', value: 'linear-gradient(135deg, #FA709A 0%, #FEE140 100%)' },
 ]
 
-export function ThemePicker({ onThemeChange, currentTheme = solidColors[0].value }: ThemePickerProps) {
+export function ThemePicker({ onThemeChange, currentTheme = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }: ThemePickerProps) {
   const [selectedTheme, setSelectedTheme] = useState(currentTheme)
 
   useEffect(() => {

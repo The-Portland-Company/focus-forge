@@ -26,13 +26,17 @@
     --radius: 0.5rem;
     
     /* Theme variables - will be set by JavaScript */
-    --theme-primary: var(--user-profile-color);
-    --theme-gradient: var(--user-profile-color);
-    --theme-primary-rgb: var(--user-profile-color-rgb);
+    --theme-primary: #007AFF; /* Default to Liquid Glass Apple blue */
+    --theme-gradient: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+    --theme-primary-rgb: 0, 122, 255;
     
-    /* User profile color - will be set by JavaScript */
-    --user-profile-color: #EA580C;
-    --user-profile-color-rgb: 234, 88, 12;
+    /* Default gradient theme */
+    --default-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    
+    /* User profile color - defaults to Liquid Glass theme */
+    --user-profile-color: #007AFF;
+    --user-profile-gradient: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+    --user-profile-color-rgb: 0, 122, 255;
   }
 
   .dark {
@@ -97,6 +101,22 @@
   background: var(--theme-gradient);
 }
 
+/* Checkbox styling with theme colors */
+input[type="checkbox"] {
+  border-color: rgb(var(--theme-primary-rgb)) !important;
+  background-color: rgb(24 24 27); /* zinc-900 */
+}
+
+input[type="checkbox"]:checked {
+  background: var(--theme-gradient);
+  border-color: rgb(var(--theme-primary-rgb));
+}
+
+input[type="checkbox"]:focus {
+  border-color: rgb(var(--theme-primary-rgb));
+  box-shadow: 0 0 0 3px rgba(var(--theme-primary-rgb), 0.1);
+}
+
 .theme-primary-text {
   color: var(--theme-primary);
 }
@@ -126,6 +146,336 @@
   outline: none;
   border-color: var(--theme-primary) !important;
   box-shadow: 0 0 0 3px rgba(var(--theme-primary-rgb), 0.1);
+}
+
+/* Theme-specific styles */
+
+/* Light Theme */
+.theme-light {
+  --background: 0 0% 100%;
+  --foreground: 240 10% 3.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 3.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 3.9%;
+  --primary: 240 5.9% 10%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 240 4.8% 95.9%;
+  --secondary-foreground: 240 5.9% 10%;
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+  --accent: 240 4.8% 95.9%;
+  --accent-foreground: 240 5.9% 10%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 240 5.9% 90%;
+  --input: 240 5.9% 90%;
+  --ring: 240 10% 3.9%;
+}
+
+.theme-light body {
+  background: rgb(249 250 251); /* gray-50 */
+  color: rgb(17 24 39); /* gray-900 */
+}
+
+/* Dark Theme (default) */
+.theme-dark {
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
+  --card: 240 10% 3.9%;
+  --card-foreground: 0 0% 98%;
+  --popover: 240 10% 3.9%;
+  --popover-foreground: 0 0% 98%;
+  --primary: 0 0% 98%;
+  --primary-foreground: 240 5.9% 10%;
+  --secondary: 240 3.7% 15.9%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 240 3.7% 15.9%;
+  --muted-foreground: 240 5% 64.9%;
+  --accent: 240 3.7% 15.9%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 240 3.7% 15.9%;
+  --input: 240 3.7% 15.9%;
+  --ring: 240 4.9% 83.9%;
+}
+
+.theme-dark body {
+  background: rgb(9 9 11); /* zinc-950 */
+  color: rgb(250 250 250); /* zinc-50 */
+}
+
+/* Liquid Glass Theme Base - Apple-inspired glassmorphism */
+.theme-liquid-glass {
+  /* Override theme variables */
+  --theme-primary: #007AFF;
+  --theme-gradient: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+  --theme-primary-rgb: 0, 122, 255;
+}
+
+/* Dark mode with Liquid Glass */
+.dark.theme-liquid-glass,
+.theme-liquid-glass:not(.light) {
+  /* Dark glass colors */
+  --glass-primary: rgba(0, 122, 255, 0.8);
+  --glass-secondary: rgba(255, 255, 255, 0.1);
+  --glass-background: rgba(22, 22, 23, 0.6);
+  --glass-surface: rgba(44, 44, 46, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.2);
+  --glass-text: rgba(255, 255, 255, 0.9);
+  --glass-text-secondary: rgba(255, 255, 255, 0.7);
+}
+
+/* Light mode with Liquid Glass */
+.light.theme-liquid-glass {
+  /* Light glass colors */
+  --glass-primary: rgba(0, 122, 255, 0.9);
+  --glass-secondary: rgba(0, 0, 0, 0.05);
+  --glass-background: rgba(255, 255, 255, 0.7);
+  --glass-surface: rgba(255, 255, 255, 0.6);
+  --glass-border: rgba(0, 0, 0, 0.15);
+  --glass-text: rgba(0, 0, 0, 0.85);
+  --glass-text-secondary: rgba(0, 0, 0, 0.6);
+}
+
+/* Dark mode with Liquid Glass - Dark background */
+.dark.theme-liquid-glass body,
+.theme-liquid-glass:not(.light) body {
+  background: linear-gradient(135deg, #0a0a0c 0%, #1a1a1d 50%, #0a0a0c 100%);
+  color: var(--glass-text);
+  position: relative;
+}
+
+/* Light mode with Liquid Glass - Light background */
+.light.theme-liquid-glass body {
+  background: linear-gradient(135deg, #f5f5f7 0%, #e8e8ed 50%, #f5f5f7 100%);
+  color: rgba(0, 0, 0, 0.85);
+  position: relative;
+}
+
+/* Animated breathing background colors */
+@keyframes breathingColors {
+  0%, 100% { 
+    transform: scale(1) rotate(0deg);
+    filter: blur(60px);
+  }
+  33% { 
+    transform: scale(1.1) rotate(120deg);
+    filter: blur(80px);
+  }
+  66% { 
+    transform: scale(0.9) rotate(240deg);
+    filter: blur(70px);
+  }
+}
+
+/* Dark mode with Liquid Glass - Subtle, darker breathing colors */
+.dark.theme-liquid-glass body::before,
+.theme-liquid-glass:not(.light) body::before {
+  content: '';
+  position: fixed;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: 
+    radial-gradient(circle at 30% 70%, rgba(0, 71, 171, 0.25) 0%, transparent 45%),
+    radial-gradient(circle at 70% 30%, rgba(120, 30, 40, 0.25) 0%, transparent 45%),
+    radial-gradient(circle at 50% 50%, rgba(44, 43, 107, 0.25) 0%, transparent 50%),
+    radial-gradient(circle at 20% 20%, rgba(26, 100, 45, 0.2) 0%, transparent 45%),
+    radial-gradient(circle at 80% 80%, rgba(128, 102, 0, 0.2) 0%, transparent 45%);
+  pointer-events: none;
+  z-index: -1;
+  animation: breathingColors 25s ease-in-out infinite;
+  opacity: 0.7;
+}
+
+/* Light mode with Liquid Glass - Vibrant, bright breathing colors */
+.light.theme-liquid-glass body::before {
+  content: '';
+  position: fixed;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: 
+    radial-gradient(circle at 30% 70%, rgba(0, 122, 255, 0.5) 0%, transparent 40%),
+    radial-gradient(circle at 70% 30%, rgba(255, 59, 48, 0.5) 0%, transparent 40%),
+    radial-gradient(circle at 50% 50%, rgba(88, 86, 214, 0.5) 0%, transparent 50%),
+    radial-gradient(circle at 20% 20%, rgba(52, 199, 89, 0.4) 0%, transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(255, 204, 0, 0.4) 0%, transparent 40%);
+  pointer-events: none;
+  z-index: -1;
+  animation: breathingColors 20s ease-in-out infinite;
+}
+
+/* Glass card effects */
+.theme-liquid-glass .bg-zinc-900,
+.theme-liquid-glass .bg-zinc-800 {
+  background: var(--glass-surface) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.theme-liquid-glass .border-zinc-800,
+.theme-liquid-glass .border-zinc-700 {
+  border-color: var(--glass-border) !important;
+}
+
+/* Sidebar glass effect with visible background */
+.theme-liquid-glass .bg-zinc-950 {
+  background: linear-gradient(180deg, 
+    rgba(22, 22, 23, 0.4) 0%, 
+    rgba(30, 30, 32, 0.5) 50%, 
+    rgba(22, 22, 23, 0.4) 100%) !important;
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border-right: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 
+    inset 0 0 20px rgba(0, 122, 255, 0.1),
+    0 0 40px rgba(0, 0, 0, 0.3);
+}
+
+/* Button glass effects */
+.theme-liquid-glass .btn-theme-primary,
+.theme-liquid-glass .bg-theme-primary,
+.theme-liquid-glass button[class*="bg-theme-gradient"],
+.theme-liquid-glass button[class*="bg-gradient"],
+.theme-liquid-glass .bg-theme-gradient {
+  background: linear-gradient(135deg, 
+    rgba(0, 122, 255, 0.8) 0%, 
+    rgba(88, 86, 214, 0.8) 100%) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 122, 255, 0.4) !important;
+  box-shadow: 
+    0 4px 16px rgba(0, 122, 255, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.theme-liquid-glass .btn-theme-primary:hover,
+.theme-liquid-glass button[class*="bg-theme-gradient"]:hover,
+.theme-liquid-glass button[class*="bg-gradient"]:hover {
+  background: linear-gradient(135deg, 
+    rgba(0, 122, 255, 0.95) 0%, 
+    rgba(88, 86, 214, 0.95) 100%) !important;
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 
+    0 8px 25px rgba(0, 122, 255, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* Specific styling for add task buttons */
+.theme-liquid-glass button:has(.lucide-plus),
+.theme-liquid-glass button:has(svg[class*="Plus"]) {
+  background: linear-gradient(135deg, 
+    rgba(0, 122, 255, 0.7) 0%, 
+    rgba(88, 86, 214, 0.7) 100%) !important;
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  border: 1px solid rgba(0, 122, 255, 0.3) !important;
+  box-shadow: 
+    0 2px 10px rgba(0, 122, 255, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.theme-liquid-glass button:has(.lucide-plus):hover,
+.theme-liquid-glass button:has(svg[class*="Plus"]):hover {
+  background: linear-gradient(135deg, 
+    rgba(0, 122, 255, 0.9) 0%, 
+    rgba(88, 86, 214, 0.9) 100%) !important;
+  transform: translateY(-1px) scale(1.05);
+  box-shadow: 
+    0 4px 20px rgba(0, 122, 255, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+/* Input glass effects */
+.theme-liquid-glass input,
+.theme-liquid-glass textarea,
+.theme-liquid-glass select {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border) !important;
+  color: var(--glass-text) !important;
+}
+
+.theme-liquid-glass input:focus,
+.theme-liquid-glass textarea:focus,
+.theme-liquid-glass select:focus {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: var(--glass-primary) !important;
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2) !important;
+}
+
+/* Text colors */
+.theme-liquid-glass .text-white {
+  color: var(--glass-text) !important;
+}
+
+.theme-liquid-glass .text-zinc-400,
+.theme-liquid-glass .text-zinc-500 {
+  color: var(--glass-text-secondary) !important;
+}
+
+/* Kanban columns glass effect */
+.theme-liquid-glass .bg-zinc-900 {
+  background: var(--glass-surface) !important;
+  backdrop-filter: blur(15px) saturate(150%);
+  -webkit-backdrop-filter: blur(15px) saturate(150%);
+}
+
+/* Task cards enhanced glass */
+.theme-liquid-glass .bg-zinc-800 {
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.theme-liquid-glass .bg-zinc-800:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  transform: translateY(-2px);
+  box-shadow: 
+    0 12px 40px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Smooth animations for liquid feel */
+.theme-liquid-glass * {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Special effects for interactive elements */
+.theme-liquid-glass button:hover,
+.theme-liquid-glass [role="button"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 
+    0 8px 25px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Checkbox styling for liquid glass */
+.theme-liquid-glass input[type="checkbox"] {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid var(--glass-border) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.theme-liquid-glass input[type="checkbox"]:checked {
+  background: var(--glass-primary) !important;
+  border-color: rgba(0, 122, 255, 0.5) !important;
 }
 
 /* Simple border focus style */
@@ -213,4 +563,20 @@
 
 .ring-theme-primary {
   --tw-ring-color: var(--theme-primary);
+}
+
+/* Toast animations */
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
 }

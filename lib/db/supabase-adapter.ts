@@ -1,7 +1,17 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { Database, DatabaseAdapter } from './types'
+import { SupabaseClient } from '@supabase/supabase-js'
 
 export class SupabaseAdapter implements DatabaseAdapter {
+  private supabase: any
+  private userId: string
+
+  constructor(supabase: any, userId: string) {
+    this.supabase = supabase
+    this.userId = userId
+    console.log('🔧 SupabaseAdapter initialized with userId:', userId)
+  }
+
   async getDatabase(): Promise<Database> {
     // This method is not used in Supabase adapter as we query directly
     throw new Error('getDatabase not implemented for Supabase adapter')
@@ -14,59 +24,37 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
   // Organizations
   async getOrganizations(userId?: string) {
-    const supabase = await createClient()
+    const supabase = this.supabase
+    const targetUserId = userId || this.userId
     
-    // First get the user to check if they're a super admin
-    const { data: { user } } = await supabase.auth.getUser()
+    console.log('🔍 SupabaseAdapter.getOrganizations - Fetching for user:', targetUserId)
     
-    if (!user) {
-      return []
-    }
-    
-    // Check if user is super admin by querying profiles directly
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-    
-    console.log('User profile check:', { userId: user.id, role: profile?.role, error: profileError })
-    
-    // For super admins, we need to bypass RLS entirely
-    if (profile?.role === 'super_admin') {
-      // Use service role client to bypass RLS for super admin
-      const { createServiceClient } = require('@/lib/supabase/server')
-      const serviceSupabase = await createServiceClient()
-      
-      const { data, error } = await serviceSupabase
-        .from('organizations')
-        .select('*')
-        .order('order_index')
-      
-      console.log('Super admin organizations query:', { count: data?.length, error })
-      
-      if (error) {
-        console.error('Error fetching organizations for super admin:', error)
-        throw error
-      }
-      
-      return data || []
-    }
-    
-    // For regular users, get their organizations
+    // Get organizations the user belongs to
     const { data: userOrgs, error: userOrgsError } = await supabase
       .from('user_organizations')
       .select('organization_id')
-      .eq('user_id', user.id)
+      .eq('user_id', targetUserId)
     
-    console.log('User organizations:', { userId: user.id, count: userOrgs?.length, error: userOrgsError })
+    console.log('📊 User organizations query result:', { 
+      userOrgs, 
+      userOrgsError,
+      count: userOrgs?.length 
+    })
     
-    const orgIds = userOrgs?.map(uo => uo.organization_id) || []
-    
-    if (orgIds.length === 0) {
+    if (userOrgsError) {
+      console.error('❌ Error fetching user organizations:', userOrgsError)
       return []
     }
     
+    if (!userOrgs || userOrgs.length === 0) {
+      console.log('No organizations found for user')
+      return []
+    }
+    
+    const orgIds = userOrgs.map(uo => uo.organization_id)
+    console.log('📋 Organization IDs to fetch:', orgIds.length, 'IDs')
+    
+    // Fetch the actual organizations
     const { data, error } = await supabase
       .from('organizations')
       .select('*')
@@ -78,11 +66,16 @@ export class SupabaseAdapter implements DatabaseAdapter {
       throw error
     }
     
+    console.log('📊 Organizations fetched:', { 
+      count: data?.length, 
+      firstOrg: data?.[0]?.name
+    })
+    
     return data || []
   }
 
   async getOrganization(id: string) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { data, error } = await supabase
       .from('organizations')
       .select('*')
@@ -94,7 +87,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async createOrganization(org: any) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { data, error } = await supabase
       .from('organizations')
       .insert(org)
@@ -106,7 +99,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async updateOrganization(id: string, updates: any) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { data, error } = await supabase
       .from('organizations')
       .update(updates)
@@ -119,7 +112,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async deleteOrganization(id: string) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { error } = await supabase
       .from('organizations')
       .delete()
@@ -130,23 +123,51 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
   // Projects
   async getProjects(organizationId?: string) {
-    const supabase = await createClient()
-    let query = supabase
-      .from('projects')
-      .select('*')
-      .order('order_index')
-
-    if (organizationId) {
-      query = query.eq('organization_id', organizationId)
+    const supabase = this.supabase
+    
+    // First get user's organizations if not specified
+    if (!organizationId) {
+      // Get ALL user organizations (including duplicates) for project fetching
+      const { data: userOrgs, error: userOrgsError } = await supabase
+        .from('user_organizations')
+        .select('organization_id')
+        .eq('user_id', this.userId)
+      
+      if (userOrgsError) {
+        console.error('Error fetching user organizations for projects:', userOrgsError)
+        return []
+      }
+      
+      if (!userOrgs || userOrgs.length === 0) {
+        return []
+      }
+      
+      const allOrgIds = userOrgs.map(uo => uo.organization_id)
+      console.log('📋 Fetching projects for ALL org IDs:', allOrgIds.length)
+      
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .in('organization_id', allOrgIds)
+        .order('order_index')
+      
+      if (error) throw error
+      console.log('✅ Projects fetched:', data?.length || 0)
+      return data || []
+    } else {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .order('order_index')
+      
+      if (error) throw error
+      return data || []
     }
-
-    const { data, error } = await query
-    if (error) throw error
-    return data || []
   }
 
   async getProject(id: string) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { data, error } = await supabase
       .from('projects')
       .select('*')
@@ -158,7 +179,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async createProject(project: any) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { data, error } = await supabase
       .from('projects')
       .insert(project)
@@ -170,7 +191,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async updateProject(id: string, updates: any) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { data, error } = await supabase
       .from('projects')
       .update(updates)
@@ -183,7 +204,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async deleteProject(id: string) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { error } = await supabase
       .from('projects')
       .delete()
@@ -194,7 +215,17 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
   // Tasks
   async getTasks(projectId?: string) {
-    const supabase = await createClient()
+    const supabase = this.supabase
+    
+    // If fetching for a specific project, first verify user has access
+    if (projectId) {
+      const projects = await this.getProjects()
+      const hasAccess = projects.some(p => p.id === projectId)
+      if (!hasAccess) {
+        return []
+      }
+    }
+    
     let query = supabase
       .from('tasks')
       .select(`
@@ -206,11 +237,18 @@ export class SupabaseAdapter implements DatabaseAdapter {
       .order('created_at')
 
     if (projectId) {
+      // For a specific project, get all tasks in that project
       query = query.eq('project_id', projectId)
+    } else {
+      // For all tasks, get tasks assigned to this user
+      console.log('📋 Fetching tasks for user:', this.userId)
+      query = query.eq('assigned_to', this.userId)
     }
 
     const { data, error } = await query
     if (error) throw error
+    
+    console.log('✅ Tasks fetched:', data?.length || 0)
 
     // Transform the data to match the expected format
     return (data || []).map((task: any) => ({
@@ -223,7 +261,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async getTask(id: string) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { data, error } = await supabase
       .from('tasks')
       .select(`
@@ -248,7 +286,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async createTask(task: any) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     // Extract tags, reminders, and attachments
     const { tags, reminders, attachments, ...taskData } = task
 
@@ -295,7 +333,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async updateTask(id: string, updates: any) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { tags, reminders, attachments, ...taskData } = updates
 
     // Update the task
@@ -369,7 +407,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async deleteTask(id: string) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { error } = await supabase
       .from('tasks')
       .delete()
@@ -380,7 +418,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
   // Tags
   async getTags() {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { data, error } = await supabase
       .from('tags')
       .select('*')
@@ -391,7 +429,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async createTag(tag: any) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { data, error } = await supabase
       .from('tags')
       .insert(tag)
@@ -404,7 +442,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
   // Users
   async getUser(id: string) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -426,7 +464,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async updateUser(id: string, updates: any) {
-    const supabase = await createClient()
+    const supabase = this.supabase
     
     // Map from file-based structure to Supabase structure
     const supabaseUpdates: any = {}
@@ -470,5 +508,166 @@ export class SupabaseAdapter implements DatabaseAdapter {
     }
 
     return results
+  }
+
+  // Time Blocks
+  async getTimeBlocks(startDate?: string, endDate?: string) {
+    const supabase = this.supabase
+    let query = supabase
+      .from('time_blocks')
+      .select(`
+        *,
+        time_block_tasks (
+          task_id,
+          tasks (*)
+        )
+      `)
+      .eq('user_id', this.userId)
+      .order('start_time', { ascending: true })
+
+    if (startDate) {
+      query = query.gte('start_time', startDate)
+    }
+    if (endDate) {
+      query = query.lte('start_time', endDate)
+    }
+
+    const { data, error } = await query
+
+    if (error) throw error
+
+    // Transform the data to include tasks array
+    return (data || []).map(block => ({
+      ...block,
+      tasks: block.time_block_tasks?.map((tbt: any) => tbt.tasks).filter(Boolean) || []
+    }))
+  }
+
+  async getTimeBlock(id: string) {
+    const supabase = this.supabase
+    const { data, error } = await supabase
+      .from('time_blocks')
+      .select(`
+        *,
+        time_block_tasks (
+          task_id,
+          tasks (*)
+        )
+      `)
+      .eq('id', id)
+      .single()
+
+    if (error) throw error
+    
+    return {
+      ...data,
+      tasks: data.time_block_tasks?.map((tbt: any) => tbt.tasks).filter(Boolean) || []
+    }
+  }
+
+  async createTimeBlock(timeBlock: any) {
+    const supabase = this.supabase
+    const { tasks, ...blockData } = timeBlock
+    
+    // Create the time block
+    const { data: blockResult, error: blockError } = await supabase
+      .from('time_blocks')
+      .insert({
+        ...blockData,
+        user_id: this.userId
+      })
+      .select()
+      .single()
+
+    if (blockError) throw blockError
+
+    // Add task associations if provided
+    if (tasks && tasks.length > 0) {
+      const taskAssociations = tasks.map((taskId: string) => ({
+        time_block_id: blockResult.id,
+        task_id: taskId
+      }))
+
+      const { error: assocError } = await supabase
+        .from('time_block_tasks')
+        .insert(taskAssociations)
+
+      if (assocError) throw assocError
+    }
+
+    return blockResult
+  }
+
+  async updateTimeBlock(id: string, updates: any) {
+    const supabase = this.supabase
+    const { tasks, ...blockUpdates } = updates
+
+    // Update the time block
+    const { data: blockResult, error: blockError } = await supabase
+      .from('time_blocks')
+      .update(blockUpdates)
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (blockError) throw blockError
+
+    // Update task associations if provided
+    if (tasks !== undefined) {
+      // Remove existing associations
+      await supabase
+        .from('time_block_tasks')
+        .delete()
+        .eq('time_block_id', id)
+
+      // Add new associations
+      if (tasks.length > 0) {
+        const taskAssociations = tasks.map((taskId: string) => ({
+          time_block_id: id,
+          task_id: taskId
+        }))
+
+        const { error: assocError } = await supabase
+          .from('time_block_tasks')
+          .insert(taskAssociations)
+
+        if (assocError) throw assocError
+      }
+    }
+
+    return blockResult
+  }
+
+  async deleteTimeBlock(id: string) {
+    const supabase = this.supabase
+    const { error } = await supabase
+      .from('time_blocks')
+      .delete()
+      .eq('id', id)
+
+    if (error) throw error
+  }
+
+  async addTaskToTimeBlock(timeBlockId: string, taskId: string) {
+    const supabase = this.supabase
+    const { error } = await supabase
+      .from('time_block_tasks')
+      .insert({
+        time_block_id: timeBlockId,
+        task_id: taskId
+      })
+
+    if (error) throw error
+  }
+
+  async removeTaskFromTimeBlock(timeBlockId: string, taskId: string) {
+    const supabase = this.supabase
+    const { error } = await supabase
+      .from('time_block_tasks')
+      .delete()
+      .eq('time_block_id', timeBlockId)
+      .eq('task_id', taskId)
+
+    if (error) throw error
   }
 }

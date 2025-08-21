@@ -1,14 +1,21 @@
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import { AuthProvider } from "@/contexts/AuthContext"
+import { ToastProvider } from "@/contexts/ToastContext"
 import { HydrationFix } from "@/components/hydration-fix"
 import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "Project Manager",
-  description: "A task management tool similar to Todoist",
+  title: "Command Center",
+  description: "A powerful project management and task organization tool",
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/icon.svg', type: 'image/svg+xml' }
+    ],
+  },
 }
 
 export default function RootLayout({
@@ -17,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" className="dark theme-liquid-glass" data-theme="liquid-glass-dark" suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{
@@ -54,11 +61,15 @@ export default function RootLayout({
                   setTimeout(() => observer.disconnect(), 5000);
                 }
                 
-                // Always set a valid RGB value to prevent hydration errors
-                document.documentElement.style.setProperty('--user-profile-color-rgb', '234, 88, 12');
-                document.documentElement.style.setProperty('--theme-primary-rgb', '234, 88, 12');
+                // Set default gradient theme immediately
+                document.documentElement.style.setProperty('--user-profile-color', '#667eea');
+                document.documentElement.style.setProperty('--user-profile-gradient', 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
+                document.documentElement.style.setProperty('--theme-primary', '#667eea');
+                document.documentElement.style.setProperty('--theme-gradient', 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
+                document.documentElement.style.setProperty('--user-profile-color-rgb', '102, 126, 234');
+                document.documentElement.style.setProperty('--theme-primary-rgb', '102, 126, 234');
                 
-                // Theme will be applied by AuthContext after Supabase loads
+                // User's custom theme will be applied by AuthContext after authentication
               })();
             `,
           }}
@@ -66,8 +77,10 @@ export default function RootLayout({
       </head>
       <body className={inter.className} suppressHydrationWarning>
         <AuthProvider>
-          <HydrationFix />
-          {children}
+          <ToastProvider>
+            <HydrationFix />
+            {children}
+          </ToastProvider>
         </AuthProvider>
       </body>
     </html>

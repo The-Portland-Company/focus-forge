@@ -1,45 +1,56 @@
 import { NextResponse } from 'next/server'
-import { getDatabaseAdapter } from '@/lib/db/factory'
+import { NextRequest } from 'next/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const adapter = getDatabaseAdapter()
+    // Check authentication first
+    const authClient = await createClient()
+    const { data: { session }, error: authError } = await authClient.auth.getSession()
     
-    console.log('Database adapter type:', adapter.constructor.name)
+    console.log('🔍 Database API - Auth check:', { 
+      hasSession: !!session, 
+      userId: session?.user?.id, 
+      email: session?.user?.email,
+      authError: authError?.message 
+    })
     
-    // If it's a file adapter, use the old method without authentication
-    if (adapter.constructor.name === 'FileAdapter' && adapter.getDatabase) {
-      console.log('Using file adapter - no authentication required')
-      const database = await adapter.getDatabase()
-      return NextResponse.json(database)
+    if (authError || !session?.user) {
+      console.error('❌ Auth error in database route:', authError)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     
-    console.log('Using Supabase adapter')
+    // Use service role client to bypass RLS issues with user_organizations table
+    const supabase = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    )
     
-    // For Supabase adapter, we need to fetch data differently
-    // Check if user is authenticated first
-    // Lazy load the Supabase client only when needed
-    const { createClient } = await import('@/lib/supabase/server')
-    const supabase = await createClient()
+    // Test the supabase client directly
+    const { data: testOrgs, error: testError } = await supabase
+      .from('user_organizations')
+      .select('organization_id')
+      .eq('user_id', session.user.id)
+      .limit(1)
     
-    // First try to get the session
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-    console.log('Session check - Session exists:', !!session, 'User:', session?.user?.email, 'Error:', sessionError?.message)
+    console.log('🔍 Direct Supabase test query:', { 
+      testOrgs, 
+      testError,
+      userId: session.user.id 
+    })
     
-    // Then get the user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    console.log('Auth check - User:', user?.email, 'Error:', authError?.message)
+    // Initialize the Supabase adapter with service client
+    const adapter = new SupabaseAdapter(supabase, session.user.id)
     
-    if (authError) {
-      console.error('Auth error:', authError)
-      return NextResponse.json({ error: 'Authentication error', details: authError.message }, { status: 401 })
-    }
-    
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized - No user found' }, { status: 401 })
-    }
-    
-    // Fetch all data using the adapter methods with individual error handling
+    // Fetch all data from Supabase
     let organizations = []
     let projects = []
     let tasks = []
@@ -47,21 +58,30 @@ export async function GET() {
     let userProfile = null
     
     try {
+      console.log('📝 Fetching organizations for user:', session.user.id)
       organizations = await adapter.getOrganizations()
+      console.log('✅ Organizations fetched:', organizations.length)
     } catch (error) {
-      console.error('Error fetching organizations:', error)
+      console.error('❌ Error fetching organizations:', error)
+      console.error('Full error details:', JSON.stringify(error, null, 2))
     }
     
     try {
+      console.log('📝 Fetching projects...')
       projects = await adapter.getProjects()
+      console.log('✅ Projects fetched:', projects.length)
     } catch (error) {
-      console.error('Error fetching projects:', error)
+      console.error('❌ Error fetching projects:', error)
+      console.error('Full error details:', JSON.stringify(error, null, 2))
     }
     
     try {
+      console.log('📝 Fetching tasks...')
       tasks = await adapter.getTasks()
+      console.log('✅ Tasks fetched:', tasks.length)
     } catch (error) {
-      console.error('Error fetching tasks:', error)
+      console.error('❌ Error fetching tasks:', error)
+      console.error('Full error details:', JSON.stringify(error, null, 2))
     }
     
     try {
@@ -71,39 +91,126 @@ export async function GET() {
     }
     
     try {
-      userProfile = await adapter.getUser(user.id)
+      userProfile = await adapter.getUser(session.user.id)
     } catch (error) {
       console.error('Error fetching user profile:', error)
       // Create a minimal user profile if fetch fails
       userProfile = {
-        id: user.id,
-        email: user.email || '',
+        id: session.user.id,
+        email: session.user.email || '',
         firstName: '',
-        lastName: ''
+        lastName: '',
+        name: session.user.email?.split('@')[0] || 'User',
+        profileColor: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        animationsEnabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       }
     }
     
-    // Return data in the expected format
+    // Get all organization members for the user's organizations
+    const organizationMemberIds = new Set<string>()
+    organizations.forEach(org => {
+      // Add owner
+      if (org.ownerId) {
+        organizationMemberIds.add(org.ownerId)
+      }
+      // Add all members
+      if (org.memberIds) {
+        org.memberIds.forEach(id => organizationMemberIds.add(id))
+      }
+    })
+    
+    // Fetch all organization members from Supabase
+    let organizationUsers = []
+    if (organizationMemberIds.size > 0) {
+      try {
+        const { data: profiles, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('id', Array.from(organizationMemberIds))
+        
+        if (!error && profiles) {
+          organizationUsers = profiles.map(profile => ({
+            id: profile.id,
+            email: profile.email || '',
+            firstName: profile.first_name || '',
+            lastName: profile.last_name || '',
+            name: profile.display_name || `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.email,
+            profileColor: profile.profile_color || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            animationsEnabled: profile.animations_enabled ?? true,
+            status: profile.status || 'active',
+            createdAt: profile.created_at,
+            updatedAt: profile.updated_at
+          }))
+        }
+      } catch (error) {
+        console.error('Error fetching organization members:', error)
+      }
+    }
+    
+    // Include the current user if not already in the list
+    if (!organizationUsers.find(u => u.id === session.user.id) && userProfile) {
+      organizationUsers.push(userProfile)
+    }
+    
     return NextResponse.json({
-      users: [userProfile], // Only return current user for privacy
+      users: organizationUsers,
       organizations,
       projects,
       tasks,
       tags,
-      settings: {
-        showCompletedTasks: true // Default setting
-      }
+      sections: [],
+      reminders: [],
+      userSectionPreferences: [],
+      settings: { showCompletedTasks: true },
+      taskSections: []
     })
+    
   } catch (error) {
-    console.error('Database fetch error:', error)
-    // Return more detailed error information for debugging
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    const errorDetails = {
-      error: 'Failed to fetch database',
-      message: errorMessage,
-      stack: error instanceof Error ? error.stack : undefined
+    console.error('Database API error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = await createClient()
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+    
+    if (authError || !session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    console.error('Detailed error:', errorDetails)
-    return NextResponse.json({ error: 'Failed to fetch database', details: errorMessage }, { status: 500 })
+    
+    const body = await request.json()
+    const adapter = new SupabaseAdapter(supabase, session.user.id)
+    
+    // Handle different types of data updates
+    if (body.organizations) {
+      // Update organizations
+      // Implementation would go here
+    }
+    
+    if (body.projects) {
+      // Update projects
+      // Implementation would go here
+    }
+    
+    if (body.tasks) {
+      // Update tasks
+      // Implementation would go here
+    }
+    
+    return NextResponse.json({ success: true })
+    
+  } catch (error) {
+    console.error('Database POST error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }

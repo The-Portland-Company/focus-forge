@@ -1,52 +1,50 @@
 import { NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { createClient } from '@/lib/supabase/server'
 
 export async function GET() {
   const checks: Record<string, string> = {
     app: 'ok',
-    database: 'unknown',
     supabase: 'unknown',
     environment: process.env.NODE_ENV || 'unknown',
     port: process.env.PORT || '3244',
     timestamp: new Date().toISOString()
   }
 
-  // Check database connection
+  // Check Supabase connection
   try {
-    const db = await getDatabase()
-    checks.database = db ? 'ok' : 'error'
-  } catch (error) {
-    checks.database = 'error'
-    checks.database_error = error instanceof Error ? error.message : 'Unknown error'
-  }
-
-  // Check Supabase if enabled
-  if (process.env.USE_SUPABASE === 'true') {
-    try {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      
-      if (!url || !key) {
-        checks.supabase = 'missing_credentials'
-        checks.supabase_details = `URL: ${url ? 'set' : 'missing'}, Key: ${key ? 'set' : 'missing'}`
-      } else if (!url.startsWith('http')) {
-        checks.supabase = 'invalid_url'
-        checks.supabase_details = 'URL must start with http:// or https://'
-      } else {
-        // For now, just check that credentials exist
-        // Actual Supabase connection test would require client initialization
-        checks.supabase = 'configured'
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    
+    if (!url || !key) {
+      checks.supabase = 'missing_credentials'
+      checks.supabase_details = `URL: ${url ? 'set' : 'missing'}, Key: ${key ? 'set' : 'missing'}`
+    } else if (!url.startsWith('http')) {
+      checks.supabase = 'invalid_url'
+      checks.supabase_details = 'URL must start with http:// or https://'
+    } else {
+      // Test actual Supabase connection
+      try {
+        const supabase = await createClient()
+        const { error } = await supabase.from('profiles').select('count', { count: 'exact', head: true })
+        
+        if (error) {
+          checks.supabase = 'connection_error'
+          checks.supabase_error = error.message
+        } else {
+          checks.supabase = 'ok'
+        }
+      } catch (connectionError) {
+        checks.supabase = 'error'
+        checks.supabase_error = connectionError instanceof Error ? connectionError.message : 'Unknown error'
       }
-    } catch (error) {
-      checks.supabase = 'error'
-      checks.supabase_error = error instanceof Error ? error.message : 'Unknown error'
     }
-  } else {
-    checks.supabase = 'disabled'
+  } catch (error) {
+    checks.supabase = 'error'
+    checks.supabase_error = error instanceof Error ? error.message : 'Unknown error'
   }
 
   // Check critical environment variables
-  const requiredVars = ['NODE_ENV']
+  const requiredVars = ['NODE_ENV', 'NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY']
   const missingVars = requiredVars.filter(v => !process.env[v])
   
   if (missingVars.length > 0) {
@@ -57,21 +55,11 @@ export async function GET() {
   }
 
   // Determine overall health
-  const criticalChecks = ['app']
-  
-  // Database is critical if not using Supabase
-  if (process.env.USE_SUPABASE !== 'true') {
-    criticalChecks.push('database')
-  }
-  
-  // Supabase is critical if enabled
-  if (process.env.USE_SUPABASE === 'true') {
-    criticalChecks.push('supabase')
-  }
+  const criticalChecks = ['app', 'supabase', 'env_vars']
 
   const allOk = criticalChecks.every(check => {
     const value = checks[check]
-    return value === 'ok' || value === 'disabled' || value === 'configured'
+    return value === 'ok'
   })
 
   const status = allOk ? 'healthy' : 'unhealthy'

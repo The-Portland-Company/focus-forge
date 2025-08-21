@@ -1,5 +1,6 @@
 export interface User {
   id: string
+  authId?: string // Link to auth user
   firstName: string
   lastName: string
   name: string
@@ -31,6 +32,7 @@ export interface Project {
   description?: string
   color: string
   organizationId: string
+  ownerId?: string // User who owns this project
   isFavorite: boolean
   archived?: boolean
   budget?: number
@@ -54,6 +56,7 @@ export interface Task {
   projectId: string
   assignedTo?: string
   assignedToName?: string
+  createdBy?: string // User who created this task
   tags: string[]
   completed: boolean
   completedAt?: string
@@ -115,6 +118,27 @@ export interface UserSectionPreference {
   updatedAt: string
 }
 
+export interface TimeBlock {
+  id: string
+  userId: string
+  organizationId?: string
+  startTime: string
+  endTime: string
+  title: string
+  description?: string
+  tasks?: Task[]
+  taskIds?: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TimeBlockTask {
+  id: string
+  timeBlockId: string
+  taskId: string
+  createdAt: string
+}
+
 export interface Database {
   users: User[]
   organizations: Organization[]
@@ -124,6 +148,8 @@ export interface Database {
   sections: Section[]
   taskSections: TaskSection[]
   userSectionPreferences: UserSectionPreference[]
+  timeBlocks: TimeBlock[]
+  timeBlockTasks: TimeBlockTask[]
   settings: {
     showCompletedTasks: boolean
   }

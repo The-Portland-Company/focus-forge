@@ -19,3 +19,5 @@
 
 ## Deployment Responsibilities
 - You are resposible to check Railway Build and Deploy logs after each deployment. Then debug accordingly.
+- Never say something is "fully functional" or "ready to use" always say "Please test."
+- Never change user passwords without permission.

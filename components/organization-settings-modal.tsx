@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
-import { X, Search, Building2, Plus, Check, Users, Mail, UserPlus, Trash2 } from 'lucide-react'
+import { X, Search, Building2, Plus, Check, Users, Mail, UserPlus, Trash2, Loader2 } from 'lucide-react'
 import { Organization, Project, Database, User } from '@/lib/types'
 import { ColorPicker } from './color-picker'
 import { getBackgroundStyle } from '@/lib/style-utils'
@@ -18,6 +18,7 @@ interface OrganizationSettingsModalProps {
   onUserInvite?: (email: string, organizationId: string, firstName: string, lastName: string) => void
   onUserAdd?: (userId: string, organizationId: string) => void
   onUserRemove?: (userId: string, organizationId: string) => void
+  onSendReminder?: (userId: string, organizationId: string) => void
 }
 
 export function OrganizationSettingsModal({ 
@@ -31,7 +32,8 @@ export function OrganizationSettingsModal({
   onProjectAssociation,
   onUserInvite,
   onUserAdd,
-  onUserRemove
+  onUserRemove,
+  onSendReminder
 }: OrganizationSettingsModalProps) {
   const [name, setName] = useState(organization.name)
   const [description, setDescription] = useState(organization.description || '')
@@ -49,11 +51,17 @@ export function OrganizationSettingsModal({
   const [inviteLastName, setInviteLastName] = useState('')
   const [showAddUser, setShowAddUser] = useState(false)
   const [userSearchQuery, setUserSearchQuery] = useState('')
+  const [sendingReminders, setSendingReminders] = useState<Set<string>>(new Set())
   
-  // Get organization members
-  const [organizationUserIds, setOrganizationUserIds] = useState<string[]>(
-    organization.memberIds || []
-  )
+  // Get organization members (including owner)
+  const [organizationUserIds, setOrganizationUserIds] = useState<string[]>(() => {
+    const ids = new Set(organization.memberIds || [])
+    // Always include the owner
+    if (organization.ownerId) {
+      ids.add(organization.ownerId)
+    }
+    return Array.from(ids)
+  })
   
   // Check if current user is the owner
   const isOwner = currentUserId === organization.ownerId
@@ -159,13 +167,18 @@ export function OrganizationSettingsModal({
           </button>
           <button
             onClick={() => setActiveTab('users')}
-            className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+            className={`px-6 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
               activeTab === 'users' 
                 ? 'text-white' 
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
             Users
+            {organizationUserIds.length > 0 && (
+              <span className="text-xs text-zinc-400">
+                ({organizationUserIds.length})
+              </span>
+            )}
             {activeTab === 'users' && (
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-theme-primary" />
             )}
@@ -298,7 +311,7 @@ export function OrganizationSettingsModal({
                     </button>
                     <button
                       onClick={() => setShowAddUser(true)}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-theme-primary hover:bg-theme-primary/80 rounded-lg transition-colors text-sm text-white"
+                      className="flex items-center gap-2 px-3 py-1.5 bg-theme-gradient hover:opacity-90 rounded-lg transition-opacity text-sm text-white"
                     >
                       <UserPlus className="w-4 h-4" />
                       Add Existing User
@@ -341,22 +354,57 @@ export function OrganizationSettingsModal({
                                 )}
                                 {user.status === 'pending' && (
                                   <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-500 rounded-full">
-                                    Pending
+                                    Pending Acceptance
                                   </span>
                                 )}
                               </p>
                               <p className="text-xs text-zinc-500">{user.email}</p>
                             </div>
                           </div>
-                          {onUserRemove && isOwner && organization.ownerId !== user.id && (
-                            <button
-                              onClick={() => onUserRemove(user.id, organization.id)}
-                              className="p-1.5 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-red-400"
-                              title="Remove from organization"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {user.status === 'pending' && onSendReminder && isOwner && (
+                              <button
+                                onClick={async () => {
+                                  setSendingReminders(prev => new Set(prev).add(user.id))
+                                  try {
+                                    const result = await onSendReminder(user.id, organization.id)
+                                    // Only clear loading state when delivery is confirmed
+                                    if (result?.delivered) {
+                                      setSendingReminders(prev => {
+                                        const newSet = new Set(prev)
+                                        newSet.delete(user.id)
+                                        return newSet
+                                      })
+                                    }
+                                  } catch (error) {
+                                    // Clear loading state on error
+                                    setSendingReminders(prev => {
+                                      const newSet = new Set(prev)
+                                      newSet.delete(user.id)
+                                      return newSet
+                                    })
+                                  }
+                                }}
+                                disabled={sendingReminders.has(user.id)}
+                                className="px-3 py-1 text-xs bg-theme-gradient text-white rounded hover:opacity-90 transition-opacity disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                title={sendingReminders.has(user.id) ? "Sending reminder..." : "Send reminder email"}
+                              >
+                                Send Reminder
+                                {sendingReminders.has(user.id) && (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                )}
+                              </button>
+                            )}
+                            {onUserRemove && isOwner && organization.ownerId !== user.id && (
+                              <button
+                                onClick={() => onUserRemove(user.id, organization.id)}
+                                className="p-1.5 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-red-400"
+                                title="Remove from organization"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ))}
                   </div>
@@ -424,7 +472,7 @@ export function OrganizationSettingsModal({
                             }
                           }}
                           disabled={!inviteEmail || !inviteFirstName || !inviteLastName}
-                          className="px-4 py-2 bg-theme-primary text-white rounded-lg hover:bg-theme-primary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-4 py-2 bg-theme-gradient text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Send Invite
                         </button>
@@ -523,7 +571,7 @@ export function OrganizationSettingsModal({
           {isOwner ? (
             <button
               onClick={handleSave}
-              className="px-4 py-2 bg-theme-primary text-white rounded-lg hover:bg-theme-primary/80 transition-colors"
+              className="px-4 py-2 bg-theme-gradient text-white rounded-lg hover:opacity-90 transition-opacity"
             >
               Save Changes
             </button>

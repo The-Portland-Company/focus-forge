@@ -4,26 +4,28 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, User, Building2, Edit } from 'lucide-react'
 import { ThemePicker } from '@/components/theme-picker'
+import { ThemeSwitcher } from '@/components/theme-switcher'
 import { OrganizationSettingsModal } from '@/components/organization-settings-modal'
 import { Database, Organization } from '@/lib/types'
 import { getBackgroundStyle } from '@/lib/style-utils'
 import { useUserProfile } from '@/lib/supabase/hooks'
-import { applyUserTheme } from '@/lib/theme-utils'
+import { applyUserTheme, applyTheme } from '@/lib/theme-utils'
+import { ThemePreset, DEFAULT_THEME_PRESET } from '@/lib/theme-constants'
+import { useToast } from '@/contexts/ToastContext'
 
 export default function SettingsPage() {
   const router = useRouter()
+  const { showSuccess, showError, showInfo, showWarning } = useToast()
   const [database, setDatabase] = useState<Database | null>(null)
   // Initialize with null to avoid hydration mismatch
   const [profileColor, setProfileColor] = useState<string | null>(null)
+  const [themePreset, setThemePreset] = useState<ThemePreset>(DEFAULT_THEME_PRESET)
   const [animationsEnabled, setAnimationsEnabled] = useState<boolean | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [showThemePicker, setShowThemePicker] = useState(false)
   const [selectedOrganization, setSelectedOrganization] = useState<Organization | null>(null)
   const themePickerRef = useRef<HTMLDivElement>(null)
   const { profile, loading: profileLoading, updateProfile } = useUserProfile()
-  
-  // Check if we're using Supabase or file-based database
-  const useSupabase = process.env.NEXT_PUBLIC_USE_SUPABASE === 'true'
 
   useEffect(() => {
     fetchData()
@@ -58,27 +60,34 @@ export default function SettingsPage() {
   // Load profile settings from Supabase
   useEffect(() => {
     if (profile && !profileLoading) {
-      const userColor = profile.profile_color || '#EA580C'
+      const userColor = profile.profile_color || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
       const userAnimations = profile.animations_enabled !== false
+      const userTheme = (profile.theme_preset as ThemePreset) || DEFAULT_THEME_PRESET
+      
       setProfileColor(userColor)
       setAnimationsEnabled(userAnimations)
-      // Apply theme immediately when profile loads
-      applyUserTheme(userColor, userAnimations)
+      setThemePreset(userTheme)
+      
+      // Apply complete theme immediately when profile loads
+      applyTheme(userTheme, userColor, userAnimations)
     }
   }, [profile, profileLoading])
 
-  const handleAutoSave = async (updates: { profileColor?: string; animationsEnabled?: boolean }) => {
+  const handleAutoSave = async (updates: { 
+    profileColor?: string; 
+    animationsEnabled?: boolean; 
+    themePreset?: ThemePreset 
+  }) => {
     setSaveStatus('saving')
     try {
       // Apply theme immediately for instant feedback
-      if (updates.profileColor !== undefined) {
-        applyUserTheme(updates.profileColor, animationsEnabled ?? true)
-      }
-      if (updates.animationsEnabled !== undefined) {
-        applyUserTheme(profileColor || '#EA580C', updates.animationsEnabled)
-      }
+      const currentTheme = updates.themePreset ?? themePreset
+      const currentColor = updates.profileColor ?? profileColor
+      const currentAnimations = updates.animationsEnabled ?? animationsEnabled ?? true
       
-      if (useSupabase && updateProfile) {
+      applyTheme(currentTheme, currentColor || undefined, currentAnimations)
+      
+      if (updateProfile) {
         // Update profile in Supabase
         const profileUpdates: any = {}
         if (updates.profileColor !== undefined) {
@@ -87,35 +96,14 @@ export default function SettingsPage() {
         if (updates.animationsEnabled !== undefined) {
           profileUpdates.animations_enabled = updates.animationsEnabled
         }
+        if (updates.themePreset !== undefined) {
+          profileUpdates.theme_preset = updates.themePreset
+        }
         
         const result = await updateProfile(profileUpdates)
         const error = result?.error
         
         if (!error) {
-          setSaveStatus('saved')
-          setTimeout(() => setSaveStatus('idle'), 2000)
-        } else {
-          setSaveStatus('error')
-          setTimeout(() => setSaveStatus('idle'), 3000)
-        }
-      } else {
-        // Update file-based database
-        if (!database?.users?.[0]) {
-          setSaveStatus('error')
-          setTimeout(() => setSaveStatus('idle'), 3000)
-          return
-        }
-        
-        const response = await fetch(`/api/users/${database.users[0].id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            profileColor: updates.profileColor ?? profileColor,
-            animationsEnabled: updates.animationsEnabled ?? animationsEnabled
-          })
-        })
-        
-        if (response.ok) {
           setSaveStatus('saved')
           setTimeout(() => setSaveStatus('idle'), 2000)
         } else {
@@ -164,34 +152,27 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-xl font-semibold mb-6">Your Profile</h2>
             <div className="space-y-6">
-              {/* Profile Color */}
+              {/* Theme Settings */}
               <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
                 <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
                   <User className="w-5 h-5" />
-                  Profile Color
+                  Theme & Appearance
                 </h3>
-                <p className="text-sm text-zinc-400 mb-4">
-                  Choose your profile color. This will be used for your user icon and accent colors throughout the app.
+                <p className="text-sm text-zinc-400 mb-6">
+                  Choose your theme style and customize colors. Your selection affects the entire application appearance.
                 </p>
-                <div className="relative flex items-center gap-4" ref={themePickerRef}>
-                  <button
-                    onClick={() => setShowThemePicker(!showThemePicker)}
-                    className="w-12 h-12 rounded-full border-2 border-zinc-700 transition-transform hover:scale-105"
-                    style={getBackgroundStyle(profileColor || undefined)}
-                  />
-                  {showThemePicker && (
-                    <div className="absolute mt-2 z-50">
-                      <ThemePicker
-                        currentTheme={profileColor || '#EA580C'}
-                        onThemeChange={async (theme) => {
-                          setProfileColor(theme)
-                          setShowThemePicker(false)
-                          await handleAutoSave({ profileColor: theme })
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
+                <ThemeSwitcher
+                  currentTheme={themePreset}
+                  currentColor={profileColor || undefined}
+                  onThemeChange={async (theme) => {
+                    setThemePreset(theme)
+                    await handleAutoSave({ themePreset: theme })
+                  }}
+                  onColorChange={async (color) => {
+                    setProfileColor(color)
+                    await handleAutoSave({ profileColor: color })
+                  }}
+                />
               </div>
 
               {/* Animations */}
@@ -322,46 +303,47 @@ export default function SettingsPage() {
           }}
           onUserInvite={async (email, organizationId, firstName, lastName) => {
             try {
-              const newUser = {
-                id: `user-${Date.now()}`,
-                email,
-                firstName,
-                lastName,
-                name: `${firstName} ${lastName}`,
-                profileColor: '#6B7280',
-                animationsEnabled: true,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                status: 'pending' as const,
-                invitedAt: new Date().toISOString(),
-                invitedBy: database?.users?.[0]?.id // Current user
-              }
+              // Get organization name for the invitation
+              const org = database.organizations.find(o => o.id === organizationId)
+              const organizationName = org?.name || 'Organization'
               
-              const response = await fetch('/api/users', {
+              const response = await fetch('/api/invite-user', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newUser)
+                body: JSON.stringify({
+                  email,
+                  organizationId,
+                  organizationName,
+                  firstName,
+                  lastName
+                })
               })
               
+              const result = await response.json()
+              
               if (response.ok) {
-                // Add user to organization
-                const org = database.organizations.find(o => o.id === organizationId)
-                if (org) {
-                  const updatedMemberIds = [...(org.memberIds || []), newUser.id]
-                  
-                  await fetch(`/api/organizations/${organizationId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ memberIds: updatedMemberIds })
-                  })
-                }
-                
-                // Refresh data
+                // Refresh data to show the pending user
                 await fetchData()
-                alert(`Invitation sent to ${firstName} ${lastName} (${email})`)
+                
+                // Show appropriate message based on whether email was sent
+                showSuccess(
+                  'Invitation sent!',
+                  `Email sent to ${firstName} ${lastName} (${email})`
+                )
+              } else {
+                // Show error with helpful information
+                if (result.helpUrl) {
+                  showError(
+                    'Email not configured',
+                    'Please configure SMTP settings in Supabase dashboard to send invitation emails'
+                  )
+                } else {
+                  showError('Invitation failed', result.error || 'Failed to send invitation')
+                }
               }
             } catch (error) {
               console.error('Error inviting user:', error)
+              showError('Invitation failed', 'Failed to send invitation. Please try again.')
             }
           }}
           onUserAdd={async (userId, organizationId) => {
@@ -406,6 +388,80 @@ export default function SettingsPage() {
               }
             } catch (error) {
               console.error('Error removing user from organization:', error)
+            }
+          }}
+          onSendReminder={async (userId, organizationId) => {
+            try {
+              // Get the user and organization details
+              const user = database.users.find(u => u.id === userId)
+              const org = database.organizations.find(o => o.id === organizationId)
+              
+              if (!user || !org) {
+                showError('Error', 'User or organization not found')
+                throw new Error('User or organization not found')
+              }
+              
+              // Show initial status
+              showInfo('Sending reminder...', `Preparing to send email to ${user.firstName} ${user.lastName}`)
+              
+              const response = await fetch('/api/send-reminder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  email: user.email,
+                  organizationId,
+                  organizationName: org.name,
+                  firstName: user.firstName,
+                  lastName: user.lastName
+                })
+              })
+              
+              const result = await response.json()
+              
+              if (response.ok) {
+                await fetchData()
+                
+                // Check if email was actually sent or just recorded
+                if (result.delivered) {
+                  // Email actually sent and delivered (Supabase with SMTP)
+                  showSuccess(
+                    'Reminder sent!',
+                    `Email delivered to ${user.firstName} ${user.lastName} (${user.email})`
+                  )
+                  return { delivered: true }
+                } else {
+                  // Email queued but not yet delivered
+                  showInfo(
+                    'Reminder queued',
+                    `Email queued for ${user.firstName} ${user.lastName}. Delivery pending.`
+                  )
+                  // In production, would poll for actual delivery status
+                  // For now, just clear the loading state after a delay
+                  return new Promise((resolve) => {
+                    setTimeout(() => resolve({ delivered: false }), 2000)
+                  })
+                }
+              } else {
+                // Show error with helpful information
+                if (result.details?.includes('already registered')) {
+                  showWarning(
+                    'Already registered',
+                    `${user.firstName} ${user.lastName} has already accepted their invitation`
+                  )
+                } else if (result.helpUrl) {
+                  showError(
+                    'Email not configured',
+                    'Please configure SMTP settings in Supabase dashboard to send reminder emails'
+                  )
+                } else {
+                  showError('Reminder failed', result.error || 'Failed to send reminder')
+                }
+                throw new Error(result.error || 'Failed to send reminder')
+              }
+            } catch (error) {
+              console.error('Error sending reminder:', error)
+              showError('Reminder failed', 'Failed to send reminder. Please try again.')
+              throw error
             }
           }}
         />

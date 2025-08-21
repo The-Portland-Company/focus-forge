@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { updateTask, deleteTask, getDatabase } from '@/lib/db'
+import { createClient } from '@/lib/supabase/server'
 
 export async function GET(
   request: NextRequest,
@@ -7,10 +7,15 @@ export async function GET(
 ) {
   try {
     const params = await props.params
-    const database = await getDatabase()
-    const task = database.tasks.find(t => t.id === params.id)
+    const supabase = await createClient()
     
-    if (!task) {
+    const { data: task, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('id', params.id)
+      .single()
+    
+    if (error || !task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
     
@@ -28,9 +33,16 @@ export async function PUT(
   try {
     const params = await props.params
     const updates = await request.json()
-    const updatedTask = await updateTask(params.id, updates)
+    const supabase = await createClient()
     
-    if (!updatedTask) {
+    const { data: updatedTask, error } = await supabase
+      .from('tasks')
+      .update(updates)
+      .eq('id', params.id)
+      .select()
+      .single()
+    
+    if (error || !updatedTask) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
     
@@ -47,9 +59,14 @@ export async function DELETE(
 ) {
   try {
     const params = await props.params
-    const deleted = await deleteTask(params.id)
+    const supabase = await createClient()
     
-    if (!deleted) {
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', params.id)
+    
+    if (error) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
     

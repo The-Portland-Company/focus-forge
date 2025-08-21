@@ -1,5 +1,55 @@
+import { ThemePreset, THEME_PRESETS, DEFAULT_THEME_PRESET, DEFAULT_GRADIENT_THEME } from './theme-constants'
+
 /**
- * Apply user theme colors to CSS variables
+ * Apply complete theme including preset and color
+ */
+export function applyTheme(
+  themePreset: ThemePreset = DEFAULT_THEME_PRESET,
+  color?: string,
+  animationsEnabled: boolean = true
+) {
+  const root = document.documentElement
+  const theme = THEME_PRESETS[themePreset]
+  
+  // Remove all theme classes first
+  Object.values(THEME_PRESETS).forEach(t => {
+    if (t.cssClass) {
+      root.classList.remove(t.cssClass)
+    }
+  })
+  
+  // Apply the selected theme class
+  if (theme.cssClass) {
+    root.classList.add(theme.cssClass)
+  }
+  
+  // Set theme preset data attribute for CSS targeting
+  root.setAttribute('data-theme', themePreset)
+  
+  // Apply color if theme allows customization or use default
+  let themeColor = color
+  if (!theme.allowsColorCustomization) {
+    // For fixed themes like liquid-glass, use predefined colors
+    themeColor = theme.defaultColor || DEFAULT_GRADIENT_THEME
+  } else {
+    // For customizable themes, use provided color or theme default
+    themeColor = color || theme.defaultColor || DEFAULT_GRADIENT_THEME
+  }
+  
+  if (themeColor) {
+    applyUserTheme(themeColor, animationsEnabled)
+  }
+  
+  // Toggle animations
+  if (animationsEnabled) {
+    root.classList.remove('no-animations')
+  } else {
+    root.classList.add('no-animations')
+  }
+}
+
+/**
+ * Apply user theme colors to CSS variables (legacy function for backward compatibility)
  * This centralizes theme application logic to ensure consistency
  */
 export function applyUserTheme(color: string, animationsEnabled: boolean = true) {
@@ -39,13 +89,6 @@ export function applyUserTheme(color: string, animationsEnabled: boolean = true)
     // Fallback to default orange color RGB
     root.style.setProperty('--user-profile-color-rgb', '234, 88, 12')
     root.style.setProperty('--theme-primary-rgb', '234, 88, 12')
-  }
-  
-  // Toggle animations
-  if (animationsEnabled) {
-    root.classList.remove('no-animations')
-  } else {
-    root.classList.add('no-animations')
   }
 }
 

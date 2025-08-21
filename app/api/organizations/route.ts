@@ -1,12 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createOrganization } from '@/lib/db'
+import { createClient } from '@/lib/supabase/server'
+import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
 
 export async function POST(request: NextRequest) {
   try {
     const organizationData = await request.json()
-    const newOrganization = await createOrganization(organizationData)
+    
+    // Get the Supabase client and authenticated user
+    const supabase = await createClient()
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+    
+    if (authError || !session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    
+    // Initialize the Supabase adapter
+    const adapter = new SupabaseAdapter(supabase, session.user.id)
+    
+    // Get the database user profile
+    const dbUser = await adapter.getUser(session.user.id)
+    
+    if (!dbUser) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+    
+    // Add the owner ID to the organization data
+    const orgDataWithOwner = {
+      ...organizationData,
+      ownerId: dbUser.id,
+      memberIds: [dbUser.id]
+    }
+    
+    const newOrganization = await adapter.createOrganization(orgDataWithOwner)
     return NextResponse.json(newOrganization)
   } catch (error) {
+    console.error('Failed to create organization:', error)
     return NextResponse.json({ error: 'Failed to create organization' }, { status: 500 })
   }
 }

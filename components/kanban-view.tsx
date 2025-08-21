@@ -13,6 +13,7 @@ interface KanbanViewProps {
   onTaskToggle: (taskId: string) => void
   onTaskEdit: (task: Task) => void
   onTaskUpdate: (taskId: string, updates: Partial<Task>) => void
+  dateType?: 'dueDate' | 'deadline' // Which date field to use for grouping
 }
 
 interface KanbanColumn {
@@ -21,7 +22,7 @@ interface KanbanColumn {
   tasks: Task[]
 }
 
-export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit, onTaskUpdate }: KanbanViewProps) {
+export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit, onTaskUpdate, dateType = 'dueDate' }: KanbanViewProps) {
   const [draggedTask, setDraggedTask] = useState<Task | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
 
@@ -48,9 +49,10 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
 
     // Sort tasks into columns
     tasks.forEach(task => {
-      if (!task.dueDate) return
+      const dateValue = dateType === 'deadline' ? task.deadline : task.due_date
+      if (!dateValue) return
       
-      const taskDate = new Date(task.dueDate)
+      const taskDate = new Date(dateValue)
       taskDate.setHours(0, 0, 0, 0)
       
       if (taskDate < today) {
@@ -68,11 +70,14 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
       }
     })
 
-    // Sort tasks within each column by due date
+    // Sort tasks within each column by the selected date type
     columns.forEach(column => {
       column.tasks.sort((a, b) => {
-        const dateA = new Date(a.dueDate!).getTime()
-        const dateB = new Date(b.dueDate!).getTime()
+        const aDate = dateType === 'deadline' ? a.deadline : a.due_date
+        const bDate = dateType === 'deadline' ? b.deadline : b.due_date
+        if (!aDate || !bDate) return 0
+        const dateA = new Date(aDate).getTime()
+        const dateB = new Date(bDate).getTime()
         return dateA - dateB
       })
     })
@@ -101,8 +106,9 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
     
     if (!draggedTask) return
 
-    // Calculate new due date based on column
-    let newDueDate: string | undefined = draggedTask.dueDate
+    // Calculate new date based on column
+    const currentDateValue = dateType === 'deadline' ? draggedTask.deadline : draggedTask.due_date
+    let newDate: string | undefined = currentDateValue
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
@@ -111,30 +117,31 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
         // Keep the original date (it's already overdue)
         break
       case 'today':
-        newDueDate = format(today, 'yyyy-MM-dd')
+        newDate = format(today, 'yyyy-MM-dd')
         break
       case 'tomorrow':
-        newDueDate = format(addDays(today, 1), 'yyyy-MM-dd')
+        newDate = format(addDays(today, 1), 'yyyy-MM-dd')
         break
       case 'this-week':
         // Set to next available day this week
         const daysUntilWeekEnd = 7 - today.getDay()
         const targetDay = Math.min(3, daysUntilWeekEnd) // Try to set mid-week
-        newDueDate = format(addDays(today, targetDay), 'yyyy-MM-dd')
+        newDate = format(addDays(today, targetDay), 'yyyy-MM-dd')
         break
       case 'next-week':
         // Set to next Monday
         const daysUntilNextMonday = ((1 - today.getDay() + 7) % 7) || 7
-        newDueDate = format(addDays(today, daysUntilNextMonday + 7), 'yyyy-MM-dd')
+        newDate = format(addDays(today, daysUntilNextMonday + 7), 'yyyy-MM-dd')
         break
       case 'later':
         // Set to 2 weeks from now
-        newDueDate = format(addDays(today, 14), 'yyyy-MM-dd')
+        newDate = format(addDays(today, 14), 'yyyy-MM-dd')
         break
     }
 
-    if (newDueDate !== draggedTask.dueDate) {
-      onTaskUpdate(draggedTask.id, { dueDate: newDueDate })
+    if (newDate !== currentDateValue) {
+      const updateField = dateType === 'deadline' ? { deadline: newDate } : { due_date: newDate }
+      onTaskUpdate(draggedTask.id, updateField)
     }
 
     setDraggedTask(null)
@@ -228,10 +235,10 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
                           </div>
                         )}
                         
-                        {task.dueDate && (
+                        {task.due_date && (
                           <div className="flex items-center gap-1 text-xs text-zinc-400">
                             <Calendar className="w-3 h-3" />
-                            {format(new Date(task.dueDate), 'MMM d')}
+                            {format(new Date(task.due_date), 'MMM d')}
                           </div>
                         )}
                         

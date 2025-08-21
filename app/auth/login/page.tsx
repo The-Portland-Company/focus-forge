@@ -1,26 +1,49 @@
 'use client'
 
-import { useState } from 'react'
-import { useAuth } from '@/contexts/AuthContext'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Loader2, LogIn } from 'lucide-react'
 import Link from 'next/link'
 
 export default function LoginPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const { signIn } = useAuth()
+  const [message, setMessage] = useState('')
+  
+  useEffect(() => {
+    // Check if user just registered
+    if (searchParams.get('registered') === 'true') {
+      setMessage('Registration successful! Please log in.')
+    }
+  }, [searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    const { error } = await signIn(email, password)
-    
-    if (error) {
-      setError(error.message)
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Login failed')
+      }
+
+      // Redirect to the original page or home
+      const from = searchParams.get('from') || '/today'
+      router.push(from)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed')
       setLoading(false)
     }
   }
@@ -69,6 +92,12 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {message && (
+              <div className="mt-4 p-3 bg-green-900/20 border border-green-800 rounded-lg text-green-400 text-sm">
+                {message}
+              </div>
+            )}
+
             {error && (
               <div className="mt-4 p-3 bg-red-900/20 border border-red-800 rounded-lg text-red-400 text-sm">
                 {error}
@@ -95,8 +124,13 @@ export default function LoginPage() {
           </div>
         </form>
 
-        <div className="mt-6 text-center text-sm text-zinc-500">
-          <p>Demo account: demo@demo.com / Demo</p>
+        <div className="mt-6 text-center">
+          <p className="text-sm text-zinc-400">
+            Don't have an account?{' '}
+            <Link href="/auth/register" className="text-[rgb(var(--theme-primary-rgb))] hover:underline">
+              Create one
+            </Link>
+          </p>
         </div>
       </div>
     </div>

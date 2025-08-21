@@ -64,6 +64,7 @@ export default function ViewPage() {
   const [sectionParentId, setSectionParentId] = useState<string | undefined>(undefined)
   const [sectionOrder, setSectionOrder] = useState(0)
   const [editingSection, setEditingSection] = useState<Section | null>(null)
+  const [upcomingFilterType, setUpcomingFilterType] = useState<'dueDate' | 'deadline'>('dueDate')
 
   useEffect(() => {
     fetchData()
@@ -242,8 +243,8 @@ export default function ViewPage() {
     
     // Filter for overdue tasks only (not including today's tasks)
     const overdue = database.tasks.filter(task => {
-      if (!task.dueDate || task.completed) return false
-      return isOverdue(task.dueDate)
+      if (!task.due_date || task.completed) return false
+      return isOverdue(task.due_date)
     })
     
     if (overdue.length === 0) {
@@ -431,7 +432,7 @@ export default function ViewPage() {
     if (org) {
       const projectCount = database?.projects.filter(p => p.organizationId === orgId).length || 0
       const taskCount = database?.tasks.filter(t => {
-        const project = database?.projects.find(p => p.id === t.projectId)
+        const project = database?.projects.find(p => p.id === t.project_id)
         return project?.organizationId === orgId
       }).length || 0
       
@@ -456,6 +457,32 @@ export default function ViewPage() {
       }
     } catch (error) {
       console.error('Error updating organization:', error)
+    }
+  }
+
+  const handleOrganizationArchive = async (orgId: string) => {
+    if (!database) return
+    
+    const org = database.organizations.find(o => o.id === orgId)
+    if (!org) return
+    
+    // Archive all projects in this organization
+    const projectsToArchive = database.projects.filter(p => p.organizationId === orgId && !p.archived)
+    
+    try {
+      // Archive each project
+      for (const project of projectsToArchive) {
+        await fetch(`/api/projects/${project.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ archived: true })
+        })
+      }
+      
+      // Refresh the data
+      await fetchData()
+    } catch (error) {
+      console.error('Error archiving organization projects:', error)
     }
   }
 
@@ -606,10 +633,13 @@ export default function ViewPage() {
     return [...tasks].sort((a, b) => {
       switch (sortBy) {
         case 'dueDate':
-          if (!a.dueDate && !b.dueDate) return 0
-          if (!a.dueDate) return 1
-          if (!b.dueDate) return -1
-          return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+          // Use snake_case field from Supabase
+          const aDueDate = a.due_date
+          const bDueDate = b.due_date
+          if (!aDueDate && !bDueDate) return 0
+          if (!aDueDate) return 1
+          if (!bDueDate) return -1
+          return new Date(aDueDate).getTime() - new Date(bDueDate).getTime()
         
         case 'deadline':
           if (!a.deadline && !b.deadline) return 0
@@ -639,19 +669,19 @@ export default function ViewPage() {
     const currentUserId = getCurrentUserId()
     
     if (filterAssignedTo === 'me-unassigned' && currentUserId) {
-      return tasks.filter(task => task.assignedTo === currentUserId || !task.assignedTo)
+      return tasks.filter(task => task.assigned_to === currentUserId || !task.assigned_to)
     }
     
     if (filterAssignedTo === 'me' && currentUserId) {
-      return tasks.filter(task => task.assignedTo === currentUserId)
+      return tasks.filter(task => task.assigned_to === currentUserId)
     }
     
     if (filterAssignedTo === 'unassigned') {
-      return tasks.filter(task => !task.assignedTo)
+      return tasks.filter(task => !task.assigned_to)
     }
     
     // Filter by specific user ID
-    return tasks.filter(task => task.assignedTo === filterAssignedTo)
+    return tasks.filter(task => task.assigned_to === filterAssignedTo)
   }
 
   const renderContent = () => {
@@ -662,9 +692,11 @@ export default function ViewPage() {
       tomorrow.setDate(tomorrow.getDate() + 1)
       
       let todayTasks = database.tasks.filter(task => {
-        if (!task.dueDate) return false
+        // Use snake_case field from Supabase
+        const dueDate = task.due_date
+        if (!dueDate) return false
         // Show tasks due today or overdue (anything up to and including today)
-        return isTodayOrOverdue(task.dueDate)
+        return isTodayOrOverdue(dueDate)
       })
       
       // Apply filters and sorting
@@ -678,91 +710,115 @@ export default function ViewPage() {
       
       // Count overdue tasks specifically
       const overdueCount = database.tasks.filter(task => {
-        if (!task.dueDate || task.completed) return false
-        return isOverdue(task.dueDate)
+        if (!task.due_date || task.completed) return false
+        return isOverdue(task.due_date)
       }).length
       
       return (
         <div>
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold">Today</h1>
+          {/* Header with dark container */}
+          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 mb-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <h1 className="text-2xl font-bold">Today</h1>
+                <div className="px-4 py-1 rounded-lg bg-zinc-800 border border-zinc-700">
+                  <span className="text-sm font-medium text-zinc-300">
+                    {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                {overdueCount > 0 && (
+                  <button
+                    onClick={handleRescheduleAll}
+                    className="px-3 py-1 text-sm bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded-md transition-colors"
+                  >
+                    Reschedule {overdueCount} Overdue
+                  </button>
+                )}
+                <span className="text-sm text-zinc-400">
+                  {todayTasks.filter(t => !t.completed).length} tasks
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          {/* Sort/Filter controls with dark container */}
+          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 mb-4">
             <div className="flex items-center gap-4">
-              {overdueCount > 0 && (
-                <button
-                  onClick={handleRescheduleAll}
-                  className="px-3 py-1 text-sm bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded-md transition-colors"
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-zinc-400">Sort by:</label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                  className="bg-zinc-800 text-white text-sm px-3 py-1 rounded border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all"
                 >
-                  Reschedule {overdueCount} Overdue
-                </button>
-              )}
-              <span className="text-sm text-zinc-400">
-                {todayTasks.filter(t => !t.completed).length} tasks
-              </span>
+                  <option value="dueDate">Due Date</option>
+                  <option value="deadline">Deadline</option>
+                  <option value="priority">Priority</option>
+                </select>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-zinc-400">Assigned to:</label>
+                <select
+                  value={filterAssignedTo}
+                  onChange={(e) => setFilterAssignedTo(e.target.value)}
+                  className="bg-zinc-800 text-white text-sm px-3 py-1 rounded border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all"
+                >
+                  <option value="me-unassigned">Me + Unassigned</option>
+                  <option value="me">Me</option>
+                  <option value="all">All</option>
+                  <option value="unassigned">Unassigned</option>
+                  {database.users.map(user => (
+                    <option key={user.id} value={user.id}>
+                      {user.firstName} {user.lastName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <button
+                onClick={() => setShowBlockedTasks(!showBlockedTasks)}
+                className={`flex items-center gap-2 text-sm px-3 py-1 rounded border transition-colors ${
+                  showBlockedTasks
+                    ? 'bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20'
+                    : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600'
+                }`}
+                title={showBlockedTasks ? 'Hide blocked tasks' : 'Show blocked tasks'}
+              >
+                {showBlockedTasks ? <Link2 className="w-4 h-4" /> : <Link2Off className="w-4 h-4" />}
+                {showBlockedTasks ? 'Showing Blocked' : 'Hiding Blocked'}
+              </button>
             </div>
           </div>
           
-          <div className="flex items-center gap-4 mb-4">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-zinc-400">Sort by:</label>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                className="bg-zinc-800 text-white text-sm px-3 py-1 rounded border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all"
-              >
-                <option value="dueDate">Due Date</option>
-                <option value="deadline">Deadline</option>
-                <option value="priority">Priority</option>
-              </select>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-zinc-400">Assigned to:</label>
-              <select
-                value={filterAssignedTo}
-                onChange={(e) => setFilterAssignedTo(e.target.value)}
-                className="bg-zinc-800 text-white text-sm px-3 py-1 rounded border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all"
-              >
-                <option value="me-unassigned">Me + Unassigned</option>
-                <option value="me">Me</option>
-                <option value="all">All</option>
-                <option value="unassigned">Unassigned</option>
-                {database.users.map(user => (
-                  <option key={user.id} value={user.id}>
-                    {user.firstName} {user.lastName}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            <button
-              onClick={() => setShowBlockedTasks(!showBlockedTasks)}
-              className={`flex items-center gap-2 text-sm px-3 py-1 rounded border transition-colors ${
-                showBlockedTasks
-                  ? 'bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20'
-                  : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600'
-              }`}
-              title={showBlockedTasks ? 'Hide blocked tasks' : 'Show blocked tasks'}
-            >
-              {showBlockedTasks ? <Link2 className="w-4 h-4" /> : <Link2Off className="w-4 h-4" />}
-              {showBlockedTasks ? 'Showing Blocked' : 'Hiding Blocked'}
-            </button>
+          {/* Task List with dark container */}
+          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-1">
+            <TaskList
+              tasks={todayTasks}
+              allTasks={database.tasks}
+              showCompleted={database.settings?.showCompletedTasks ?? true}
+              onTaskToggle={handleTaskToggle}
+              onTaskEdit={handleTaskEdit}
+              onTaskDelete={handleTaskDelete}
+            />
           </div>
-          
-          <TaskList
-            tasks={todayTasks}
-            allTasks={database.tasks}
-            showCompleted={database.settings?.showCompletedTasks ?? true}
-            onTaskToggle={handleTaskToggle}
-            onTaskEdit={handleTaskEdit}
-            onTaskDelete={handleTaskDelete}
-          />
         </div>
       )
     }
     
     if (view === 'upcoming') {
-      // Get all tasks with due dates
-      let upcomingTasks = database.tasks.filter(task => task.dueDate && !task.completed)
+      // Filter tasks based on selected date type
+      let upcomingTasks = database.tasks.filter(task => {
+        if (task.completed) return false
+        if (upcomingFilterType === 'dueDate') {
+          // Check for snake_case field from Supabase
+          return task.due_date !== null && task.due_date !== undefined
+        } else {
+          return task.deadline !== null && task.deadline !== undefined
+        }
+      })
       
       // Filter blocked tasks if needed
       if (!showBlockedTasks && database) {
@@ -786,32 +842,65 @@ export default function ViewPage() {
       }
       
       return (
-        <div className="-ml-8 -mr-8">
-          <div className="flex items-center justify-between mb-6 ml-8 mr-8">
-            <h1 className="text-2xl font-bold">Upcoming</h1>
-            <button
-              onClick={() => setShowBlockedTasks(!showBlockedTasks)}
-              className={`flex items-center gap-2 text-sm px-3 py-1 rounded border transition-colors ${
-                showBlockedTasks
-                  ? 'bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20'
-                  : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600'
-              }`}
-              title={showBlockedTasks ? 'Hide blocked tasks' : 'Show blocked tasks'}
-            >
-              {showBlockedTasks ? <Link2 className="w-4 h-4" /> : <Link2Off className="w-4 h-4" />}
-              {showBlockedTasks ? 'Showing Blocked' : 'Hiding Blocked'}
-            </button>
+        <div>
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <h1 className="text-2xl font-bold">Upcoming</h1>
+              <div className="px-4 py-1 rounded-lg bg-gradient-to-r from-zinc-800/80 to-zinc-700/80 backdrop-filter backdrop-blur-xl border border-zinc-600/30">
+                <span className="text-sm font-medium text-zinc-300">
+                  Next 7 Days
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Date Filter Toggle */}
+              <div className="flex bg-zinc-800 rounded-lg p-1">
+                <button
+                  onClick={() => setUpcomingFilterType('dueDate')}
+                  className={`px-3 py-1 text-sm rounded transition-colors ${
+                    upcomingFilterType === 'dueDate'
+                      ? 'bg-theme-gradient text-white'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Due Date
+                </button>
+                <button
+                  onClick={() => setUpcomingFilterType('deadline')}
+                  className={`px-3 py-1 text-sm rounded transition-colors ${
+                    upcomingFilterType === 'deadline'
+                      ? 'bg-theme-gradient text-white'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Deadline
+                </button>
+              </div>
+              
+              {/* Blocked Tasks Toggle */}
+              <button
+                onClick={() => setShowBlockedTasks(!showBlockedTasks)}
+                className={`flex items-center gap-2 text-sm px-3 py-1 rounded border transition-colors ${
+                  showBlockedTasks
+                    ? 'bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20'
+                    : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600'
+                }`}
+                title={showBlockedTasks ? 'Hide blocked tasks' : 'Show blocked tasks'}
+              >
+                {showBlockedTasks ? <Link2 className="w-4 h-4" /> : <Link2Off className="w-4 h-4" />}
+                {showBlockedTasks ? 'Showing Blocked' : 'Hiding Blocked'}
+              </button>
+            </div>
           </div>
-          <div className="pl-8">
-            <KanbanView
-              tasks={upcomingTasks}
-              allTasks={database.tasks}
-              projects={database.projects}
-              onTaskToggle={handleTaskToggle}
-              onTaskEdit={handleTaskEdit}
-              onTaskUpdate={handleTaskUpdate}
-            />
-          </div>
+          <KanbanView
+            tasks={upcomingTasks}
+            allTasks={database.tasks}
+            projects={database.projects}
+            onTaskToggle={handleTaskToggle}
+            onTaskEdit={handleTaskEdit}
+            onTaskUpdate={handleTaskUpdate}
+            dateType={upcomingFilterType}
+          />
         </div>
       )
     }
@@ -928,7 +1017,7 @@ export default function ViewPage() {
                 <div className="grid gap-3">
                   {filteredProjects.map(project => {
                     const org = database.organizations.find(o => o.id === project.organizationId)
-                    const taskCount = database.tasks.filter(t => t.projectId === project.id).length
+                    const taskCount = database.tasks.filter(t => t.project_id === project.id).length
                     
                     return (
                       <Link
@@ -1102,8 +1191,8 @@ export default function ViewPage() {
               <h2 className="text-lg font-semibold mb-4">Active Projects</h2>
               <div className="grid gap-4">
                 {activeProjects.map(project => {
-                  const taskCount = database.tasks.filter(t => t.projectId === project.id).length
-                  const completedCount = database.tasks.filter(t => t.projectId === project.id && t.completed).length
+                  const taskCount = database.tasks.filter(t => t.project_id === project.id).length
+                  const completedCount = database.tasks.filter(t => t.project_id === project.id && t.completed).length
                   
                   return (
                     <div key={project.id} className="bg-zinc-900 rounded-lg p-4 border border-zinc-800">
@@ -1158,7 +1247,7 @@ export default function ViewPage() {
                 <h2 className="text-lg font-semibold mb-4 text-zinc-400">Archived Projects</h2>
                 <div className="grid gap-4">
                   {archivedProjects.map(project => {
-                    const taskCount = database.tasks.filter(t => t.projectId === project.id).length
+                    const taskCount = database.tasks.filter(t => t.project_id === project.id).length
                     
                     return (
                       <div key={project.id} className="bg-zinc-900/50 rounded-lg p-4 border border-zinc-800 opacity-60">
@@ -1205,7 +1294,7 @@ export default function ViewPage() {
     if (view.startsWith('project-')) {
       const projectId = view.replace('project-', '')
       const project = database.projects.find(p => p.id === projectId)
-      const projectTasks = database.tasks.filter(t => t.projectId === projectId)
+      const projectTasks = database.tasks.filter(t => t.project_id === projectId)
       const projectSections = database.sections?.filter(s => s.projectId === projectId && !s.parentId)
         .sort((a, b) => (a.order || 0) - (b.order || 0)) || []
       
@@ -1335,13 +1424,14 @@ export default function ViewPage() {
         onAddOrganization={() => setShowAddOrganization(true)}
         onOrganizationDelete={openDeleteConfirmation}
         onOrganizationEdit={handleOpenEditOrganization}
+        onOrganizationArchive={handleOrganizationArchive}
         onProjectEdit={handleOpenEditProject}
         onProjectsReorder={handleProjectsReorder}
         onOrganizationsReorder={handleOrganizationsReorder}
       />
       
       <main className="flex-1 text-white overflow-y-auto">
-        <div className="max-w-4xl mx-auto p-8">
+        <div className={view === 'upcoming' ? 'p-8' : 'max-w-4xl mx-auto p-8'}>
           {renderContent()}
         </div>
       </main>

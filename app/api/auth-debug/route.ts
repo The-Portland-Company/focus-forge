@@ -83,7 +83,6 @@ export async function GET() {
       },
       superAdminProfile,
       debug: {
-        USE_SUPABASE: process.env.USE_SUPABASE,
         NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL ? 'exists' : 'missing',
         NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'exists' : 'missing'
       }

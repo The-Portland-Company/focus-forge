@@ -20,7 +20,7 @@ const priorityColors = {
   1: 'text-red-500',
   2: 'text-[rgb(var(--theme-primary-rgb))]', 
   3: 'text-blue-500',
-  4: 'text-gray-400'
+  4: 'text-[rgb(var(--theme-primary-rgb))]'
 }
 
 export function TaskList({ tasks, allTasks, showCompleted = false, onTaskToggle, onTaskEdit, onTaskDelete }: TaskListProps) {
@@ -39,8 +39,8 @@ export function TaskList({ tasks, allTasks, showCompleted = false, onTaskToggle,
         return a.priority - b.priority
       }
       // Then by due date
-      if (a.dueDate && b.dueDate) {
-        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+      if (a.due_date && b.due_date) {
+        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
       }
       return 0
     })
@@ -222,11 +222,11 @@ export function TaskList({ tasks, allTasks, showCompleted = false, onTaskToggle,
             )}
 
             <div className="flex items-center gap-3 mt-2 text-xs">
-              {task.dueDate && (
-                <span className={`flex items-center gap-1 ${getDueDateColor(task.dueDate)}`}>
+              {task.due_date && (
+                <span className={`flex items-center gap-1 ${getDueDateColor(task.due_date)}`}>
                   <Calendar className="w-3 h-3" />
-                  {formatDueDate(task.dueDate)}
-                  {task.dueTime && ` at ${task.dueTime}`}
+                  {formatDueDate(task.due_date)}
+                  {task.due_time && ` at ${task.due_time}`}
                 </span>
               )}
               
