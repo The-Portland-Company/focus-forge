@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Check, Palette } from 'lucide-react'
-import { ThemePreset, THEME_PRESETS } from '@/lib/theme-constants'
+import { ThemePreset, THEME_PRESETS, DEFAULT_THEME_PRESET } from '@/lib/theme-constants'
 import { ThemePicker } from './theme-picker'
 
 interface ThemeSwitcherProps {
@@ -19,7 +19,7 @@ export function ThemeSwitcher({
   onColorChange 
 }: ThemeSwitcherProps) {
   const [showColorPicker, setShowColorPicker] = useState(false)
-  const selectedTheme = THEME_PRESETS[currentTheme]
+  const selectedTheme = THEME_PRESETS[currentTheme] || THEME_PRESETS[DEFAULT_THEME_PRESET]
 
   return (
     <div className="space-y-4">
@@ -61,7 +61,7 @@ export function ThemeSwitcher({
       </div>
 
       {/* Color Customization (only for themes that allow it) */}
-      {selectedTheme.allowsColorCustomization && onColorChange && (
+      {selectedTheme && selectedTheme.allowsColorCustomization && onColorChange && (
         <div>
           <div className="flex items-center justify-between mb-3">
             <label className="block text-sm font-medium text-zinc-200">

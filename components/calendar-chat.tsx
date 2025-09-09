@@ -165,10 +165,10 @@ export function CalendarChat({ onUpdate }: CalendarChatProps) {
                 <p className="mb-2">Hi! I can help you manage your calendar.</p>
                 <p className="text-sm">Try saying:</p>
                 <ul className="text-sm mt-2 space-y-1">
-                  <li>"Add a meeting from 2pm to 3pm tomorrow"</li>
-                  <li>"Create a work block from 9am to 12pm"</li>
-                  <li>"Delete the last time block"</li>
-                  <li>"Update the 10am block title to 'Team Standup'"</li>
+                  <li>&quot;Add a meeting from 2pm to 3pm tomorrow&quot;</li>
+                  <li>&quot;Create a work block from 9am to 12pm&quot;</li>
+                  <li>&quot;Delete the last time block&quot;</li>
+                  <li>&quot;Update the 10am block title to &apos;Team Standup&apos;&quot;</li>
                 </ul>
               </div>
             )}

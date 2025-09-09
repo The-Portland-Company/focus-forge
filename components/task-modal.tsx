@@ -11,6 +11,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SelectGroup,
+  SelectLabel,
 } from "@/components/ui/select"
 import { TimePicker } from '@/components/time-picker'
 import { getBackgroundStyle } from '@/lib/style-utils'
@@ -76,19 +78,36 @@ export function TaskModal({
     if (task && isEditMode) {
       setTaskName(task.name)
       setDescription(task.description || '')
-      setDueDate(task.dueDate || '')
-      setDueTime(task.dueTime || '')
+      // Handle both snake_case and camelCase for due date
+      const dueDate = (task as any).due_date || task.dueDate
+      const dueTime = (task as any).due_time || task.dueTime
+      setDueDate(dueDate || '')
+      setDueTime(dueTime || '')
       setDeadline(task.deadline ? task.deadline.split('T')[0] : '')
       setDeadlineTime(task.deadline && task.deadline.includes('T') ? task.deadline.split('T')[1].substring(0, 5) : '')
       setPriority(task.priority)
-      setSelectedProject(task.projectId || '')
-      setSelectedParentTask(task.parentId || null)
+      // Handle both snake_case and camelCase for projectId
+      const projectId = (task as any).project_id || task.projectId || ''
+      // If no project, try to select the first available project as default
+      if (!projectId && data?.projects?.length > 0) {
+        const firstProject = data.projects.find(p => !p.archived)
+        setSelectedProject(firstProject?.id || '')
+      } else {
+        setSelectedProject(projectId)
+      }
+      // Handle both snake_case and camelCase for parentId
+      const parentId = (task as any).parent_id || task.parentId
+      setSelectedParentTask(parentId || null)
       setSelectedTags(task.tags || [])
-      setAssignedTo(task.assignedTo || null)
+      // Handle both snake_case and camelCase for assignedTo
+      const assignedTo = (task as any).assigned_to || task.assignedTo
+      setAssignedTo(assignedTo || null)
       setReminders(task.reminders || [])
-      setDependencies(task.dependsOn || [])
+      // Handle both snake_case and camelCase for dependsOn
+      const dependsOn = (task as any).depends_on || task.dependsOn
+      setDependencies(dependsOn || [])
     }
-  }, [task, isEditMode])
+  }, [task, isEditMode, data])
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -181,6 +200,13 @@ export function TaskModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Validate that a project is selected
+    if (!selectedProject) {
+      console.error('No project selected')
+      alert('Please select a project')
+      return
+    }
     
     const taskData: any = {
       name: taskName,
@@ -504,37 +530,76 @@ export function TaskModal({
                 Project
               </div>
               <Select 
-                value={selectedProject} 
+                value={selectedProject ? selectedProject : undefined} 
                 onValueChange={setSelectedProject}
-                required
               >
                 <SelectTrigger className="w-full bg-zinc-800 text-white border-zinc-700 focus:ring-2 ring-theme transition-all">
-                  <SelectValue placeholder="Select a project" />
-                </SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
-                  {data.organizations.map((org) => {
-                    const orgProjects = data.projects.filter(p => p.organizationId === org.id)
-                    if (orgProjects.length === 0) return null
-                    
-                    return (
-                      <div key={org.id}>
-                        <div className="px-2 py-1.5 text-xs text-zinc-500 font-medium">
-                          {org.name}
-                        </div>
-                        {orgProjects.map((project) => (
-                          <SelectItem key={project.id} value={project.id}>
-                            <div className="flex items-center gap-2">
-                              <div 
-                                className="w-3 h-3 rounded-full" 
-                                style={{ backgroundColor: project.color }}
-                              />
-                              <span>{project.name}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
+                  {selectedProject && data?.projects ? (() => {
+                    const project = data.projects.find(p => p.id === selectedProject)
+                    return project ? (
+                      <div className="flex items-center gap-2">
+                        <div 
+                          className="w-3 h-3 rounded-full" 
+                          style={{ backgroundColor: project.color }}
+                        />
+                        <span>{project.name}</span>
                       </div>
-                    )
-                  })}
+                    ) : <SelectValue placeholder="Select a project" />
+                  })() : <SelectValue placeholder="Select a project" />}
+                </SelectTrigger>
+                <SelectContent>
+                  {data?.projects && data.projects.length > 0 ? (
+                    <>
+                      {data.organizations?.map((org) => {
+                        const orgProjects = data.projects?.filter(p => p.organizationId === org.id && !p.archived) || []
+                        if (orgProjects.length === 0) return null
+                        
+                        return (
+                          <SelectGroup key={org.id}>
+                            <SelectLabel className="text-xs text-zinc-500 px-2">{org.name}</SelectLabel>
+                            {orgProjects.map((project) => (
+                              <SelectItem key={project.id} value={project.id}>
+                                <div className="flex items-center gap-2">
+                                  <div 
+                                    className="w-3 h-3 rounded-full" 
+                                    style={{ backgroundColor: project.color }}
+                                  />
+                                  <span>{project.name}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )
+                      })}
+                      {/* Include projects without organization */}
+                      {(() => {
+                        const orphanProjects = data.projects?.filter(p => !p.organizationId && !p.archived) || []
+                        if (orphanProjects.length > 0) {
+                          return (
+                            <SelectGroup>
+                              <SelectLabel className="text-xs text-zinc-500 px-2">Other</SelectLabel>
+                              {orphanProjects.map((project) => (
+                                <SelectItem key={project.id} value={project.id}>
+                                  <div className="flex items-center gap-2">
+                                    <div 
+                                      className="w-3 h-3 rounded-full" 
+                                      style={{ backgroundColor: project.color }}
+                                    />
+                                    <span>{project.name}</span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )
+                        }
+                        return null
+                      })()}
+                    </>
+                  ) : (
+                    <SelectItem value="no-projects" disabled>
+                      <span className="text-zinc-500">No projects available</span>
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -556,7 +621,7 @@ export function TaskModal({
                       : "No parent task"
                   } />
                 </SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
+                <SelectContent>
                   {selectedProject && (
                     <>
                       <SelectItem value="none">
@@ -690,10 +755,19 @@ export function TaskModal({
                     className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0"
                     style={getBackgroundStyle(assignedUser.profileColor)}
                   >
-                    {assignedUser.name.charAt(0).toUpperCase()}
+                    {(() => {
+                      const displayName = assignedUser.name || 
+                        `${assignedUser.firstName || ''} ${assignedUser.lastName || ''}`.trim() ||
+                        assignedUser.email || 
+                        'U'
+                      return displayName.charAt(0).toUpperCase()
+                    })()}
                   </div>
                   <span className="text-zinc-300 flex-1">
-                    {assignedUser.name}
+                    {assignedUser.name || 
+                     `${assignedUser.firstName || ''} ${assignedUser.lastName || ''}`.trim() ||
+                     assignedUser.email ||
+                     'Unknown User'}
                     {assignedUser.status === 'pending' && (
                       <span className="ml-2 text-xs text-yellow-500">(Pending)</span>
                     )}
@@ -718,34 +792,42 @@ export function TaskModal({
                   />
                   <div className="absolute top-full mt-1 w-full bg-zinc-800 rounded-lg shadow-lg border border-zinc-700 max-h-48 overflow-y-auto z-50">
                     {data.users
-                      .filter(user => 
-                        user.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
-                        user.email.toLowerCase().includes(userSearchQuery.toLowerCase())
-                      )
-                      .map(user => (
-                        <button
-                          key={user.id}
-                          type="button"
-                          onClick={() => handleAssignUser(user.id)}
-                          className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-700 transition-colors text-left"
-                        >
-                          <div 
-                            className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0"
-                            style={getBackgroundStyle(user.profileColor)}
+                      .filter(user => {
+                        const userName = user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || ''
+                        const userEmail = user.email || ''
+                        return userName.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+                               userEmail.toLowerCase().includes(userSearchQuery.toLowerCase())
+                      })
+                      .map(user => {
+                        const displayName = user.name || 
+                          `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
+                          user.email || 
+                          'Unknown User'
+                        return (
+                          <button
+                            key={user.id}
+                            type="button"
+                            onClick={() => handleAssignUser(user.id)}
+                            className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-700 transition-colors text-left"
                           >
-                            {user.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="flex-1 text-sm">
-                            <p className="font-medium">
-                              {user.name}
-                              {user.status === 'pending' && (
-                                <span className="ml-2 text-xs text-yellow-500">(Pending)</span>
-                              )}
-                            </p>
-                            <p className="text-xs text-zinc-500">{user.email}</p>
-                          </div>
-                        </button>
-                      ))}
+                            <div 
+                              className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0"
+                              style={getBackgroundStyle(user.profileColor)}
+                            >
+                              {displayName.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 text-sm">
+                              <p className="font-medium">
+                                {displayName}
+                                {user.status === 'pending' && (
+                                  <span className="ml-2 text-xs text-yellow-500">(Pending)</span>
+                                )}
+                              </p>
+                              <p className="text-xs text-zinc-500">{user.email}</p>
+                            </div>
+                          </button>
+                        )
+                      })}
                   </div>
                   <button
                     type="button"

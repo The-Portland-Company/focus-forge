@@ -6,6 +6,7 @@ import { ChevronLeft, User, Building2, Edit } from 'lucide-react'
 import { ThemePicker } from '@/components/theme-picker'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { OrganizationSettingsModal } from '@/components/organization-settings-modal'
+import { TodoistIntegration } from '@/components/todoist-integration'
 import { Database, Organization } from '@/lib/types'
 import { getBackgroundStyle } from '@/lib/style-utils'
 import { useUserProfile } from '@/lib/supabase/hooks'
@@ -201,6 +202,24 @@ export default function SettingsPage() {
           </div>
 
 
+          {/* Integrations Section */}
+          <div>
+            <h2 className="text-xl font-semibold mb-6">Integrations</h2>
+            <div className="space-y-6">
+              {profileLoading ? (
+                <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                  <p className="text-sm text-zinc-400">Loading integrations...</p>
+                </div>
+              ) : profile?.id ? (
+                <TodoistIntegration userId={profile.id} />
+              ) : (
+                <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                  <p className="text-sm text-zinc-400">User profile not found. Please refresh the page.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Organizations Section */}
           <div>
             <h2 className="text-xl font-semibold mb-6">Organizations</h2>
@@ -212,7 +231,12 @@ export default function SettingsPage() {
                       <div className="flex items-center gap-3">
                         <div 
                           className="w-10 h-10 rounded-lg flex-shrink-0" 
-                          style={{ backgroundColor: org.color }} 
+                          style={{ 
+                            background: org.color?.startsWith('linear-gradient') || org.color?.startsWith('radial-gradient') 
+                              ? org.color 
+                              : org.color || '#EA580C',
+                            backgroundColor: org.color?.startsWith('#') ? org.color : undefined
+                          }} 
                         />
                         <div>
                           <h3 className="font-medium flex items-center gap-2">

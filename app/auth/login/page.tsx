@@ -76,9 +76,17 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label htmlFor="password" className="block text-sm font-medium mb-2">
-                  Password
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label htmlFor="password" className="block text-sm font-medium">
+                    Password
+                  </label>
+                  <Link 
+                    href="/auth/forgot-password" 
+                    className="text-sm text-[rgb(var(--theme-primary-rgb))] hover:underline"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
                 <input
                   id="password"
                   type="password"
@@ -126,7 +134,7 @@ export default function LoginPage() {
 
         <div className="mt-6 text-center">
           <p className="text-sm text-zinc-400">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <Link href="/auth/register" className="text-[rgb(var(--theme-primary-rgb))] hover:underline">
               Create one
             </Link>

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Archive, Trash2, Edit, Plus, Link2, Link2Off } from 'lucide-react'
+import { Archive, Trash2, Edit, Plus, Link2, Link2Off, CalendarClock } from 'lucide-react'
 import { Sidebar } from '@/components/sidebar'
 import { filterTasksByBlockedStatus, isTaskBlocked } from '@/lib/dependency-utils'
 import { AddTaskModal } from '@/components/add-task-modal'
@@ -56,6 +56,7 @@ export default function ViewPage() {
   const [sectionOrder, setSectionOrder] = useState(0)
   const [editingSection, setEditingSection] = useState<Section | null>(null)
   const [upcomingFilterType, setUpcomingFilterType] = useState<'dueDate' | 'deadline'>('dueDate')
+  const [showRescheduleConfirm, setShowRescheduleConfirm] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -674,6 +675,15 @@ export default function ViewPage() {
                 </div>
               </div>
               <div className="flex items-center gap-4">
+                {overdueCount > 0 && (
+                  <button
+                    onClick={() => setShowRescheduleConfirm(true)}
+                    className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-orange-400 hover:text-orange-300"
+                    title={`Reschedule ${overdueCount} overdue task${overdueCount === 1 ? '' : 's'}`}
+                  >
+                    <CalendarClock className="w-5 h-5" />
+                  </button>
+                )}
                 <span className="text-sm text-zinc-400">
                   {todayTasks.filter(t => !t.completed).length} tasks
                 </span>
@@ -736,6 +746,7 @@ export default function ViewPage() {
             <TaskList
               tasks={todayTasks}
               allTasks={database.tasks}
+              projects={database.projects}
               showCompleted={database.settings?.showCompletedTasks ?? true}
               onTaskToggle={handleTaskToggle}
               onTaskEdit={handleTaskEdit}
@@ -942,6 +953,8 @@ export default function ViewPage() {
                 <h2 className="text-lg font-semibold mb-3">Tasks</h2>
                 <TaskList
                   tasks={filteredTasks}
+                  allTasks={database.tasks}
+                  projects={database.projects}
                   showCompleted={database.settings?.showCompletedTasks ?? true}
                   onTaskToggle={handleTaskToggle}
                   onTaskEdit={handleTaskEdit}
@@ -1324,6 +1337,7 @@ export default function ViewPage() {
               <TaskList
                 tasks={unassignedTasks}
                 allTasks={database.tasks}
+                projects={database.projects}
                 showCompleted={database.settings?.showCompletedTasks ?? true}
                 onTaskToggle={handleTaskToggle}
                 onTaskEdit={handleTaskEdit}
@@ -1477,6 +1491,49 @@ export default function ViewPage() {
           order={sectionOrder}
         />
       )}
+      
+      <ConfirmModal
+        isOpen={showRescheduleConfirm}
+        onClose={() => setShowRescheduleConfirm(false)}
+        onConfirm={async () => {
+          // Find all overdue tasks
+          const overdueTasks = database.tasks.filter(task => {
+            const dueDate = (task as any).due_date || task.dueDate
+            if (!dueDate || task.completed) return false
+            return isOverdue(dueDate)
+          })
+          
+          // Update each overdue task to today's date
+          const todayDate = getLocalDateString()
+          const updatePromises = overdueTasks.map(task => 
+            fetch(`/api/tasks/${task.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                dueDate: todayDate
+              })
+            })
+          )
+          
+          try {
+            await Promise.all(updatePromises)
+            await fetchData() // Refresh the data
+            setShowRescheduleConfirm(false)
+          } catch (error) {
+            console.error('Error rescheduling tasks:', error)
+          }
+        }}
+        title="Reschedule Overdue Tasks"
+        description={`Are you sure you want to reschedule ${database.tasks.filter(task => {
+          const dueDate = (task as any).due_date || task.dueDate
+          if (!dueDate || task.completed) return false
+          return isOverdue(dueDate)
+        }).length} overdue task(s) to today?`}
+        confirmText="Reschedule All"
+        cancelText="Cancel"
+        variant="default"
+      />
     </div>
   )
 }

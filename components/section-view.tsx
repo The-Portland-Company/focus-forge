@@ -190,6 +190,7 @@ export function SectionView({
               <TaskList
                 tasks={sectionTasks}
                 allTasks={allTasks}
+                projects={database.projects}
                 showCompleted={database.settings?.showCompletedTasks ?? true}
                 onTaskToggle={onTaskToggle}
                 onTaskEdit={onTaskEdit}

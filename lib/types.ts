@@ -13,6 +13,16 @@ export interface User {
   status?: 'active' | 'pending'
   invitedAt?: string
   invitedBy?: string
+  // Todoist integration fields
+  todoistApiToken?: string
+  todoistUserId?: string
+  todoistSyncEnabled?: boolean
+  todoistAutoSync?: boolean
+  todoistSyncFrequency?: number
+  todoistPremium?: boolean
+  todoistEmail?: string
+  todoistFullName?: string
+  todoistTimezone?: string
 }
 
 export interface Organization {
@@ -41,6 +51,13 @@ export interface Project {
   createdAt: string
   updatedAt: string
   todoistId?: string
+  // Additional Todoist fields
+  todoistSyncToken?: string
+  todoistParentId?: string
+  todoistChildOrder?: number
+  todoistShared?: boolean
+  todoistViewStyle?: string
+  lastTodoistSync?: string
 }
 
 export interface Task {
@@ -67,6 +84,17 @@ export interface Task {
   parentId?: string
   indent?: number
   dependsOn?: string[] // Array of task IDs this task depends on
+  // Additional Todoist fields
+  isRecurring?: boolean
+  todoistSyncToken?: string
+  lastTodoistSync?: string
+  todoistOrder?: number
+  todoistLabels?: string[]
+  todoistAssigneeId?: string
+  todoistAssignerId?: string
+  todoistCommentCount?: number
+  todoistUrl?: string
+  sectionId?: string
 }
 
 export interface Attachment {
@@ -74,6 +102,12 @@ export interface Attachment {
   name: string
   url: string
   type: string
+  // Additional Todoist fields
+  sizeBytes?: number
+  mimeType?: string
+  todoistId?: string
+  storageProvider?: string
+  thumbnailUrl?: string
 }
 
 export interface Reminder {
@@ -88,6 +122,10 @@ export interface Tag {
   id: string
   name: string
   color: string
+  // Additional Todoist fields
+  todoistId?: string
+  todoistOrder?: number
+  todoistIsFavorite?: boolean
 }
 
 export interface Section {
@@ -99,6 +137,25 @@ export interface Section {
   description?: string
   icon?: string
   order: number
+  createdAt: string
+  updatedAt: string
+  // Todoist fields
+  todoistId?: string
+  todoistOrder?: number
+  todoistCollapsed?: boolean
+}
+
+export interface Comment {
+  id: string
+  taskId?: string
+  projectId?: string
+  userId?: string
+  userName?: string
+  content: string
+  todoistId?: string
+  todoistPostedAt?: string
+  todoistAttachment?: any
+  isDeleted?: boolean
   createdAt: string
   updatedAt: string
 }

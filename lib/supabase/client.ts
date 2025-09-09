@@ -6,6 +6,31 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      auth: {
+        persistSession: true,
+        detectSessionInUrl: true,
+        flowType: 'pkce',
+        autoRefreshToken: true,
+      },
+      global: {
+        fetch: (url, options = {}) => {
+          // Add timeout to prevent hanging requests
+          const controller = new AbortController()
+          const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+          
+          return fetch(url, {
+            ...options,
+            signal: controller.signal,
+          }).then((response) => {
+            clearTimeout(timeoutId)
+            return response
+          }).catch((error) => {
+            clearTimeout(timeoutId)
+            console.error('Supabase fetch error:', error)
+            throw error
+          })
+        },
+      },
       cookies: {
         get(name: string) {
           if (typeof document !== 'undefined') {

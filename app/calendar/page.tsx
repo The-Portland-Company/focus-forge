@@ -36,6 +36,7 @@ export default function CalendarPage() {
   useEffect(() => {
     fetchTimeBlocks()
     fetchTasks()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
   const fetchTimeBlocks = async () => {

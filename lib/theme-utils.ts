@@ -11,16 +11,34 @@ export function applyTheme(
   const root = document.documentElement
   const theme = THEME_PRESETS[themePreset]
   
+  // Safety check - if theme doesn't exist, use default
+  if (!theme) {
+    console.warn(`Theme preset '${themePreset}' not found, using default`)
+    return applyTheme(DEFAULT_THEME_PRESET, color, animationsEnabled)
+  }
+  
   // Remove all theme classes first
   Object.values(THEME_PRESETS).forEach(t => {
-    if (t.cssClass) {
-      root.classList.remove(t.cssClass)
+    if (t && t.cssClass && typeof t.cssClass === 'string') {
+      // Split CSS classes in case there are multiple classes
+      const classes = t.cssClass.split(' ').filter(cls => cls.trim())
+      classes.forEach(cls => {
+        if (cls) {
+          root.classList.remove(cls)
+        }
+      })
     }
   })
   
   // Apply the selected theme class
-  if (theme.cssClass) {
-    root.classList.add(theme.cssClass)
+  if (theme && theme.cssClass && typeof theme.cssClass === 'string') {
+    // Split CSS classes in case there are multiple classes
+    const classes = theme.cssClass.split(' ').filter(cls => cls.trim())
+    classes.forEach(cls => {
+      if (cls) {
+        root.classList.add(cls)
+      }
+    })
   }
   
   // Set theme preset data attribute for CSS targeting

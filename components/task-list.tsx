@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from 'react'
-import { Task } from '@/lib/types'
+import { Task, Project } from '@/lib/types'
 import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, User, ChevronRight, ChevronDown, Link2, AlertCircle } from 'lucide-react'
 import { format } from 'date-fns'
 import { getStartOfDay, isToday, isOverdue } from '@/lib/date-utils'
@@ -10,6 +10,7 @@ import { isTaskBlocked, getBlockingTasks } from '@/lib/dependency-utils'
 interface TaskListProps {
   tasks: Task[]
   allTasks?: Task[] // For dependency checking
+  projects?: Project[] // For showing project names
   showCompleted?: boolean
   onTaskToggle: (taskId: string) => void
   onTaskEdit: (task: Task) => void
@@ -23,7 +24,7 @@ const priorityColors = {
   4: 'text-[rgb(var(--theme-primary-rgb))]'
 }
 
-export function TaskList({ tasks, allTasks, showCompleted = false, onTaskToggle, onTaskEdit, onTaskDelete }: TaskListProps) {
+export function TaskList({ tasks, allTasks, projects, showCompleted = false, onTaskToggle, onTaskEdit, onTaskDelete }: TaskListProps) {
   const [hoveredTask, setHoveredTask] = useState<string | null>(null)
   const [menuOpenTask, setMenuOpenTask] = useState<string | null>(null)
   const [showCompletedTasks, setShowCompletedTasks] = useState(showCompleted)
@@ -222,13 +223,32 @@ export function TaskList({ tasks, allTasks, showCompleted = false, onTaskToggle,
             )}
 
             <div className="flex items-center gap-3 mt-2 text-xs">
-              {task.due_date && (
-                <span className={`flex items-center gap-1 ${getDueDateColor(task.due_date)}`}>
-                  <Calendar className="w-3 h-3" />
-                  {formatDueDate(task.due_date)}
-                  {task.due_time && ` at ${task.due_time}`}
-                </span>
-              )}
+              {projects && (() => {
+                const projectId = (task as any).project_id || task.projectId
+                if (!projectId) return null
+                const project = projects.find(p => p.id === projectId)
+                return project ? (
+                  <span className="flex items-center gap-1">
+                    <span 
+                      className="w-2 h-2 rounded-full" 
+                      style={{ backgroundColor: project.color }}
+                    />
+                    <span className="text-zinc-400">{project.name}</span>
+                  </span>
+                ) : null
+              })()}
+              
+              {(() => {
+                const dueDate = (task as any).due_date || task.dueDate
+                const dueTime = (task as any).due_time || task.dueTime
+                return dueDate ? (
+                  <span className={`flex items-center gap-1 ${getDueDateColor(dueDate)}`}>
+                    <Calendar className="w-3 h-3" />
+                    {formatDueDate(dueDate)}
+                    {dueTime && ` at ${dueTime}`}
+                  </span>
+                ) : null
+              })()}
               
               {task.deadline && (
                 <span className="flex items-center gap-1 text-red-400">
