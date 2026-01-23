@@ -45,7 +45,7 @@
     "jose": "^6.0.12",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.536.0",
-    "next": "15.1.6",
+    "next": "^16.1.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.3.1",

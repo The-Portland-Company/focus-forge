@@ -99,6 +99,14 @@ This will import all your projects, tasks, and organizations into the applicatio
 - **Search**: Find tasks quickly (coming soon)
 - **Favorites**: Quick access to starred projects
 
+## Related Packages
+
+### Feedback Widget (In Development)
+A lightweight NPM package that can be installed on any web app to collect visual user feedback. Users can place annotated dots on any page with notes, which are then viewable in Command Center.
+
+**Status**: Requirements gathering
+**Documentation**: See `docs/feedback-widget-package.md`
+
 ## Contributing
 
 This project is actively maintained by The Portland Company. For questions or support, please open an issue on GitHub.
