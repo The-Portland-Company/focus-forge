@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Task, Project } from '@/lib/types'
-import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, User, ChevronRight, ChevronDown, Link2, AlertCircle, ExternalLink, Repeat2 } from 'lucide-react'
+import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, User, ChevronRight, ChevronDown, Link2, AlertCircle, ExternalLink, Repeat2, Folder } from 'lucide-react'
 import { format } from 'date-fns'
 import { getStartOfDay, isToday, isOverdue } from '@/lib/date-utils'
 import { isTaskBlocked, getBlockingTasks } from '@/lib/dependency-utils'
@@ -282,12 +282,14 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
                 if (!projectId) return null
                 const project = projects.find(p => p.id === projectId)
                 return project ? (
-                  <span className="flex items-center gap-1">
-                    <span
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: project.color }}
+                  <span className="relative group flex items-center">
+                    <Folder
+                      className="w-3 h-3 cursor-help"
+                      style={{ color: project.color }}
                     />
-                    <span className="text-zinc-400">{project.name}</span>
+                    <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                      {project.name}
+                    </span>
                   </span>
                 ) : null
               })()}
