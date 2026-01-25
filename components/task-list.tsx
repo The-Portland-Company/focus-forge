@@ -166,7 +166,7 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
         e.dataTransfer.effectAllowed = 'move'
         e.dataTransfer.setData('taskId', task.id)
       }}
-      className={`group relative flex items-start gap-3 px-4 py-3 rounded-lg hover:bg-zinc-800/50 transition-colors cursor-move ${
+      className={`group relative flex items-start gap-3 px-4 py-2 rounded-lg hover:bg-zinc-800/50 transition-colors cursor-move ${
         task.completed ? 'opacity-50' : ''
       }`}
       style={{ paddingLeft: `${16 + indentLevel * 24}px` }}
