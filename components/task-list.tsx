@@ -267,7 +267,7 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
               {task.assignedToName && (
                 <span className="relative group/assignee flex items-center">
                   <span
-                    className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px] font-medium cursor-help"
+                    className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px] font-medium"
                     style={getBackgroundStyle((task as any).assignedToColor)}
                   >
                     {(task as any).assignedToInitial || '?'}
@@ -285,7 +285,7 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
                 return project ? (
                   <span className="relative group/project flex items-center">
                     <Folder
-                      className="w-3 h-3 cursor-help"
+                      className="w-3 h-3"
                       style={{ color: project.color }}
                     />
                     <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/project:opacity-100 transition-opacity pointer-events-none z-50">
@@ -316,7 +316,7 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
 
               {task.recurringPattern && (
                 <span className="relative group/recurring flex items-center">
-                  <Repeat2 className="w-3 h-3 text-purple-400 cursor-help" />
+                  <Repeat2 className="w-3 h-3 text-purple-400" />
                   <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/recurring:opacity-100 transition-opacity pointer-events-none z-50">
                     {abbreviateRecurring(task.recurringPattern)}
                   </span>
