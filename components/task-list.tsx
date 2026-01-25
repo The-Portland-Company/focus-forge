@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Task, Project } from '@/lib/types'
-import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, User, ChevronRight, ChevronDown, Link2, AlertCircle, ExternalLink } from 'lucide-react'
+import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, User, ChevronRight, ChevronDown, Link2, AlertCircle, ExternalLink, Repeat2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { getStartOfDay, isToday, isOverdue } from '@/lib/date-utils'
 import { isTaskBlocked, getBlockingTasks } from '@/lib/dependency-utils'
@@ -40,6 +40,17 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
     } catch (err) {
       console.error('Failed to copy:', err)
     }
+  }
+
+  const abbreviateRecurring = (pattern: string) => {
+    return pattern
+      .replace(/Monday/gi, 'Mon.')
+      .replace(/Tuesday/gi, 'Tue.')
+      .replace(/Wednesday/gi, 'Wed.')
+      .replace(/Thursday/gi, 'Thu.')
+      .replace(/Friday/gi, 'Fri.')
+      .replace(/Saturday/gi, 'Sat.')
+      .replace(/Sunday/gi, 'Sun.')
   }
 
   const activeTasks = tasks.filter(task => !task.completed)
@@ -299,8 +310,11 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
               )}
 
               {task.recurringPattern && (
-                <span className="text-purple-400">
-                  🔁 {task.recurringPattern}
+                <span className="relative group flex items-center">
+                  <Repeat2 className="w-3 h-3 text-purple-400 cursor-help" />
+                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                    {abbreviateRecurring(task.recurringPattern)}
+                  </span>
                 </span>
               )}
             </div>
