@@ -609,9 +609,9 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                       className="cursor-move relative group"
                     >
                       <div
-                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
+                        className={`relative w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
                           currentView === `project-${project.id}`
-                            ? 'bg-zinc-800 text-white' 
+                            ? 'bg-zinc-800 text-white'
                             : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'
                         } ${
                           dragOverProject === project.id && dragOverPosition === 'top' ? 'drag-over-top' : ''
@@ -622,16 +622,16 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                         <GripVertical className="w-3 h-3 opacity-40" />
                         <Link
                           href={`/project-${project.id}`}
-                          className="flex items-center gap-2 flex-1"
+                          className="flex items-center gap-2 flex-1 min-w-0"
                         >
-                          <div 
-                            className="w-2 h-2 rounded-full flex-shrink-0" 
-                            style={{ backgroundColor: project.color }} 
+                          <div
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: project.color }}
                           />
-                          {project.name}
+                          <span className="truncate">{project.name}</span>
                         </Link>
                         {hoveredProject === project.id && (
-                          <div className="flex items-center gap-1">
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 bg-zinc-900 rounded-lg px-1">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -712,27 +712,27 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                       onMouseLeave={() => setHoveredProject(null)}
                     >
                       <div
-                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
+                        className={`relative w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
                           currentView === `project-${project.id}`
-                            ? 'bg-zinc-800 text-white' 
+                            ? 'bg-zinc-800 text-white'
                             : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-400'
                         }`}
                       >
                         <Link
                           href={`/project-${project.id}`}
-                          className="flex items-center gap-2 flex-1"
+                          className="flex items-center gap-2 flex-1 min-w-0"
                         >
-                          <div 
-                            className="w-2 h-2 rounded-full flex-shrink-0" 
-                            style={{ backgroundColor: project.color }} 
+                          <div
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: project.color }}
                           />
-                          <span>{project.name}</span>
+                          <span className="truncate">{project.name}</span>
                           {org && (
-                            <span className="text-xs text-zinc-600">({org.name})</span>
+                            <span className="text-xs text-zinc-600 flex-shrink-0">({org.name})</span>
                           )}
                         </Link>
                         {hoveredProject === project.id && (
-                          <div className="flex items-center gap-1">
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 bg-zinc-900 rounded-lg px-1">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
