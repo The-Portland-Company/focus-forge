@@ -232,7 +232,7 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
               }`}>
                 {task.name}
               </p>
-              <div className="relative group flex items-center">
+              <div className="relative group/taskid flex items-center">
                 <button
                   onClick={(e) => copyTaskId(task.id, e)}
                   className="text-zinc-600 hover:text-zinc-400 transition-colors"
@@ -240,7 +240,7 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
                 >
                   <Hash className="w-3 h-3" />
                 </button>
-                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/taskid:opacity-100 transition-opacity pointer-events-none z-50">
                   {task.id.slice(0, 8)}
                 </span>
                 {copiedTaskId === task.id && (
@@ -265,14 +265,14 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
 
             <div className="flex items-center gap-3 mt-2 text-xs">
               {task.assignedToName && (
-                <span className="relative group flex items-center">
+                <span className="relative group/assignee flex items-center">
                   <span
                     className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px] font-medium cursor-help"
                     style={getBackgroundStyle((task as any).assignedToColor)}
                   >
                     {(task as any).assignedToInitial || '?'}
                   </span>
-                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/assignee:opacity-100 transition-opacity pointer-events-none z-50">
                     {task.assignedToName}
                   </span>
                 </span>
@@ -283,12 +283,12 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
                 if (!projectId) return null
                 const project = projects.find(p => p.id === projectId)
                 return project ? (
-                  <span className="relative group flex items-center">
+                  <span className="relative group/project flex items-center">
                     <Folder
                       className="w-3 h-3 cursor-help"
                       style={{ color: project.color }}
                     />
-                    <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                    <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/project:opacity-100 transition-opacity pointer-events-none z-50">
                       {project.name}
                     </span>
                   </span>
@@ -315,9 +315,9 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
               )}
 
               {task.recurringPattern && (
-                <span className="relative group flex items-center">
+                <span className="relative group/recurring flex items-center">
                   <Repeat2 className="w-3 h-3 text-purple-400 cursor-help" />
-                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/recurring:opacity-100 transition-opacity pointer-events-none z-50">
                     {abbreviateRecurring(task.recurringPattern)}
                   </span>
                 </span>
