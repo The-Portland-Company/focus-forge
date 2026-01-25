@@ -257,21 +257,28 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
             )}
 
             <div className="flex items-center gap-3 mt-2 text-xs">
+              {task.assignedToName && (
+                <span className="flex items-center gap-1 text-zinc-400">
+                  <User className="w-3 h-3" />
+                  {task.assignedToName}
+                </span>
+              )}
+
               {projects && (() => {
                 const projectId = (task as any).project_id || task.projectId
                 if (!projectId) return null
                 const project = projects.find(p => p.id === projectId)
                 return project ? (
                   <span className="flex items-center gap-1">
-                    <span 
-                      className="w-2 h-2 rounded-full" 
+                    <span
+                      className="w-2 h-2 rounded-full"
                       style={{ backgroundColor: project.color }}
                     />
                     <span className="text-zinc-400">{project.name}</span>
                   </span>
                 ) : null
               })()}
-              
+
               {(() => {
                 const dueDate = (task as any).due_date || task.dueDate
                 const dueTime = (task as any).due_time || task.dueTime
@@ -283,21 +290,14 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
                   </span>
                 ) : null
               })()}
-              
+
               {task.deadline && (
                 <span className="flex items-center gap-1 text-red-400">
                   <Flag className="w-3 h-3" />
                   Deadline: {formatDueDate(task.deadline)}
                 </span>
               )}
-              
-              {task.assignedToName && (
-                <span className="flex items-center gap-1 text-zinc-400">
-                  <User className="w-3 h-3" />
-                  {task.assignedToName}
-                </span>
-              )}
-              
+
               {task.recurringPattern && (
                 <span className="text-purple-400">
                   🔁 {task.recurringPattern}
