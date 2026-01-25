@@ -233,7 +233,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
         tags:task_tags(tag:tags(*)),
         reminders(*),
         attachments(*),
-        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email)
+        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color)
       `)
       .order('created_at')
 
@@ -253,12 +253,16 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
     // Transform the data to match the expected format
     return (data || []).map((task: any) => {
-      // Construct assignee name from joined profile data
+      // Construct assignee info from joined profile data
       let assigneeName: string | null = null
+      let assigneeColor: string | null = null
+      let assigneeInitial: string | null = null
       if (task.assignee) {
         const firstName = task.assignee.first_name || ''
         const lastName = task.assignee.last_name || ''
         assigneeName = `${firstName} ${lastName}`.trim() || task.assignee.email || null
+        assigneeColor = task.assignee.profile_color || null
+        assigneeInitial = firstName ? firstName.charAt(0).toUpperCase() : (task.assignee.email ? task.assignee.email.charAt(0).toUpperCase() : null)
       }
 
       return {
@@ -270,6 +274,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
         parentId: task.parent_id,
         assignedTo: task.assigned_to,
         assignedToName: assigneeName,
+        assignedToColor: assigneeColor,
+        assignedToInitial: assigneeInitial,
         completedAt: task.completed_at,
         createdAt: task.created_at,
         updatedAt: task.updated_at,
@@ -293,19 +299,23 @@ export class SupabaseAdapter implements DatabaseAdapter {
         tags:task_tags(tag:tags(*)),
         reminders(*),
         attachments(*),
-        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email)
+        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color)
       `)
       .eq('id', id)
       .single()
 
     if (error) throw error
 
-    // Construct assignee name from joined profile data
+    // Construct assignee info from joined profile data
     let assigneeName: string | null = null
+    let assigneeColor: string | null = null
+    let assigneeInitial: string | null = null
     if (data.assignee) {
       const firstName = data.assignee.first_name || ''
       const lastName = data.assignee.last_name || ''
       assigneeName = `${firstName} ${lastName}`.trim() || data.assignee.email || null
+      assigneeColor = data.assignee.profile_color || null
+      assigneeInitial = firstName ? firstName.charAt(0).toUpperCase() : (data.assignee.email ? data.assignee.email.charAt(0).toUpperCase() : null)
     }
 
     // Transform the data to match the expected format
@@ -318,6 +328,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
       parentId: data.parent_id,
       assignedTo: data.assigned_to,
       assignedToName: assigneeName,
+      assignedToColor: assigneeColor,
+      assignedToInitial: assigneeInitial,
       completedAt: data.completed_at,
       createdAt: data.created_at,
       updatedAt: data.updated_at,

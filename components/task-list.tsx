@@ -2,10 +2,11 @@
 
 import { useState } from 'react'
 import { Task, Project } from '@/lib/types'
-import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, User, ChevronRight, ChevronDown, Link2, AlertCircle, ExternalLink, Repeat2, Folder } from 'lucide-react'
+import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, ChevronRight, ChevronDown, Link2, AlertCircle, ExternalLink, Repeat2, Folder } from 'lucide-react'
 import { format } from 'date-fns'
 import { getStartOfDay, isToday, isOverdue } from '@/lib/date-utils'
 import { isTaskBlocked, getBlockingTasks } from '@/lib/dependency-utils'
+import { getBackgroundStyle } from '@/lib/style-utils'
 
 interface TaskListProps {
   tasks: Task[]
@@ -270,7 +271,12 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
             <div className="flex items-center gap-3 mt-2 text-xs">
               {task.assignedToName && (
                 <span className="relative group flex items-center">
-                  <User className="w-3 h-3 text-zinc-400 cursor-help" />
+                  <span
+                    className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px] font-medium cursor-help"
+                    style={getBackgroundStyle((task as any).assignedToColor)}
+                  >
+                    {(task as any).assignedToInitial || '?'}
+                  </span>
                   <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
                     {task.assignedToName}
                   </span>
