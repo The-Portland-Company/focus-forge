@@ -232,7 +232,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
         *,
         tags:task_tags(tag:tags(*)),
         reminders(*),
-        attachments(*)
+        attachments(*),
+        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email)
       `)
       .order('created_at')
 
@@ -251,13 +252,36 @@ export class SupabaseAdapter implements DatabaseAdapter {
     console.log('✅ Tasks fetched:', data?.length || 0)
 
     // Transform the data to match the expected format
-    return (data || []).map((task: any) => ({
-      ...task,
-      tags: task.tags?.map((t: any) => t.tag.id) || [],
-      reminders: task.reminders || [],
-      attachments: task.attachments || [],
-      files: task.attachments || [] // Compatibility with file-based system
-    }))
+    return (data || []).map((task: any) => {
+      // Construct assignee name from joined profile data
+      let assigneeName: string | null = null
+      if (task.assignee) {
+        const firstName = task.assignee.first_name || ''
+        const lastName = task.assignee.last_name || ''
+        assigneeName = `${firstName} ${lastName}`.trim() || task.assignee.email || null
+      }
+
+      return {
+        ...task,
+        // Map snake_case to camelCase for frontend compatibility
+        projectId: task.project_id,
+        dueDate: task.due_date,
+        dueTime: task.due_time,
+        parentId: task.parent_id,
+        assignedTo: task.assigned_to,
+        assignedToName: assigneeName,
+        completedAt: task.completed_at,
+        createdAt: task.created_at,
+        updatedAt: task.updated_at,
+        todoistId: task.todoist_id,
+        recurringPattern: task.recurring_pattern,
+        orderIndex: task.order_index,
+        tags: task.tags?.map((t: any) => t.tag.id) || [],
+        reminders: task.reminders || [],
+        attachments: task.attachments || [],
+        files: task.attachments || [] // Compatibility with file-based system
+      }
+    })
   }
 
   async getTask(id: string) {
@@ -268,16 +292,38 @@ export class SupabaseAdapter implements DatabaseAdapter {
         *,
         tags:task_tags(tag:tags(*)),
         reminders(*),
-        attachments(*)
+        attachments(*),
+        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email)
       `)
       .eq('id', id)
       .single()
 
     if (error) throw error
 
+    // Construct assignee name from joined profile data
+    let assigneeName: string | null = null
+    if (data.assignee) {
+      const firstName = data.assignee.first_name || ''
+      const lastName = data.assignee.last_name || ''
+      assigneeName = `${firstName} ${lastName}`.trim() || data.assignee.email || null
+    }
+
     // Transform the data to match the expected format
     return {
       ...data,
+      // Map snake_case to camelCase for frontend compatibility
+      projectId: data.project_id,
+      dueDate: data.due_date,
+      dueTime: data.due_time,
+      parentId: data.parent_id,
+      assignedTo: data.assigned_to,
+      assignedToName: assigneeName,
+      completedAt: data.completed_at,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      todoistId: data.todoist_id,
+      recurringPattern: data.recurring_pattern,
+      orderIndex: data.order_index,
       tags: data.tags?.map((t: any) => t.tag.id) || [],
       reminders: data.reminders || [],
       attachments: data.attachments || [],

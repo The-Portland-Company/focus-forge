@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Task, Project } from '@/lib/types'
-import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, User, ChevronRight, ChevronDown, Link2, AlertCircle } from 'lucide-react'
+import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, User, ChevronRight, ChevronDown, Link2, AlertCircle, ExternalLink } from 'lucide-react'
 import { format } from 'date-fns'
 import { getStartOfDay, isToday, isOverdue } from '@/lib/date-utils'
 import { isTaskBlocked, getBlockingTasks } from '@/lib/dependency-utils'
@@ -29,6 +29,18 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
   const [menuOpenTask, setMenuOpenTask] = useState<string | null>(null)
   const [showCompletedTasks, setShowCompletedTasks] = useState(showCompleted)
   const [collapsedTasks, setCollapsedTasks] = useState<Set<string>>(new Set())
+  const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null)
+
+  const copyTaskId = async (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(taskId)
+      setCopiedTaskId(taskId)
+      setTimeout(() => setCopiedTaskId(null), 1500)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+    }
+  }
 
   const activeTasks = tasks.filter(task => !task.completed)
   const completedTasks = tasks.filter(task => task.completed)
@@ -203,11 +215,33 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <p className={`text-sm break-words whitespace-normal overflow-hidden ${
-                task.completed ? 'line-through text-zinc-500' : 
+                task.completed ? 'line-through text-zinc-500' :
                 allTasks && isTaskBlocked(task, allTasks) ? 'text-zinc-400' : 'text-white'
               }`}>
                 {task.name}
               </p>
+              {task.todoistId && (
+                <span
+                  className="inline-flex items-center justify-center w-4 h-4 rounded bg-red-500 text-white text-[10px] font-bold flex-shrink-0"
+                  title="Synced from Todoist"
+                >
+                  T
+                </span>
+              )}
+              <div className="relative flex items-center">
+                <button
+                  onClick={(e) => copyTaskId(task.id, e)}
+                  className="text-[10px] text-zinc-600 hover:text-zinc-400 font-mono transition-colors"
+                  title="Click to copy task ID"
+                >
+                  #{task.id.slice(0, 8)}
+                </button>
+                {copiedTaskId === task.id && (
+                  <span className="absolute left-full ml-2 text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up">
+                    Copied!
+                  </span>
+                )}
+              </div>
               {allTasks && isTaskBlocked(task, allTasks) && !task.completed && (
                 <div className="flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))]" title="Task is blocked by dependencies">
                   <Link2 className="w-3 h-3" />

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Archive, Trash2, Edit, Plus, Link2, Link2Off, CalendarClock } from 'lucide-react'
+import { Archive, Trash2, Edit, Plus, Link2, Link2Off, CalendarClock, RefreshCw } from 'lucide-react'
 import { Sidebar } from '@/components/sidebar'
 import { filterTasksByBlockedStatus, isTaskBlocked } from '@/lib/dependency-utils'
 import { AddTaskModal } from '@/components/add-task-modal'
@@ -22,13 +22,17 @@ import { AddSectionModal } from '@/components/add-section-modal'
 import { AddSectionDivider } from '@/components/add-section-divider'
 import { getLocalDateString, isOverdue, isTodayOrOverdue } from '@/lib/date-utils'
 import { applyUserTheme } from '@/lib/theme-utils'
+import { TodoistQuickSyncModal } from '@/components/todoist-quick-sync-modal'
+import { useAuth } from '@/contexts/AuthContext'
 
 export default function ViewPage() {
   const params = useParams()
   const router = useRouter()
+  const { user } = useAuth()
   const view = params.view as string
-  
+
   const [database, setDatabase] = useState<Database | null>(null)
+  const [showTodoistSync, setShowTodoistSync] = useState(false)
   const [showAddTask, setShowAddTask] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [showEditTask, setShowEditTask] = useState(false)
@@ -128,6 +132,31 @@ export default function ViewPage() {
         settings: { showCompletedTasks: true }
       })
     }
+  }
+
+  const handleTodoistSync = async (mode: 'merge' | 'overwrite') => {
+    if (!user?.id) {
+      throw new Error('User not authenticated')
+    }
+
+    const response = await fetch('/api/todoist/quick-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        userId: user.id,
+        mode: mode
+      })
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Sync failed')
+    }
+
+    // Refresh data after sync
+    await fetchData()
   }
 
   const handleAddTask = async (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> | Partial<Task>) => {
@@ -674,7 +703,17 @@ export default function ViewPage() {
                   </span>
                 </div>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                {user && (
+                  <button
+                    onClick={() => setShowTodoistSync(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-800 rounded-lg transition-colors text-red-500 hover:text-red-400 border border-zinc-700 hover:border-zinc-600"
+                    title="Sync with Todoist"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span className="text-sm">Todoist</span>
+                  </button>
+                )}
                 {overdueCount > 0 && (
                   <button
                     onClick={() => setShowRescheduleConfirm(true)}
@@ -1533,6 +1572,13 @@ export default function ViewPage() {
         confirmText="Reschedule All"
         cancelText="Cancel"
         variant="default"
+      />
+
+      <TodoistQuickSyncModal
+        isOpen={showTodoistSync}
+        onClose={() => setShowTodoistSync(false)}
+        onSync={handleTodoistSync}
+        userId={user?.id}
       />
     </div>
   )
