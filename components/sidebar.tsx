@@ -609,7 +609,7 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                       className="cursor-move relative group"
                     >
                       <div
-                        className={`relative w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all ${
+                        className={`relative w-full flex items-center gap-2 px-3 py-1 rounded-lg text-sm transition-all ${
                           currentView === `project-${project.id}`
                             ? 'bg-zinc-800 text-white'
                             : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'
@@ -712,7 +712,7 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                       onMouseLeave={() => setHoveredProject(null)}
                     >
                       <div
-                        className={`relative w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all ${
+                        className={`relative w-full flex items-center gap-2 px-3 py-1 rounded-lg text-sm transition-all ${
                           currentView === `project-${project.id}`
                             ? 'bg-zinc-800 text-white'
                             : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-400'
