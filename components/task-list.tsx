@@ -223,109 +223,99 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
       </button>
 
       <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onTaskEdit(task)}>
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <p className={`text-sm break-words whitespace-normal overflow-hidden ${
-                task.completed ? 'line-through text-zinc-500' :
-                allTasks && isTaskBlocked(task, allTasks) ? 'text-zinc-400' : 'text-white'
-              }`}>
-                {task.name}
-              </p>
-              <div className="relative group/taskid flex items-center">
-                <button
-                  onClick={(e) => copyTaskId(task.id, e)}
-                  className="text-zinc-600 hover:text-zinc-400 transition-colors"
-                  title="Click to copy task ID"
-                >
-                  <Hash className="w-3 h-3" />
-                </button>
-                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/taskid:opacity-100 transition-opacity pointer-events-none z-50">
-                  {task.id.slice(0, 8)}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <p className={`text-sm truncate ${
+              task.completed ? 'line-through text-zinc-500' :
+              allTasks && isTaskBlocked(task, allTasks) ? 'text-zinc-400' : 'text-white'
+            }`}>
+              {task.name}
+            </p>
+            <div className="relative group/taskid flex items-center flex-shrink-0">
+              <button
+                onClick={(e) => copyTaskId(task.id, e)}
+                className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                title="Click to copy task ID"
+              >
+                <Hash className="w-3 h-3" />
+              </button>
+              <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/taskid:opacity-100 transition-opacity pointer-events-none z-50">
+                {task.id.slice(0, 8)}
+              </span>
+              {copiedTaskId === task.id && (
+                <span className="absolute left-full ml-2 text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up z-50">
+                  Copied!
                 </span>
-                {copiedTaskId === task.id && (
-                  <span className="absolute left-full ml-2 text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up z-50">
-                    Copied!
-                  </span>
-                )}
+              )}
+            </div>
+            {allTasks && isTaskBlocked(task, allTasks) && !task.completed && (
+              <div className="flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))] flex-shrink-0" title="Task is blocked by dependencies">
+                <Link2 className="w-3 h-3" />
+                <span className="text-xs">Blocked</span>
               </div>
-              {allTasks && isTaskBlocked(task, allTasks) && !task.completed && (
-                <div className="flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))]" title="Task is blocked by dependencies">
-                  <Link2 className="w-3 h-3" />
-                  <span className="text-xs">Blocked</span>
-                </div>
-              )}
-            </div>
-            
-            {task.description && (
-              <p className="text-xs text-zinc-400 mt-1 line-clamp-2 break-words">
-                {task.description}
-              </p>
             )}
-
-            <div className="flex items-center justify-end gap-3 mt-2 text-xs">
-              {task.assignedToName && (
-                <span className="relative group/assignee flex items-center">
-                  <span
-                    className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px] font-medium"
-                    style={getBackgroundStyle((task as any).assignedToColor)}
-                  >
-                    {(task as any).assignedToInitial || '?'}
-                  </span>
-                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/assignee:opacity-100 transition-opacity pointer-events-none z-50">
-                    {task.assignedToName}
-                  </span>
-                </span>
-              )}
-
-              {projects && (() => {
-                const projectId = (task as any).project_id || task.projectId
-                if (!projectId) return null
-                const project = projects.find(p => p.id === projectId)
-                return project ? (
-                  <span className="relative group/project flex items-center">
-                    <Folder
-                      className="w-3 h-3"
-                      style={{ color: project.color }}
-                    />
-                    <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/project:opacity-100 transition-opacity pointer-events-none z-50">
-                      {project.name}
-                    </span>
-                  </span>
-                ) : null
-              })()}
-
-              {(() => {
-                const dueDate = (task as any).due_date || task.dueDate
-                const dueTime = (task as any).due_time || task.dueTime
-                return dueDate ? (
-                  <span className={`flex items-center gap-1 ${getDueDateColor(dueDate)}`}>
-                    <Calendar className="w-3 h-3" />
-                    {formatDueDate(dueDate)}
-                    {dueTime && ` at ${dueTime}`}
-                  </span>
-                ) : null
-              })()}
-
-              {task.deadline && (
-                <span className="flex items-center gap-1 text-red-400">
-                  <Flag className="w-3 h-3" />
-                  Deadline: {formatDueDate(task.deadline)}
-                </span>
-              )}
-
-              {task.recurringPattern && (
-                <span className="relative group/recurring flex items-center">
-                  <Repeat2 className="w-3 h-3 text-purple-400" />
-                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/recurring:opacity-100 transition-opacity pointer-events-none z-50">
-                    {abbreviateRecurring(task.recurringPattern)}
-                  </span>
-                </span>
-              )}
-            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 text-xs flex-shrink-0">
+            {task.assignedToName && (
+              <span className="relative group/assignee flex items-center">
+                <span
+                  className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px] font-medium"
+                  style={getBackgroundStyle((task as any).assignedToColor)}
+                >
+                  {(task as any).assignedToInitial || '?'}
+                </span>
+                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/assignee:opacity-100 transition-opacity pointer-events-none z-50">
+                  {task.assignedToName}
+                </span>
+              </span>
+            )}
+
+            {projects && (() => {
+              const projectId = (task as any).project_id || task.projectId
+              if (!projectId) return null
+              const project = projects.find(p => p.id === projectId)
+              return project ? (
+                <span className="relative group/project flex items-center">
+                  <Folder
+                    className="w-3 h-3"
+                    style={{ color: project.color }}
+                  />
+                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/project:opacity-100 transition-opacity pointer-events-none z-50">
+                    {project.name}
+                  </span>
+                </span>
+              ) : null
+            })()}
+
+            {(() => {
+              const dueDate = (task as any).due_date || task.dueDate
+              const dueTime = (task as any).due_time || task.dueTime
+              return dueDate ? (
+                <span className={`flex items-center gap-1 ${getDueDateColor(dueDate)}`}>
+                  <Calendar className="w-3 h-3" />
+                  {formatDueDate(dueDate)}
+                  {dueTime && ` at ${dueTime}`}
+                </span>
+              ) : null
+            })()}
+
+            {task.deadline && (
+              <span className="flex items-center gap-1 text-red-400">
+                <Flag className="w-3 h-3" />
+                Deadline: {formatDueDate(task.deadline)}
+              </span>
+            )}
+
+            {task.recurringPattern && (
+              <span className="relative group/recurring flex items-center">
+                <Repeat2 className="w-3 h-3 text-purple-400" />
+                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/recurring:opacity-100 transition-opacity pointer-events-none z-50">
+                  {abbreviateRecurring(task.recurringPattern)}
+                </span>
+              </span>
+            )}
+
             {task.todoistId && (
               <span
                 className="text-[9px] text-zinc-500 font-medium"
@@ -337,7 +327,17 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
             {!task.completed && (
               <Flag className={`w-4 h-4 ${priorityColors[task.priority]}`} />
             )}
-            
+          </div>
+        </div>
+
+        {task.description && (
+          <p className="text-xs text-zinc-400 mt-1 line-clamp-2 break-words">
+            {task.description}
+          </p>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2">
             <div className="relative">
               <button
                 onClick={() => setMenuOpenTask(menuOpenTask === task.id ? null : task.id)}
