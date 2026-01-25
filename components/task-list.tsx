@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Task, Project } from '@/lib/types'
-import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, ChevronRight, ChevronDown, Link2, AlertCircle, ExternalLink, Repeat2, Folder } from 'lucide-react'
+import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, ChevronRight, ChevronDown, Link2, AlertCircle, ExternalLink, Repeat2, Folder, Hash } from 'lucide-react'
 import { format } from 'date-fns'
 import { getStartOfDay, isToday, isOverdue } from '@/lib/date-utils'
 import { isTaskBlocked, getBlockingTasks } from '@/lib/dependency-utils'
@@ -232,24 +232,19 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
               }`}>
                 {task.name}
               </p>
-              {task.todoistId && (
-                <span
-                  className="inline-flex items-center justify-center w-4 h-4 rounded bg-red-500 text-white text-[10px] font-bold flex-shrink-0"
-                  title="Synced from Todoist"
-                >
-                  T
-                </span>
-              )}
-              <div className="relative flex items-center">
+              <div className="relative group flex items-center">
                 <button
                   onClick={(e) => copyTaskId(task.id, e)}
-                  className="text-[10px] text-zinc-600 hover:text-zinc-400 font-mono transition-colors"
+                  className="text-zinc-600 hover:text-zinc-400 transition-colors"
                   title="Click to copy task ID"
                 >
-                  #{task.id.slice(0, 8)}
+                  <Hash className="w-3 h-3" />
                 </button>
+                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                  {task.id.slice(0, 8)}
+                </span>
                 {copiedTaskId === task.id && (
-                  <span className="absolute left-full ml-2 text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up">
+                  <span className="absolute left-full ml-2 text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up z-50">
                     Copied!
                   </span>
                 )}
@@ -331,6 +326,14 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
           </div>
 
           <div className="flex items-center gap-2">
+            {task.todoistId && (
+              <span
+                className="text-[9px] text-zinc-500 font-medium"
+                title="Synced from Todoist"
+              >
+                T
+              </span>
+            )}
             {!task.completed && (
               <Flag className={`w-4 h-4 ${priorityColors[task.priority]}`} />
             )}
