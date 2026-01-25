@@ -544,7 +544,7 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
               </div>
               
               {expandedOrgs.includes(org.id) && (
-                <div className="ml-4 space-y-1">
+                <div className="ml-4 space-y-0">
                   {orgProjects(org.id).map(project => (
                     <div
                       key={project.id}
@@ -609,7 +609,7 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                       className="cursor-move relative group"
                     >
                       <div
-                        className={`relative w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
+                        className={`relative w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all ${
                           currentView === `project-${project.id}`
                             ? 'bg-zinc-800 text-white'
                             : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'
@@ -698,7 +698,7 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
             </div>
           
           {showArchivedProjects && (
-            <div className="space-y-1 px-2">
+            <div className="space-y-0 px-2">
               {data.projects
                 .filter(project => project.archived)
                 .sort((a, b) => (a.order || 0) - (b.order || 0))
@@ -712,7 +712,7 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                       onMouseLeave={() => setHoveredProject(null)}
                     >
                       <div
-                        className={`relative w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
+                        className={`relative w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all ${
                           currentView === `project-${project.id}`
                             ? 'bg-zinc-800 text-white'
                             : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-400'
