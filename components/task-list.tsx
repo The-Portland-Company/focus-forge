@@ -122,7 +122,7 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
     } else if (taskDate.toDateString() === tomorrow.toDateString()) {
       return 'Tomorrow'
     } else if (isOverdue(date)) {
-      return format(taskDate, 'MMM d') + ' (Overdue)'
+      return format(taskDate, 'MMM d')
     } else {
       return format(taskDate, 'MMM d')
     }
