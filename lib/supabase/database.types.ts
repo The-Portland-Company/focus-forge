@@ -239,7 +239,9 @@ export type Database = {
           first_name: string | null
           id: string
           last_name: string | null
+          priority_color: string | null
           profile_color: string | null
+          profile_memoji: string | null
           role: Database["public"]["Enums"]["user_role"]
           theme_preset: string | null
           todoist_api_token: string | null
@@ -264,7 +266,9 @@ export type Database = {
           first_name?: string | null
           id: string
           last_name?: string | null
+          priority_color?: string | null
           profile_color?: string | null
+          profile_memoji?: string | null
           role?: Database["public"]["Enums"]["user_role"]
           theme_preset?: string | null
           todoist_api_token?: string | null
@@ -289,7 +293,9 @@ export type Database = {
           first_name?: string | null
           id?: string
           last_name?: string | null
+          priority_color?: string | null
           profile_color?: string | null
+          profile_memoji?: string | null
           role?: Database["public"]["Enums"]["user_role"]
           theme_preset?: string | null
           todoist_api_token?: string | null

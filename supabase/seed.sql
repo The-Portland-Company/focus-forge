@@ -48,9 +48,9 @@ WHERE id = '00000000-0000-0000-0000-000000000002';
 INSERT INTO organizations (id, name, description, color, order_index, created_at, updated_at)
 VALUES (
   '00000000-0000-0000-0000-000000000003',
-  'Portland',
-  'Demo organization for Portland projects',
-  '#EA580C',
+  'The Portland Company',
+  'Demo organization for The Portland Company projects',
+  '#3B82F6',
   0,
   now(),
   now()

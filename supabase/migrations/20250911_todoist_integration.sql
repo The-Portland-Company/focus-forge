@@ -159,6 +159,22 @@ ALTER TABLE todoist_sync_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE todoist_sync_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE todoist_sync_conflicts ENABLE ROW LEVEL SECURITY;
 
+-- Drop policies if they already exist (rerun-safe)
+DROP POLICY IF EXISTS "Users can view sections in their projects" ON sections;
+DROP POLICY IF EXISTS "Users can create sections in their projects" ON sections;
+DROP POLICY IF EXISTS "Users can update sections in their projects" ON sections;
+DROP POLICY IF EXISTS "Users can delete sections in their projects" ON sections;
+DROP POLICY IF EXISTS "Users can view comments in their organizations" ON comments;
+DROP POLICY IF EXISTS "Users can create comments" ON comments;
+DROP POLICY IF EXISTS "Users can update their own comments" ON comments;
+DROP POLICY IF EXISTS "Users can delete their own comments" ON comments;
+DROP POLICY IF EXISTS "Users can view their own sync state" ON todoist_sync_state;
+DROP POLICY IF EXISTS "Users can manage their own sync state" ON todoist_sync_state;
+DROP POLICY IF EXISTS "Users can view their own sync history" ON todoist_sync_history;
+DROP POLICY IF EXISTS "Users can create their own sync history" ON todoist_sync_history;
+DROP POLICY IF EXISTS "Users can view their own sync conflicts" ON todoist_sync_conflicts;
+DROP POLICY IF EXISTS "Users can manage their own sync conflicts" ON todoist_sync_conflicts;
+
 -- Create RLS policies for sections
 CREATE POLICY "Users can view sections in their projects" ON sections
     FOR SELECT USING (

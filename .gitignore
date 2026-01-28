@@ -15,6 +15,9 @@
 
 # production
 /build
+/dist/
+/.turbo/
+/.vercel/output/
 
 # misc
 .DS_Store
@@ -53,6 +56,11 @@ build/
 /mobile/android/
 /mobile/electron/
 capacitor.log
+
+# temp
+.temp
+.temp/
+**/.temp/
 
 # iOS
 Pods/

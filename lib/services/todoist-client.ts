@@ -20,10 +20,11 @@ export class TodoistClient {
   private restUrl = `${this.baseUrl}/rest/v2`
 
   constructor(apiToken: string) {
-    if (!apiToken) {
+    const trimmed = apiToken?.trim()
+    if (!trimmed) {
       throw new Error('Todoist API token is required')
     }
-    this.apiToken = apiToken
+    this.apiToken = trimmed
   }
 
   // ==================== Sync API Methods ====================

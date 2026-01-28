@@ -1,37 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, saveDatabase } from '@/lib/db'
-import { TaskSection } from '@/lib/types'
+import { createClient } from '@/lib/supabase/server'
+
+// Note: Task sections feature not yet migrated to Supabase
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const database = await getDatabase()
-    
-    // Initialize taskSections if it doesn't exist
-    if (!database.taskSections) {
-      database.taskSections = []
+    const supabase = await createClient()
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+
+    if (authError || !session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    
-    // Check if association already exists
-    const exists = database.taskSections.some(
-      ts => ts.taskId === body.taskId && ts.sectionId === body.sectionId
-    )
-    
-    if (exists) {
-      return NextResponse.json({ error: 'Association already exists' }, { status: 400 })
-    }
-    
-    const newTaskSection: TaskSection = {
-      id: `ts-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      taskId: body.taskId,
-      sectionId: body.sectionId,
-      createdAt: new Date().toISOString()
-    }
-    
-    database.taskSections.push(newTaskSection)
-    await saveDatabase(database)
-    
-    return NextResponse.json(newTaskSection)
+
+    // Task sections not implemented in Supabase yet
+    return NextResponse.json({ error: 'Task sections feature not yet available' }, { status: 501 })
   } catch (error) {
     console.error('Failed to create task-section association:', error)
     return NextResponse.json({ error: 'Failed to create association' }, { status: 500 })
@@ -40,32 +22,15 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const taskId = searchParams.get('taskId')
-    const sectionId = searchParams.get('sectionId')
-    
-    if (!taskId || !sectionId) {
-      return NextResponse.json({ error: 'taskId and sectionId are required' }, { status: 400 })
+    const supabase = await createClient()
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+
+    if (authError || !session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    
-    const database = await getDatabase()
-    
-    if (!database.taskSections) {
-      return NextResponse.json({ error: 'Association not found' }, { status: 404 })
-    }
-    
-    const index = database.taskSections.findIndex(
-      ts => ts.taskId === taskId && ts.sectionId === sectionId
-    )
-    
-    if (index === -1) {
-      return NextResponse.json({ error: 'Association not found' }, { status: 404 })
-    }
-    
-    database.taskSections.splice(index, 1)
-    await saveDatabase(database)
-    
-    return NextResponse.json({ success: true })
+
+    // Task sections not implemented in Supabase yet
+    return NextResponse.json({ error: 'Task sections feature not yet available' }, { status: 501 })
   } catch (error) {
     console.error('Failed to delete task-section association:', error)
     return NextResponse.json({ error: 'Failed to delete association' }, { status: 500 })

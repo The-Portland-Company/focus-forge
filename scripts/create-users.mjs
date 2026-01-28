@@ -98,9 +98,9 @@ async function createUsers() {
     const { data: org, error: orgError } = await supabase
       .from('organizations')
       .insert({
-        name: 'Portland',
-        description: 'Demo organization for Portland projects',
-        color: '#EA580C',
+        name: 'The Portland Company',
+        description: 'Demo organization for The Portland Company projects',
+        color: '#3B82F6',
         order_index: 0
       })
       .select()

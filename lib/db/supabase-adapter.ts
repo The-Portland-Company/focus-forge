@@ -233,7 +233,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
         tags:task_tags(tag:tags(*)),
         reminders(*),
         attachments(*),
-        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color)
+        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color, profile_memoji)
       `)
       .order('created_at')
 
@@ -241,9 +241,20 @@ export class SupabaseAdapter implements DatabaseAdapter {
       // For a specific project, get all tasks in that project
       query = query.eq('project_id', projectId)
     } else {
-      // For all tasks, get tasks assigned to this user
+      // For all tasks, get tasks assigned to this user OR unassigned tasks in user's projects
       console.log('📋 Fetching tasks for user:', this.userId)
-      query = query.eq('assigned_to', this.userId)
+
+      // First get the user's project IDs
+      const projects = await this.getProjects()
+      const userProjectIds = projects.map(p => p.id)
+
+      if (userProjectIds.length > 0) {
+        // Get tasks that are: assigned to user OR (unassigned AND in user's projects)
+        query = query.or(`assigned_to.eq.${this.userId},and(assigned_to.is.null,project_id.in.(${userProjectIds.join(',')}))`)
+      } else {
+        // No projects, just get tasks assigned to user
+        query = query.eq('assigned_to', this.userId)
+      }
     }
 
     const { data, error } = await query
@@ -257,12 +268,14 @@ export class SupabaseAdapter implements DatabaseAdapter {
       let assigneeName: string | null = null
       let assigneeColor: string | null = null
       let assigneeInitial: string | null = null
+      let assigneeMemoji: string | null = null
       if (task.assignee) {
         const firstName = task.assignee.first_name || ''
         const lastName = task.assignee.last_name || ''
         assigneeName = `${firstName} ${lastName}`.trim() || task.assignee.email || null
         assigneeColor = task.assignee.profile_color || null
         assigneeInitial = firstName ? firstName.charAt(0).toUpperCase() : (task.assignee.email ? task.assignee.email.charAt(0).toUpperCase() : null)
+        assigneeMemoji = task.assignee.profile_memoji || null
       }
 
       return {
@@ -276,6 +289,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
         assignedToName: assigneeName,
         assignedToColor: assigneeColor,
         assignedToInitial: assigneeInitial,
+        assignedToMemoji: assigneeMemoji,
         completedAt: task.completed_at,
         createdAt: task.created_at,
         updatedAt: task.updated_at,
@@ -299,7 +313,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
         tags:task_tags(tag:tags(*)),
         reminders(*),
         attachments(*),
-        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color)
+        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color, profile_memoji)
       `)
       .eq('id', id)
       .single()
@@ -310,12 +324,14 @@ export class SupabaseAdapter implements DatabaseAdapter {
     let assigneeName: string | null = null
     let assigneeColor: string | null = null
     let assigneeInitial: string | null = null
+    let assigneeMemoji: string | null = null
     if (data.assignee) {
       const firstName = data.assignee.first_name || ''
       const lastName = data.assignee.last_name || ''
       assigneeName = `${firstName} ${lastName}`.trim() || data.assignee.email || null
       assigneeColor = data.assignee.profile_color || null
       assigneeInitial = firstName ? firstName.charAt(0).toUpperCase() : (data.assignee.email ? data.assignee.email.charAt(0).toUpperCase() : null)
+      assigneeMemoji = data.assignee.profile_memoji || null
     }
 
     // Transform the data to match the expected format
@@ -330,6 +346,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       assignedToName: assigneeName,
       assignedToColor: assigneeColor,
       assignedToInitial: assigneeInitial,
+      assignedToMemoji: assigneeMemoji,
       completedAt: data.completed_at,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
@@ -516,7 +533,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       firstName: data.first_name || '',
       lastName: data.last_name || '',
       profileColor: data.profile_color,
+      profileMemoji: data.profile_memoji,
       animationsEnabled: data.animations_enabled,
+      priorityColor: data.priority_color,
       role: data.role
     }
   }
@@ -529,7 +548,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
     if (updates.firstName !== undefined) supabaseUpdates.first_name = updates.firstName
     if (updates.lastName !== undefined) supabaseUpdates.last_name = updates.lastName
     if (updates.profileColor !== undefined) supabaseUpdates.profile_color = updates.profileColor
+    if (updates.profileMemoji !== undefined) supabaseUpdates.profile_memoji = updates.profileMemoji
     if (updates.animationsEnabled !== undefined) supabaseUpdates.animations_enabled = updates.animationsEnabled
+    if (updates.priorityColor !== undefined) supabaseUpdates.priority_color = updates.priorityColor
     
     const { data, error } = await supabase
       .from('profiles')
@@ -547,7 +568,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       firstName: data.first_name || '',
       lastName: data.last_name || '',
       profileColor: data.profile_color,
+      profileMemoji: data.profile_memoji,
       animationsEnabled: data.animations_enabled,
+      priorityColor: data.priority_color,
       role: data.role
     }
   }

@@ -3,7 +3,8 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
-import { applyUserTheme } from '@/lib/theme-utils'
+import { applyTheme } from '@/lib/theme-utils'
+import { ThemePreset, DEFAULT_THEME_PRESET } from '@/lib/theme-constants'
 
 interface AuthContextType {
   user: User | null
@@ -42,12 +43,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session?.user) {
           const { data: profile } = await supabase
             .from('profiles')
-            .select('profile_color, animations_enabled')
+            .select('profile_color, animations_enabled, theme_preset')
             .eq('id', session.user.id)
             .single()
-          
+
           if (profile) {
-            applyUserTheme(profile.profile_color || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', profile.animations_enabled ?? true)
+            const themePreset = (profile.theme_preset as ThemePreset) || DEFAULT_THEME_PRESET
+            applyTheme(
+              themePreset,
+              profile.profile_color || undefined,
+              profile.animations_enabled ?? true
+            )
           }
         }
       } catch (error) {
@@ -75,12 +81,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session?.user) {
           const { data: profile } = await supabase
             .from('profiles')
-            .select('profile_color, animations_enabled')
+            .select('profile_color, animations_enabled, theme_preset')
             .eq('id', session.user.id)
             .single()
-          
+
           if (profile) {
-            applyUserTheme(profile.profile_color || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', profile.animations_enabled ?? true)
+            const themePreset = (profile.theme_preset as ThemePreset) || DEFAULT_THEME_PRESET
+            applyTheme(
+              themePreset,
+              profile.profile_color || undefined,
+              profile.animations_enabled ?? true
+            )
           }
         }
       })

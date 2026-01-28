@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { deleteOrganization, updateOrganization } from '@/lib/db'
+import { createClient } from '@/lib/supabase/server'
+import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
 
 export async function PUT(
   request: Request,
@@ -7,9 +8,17 @@ export async function PUT(
 ) {
   try {
     const params = await props.params
+    const supabase = await createClient()
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+
+    if (authError || !session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
-    const updatedOrg = await updateOrganization(params.id, body)
-    
+    const adapter = new SupabaseAdapter(supabase, session.user.id)
+    const updatedOrg = await adapter.updateOrganization(params.id, body)
+
     if (updatedOrg) {
       return NextResponse.json(updatedOrg)
     } else {
@@ -27,13 +36,17 @@ export async function DELETE(
 ) {
   try {
     const params = await props.params
-    const success = await deleteOrganization(params.id)
-    
-    if (success) {
-      return NextResponse.json({ success: true })
-    } else {
-      return NextResponse.json({ error: 'Organization not found' }, { status: 404 })
+    const supabase = await createClient()
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+
+    if (authError || !session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    const adapter = new SupabaseAdapter(supabase, session.user.id)
+    await adapter.deleteOrganization(params.id)
+
+    return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error deleting organization:', error)
     return NextResponse.json({ error: 'Failed to delete organization' }, { status: 500 })

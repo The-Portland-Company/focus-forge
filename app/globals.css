@@ -580,3 +580,175 @@ input[type="checkbox"]:focus {
 .animate-slide-in {
   animation: slide-in 0.3s ease-out;
 }
+
+@keyframes slide-up-in {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-down-out {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+}
+
+.animate-slide-up-in {
+  animation: slide-up-in 0.25s ease-out;
+}
+
+.animate-slide-down-out {
+  animation: slide-down-out 0.25s ease-in forwards;
+}
+
+/* Slide fade out animation for bulk operations */
+@keyframes slide-fade-out {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 100px;
+  }
+  50% {
+    opacity: 0.3;
+    transform: translateY(-8px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-16px);
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+}
+
+.animate-slide-fade-out {
+  animation: slide-fade-out 0.4s ease-out forwards;
+  pointer-events: none;
+}
+
+/* Themed date and time inputs */
+.themed-date-input {
+  color-scheme: dark;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-color: transparent !important;
+}
+
+/* Base input styling for date/time */
+input[type="date"].themed-date-input,
+input[type="time"].themed-date-input,
+input[type="datetime-local"].themed-date-input {
+  color: white !important;
+  background-color: transparent !important;
+}
+
+.themed-date-input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+  background-color: transparent;
+}
+
+.themed-date-input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+.themed-date-input::-webkit-datetime-edit {
+  color: white;
+  padding: 0;
+}
+
+.themed-date-input::-webkit-datetime-edit-fields-wrapper {
+  color: white;
+  background-color: transparent;
+}
+
+.themed-date-input::-webkit-datetime-edit-text {
+  color: rgba(161, 161, 170, 1); /* zinc-400 */
+}
+
+.themed-date-input::-webkit-datetime-edit-month-field,
+.themed-date-input::-webkit-datetime-edit-day-field,
+.themed-date-input::-webkit-datetime-edit-year-field,
+.themed-date-input::-webkit-datetime-edit-hour-field,
+.themed-date-input::-webkit-datetime-edit-minute-field,
+.themed-date-input::-webkit-datetime-edit-second-field,
+.themed-date-input::-webkit-datetime-edit-ampm-field {
+  color: white;
+  background-color: transparent;
+}
+
+.themed-date-input::-webkit-datetime-edit-month-field:focus,
+.themed-date-input::-webkit-datetime-edit-day-field:focus,
+.themed-date-input::-webkit-datetime-edit-year-field:focus,
+.themed-date-input::-webkit-datetime-edit-hour-field:focus,
+.themed-date-input::-webkit-datetime-edit-minute-field:focus,
+.themed-date-input::-webkit-datetime-edit-second-field:focus,
+.themed-date-input::-webkit-datetime-edit-ampm-field:focus {
+  background-color: rgb(var(--theme-primary-rgb));
+  color: white;
+  border-radius: 2px;
+}
+
+/* Firefox date/time input styling */
+.themed-date-input::-moz-calendar-picker-indicator {
+  filter: invert(1);
+}
+
+/* Hide the clear button on date inputs */
+.themed-date-input::-webkit-clear-button {
+  display: none;
+}
+
+/* Style the inner spin button */
+.themed-date-input::-webkit-inner-spin-button {
+  display: none;
+}
+
+/* Safari specific fixes */
+@supports (-webkit-touch-callout: none) {
+  .themed-date-input {
+    min-height: 1.5em;
+  }
+}
+
+/* Task description expandable - uses CSS Grid for smooth height animation */
+.task-description-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s ease-out;
+}
+
+.group:hover .task-description-wrapper {
+  grid-template-rows: 1fr;
+}
+
+.task-description-expandable {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
+  min-height: 0;
+}
+
+.group:hover .task-description-expandable {
+  display: block;
+  -webkit-line-clamp: unset;
+  white-space: pre-wrap;
+  text-overflow: clip;
+}

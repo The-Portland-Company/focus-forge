@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Archive, Trash2, Edit, Plus, Link2, Link2Off, CalendarClock, RefreshCw } from 'lucide-react'
+import { Archive, Trash2, Edit, Plus, Link2, Link2Off, CalendarClock, RefreshCw, CheckSquare, Square, X, Search, ArrowUpDown, User, Loader2, ChevronUp, ChevronDown } from 'lucide-react'
 import { Sidebar } from '@/components/sidebar'
 import { filterTasksByBlockedStatus, isTaskBlocked } from '@/lib/dependency-utils'
 import { AddTaskModal } from '@/components/add-task-modal'
+import { BulkEditModal } from '@/components/bulk-edit-modal'
 import { EditTaskModal } from '@/components/edit-task-modal'
 import { AddProjectModal } from '@/components/add-project-modal'
 import { EditProjectModal } from '@/components/edit-project-modal'
@@ -20,10 +21,14 @@ import { Database, Task, Project, Organization, Section } from '@/lib/types'
 import { SectionView } from '@/components/section-view'
 import { AddSectionModal } from '@/components/add-section-modal'
 import { AddSectionDivider } from '@/components/add-section-divider'
-import { getLocalDateString, isOverdue, isTodayOrOverdue } from '@/lib/date-utils'
+import { format } from 'date-fns'
+import { getLocalDateString, isOverdue, isTodayOrOverdue, isToday, isTomorrow, isRestOfWeek } from '@/lib/date-utils'
 import { applyUserTheme } from '@/lib/theme-utils'
 import { TodoistQuickSyncModal } from '@/components/todoist-quick-sync-modal'
+import { SkeletonSidebar, SkeletonTodayView } from '@/components/skeleton-loader'
 import { useAuth } from '@/contexts/AuthContext'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import * as Popover from '@radix-ui/react-popover'
 
 export default function ViewPage() {
   const params = useParams()
@@ -55,18 +60,48 @@ export default function ViewPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFilter, setSearchFilter] = useState<'all' | 'tasks' | 'projects' | 'organizations'>('all')
   const [showBlockedTasks, setShowBlockedTasks] = useState(false)
+  const [todaySections, setTodaySections] = useState({
+    overdue: true,
+    today: true,
+    tomorrow: true,
+    restOfWeek: true
+  })
   const [showAddSection, setShowAddSection] = useState(false)
   const [sectionParentId, setSectionParentId] = useState<string | undefined>(undefined)
   const [sectionOrder, setSectionOrder] = useState(0)
   const [editingSection, setEditingSection] = useState<Section | null>(null)
   const [upcomingFilterType, setUpcomingFilterType] = useState<'dueDate' | 'deadline'>('dueDate')
   const [showRescheduleConfirm, setShowRescheduleConfirm] = useState(false)
+  const [bulkSelectMode, setBulkSelectMode] = useState(false)
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false)
+  const [taskSearchQuery, setTaskSearchQuery] = useState('')
+  const [lastSelectedTaskId, setLastSelectedTaskId] = useState<string | null>(null)
+  const [loadingTaskIds, setLoadingTaskIds] = useState<Set<string>>(new Set())
+  const [animatingOutTaskIds, setAnimatingOutTaskIds] = useState<Set<string>>(new Set())
+  const [undoCompletion, setUndoCompletion] = useState<{ taskId: string; taskName: string; affectedIds: string[] } | null>(null)
+  const [undoExiting, setUndoExiting] = useState(false)
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const undoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [optimisticCompletedIds, setOptimisticCompletedIds] = useState<Set<string>>(new Set())
+  const [taskDeleteConfirm, setTaskDeleteConfirm] = useState<{ show: boolean; taskId: string | null; taskName: string }>({
+    show: false,
+    taskId: null,
+    taskName: ''
+  })
 
   useEffect(() => {
     fetchData()
   }, [])
   
   // Theme is now handled by AuthContext
+
+  useEffect(() => {
+    return () => {
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+      if (undoHideTimerRef.current) clearTimeout(undoHideTimerRef.current)
+    }
+  }, [])
 
 
   const fetchData = async () => {
@@ -134,6 +169,65 @@ export default function ViewPage() {
     }
   }
 
+  const clearUndoTimers = () => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+    if (undoHideTimerRef.current) clearTimeout(undoHideTimerRef.current)
+    undoTimerRef.current = null
+    undoHideTimerRef.current = null
+  }
+
+  const showUndoCompletion = (task: Task, affectedIds: string[]) => {
+    clearUndoTimers()
+    setUndoCompletion({ taskId: task.id, taskName: task.name, affectedIds })
+    setUndoExiting(false)
+    undoTimerRef.current = setTimeout(() => {
+      setUndoExiting(true)
+      undoHideTimerRef.current = setTimeout(() => {
+        setUndoCompletion(null)
+        setUndoExiting(false)
+      }, 300)
+    }, 30000)
+  }
+
+  const handleUndoComplete = async () => {
+    if (!undoCompletion) return
+    const { affectedIds } = undoCompletion
+    clearUndoTimers()
+    setUndoExiting(true)
+    setOptimisticCompletedIds(prev => {
+      const next = new Set(prev)
+      affectedIds.forEach(id => next.delete(id))
+      return next
+    })
+    setAnimatingOutTaskIds(prev => {
+      const next = new Set(prev)
+      affectedIds.forEach(id => next.delete(id))
+      return next
+    })
+    try {
+      await Promise.all(
+        affectedIds.map(id =>
+          fetch(`/api/tasks/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              completed: false,
+              completedAt: null
+            })
+          })
+        )
+      )
+    } catch (error) {
+      console.error('Error undoing completion:', error)
+    }
+    await fetchData()
+    setTimeout(() => {
+      setUndoCompletion(null)
+      setUndoExiting(false)
+    }, 250)
+  }
+
   const handleTodoistSync = async (mode: 'merge' | 'overwrite') => {
     if (!user?.id) {
       throw new Error('User not authenticated')
@@ -180,6 +274,24 @@ export default function ViewPage() {
     const task = database?.tasks.find(t => t.id === taskId)
     if (!task || !database) return
 
+    const isCompleting = !task.completed
+    const subtasks = database.tasks.filter(t => t.parentId === taskId)
+    const affectedIds = [taskId, ...subtasks.map(st => st.id)]
+
+    // Optimistic update - immediately show as completed
+    if (isCompleting) {
+      setOptimisticCompletedIds(prev => new Set(prev).add(taskId))
+
+      // Also mark subtasks as optimistically completed
+      if (subtasks.length > 0) {
+        setOptimisticCompletedIds(prev => {
+          const next = new Set(prev)
+          subtasks.forEach(st => next.add(st.id))
+          return next
+        })
+      }
+    }
+
     try {
       // Update the main task
       const response = await fetch(`/api/tasks/${taskId}`, {
@@ -187,18 +299,16 @@ export default function ViewPage() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          completed: !task.completed,
-          completedAt: !task.completed ? new Date().toISOString() : undefined
+          completed: isCompleting,
+          completedAt: isCompleting ? new Date().toISOString() : undefined
         })
       })
-      
+
       if (response.ok) {
         // If we're completing a parent task, also complete all subtasks
-        if (!task.completed) {
-          const subtasks = database.tasks.filter(t => t.parentId === taskId)
-          
+        if (isCompleting) {
           // Update all subtasks in parallel
-          const updatePromises = subtasks.map(subtask => 
+          const updatePromises = subtasks.map(subtask =>
             fetch(`/api/tasks/${subtask.id}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
@@ -209,15 +319,63 @@ export default function ViewPage() {
               })
             })
           )
-          
+
           // Wait for all subtask updates to complete
           await Promise.all(updatePromises)
+
+          // Start fade out animation
+          setAnimatingOutTaskIds(prev => {
+            const next = new Set(prev)
+            next.add(taskId)
+            subtasks.forEach(st => next.add(st.id))
+            return next
+          })
+
+          // Wait for animation to complete
+          await new Promise(resolve => setTimeout(resolve, 400))
+
+          // Refresh data first (while still hiding the task)
+          await fetchData()
+
+          // Then clear states after data is refreshed
+          setOptimisticCompletedIds(prev => {
+            const next = new Set(prev)
+            next.delete(taskId)
+            subtasks.forEach(st => next.delete(st.id))
+            return next
+          })
+          setAnimatingOutTaskIds(prev => {
+            const next = new Set(prev)
+            next.delete(taskId)
+            subtasks.forEach(st => next.delete(st.id))
+            return next
+          })
+          showUndoCompletion(task, affectedIds)
+        } else {
+          // Not completing, just refresh
+          await fetchData()
+          showUndoCompletion(task, affectedIds)
         }
-        
-        await fetchData()
+      } else {
+        // Revert optimistic update on failure
+        if (isCompleting) {
+          setOptimisticCompletedIds(prev => {
+            const next = new Set(prev)
+            next.delete(taskId)
+            return next
+          })
+        }
       }
     } catch (error) {
       console.error('Error toggling task:', error)
+      // Revert optimistic update on error
+      if (isCompleting) {
+        setOptimisticCompletedIds(prev => {
+          const next = new Set(prev)
+          next.delete(taskId)
+          return next
+        })
+      }
     }
   }
 
@@ -247,20 +405,192 @@ export default function ViewPage() {
     }
   }
 
-  const handleTaskDelete = async (taskId: string) => {
-    if (confirm('Are you sure you want to delete this task?')) {
-      try {
-        const response = await fetch(`/api/tasks/${taskId}`, {
+  const handleBulkUpdate = async (updates: Partial<Task>) => {
+    try {
+      const taskIds = Array.from(selectedTaskIds)
+      setShowBulkEditModal(false)
+
+      // Show loading state for all selected tasks
+      setLoadingTaskIds(new Set(taskIds))
+
+      // Process tasks sequentially with staggered animations
+      for (let i = 0; i < taskIds.length; i++) {
+        const taskId = taskIds[i]
+
+        // Update the task
+        await fetch(`/api/tasks/${taskId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(updates)
+        })
+
+        // Remove from loading, add to animating out
+        setLoadingTaskIds(prev => {
+          const next = new Set(prev)
+          next.delete(taskId)
+          return next
+        })
+        setAnimatingOutTaskIds(prev => new Set(prev).add(taskId))
+
+        // Stagger delay between tasks (100ms)
+        if (i < taskIds.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+
+      // Wait for animations to complete
+      await new Promise(resolve => setTimeout(resolve, 400))
+
+      // Refresh data and reset states
+      await fetchData()
+      setBulkSelectMode(false)
+      setSelectedTaskIds(new Set())
+      setLastSelectedTaskId(null)
+      setLoadingTaskIds(new Set())
+      setAnimatingOutTaskIds(new Set())
+    } catch (error) {
+      console.error('Error bulk updating tasks:', error)
+      setLoadingTaskIds(new Set())
+      setAnimatingOutTaskIds(new Set())
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    try {
+      const taskIds = Array.from(selectedTaskIds)
+      setShowBulkEditModal(false)
+
+      // Show loading state for all selected tasks
+      setLoadingTaskIds(new Set(taskIds))
+
+      // Process tasks sequentially with staggered animations
+      for (let i = 0; i < taskIds.length; i++) {
+        const taskId = taskIds[i]
+
+        // Delete the task
+        await fetch(`/api/tasks/${taskId}`, {
           method: 'DELETE',
           credentials: 'include'
         })
-        
-        if (response.ok) {
-          await fetchData()
+
+        // Remove from loading, add to animating out
+        setLoadingTaskIds(prev => {
+          const next = new Set(prev)
+          next.delete(taskId)
+          return next
+        })
+        setAnimatingOutTaskIds(prev => new Set(prev).add(taskId))
+
+        // Stagger delay between tasks (100ms)
+        if (i < taskIds.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100))
         }
-      } catch (error) {
-        console.error('Error deleting task:', error)
       }
+
+      // Wait for animations to complete
+      await new Promise(resolve => setTimeout(resolve, 400))
+
+      // Refresh data and reset states
+      await fetchData()
+      setBulkSelectMode(false)
+      setSelectedTaskIds(new Set())
+      setLastSelectedTaskId(null)
+      setLoadingTaskIds(new Set())
+      setAnimatingOutTaskIds(new Set())
+    } catch (error) {
+      console.error('Error bulk deleting tasks:', error)
+      setLoadingTaskIds(new Set())
+      setAnimatingOutTaskIds(new Set())
+    }
+  }
+
+  const handleInviteUser = async (email: string, firstName: string, lastName: string): Promise<{ userId: string } | null> => {
+    if (!database) return null
+
+    // Get organization from the first selected task's project
+    const firstTaskId = Array.from(selectedTaskIds)[0]
+    const firstTask = database.tasks.find(t => t.id === firstTaskId)
+    const projectId = firstTask ? ((firstTask as any).project_id || firstTask.projectId) : null
+    const project = projectId ? database.projects.find(p => p.id === projectId) : null
+
+    // Handle both snake_case and camelCase for organization ID
+    const projectOrgId = project ? ((project as any).organization_id || project.organizationId) : null
+
+    let organization = projectOrgId
+      ? database.organizations.find(o => o.id === projectOrgId)
+      : null
+
+    // Fallback to first organization if none found from project
+    if (!organization && database.organizations && database.organizations.length > 0) {
+      organization = database.organizations[0]
+    }
+
+    if (!organization) {
+      console.error('No organization found for invite. Organizations:', database.organizations)
+      throw new Error('No organization available. Please create an organization first.')
+    }
+
+    try {
+      const response = await fetch('/api/invite-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          email,
+          firstName,
+          lastName,
+          organizationId: organization.id,
+          organizationName: organization.name
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to invite user')
+      }
+
+      // Refresh data to get the new user in the list
+      await fetchData()
+
+      if (data.user?.id) {
+        return { userId: data.user.id }
+      }
+
+      return null
+    } catch (error) {
+      console.error('Error inviting user:', error)
+      throw error
+    }
+  }
+
+  const handleTaskDelete = async (taskId: string) => {
+    if (showEditTask) {
+      setShowEditTask(false)
+      setEditingTask(null)
+    }
+    const task = database?.tasks.find(t => t.id === taskId)
+    setTaskDeleteConfirm({
+      show: true,
+      taskId,
+      taskName: task?.name || 'this task'
+    })
+  }
+
+  const confirmTaskDelete = async () => {
+    if (!taskDeleteConfirm.taskId) return
+    try {
+      const response = await fetch(`/api/tasks/${taskDeleteConfirm.taskId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        await fetchData()
+      }
+    } catch (error) {
+      console.error('Error deleting task:', error)
     }
   }
 
@@ -589,7 +919,14 @@ export default function ViewPage() {
   }
 
   if (!database) {
-    return <div className="h-screen bg-zinc-950 flex items-center justify-center text-white">Loading...</div>
+    return (
+      <div className="h-screen bg-zinc-950 flex">
+        <SkeletonSidebar />
+        <main className="flex-1 text-white overflow-y-auto">
+          <SkeletonTodayView />
+        </main>
+      </div>
+    )
   }
 
   const sortTasks = (tasks: Task[]) => {
@@ -623,6 +960,15 @@ export default function ViewPage() {
     // Get the first user as the current user (in a real app this would come from auth)
     return database?.users[0]?.id || null
   }
+
+  // Get current user's priority color preference
+  const getCurrentUserPriorityColor = () => {
+    if (!database?.users || !user?.id) return undefined
+    const currentUser = database.users.find(u => u.id === user.id)
+    return (currentUser as any)?.priorityColor || (currentUser as any)?.priority_color || undefined
+  }
+
+  const userPriorityColor = getCurrentUserPriorityColor()
 
   const filterTasks = (tasks: Task[]) => {
     if (filterAssignedTo === 'all') {
@@ -661,136 +1007,450 @@ export default function ViewPage() {
 
   const renderContent = () => {
     if (view === 'today') {
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      const tomorrow = new Date(today)
-      tomorrow.setDate(tomorrow.getDate() + 1)
-      
-      let todayTasks = database.tasks.filter(task => {
-        // Handle both snake_case and camelCase fields
+      // Get all tasks with due dates up to end of week
+      let allWeekTasks = database.tasks.filter(task => {
         const dueDate = (task as any).due_date || task.dueDate
         if (!dueDate) return false
-        // Show tasks due today or overdue (anything up to and including today)
-        return isTodayOrOverdue(dueDate)
+        // Include overdue, today, tomorrow, and rest of week
+        return isOverdue(dueDate) || isToday(dueDate) || isTomorrow(dueDate) || isRestOfWeek(dueDate)
       })
-      
+
       // Apply filters and sorting
-      todayTasks = filterTasks(todayTasks)
-      todayTasks = sortTasks(todayTasks)
-      
+      allWeekTasks = filterTasks(allWeekTasks)
+      allWeekTasks = sortTasks(allWeekTasks)
+
       // Filter blocked tasks if needed
       if (!showBlockedTasks && database) {
-        todayTasks = filterTasksByBlockedStatus(todayTasks, database.tasks, showBlockedTasks)
+        allWeekTasks = filterTasksByBlockedStatus(allWeekTasks, database.tasks, showBlockedTasks)
       }
-      
-      // Count overdue tasks specifically
-      const overdueCount = database.tasks.filter(task => {
+
+      // Apply search filter
+      if (taskSearchQuery.trim()) {
+        const query = taskSearchQuery.toLowerCase()
+        allWeekTasks = allWeekTasks.filter(task =>
+          task.name.toLowerCase().includes(query) ||
+          task.description?.toLowerCase().includes(query)
+        )
+      }
+
+      // Group tasks by section
+      const completedWeekTasks = allWeekTasks.filter(task => task.completed)
+      const activeWeekTasks = allWeekTasks.filter(task => !task.completed)
+
+      const overdueTasks = activeWeekTasks.filter(task => {
         const dueDate = (task as any).due_date || task.dueDate
-        if (!dueDate || task.completed) return false
-        return isOverdue(dueDate)
-      }).length
-      
+        return dueDate && isOverdue(dueDate)
+      })
+
+      const todayTasks = activeWeekTasks.filter(task => {
+        const dueDate = (task as any).due_date || task.dueDate
+        return dueDate && isToday(dueDate)
+      })
+
+      const tomorrowTasks = activeWeekTasks.filter(task => {
+        const dueDate = (task as any).due_date || task.dueDate
+        return dueDate && isTomorrow(dueDate)
+      })
+
+      const restOfWeekTasks = activeWeekTasks.filter(task => {
+        const dueDate = (task as any).due_date || task.dueDate
+        return dueDate && isRestOfWeek(dueDate)
+      })
+
+      // Count overdue tasks specifically (for reschedule button)
+      const overdueCount = overdueTasks.filter(t => !t.completed).length
+
+      // Toggle section expansion
+      const toggleSection = (section: keyof typeof todaySections) => {
+        setTodaySections(prev => ({ ...prev, [section]: !prev[section] }))
+      }
+
+      // Section header component
+      const SectionHeader = ({ title, count, section, isOpen }: { title: string, count: number, section: keyof typeof todaySections, isOpen: boolean }) => (
+        <button
+          onClick={() => toggleSection(section)}
+          className="w-full flex items-center justify-between py-2 px-1 border-b border-zinc-700 group"
+        >
+          <span className="text-sm font-medium text-zinc-500 group-hover:text-zinc-400 transition-colors">
+            {title} {count > 0 && <span className="text-zinc-600">({count})</span>}
+          </span>
+          {isOpen ? (
+            <ChevronDown className="w-4 h-4 text-zinc-600 group-hover:text-zinc-500 transition-colors" />
+          ) : (
+            <ChevronUp className="w-4 h-4 text-zinc-600 group-hover:text-zinc-500 transition-colors" />
+          )}
+        </button>
+      )
+
+      const handleTaskUpdate = async (taskId: string, updates: Partial<Task>) => {
+        setDatabase(prev => {
+          if (!prev) return prev
+          const updatesAny = updates as any
+          return {
+            ...prev,
+            tasks: prev.tasks.map(task => {
+              if (task.id !== taskId) return task
+              const hasDueDate = Object.prototype.hasOwnProperty.call(updatesAny, 'due_date') || Object.prototype.hasOwnProperty.call(updatesAny, 'dueDate')
+              const hasDueTime = Object.prototype.hasOwnProperty.call(updatesAny, 'due_time') || Object.prototype.hasOwnProperty.call(updatesAny, 'dueTime')
+              const nextDueDate = hasDueDate ? (updatesAny.due_date ?? updatesAny.dueDate ?? null) : ((task as any).due_date ?? task.dueDate ?? null)
+              const nextDueTime = hasDueTime ? (updatesAny.due_time ?? updatesAny.dueTime ?? null) : ((task as any).due_time ?? task.dueTime ?? null)
+              return {
+                ...task,
+                ...updates,
+                dueDate: nextDueDate ?? undefined,
+                dueTime: nextDueTime ?? undefined,
+                due_date: nextDueDate,
+                due_time: nextDueTime
+              } as any
+            })
+          }
+        })
+        try {
+          const response = await fetch(`/api/tasks/${taskId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(updates)
+          })
+
+          if (response.ok) {
+            await fetchData()
+          } else {
+            await fetchData()
+          }
+        } catch (error) {
+          console.error('Error updating task:', error)
+          await fetchData()
+        }
+      }
+
+      // Common TaskList props
+      const getTaskListProps = (tasks: typeof allWeekTasks, accordionKey: string) => ({
+        tasks,
+        allTasks: database.tasks,
+        projects: database.projects,
+        currentUserId: user?.id,
+        priorityColor: userPriorityColor,
+        showCompleted: database.settings?.showCompletedTasks ?? true,
+        completedAccordionKey: accordionKey,
+        revealActionsOnHover: true,
+        onTaskToggle: handleTaskToggle,
+        onTaskEdit: handleTaskEdit,
+        onTaskDelete: handleTaskDelete,
+        onTaskUpdate: handleTaskUpdate,
+        enableDueDateQuickEdit: true,
+        bulkSelectMode,
+        selectedTaskIds,
+        loadingTaskIds,
+        animatingOutTaskIds,
+        optimisticCompletedIds,
+        onTaskSelect: (taskId: string, event?: React.MouseEvent) => {
+          if (event?.ctrlKey || event?.metaKey) {
+            setSelectedTaskIds(prev => {
+              const next = new Set(prev)
+              next.delete(taskId)
+              return next
+            })
+            return
+          }
+          if (event?.shiftKey && lastSelectedTaskId) {
+            const taskIds = allWeekTasks.map(t => t.id)
+            const lastIndex = taskIds.indexOf(lastSelectedTaskId)
+            const currentIndex = taskIds.indexOf(taskId)
+            if (lastIndex !== -1 && currentIndex !== -1) {
+              const start = Math.min(lastIndex, currentIndex)
+              const end = Math.max(lastIndex, currentIndex)
+              const rangeIds = taskIds.slice(start, end + 1)
+              setSelectedTaskIds(prev => {
+                const next = new Set(prev)
+                rangeIds.forEach(id => next.add(id))
+                return next
+              })
+              return
+            }
+          }
+          setSelectedTaskIds(prev => {
+            const next = new Set(prev)
+            if (next.has(taskId)) {
+              next.delete(taskId)
+            } else {
+              next.add(taskId)
+            }
+            return next
+          })
+          setLastSelectedTaskId(taskId)
+        }
+      })
+
+      const todayDate = new Date()
+      const todayLabel = `${format(todayDate, 'EEE')}. ${format(todayDate, 'MMM')}. ${format(todayDate, 'do')} '${format(todayDate, 'yy')}`
+
       return (
-        <div>
-          {/* Header with dark container */}
-          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 mb-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <h1 className="text-2xl font-bold">Today</h1>
-                <div className="px-4 py-1 rounded-lg bg-zinc-800 border border-zinc-700">
-                  <span className="text-sm font-medium text-zinc-300">
-                    {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+        <div className="relative">
+          {/* Header bar */}
+          <div className="sticky top-0 z-40 w-full bg-zinc-900 border-b border-zinc-800">
+            <div className="w-full px-4 py-4">
+              <div className="flex items-center justify-between gap-4 overflow-x-auto">
+                <div className="flex items-center gap-4 shrink-0">
+                  <div className="px-4 py-1 bg-zinc-800 border border-zinc-700">
+                    <span className="text-sm font-medium text-zinc-300">
+                      {todayLabel}
+                    </span>
+                  </div>
+                </div>
+                <div className="relative flex items-center flex-1 min-w-[220px] max-w-[360px]">
+                  <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
+                  <input
+                    type="text"
+                    value={taskSearchQuery}
+                    onChange={(e) => setTaskSearchQuery(e.target.value)}
+                    placeholder="Search tasks..."
+                    className="bg-zinc-800 text-white text-sm pl-9 pr-3 py-1.5 rounded border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all w-full"
+                  />
+                  {taskSearchQuery && (
+                    <button
+                      onClick={() => setTaskSearchQuery('')}
+                      className="absolute right-2 text-zinc-500 hover:text-zinc-300"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-4 shrink-0">
+                  <div className="flex items-center gap-2">
+                    {user && (
+                      <span className="relative group/todoist">
+                        <button
+                          onClick={() => setShowTodoistSync(true)}
+                          className="p-2.5 hover:bg-zinc-800 rounded-lg transition-colors text-red-500 hover:text-red-400"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                        <span className="absolute right-0 top-full mt-1 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/todoist:opacity-100 transition-opacity pointer-events-none z-50">
+                          Sync with Todoist
+                        </span>
+                      </span>
+                    )}
+                    {overdueCount > 0 && (
+                      <span className="relative group/reschedule">
+                        <button
+                          onClick={() => setShowRescheduleConfirm(true)}
+                          className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-orange-400 hover:text-orange-300"
+                        >
+                          <CalendarClock className="w-5 h-5" />
+                        </button>
+                        <span className="absolute left-1/2 -translate-x-1/2 top-full mt-1 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/reschedule:opacity-100 transition-opacity pointer-events-none z-50">
+                          Reschedule {overdueCount} overdue task{overdueCount === 1 ? '' : 's'}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Popover.Root>
+                      <Popover.Trigger asChild>
+                        <button
+                          type="button"
+                          className="p-2 rounded border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
+                          aria-label="Sort options"
+                        >
+                          <ArrowUpDown className="w-4 h-4" />
+                        </button>
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Content
+                          side="bottom"
+                          align="center"
+                          sideOffset={8}
+                          className="z-50 w-44 rounded-lg bg-zinc-900 border border-zinc-800 shadow-xl p-2"
+                        >
+                          <div className="text-[11px] text-zinc-500 px-1 pb-1">Sort by</div>
+                          <Select
+                            value={sortBy}
+                            onValueChange={(value) => setSortBy(value as typeof sortBy)}
+                          >
+                            <SelectTrigger className="h-8 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                              <SelectValue placeholder="Sort by" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="dueDate">Due Date</SelectItem>
+                              <SelectItem value="deadline">Deadline</SelectItem>
+                              <SelectItem value="priority">Priority</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Popover.Arrow className="fill-zinc-900 stroke-zinc-800" width={10} height={6} />
+                        </Popover.Content>
+                      </Popover.Portal>
+                    </Popover.Root>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <span className="relative group/assign">
+                      <User className="w-4 h-4 text-zinc-400" />
+                      <span className="absolute left-1/2 -translate-x-1/2 top-full mt-1 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/assign:opacity-100 transition-opacity pointer-events-none z-50">
+                        Assigned to
+                      </span>
+                    </span>
+                    <Select
+                      value={filterAssignedTo}
+                      onValueChange={(value) => setFilterAssignedTo(value)}
+                    >
+                      <SelectTrigger className="h-8 w-[170px] bg-zinc-800 text-white text-sm border border-zinc-700">
+                        <SelectValue placeholder="Assigned to" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="me-unassigned">Me + Unassigned</SelectItem>
+                        <SelectItem value="me">Me</SelectItem>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="unassigned">Unassigned</SelectItem>
+                        {database.users.map(user => (
+                          <SelectItem key={user.id} value={user.id}>
+                            {user.firstName} {user.lastName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <span className="relative group/blocked">
+                    <button
+                      onClick={() => setShowBlockedTasks(!showBlockedTasks)}
+                      className={`p-2 rounded border transition-colors ${
+                        showBlockedTasks
+                          ? 'bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20'
+                          : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600'
+                      }`}
+                    >
+                      {showBlockedTasks ? <Link2 className="w-4 h-4" /> : <Link2Off className="w-4 h-4" />}
+                    </button>
+                    <span className="absolute left-1/2 -translate-x-1/2 top-full mt-1 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/blocked:opacity-100 transition-opacity pointer-events-none z-50">
+                      {showBlockedTasks ? 'Currently Showing Blocked Tasks' : 'Currently Hiding Blocked Tasks'}
+                    </span>
                   </span>
+
+                  <span className="relative group/bulk">
+                    <button
+                      onClick={() => {
+                        if (bulkSelectMode) {
+                          setBulkSelectMode(false)
+                          setSelectedTaskIds(new Set())
+                          setLastSelectedTaskId(null)
+                        } else {
+                          setBulkSelectMode(true)
+                        }
+                      }}
+                      className={`p-2 rounded border transition-colors ${
+                        bulkSelectMode
+                          ? 'bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20'
+                          : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600'
+                      }`}
+                    >
+                      {bulkSelectMode ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                    </button>
+                    <span className="absolute left-1/2 -translate-x-1/2 top-full mt-1 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/bulk:opacity-100 transition-opacity pointer-events-none z-50">
+                      {bulkSelectMode ? 'Cancel Bulk Select' : 'Bulk Select'}
+                    </span>
+                  </span>
+
+                  {bulkSelectMode && selectedTaskIds.size > 0 && (
+                    <button
+                      onClick={() => setShowBulkEditModal(true)}
+                      className="px-3 py-1.5 rounded border bg-[rgb(var(--theme-primary-rgb))] text-white border-[rgb(var(--theme-primary-rgb))] hover:bg-[rgb(var(--theme-primary-rgb))]/80 transition-colors text-sm font-medium"
+                    >
+                      Apply to {selectedTaskIds.size} task{selectedTaskIds.size > 1 ? 's' : ''}
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {user && (
-                  <button
-                    onClick={() => setShowTodoistSync(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-800 rounded-lg transition-colors text-red-500 hover:text-red-400 border border-zinc-700 hover:border-zinc-600"
-                    title="Sync with Todoist"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    <span className="text-sm">Todoist</span>
-                  </button>
-                )}
-                {overdueCount > 0 && (
-                  <button
-                    onClick={() => setShowRescheduleConfirm(true)}
-                    className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-orange-400 hover:text-orange-300"
-                    title={`Reschedule ${overdueCount} overdue task${overdueCount === 1 ? '' : 's'}`}
-                  >
-                    <CalendarClock className="w-5 h-5" />
-                  </button>
-                )}
-                <span className="text-sm text-zinc-400">
-                  {todayTasks.filter(t => !t.completed).length} tasks
-                </span>
-              </div>
             </div>
           </div>
-          
-          {/* Sort/Filter controls with dark container */}
-          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 mb-4">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-zinc-400">Sort by:</label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                  className="bg-zinc-800 text-white text-sm px-3 py-1 rounded border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all"
-                >
-                  <option value="dueDate">Due Date</option>
-                  <option value="deadline">Deadline</option>
-                  <option value="priority">Priority</option>
-                </select>
+
+          {/* Task List with dark container - Grouped by time period */}
+          <div className="w-full pb-8 pt-6">
+            <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 space-y-2 mx-4">
+              {/* Overdue Section */}
+              {overdueTasks.length > 0 && (
+                <div>
+                  <SectionHeader
+                    title="Overdue"
+                    count={overdueTasks.filter(t => !t.completed).length}
+                    section="overdue"
+                    isOpen={todaySections.overdue}
+                  />
+                  {todaySections.overdue && (
+                    <div className="mt-1">
+                      <TaskList {...getTaskListProps(overdueTasks, 'today-overdue')} />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Today Section */}
+              <div>
+                <SectionHeader
+                  title="Today"
+                  count={todayTasks.filter(t => !t.completed).length}
+                  section="today"
+                  isOpen={todaySections.today}
+                />
+                {todaySections.today && (
+                  <div className="mt-1">
+                    {todayTasks.length > 0 ? (
+                      <TaskList {...getTaskListProps(todayTasks, 'today-today')} />
+                    ) : (
+                      <p className="text-sm text-zinc-600 py-2 px-1">No tasks due today</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Tomorrow Section */}
+              <div>
+                <SectionHeader
+                  title="Tomorrow"
+                  count={tomorrowTasks.filter(t => !t.completed).length}
+                  section="tomorrow"
+                  isOpen={todaySections.tomorrow}
+                />
+                {todaySections.tomorrow && (
+                  <div className="mt-1">
+                    {tomorrowTasks.length > 0 ? (
+                      <TaskList {...getTaskListProps(tomorrowTasks, 'today-tomorrow')} />
+                    ) : (
+                      <p className="text-sm text-zinc-600 py-2 px-1">No tasks due tomorrow</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Rest of Week Section */}
+              <div>
+                <SectionHeader
+                  title="Rest of the Week"
+                  count={restOfWeekTasks.filter(t => !t.completed).length}
+                  section="restOfWeek"
+                  isOpen={todaySections.restOfWeek}
+                />
+                {todaySections.restOfWeek && (
+                  <div className="mt-1">
+                    {restOfWeekTasks.length > 0 ? (
+                      <TaskList {...getTaskListProps(restOfWeekTasks, 'today-restofweek')} />
+                    ) : (
+                      <p className="text-sm text-zinc-600 py-2 px-1">No tasks for the rest of the week</p>
+                    )}
+                  </div>
+                )}
               </div>
               
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-zinc-400">Assigned to:</label>
-                <select
-                  value={filterAssignedTo}
-                  onChange={(e) => setFilterAssignedTo(e.target.value)}
-                  className="bg-zinc-800 text-white text-sm px-3 py-1 rounded border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all"
-                >
-                  <option value="me-unassigned">Me + Unassigned</option>
-                  <option value="me">Me</option>
-                  <option value="all">All</option>
-                  <option value="unassigned">Unassigned</option>
-                  {database.users.map(user => (
-                    <option key={user.id} value={user.id}>
-                      {user.firstName} {user.lastName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              
-              <button
-                onClick={() => setShowBlockedTasks(!showBlockedTasks)}
-                className={`flex items-center gap-2 text-sm px-3 py-1 rounded border transition-colors ${
-                  showBlockedTasks
-                    ? 'bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20'
-                    : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600'
-                }`}
-                title={showBlockedTasks ? 'Hide blocked tasks' : 'Show blocked tasks'}
-              >
-                {showBlockedTasks ? <Link2 className="w-4 h-4" /> : <Link2Off className="w-4 h-4" />}
-                {showBlockedTasks ? 'Showing Blocked' : 'Hiding Blocked'}
-              </button>
+              {completedWeekTasks.length > 0 && (
+                <div className="mt-4">
+                  <TaskList
+                    {...getTaskListProps(completedWeekTasks, 'today-completed')}
+                    showCompleted={false}
+                  />
+                </div>
+              )}
             </div>
-          </div>
-          
-          {/* Task List with dark container */}
-          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-1">
-            <TaskList
-              tasks={todayTasks}
-              allTasks={database.tasks}
-              projects={database.projects}
-              showCompleted={database.settings?.showCompletedTasks ?? true}
-              onTaskToggle={handleTaskToggle}
-              onTaskEdit={handleTaskEdit}
-              onTaskDelete={handleTaskDelete}
-            />
           </div>
         </div>
       )
@@ -868,18 +1528,21 @@ export default function ViewPage() {
               </div>
               
               {/* Blocked Tasks Toggle */}
-              <button
-                onClick={() => setShowBlockedTasks(!showBlockedTasks)}
-                className={`flex items-center gap-2 text-sm px-3 py-1 rounded border transition-colors ${
-                  showBlockedTasks
-                    ? 'bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20'
-                    : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600'
-                }`}
-                title={showBlockedTasks ? 'Hide blocked tasks' : 'Show blocked tasks'}
-              >
-                {showBlockedTasks ? <Link2 className="w-4 h-4" /> : <Link2Off className="w-4 h-4" />}
-                {showBlockedTasks ? 'Showing Blocked' : 'Hiding Blocked'}
-              </button>
+              <span className="relative group/blocked">
+                <button
+                  onClick={() => setShowBlockedTasks(!showBlockedTasks)}
+                  className={`p-2 rounded border transition-colors ${
+                    showBlockedTasks
+                      ? 'bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20'
+                      : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600'
+                  }`}
+                >
+                  {showBlockedTasks ? <Link2 className="w-4 h-4" /> : <Link2Off className="w-4 h-4" />}
+                </button>
+                <span className="absolute left-1/2 -translate-x-1/2 top-full mt-1 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/blocked:opacity-100 transition-opacity pointer-events-none z-50">
+                  {showBlockedTasks ? 'Currently Showing Blocked Tasks' : 'Currently Hiding Blocked Tasks'}
+                </span>
+              </span>
             </div>
           </div>
           <KanbanView
@@ -994,7 +1657,10 @@ export default function ViewPage() {
                   tasks={filteredTasks}
                   allTasks={database.tasks}
                   projects={database.projects}
+                  currentUserId={user?.id}
+                  priorityColor={userPriorityColor}
                   showCompleted={database.settings?.showCompletedTasks ?? true}
+                  completedAccordionKey="search"
                   onTaskToggle={handleTaskToggle}
                   onTaskEdit={handleTaskEdit}
                   onTaskDelete={handleTaskDelete}
@@ -1351,6 +2017,8 @@ export default function ViewPage() {
                 tasks={projectTasks}
                 allTasks={database.tasks}
                 database={database}
+                priorityColor={userPriorityColor}
+                completedAccordionKey={`project-${projectId}`}
                 onTaskToggle={handleTaskToggle}
                 onTaskEdit={handleTaskEdit}
                 onTaskDelete={handleTaskDelete}
@@ -1377,7 +2045,10 @@ export default function ViewPage() {
                 tasks={unassignedTasks}
                 allTasks={database.tasks}
                 projects={database.projects}
+                currentUserId={user?.id}
+                priorityColor={userPriorityColor}
                 showCompleted={database.settings?.showCompletedTasks ?? true}
+                completedAccordionKey={`project-${projectId}-unassigned`}
                 onTaskToggle={handleTaskToggle}
                 onTaskEdit={handleTaskEdit}
                 onTaskDelete={handleTaskDelete}
@@ -1405,7 +2076,7 @@ export default function ViewPage() {
 
   return (
     <div className="h-screen bg-zinc-950 flex">
-      <Sidebar 
+      <Sidebar
         data={database}
         onAddTask={() => setShowAddTask(true)}
         currentView={view}
@@ -1421,13 +2092,30 @@ export default function ViewPage() {
         onProjectEdit={handleOpenEditProject}
         onProjectsReorder={handleProjectsReorder}
         onOrganizationsReorder={handleOrganizationsReorder}
+        isAddingTask={showAddTask}
       />
       
       <main className="flex-1 text-white overflow-y-auto">
-        <div className={view === 'upcoming' ? 'p-8' : 'max-w-4xl mx-auto p-8'}>
+        <div className={view === 'upcoming' ? 'p-8' : view === 'today' ? 'p-0' : 'max-w-4xl mx-auto p-8'}>
           {renderContent()}
         </div>
       </main>
+
+      {undoCompletion && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
+          <div className={`${undoExiting ? 'animate-slide-down-out' : 'animate-slide-up-in'}`}>
+            <div className="flex items-center gap-3 bg-black text-white border border-zinc-800 rounded-lg px-4 py-3 shadow-lg">
+            <span className="text-sm">Completed "{undoCompletion.taskName}"</span>
+            <button
+              onClick={handleUndoComplete}
+              className="text-sm font-semibold text-white hover:text-zinc-200 underline underline-offset-4"
+            >
+              Undo
+            </button>
+          </div>
+          </div>
+        </div>
+      )}
       
       <AddTaskModal
         isOpen={showAddTask}
@@ -1453,7 +2141,17 @@ export default function ViewPage() {
           setEditingTask(task)
         }}
       />
-      
+
+      <BulkEditModal
+        isOpen={showBulkEditModal}
+        onClose={() => setShowBulkEditModal(false)}
+        selectedTaskIds={selectedTaskIds}
+        database={database}
+        onApply={handleBulkUpdate}
+        onDelete={handleBulkDelete}
+        onInviteUser={handleInviteUser}
+      />
+
       {selectedOrgForProject && (
         <AddProjectModal
           isOpen={showAddProject}
@@ -1510,6 +2208,17 @@ export default function ViewPage() {
         }}
         title="Delete Organization"
         description={`Are you sure you want to delete "${confirmDelete.orgName}"? This will permanently delete the organization and all its projects and tasks.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="destructive"
+      />
+
+      <ConfirmModal
+        isOpen={taskDeleteConfirm.show}
+        onClose={() => setTaskDeleteConfirm({ show: false, taskId: null, taskName: '' })}
+        onConfirm={confirmTaskDelete}
+        title="Delete Task"
+        description={`Are you sure you want to delete "${taskDeleteConfirm.taskName}"? This cannot be undone.`}
         confirmText="Delete"
         cancelText="Cancel"
         variant="destructive"

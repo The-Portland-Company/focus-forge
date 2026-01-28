@@ -1,44 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, saveDatabase } from '@/lib/db'
-import { UserSectionPreference } from '@/lib/types'
+import { createClient } from '@/lib/supabase/server'
+
+// Note: User section preferences not yet migrated to Supabase
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const database = await getDatabase()
-    
-    // Initialize userSectionPreferences if it doesn't exist
-    if (!database.userSectionPreferences) {
-      database.userSectionPreferences = []
+    const supabase = await createClient()
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+
+    if (authError || !session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    
-    // Check if preference already exists
-    const existingIndex = database.userSectionPreferences.findIndex(
-      pref => pref.userId === body.userId && pref.sectionId === body.sectionId
-    )
-    
-    if (existingIndex !== -1) {
-      // Update existing preference
-      database.userSectionPreferences[existingIndex] = {
-        ...database.userSectionPreferences[existingIndex],
-        isCollapsed: body.isCollapsed,
-        updatedAt: new Date().toISOString()
-      }
-    } else {
-      // Create new preference
-      const newPreference: UserSectionPreference = {
-        id: `pref-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        userId: body.userId,
-        sectionId: body.sectionId,
-        isCollapsed: body.isCollapsed,
-        updatedAt: new Date().toISOString()
-      }
-      database.userSectionPreferences.push(newPreference)
-    }
-    
-    await saveDatabase(database)
-    
-    return NextResponse.json({ success: true })
+
+    // User section preferences not implemented in Supabase yet
+    return NextResponse.json({ error: 'User section preferences feature not yet available' }, { status: 501 })
   } catch (error) {
     console.error('Failed to update user section preference:', error)
     return NextResponse.json({ error: 'Failed to update preference' }, { status: 500 })

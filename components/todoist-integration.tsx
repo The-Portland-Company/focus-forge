@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import { useToast } from '@/contexts/ToastContext'
 import { createClient } from '@/lib/supabase/client'
+import { TodoistSyncPreviewModal } from './todoist-sync-preview-modal'
 
 interface TodoistIntegrationProps {
   userId: string
@@ -86,6 +87,7 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
   const [syncFrequency, setSyncFrequency] = useState(30)
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null)
+  const [showPreviewModal, setShowPreviewModal] = useState(false)
 
   useEffect(() => {
     checkConnectionStatus()
@@ -180,7 +182,8 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
   }
 
   const handleConnect = async () => {
-    if (!apiToken.trim()) {
+    const trimmedToken = apiToken.trim()
+    if (!trimmedToken) {
       showError('API Token Required', 'Please enter your Todoist API token')
       return
     }
@@ -195,7 +198,7 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
       const response = await fetch('/api/todoist/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiToken, userId })
+        body: JSON.stringify({ apiToken: trimmedToken, userId })
       })
 
       const result = await response.json()
@@ -498,11 +501,22 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
         </div>
       )}
 
+      {/* Sync Preview Modal */}
+      <TodoistSyncPreviewModal
+        isOpen={showPreviewModal}
+        onClose={() => setShowPreviewModal(false)}
+        onConfirm={() => {
+          setShowPreviewModal(false)
+          handleSync('incremental')
+        }}
+        userId={userId}
+      />
+
       {/* Sync Controls */}
       <div className="space-y-4 mb-6">
         <div className="flex gap-2">
           <button
-            onClick={() => handleSync('incremental')}
+            onClick={() => setShowPreviewModal(true)}
             disabled={isSyncing}
             className="flex-1 px-4 py-2 bg-zinc-800 text-white rounded-lg hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
@@ -518,7 +532,7 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
               </>
             )}
           </button>
-          
+
           <button
             onClick={() => handleSync('full')}
             disabled={isSyncing}

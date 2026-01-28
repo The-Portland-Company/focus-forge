@@ -8,8 +8,9 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 export async function POST(request: NextRequest) {
   try {
     const { apiToken, userId } = await request.json()
+    const trimmedToken = typeof apiToken === 'string' ? apiToken.trim() : apiToken
 
-    if (!apiToken || !userId) {
+    if (!trimmedToken || !userId) {
       return NextResponse.json(
         { error: 'API token and user ID are required' },
         { status: 400 }
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Initialize Todoist client to validate token
-    const todoistClient = new TodoistClient(apiToken)
+    const todoistClient = new TodoistClient(trimmedToken)
     
     // Test the token and get user info
     let todoistUserInfo
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     const { error: updateError } = await supabase
       .from('profiles')
       .update({
-        todoist_api_token: apiToken,
+        todoist_api_token: trimmedToken,
         todoist_user_id: todoistUserInfo.id,
         todoist_email: todoistUserInfo.email,
         todoist_full_name: todoistUserInfo.full_name,

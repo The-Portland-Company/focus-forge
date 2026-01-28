@@ -14,6 +14,7 @@ CREATE TABLE profiles (
   last_name TEXT,
   role user_role NOT NULL DEFAULT 'team_member',
   profile_color TEXT DEFAULT '#EA580C',
+  profile_memoji TEXT,
   animations_enabled BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -161,6 +162,21 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Create function to check if user is admin in organization
+CREATE OR REPLACE FUNCTION user_is_org_admin(org_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1
+    FROM user_organizations uo
+    JOIN profiles p ON p.id = uo.user_id
+    WHERE uo.user_id = auth.uid()
+      AND uo.organization_id = org_id
+      AND p.role IN ('admin', 'super_admin')
+  ) OR is_super_admin();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- RLS Policies for profiles
 CREATE POLICY "Users can view their own profile" ON profiles
   FOR SELECT USING (auth.uid() = id);
@@ -201,32 +217,17 @@ CREATE POLICY "Users can view their own associations" ON user_organizations
 
 CREATE POLICY "Admins can view all users in their organizations" ON user_organizations
   FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM user_organizations uo
-      WHERE uo.user_id = auth.uid()
-      AND uo.organization_id = user_organizations.organization_id
-      AND (SELECT role FROM profiles WHERE id = auth.uid()) IN ('admin', 'super_admin')
-    ) OR is_super_admin()
+    user_is_org_admin(user_organizations.organization_id)
   );
 
 CREATE POLICY "Admins can add users to their organizations" ON user_organizations
   FOR INSERT WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM user_organizations uo
-      WHERE uo.user_id = auth.uid()
-      AND uo.organization_id = user_organizations.organization_id
-      AND (SELECT role FROM profiles WHERE id = auth.uid()) IN ('admin', 'super_admin')
-    ) OR is_super_admin()
+    user_is_org_admin(user_organizations.organization_id)
   );
 
 CREATE POLICY "Admins can remove users from their organizations" ON user_organizations
   FOR DELETE USING (
-    EXISTS (
-      SELECT 1 FROM user_organizations uo
-      WHERE uo.user_id = auth.uid()
-      AND uo.organization_id = user_organizations.organization_id
-      AND (SELECT role FROM profiles WHERE id = auth.uid()) IN ('admin', 'super_admin')
-    ) OR is_super_admin()
+    user_is_org_admin(user_organizations.organization_id)
   );
 
 -- RLS Policies for projects

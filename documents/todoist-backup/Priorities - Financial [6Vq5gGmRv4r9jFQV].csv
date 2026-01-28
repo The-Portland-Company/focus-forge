@@ -1,0 +1,24 @@
+﻿TYPE,CONTENT,DESCRIPTION,PRIORITY,INDENT,AUTHOR,RESPONSIBLE,DATE,DATE_LANG,TIMEZONE,DURATION,DURATION_UNIT,DEADLINE,DEADLINE_LANG
+meta,view_style=list,,,,,,,,,,,,
+,,,,,,,,,,,,,
+task,Replace Zight with tool that uses Apple dropbox folder.,,2,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Use Claude to Setup MailU server.,"[Docker Compose setup — Mailu, Docker based mail server](https://mailu.io/master/compose/setup.html)
+
+[Docker Compose setup — Mailu, Docker based mail server](https://mailu.io/master/compose/setup.html)
+
+How do I develop a good sending reputation in order to run a private mail server just for my personal and work email?",3,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Reminder: Set a schedule for film production.,,4,1,Spencer (47554087),,Every day at 5am,en,America/Los_Angeles,,,,
+task,Complete the IRS Financial Hardship Forms,,1,1,Spencer (47554087),,Aug 2,en,America/Los_Angeles,,,2025-04-07,en
+note," [[file {""file_name"":""f433f.pdf"",""file_size"":134023,""file_type"":""application/pdf"",""file_url"":""https://files.todoist.com/y4OFBX-Ry-wHorAYLgtVKIc3xidxk8FVWwqfmD04C5UO9rqLnbOuCsw9mYBqIKpZ/by/47554087/as/file.pdf"",""image"":null,""image_height"":null,""image_width"":null,""resource_type"":""file"",""upload_state"":""completed""}]]",,,,Spencer (47554087),,2025-03-20T00:34:50.812000Z,,,,,,
+note," [[file {""file_name"":""f9465.pdf"",""file_size"":115848,""file_type"":""application/pdf"",""file_url"":""https://files.todoist.com/ssWDhxnBTnMSqxjS2aVJhj0zyS2wyH8I2SoNXjN7OoJvnZTR68uSpJiOVW5IyVCo/by/47554087/as/file.pdf"",""image"":null,""image_height"":null,""image_width"":null,""resource_type"":""file"",""upload_state"":""completed""}]]",,,,Spencer (47554087),,2025-03-20T00:34:50.860000Z,,,,,,
+task,Complete the Profit and Loss for 2024 and deliver to mortgage broker.,,1,1,Spencer (47554087),,Aug 2,en,America/Los_Angeles,,,2025-05-01,en
+note,"I have made major updates to the finance app, but am struggling to import all transactions and ensure they all get categories and the AI learns. So hopefully that will be done today. If so, then I can provide this to Taylor and my mortgage broker.",,,,Spencer (47554087),,2025-06-14T17:38:00.120000Z,,,,,,
+note,I made more progress but need more AI credits to finish. Should have them on the 20th from Ben Edtl. Might get them tomorrow when Style Aesthetics pages.,,,,Spencer (47554087),,2025-06-18T05:43:09.456000Z,,,,,,
+task,Reduce Expenses,,4,1,Spencer (47554087),,every day at 5am,en,America/Los_Angeles,,,,
+task,Migrate from Google Drive to NextCloud.,"Saves $40 a month from Google Drive. [Nextcloud Files - Open source file sync and share platform](https://nextcloud.com/files/)
+
+[GitHub - nextcloud/docker: ⛴ Docker image of Nextcloud](https://github.com/nextcloud/docker)
+[GitHub - nextcloud/all-in-one: 📦 The official Nextcloud installation method. Provides easy deployment and maintenance with most features included in this one Nextcloud instance.](https://github.com/nextcloud/all-in-one#nextcloud-all-in-one)",4,2,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Migrate from Google Photos to Immich.,,4,2,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Follow up with Chase bank about the response to the garnishment.,State of Oregon said they can tell us how they responded in writing.,1,1,Spencer (47554087),,Aug 2,en,America/Los_Angeles,,,,
+,,,,,,,,,,,,,

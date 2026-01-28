@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, Calendar, CalendarDays, Star, Hash, GripVertical, Trash2, Archive, FolderPlus, Building2, Edit, User, Settings, ChevronsUpDown, ChevronsDownUp, CheckSquare, Folder, ChevronLeft, ChevronRight, LogOut } from 'lucide-react'
+import { Plus, Search, Calendar, CalendarDays, Star, Hash, GripVertical, Trash2, Archive, FolderPlus, Building2, Edit, User, Settings, ChevronsUpDown, ChevronsDownUp, CheckSquare, Folder, ChevronLeft, ChevronRight, LogOut, Mail, Clock } from 'lucide-react'
 import { Database, Project } from '@/lib/types'
-import { getBackgroundStyle } from '@/lib/style-utils'
+import { UserAvatar } from '@/components/user-avatar'
 import { Tooltip } from './tooltip'
 
 interface SidebarProps {
@@ -24,14 +24,17 @@ interface SidebarProps {
   onOrganizationArchive?: (organizationId: string) => void
   onProjectsReorder?: (organizationId: string, projectIds: string[]) => void
   onOrganizationsReorder?: (organizationIds: string[]) => void
+  isAddingTask?: boolean // Whether the add task modal is open
 }
 
-export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectUpdate, onProjectDelete, onProjectEdit, onAddProject, onAddProjectGeneral, onAddOrganization, onOrganizationDelete, onOrganizationEdit, onOrganizationArchive, onProjectsReorder, onOrganizationsReorder }: SidebarProps) {
+export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectUpdate, onProjectDelete, onProjectEdit, onAddProject, onAddProjectGeneral, onAddOrganization, onOrganizationDelete, onOrganizationEdit, onOrganizationArchive, onProjectsReorder, onOrganizationsReorder, isAddingTask }: SidebarProps) {
   const router = useRouter()
   // Initialize with collapsed state by default
   const [expandedOrgs, setExpandedOrgs] = useState<string[]>([])
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false)
   const [showArchivedProjects, setShowArchivedProjects] = useState(false)
+  const [showPendingInvitations, setShowPendingInvitations] = useState(false)
+  const [resendingUserId, setResendingUserId] = useState<string | null>(null)
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [draggedProject, setDraggedProject] = useState<string | null>(null)
   const [draggedOrg, setDraggedOrg] = useState<string | null>(null)
@@ -40,6 +43,8 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
   const [dragOverPosition, setDragOverPosition] = useState<'top' | 'bottom' | null>(null)
   const [hoveredProject, setHoveredProject] = useState<string | null>(null)
   const [hoveredOrg, setHoveredOrg] = useState<string | null>(null)
+  const [copiedOrgId, setCopiedOrgId] = useState<string | null>(null)
+  const copyOrgTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load saved preferences from localStorage
   useEffect(() => {
@@ -85,6 +90,14 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
     }
   }, [isCollapsed, hasLoadedPreferences])
 
+  useEffect(() => {
+    return () => {
+      if (copyOrgTimeoutRef.current) {
+        clearTimeout(copyOrgTimeoutRef.current)
+      }
+    }
+  }, [])
+
 
   const toggleOrg = (orgId: string) => {
     setExpandedOrgs(prev =>
@@ -92,6 +105,21 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
         ? prev.filter(id => id !== orgId)
         : [...prev, orgId]
     )
+  }
+
+  const copyOrgId = async (orgId: string, event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(orgId)
+      setCopiedOrgId(orgId)
+      if (copyOrgTimeoutRef.current) {
+        clearTimeout(copyOrgTimeoutRef.current)
+      }
+      copyOrgTimeoutRef.current = setTimeout(() => setCopiedOrgId(null), 900)
+    } catch (error) {
+      console.error('Failed to copy organization ID:', error)
+    }
   }
   
   const handleLogout = async () => {
@@ -103,10 +131,46 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
     }
   }
 
-  const orgProjects = (orgId: string) => 
+  const handleResendInvite = async (userId: string) => {
+    setResendingUserId(userId)
+    try {
+      const currentUserEmail = data.users?.[0]?.email
+      const response = await fetch('/api/resend-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          ccEmail: currentUserEmail
+        })
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        console.error('Resend invite error:', result.error)
+        alert(`Failed to resend invite: ${result.error}`)
+      }
+    } catch (error) {
+      console.error('Resend invite error:', error)
+      alert('Failed to resend invitation')
+    } finally {
+      setResendingUserId(null)
+    }
+  }
+
+  // Get pending users
+  const pendingUsers = data.users?.filter(u => u.status === 'pending') || []
+
+  const orgProjects = (orgId: string) =>
     data.projects
       .filter(project => (project.organizationId || project.organization_id) === orgId && !project.archived)
       .sort((a, b) => (a.order || 0) - (b.order || 0))
+
+  const getProjectAcronym = (name: string) => {
+    const words = name.split(/\s+/)
+    if (words.length === 1) {
+      return name.substring(0, 2).toUpperCase()
+    }
+    return words.map(word => word.charAt(0)).join('').toUpperCase().substring(0, 3)
+  }
 
   return (
     <div className={`${isCollapsed ? 'w-[60px]' : 'w-[20%]'} h-full bg-zinc-900 border-r border-zinc-800 flex flex-col transition-all duration-300`}>
@@ -115,12 +179,13 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
           {!isCollapsed ? (
             <>
               <div className="flex items-center gap-3">
-                <div 
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-white font-medium text-sm flex-shrink-0"
-                  style={getBackgroundStyle(data.users?.[0]?.profileColor)}
-                >
-                  {data.users?.[0]?.firstName?.charAt(0)?.toUpperCase() || 'U'}
-                </div>
+                <UserAvatar
+                  name={data.users?.[0]?.name || data.users?.[0]?.firstName || 'User'}
+                  profileColor={data.users?.[0]?.profileColor}
+                  memoji={data.users?.[0]?.profileMemoji}
+                  size={32}
+                  className="flex-shrink-0 text-sm"
+                />
                 <div className="text-white font-medium">{data.users?.[0]?.firstName || 'User'}</div>
               </div>
               <div className="flex items-center gap-1">
@@ -162,7 +227,10 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
           <div className="flex gap-2">
             <button
               onClick={onAddTask}
-              className="flex-1 btn-theme-primary text-white rounded-lg px-3 py-2 flex items-center justify-center gap-1 text-sm font-medium transition-all"
+              className={`flex-1 text-white rounded-lg px-3 py-2 flex items-center justify-center gap-1 text-sm font-medium transition-all ${
+                isAddingTask ? '' : 'btn-theme-primary'
+              }`}
+              style={isAddingTask && data.users?.[0]?.profileColor ? { background: data.users[0].profileColor } : undefined}
               title="Add Task"
             >
               <CheckSquare className="w-4 h-4" />
@@ -189,7 +257,10 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
             <Tooltip content="Add Task">
               <button
                 onClick={onAddTask}
-                className="btn-theme-primary text-white rounded-lg p-2 flex items-center justify-center transition-all w-full"
+                className={`text-white rounded-lg p-2 flex items-center justify-center transition-all w-full ${
+                  isAddingTask ? '' : 'btn-theme-primary'
+                }`}
+                style={isAddingTask && data.users?.[0]?.profileColor ? { background: data.users[0].profileColor } : undefined}
               >
                 <CheckSquare className="w-4 h-4" />
               </button>
@@ -353,7 +424,7 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
         )}
 
         {!isCollapsed && (
-          <div className="flex items-center justify-between px-3 py-2 mb-2">
+          <div className="flex items-center justify-between px-3 py-1 mb-0">
             <span className="text-xs font-medium text-zinc-500 uppercase">Organizations</span>
             <button
               onClick={() => {
@@ -482,16 +553,23 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                 dragOverOrg === org.id && draggedProject ? 'bg-zinc-800/50' : ''
               }`}
             >
-              <div className="relative flex items-center px-3 py-2">
+              <div className="relative flex items-center px-3 py-1">
                 <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <button
-                    onClick={() => toggleOrg(org.id)}
-                    className="text-sm text-zinc-400 hover:text-white transition-colors p-1 flex-shrink-0"
-                  >
-                    <span className={`transform transition-transform block ${expandedOrgs.includes(org.id) ? 'rotate-90' : ''}`}>
-                      ▶
-                    </span>
-                  </button>
+                  <span className="relative flex items-center flex-shrink-0">
+                    <button
+                      onClick={(event) => copyOrgId(org.id, event)}
+                      className="p-0.5 -mx-1 text-zinc-500 hover:text-zinc-300 transition-colors"
+                      aria-label={`Copy ${org.name} ID`}
+                      title="Copy organization ID"
+                    >
+                      <Hash className="w-3 h-3" />
+                    </button>
+                    {copiedOrgId === org.id && (
+                      <span className="absolute left-1/2 -translate-x-1/2 -top-7 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap pointer-events-none animate-fade-in-up-out z-50">
+                        Copied!
+                      </span>
+                    )}
+                  </span>
                   <Link
                     href={`/org-${org.id}`}
                     className={`flex-1 text-sm transition-colors flex items-center gap-2 min-w-0 ${
@@ -507,8 +585,15 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                     <span className="truncate">{org.name}</span>
                   </Link>
                 </div>
+                <button
+                  onClick={() => toggleOrg(org.id)}
+                  className="p-1 rounded hover:bg-zinc-800 transition-colors group flex-shrink-0"
+                  aria-label={expandedOrgs.includes(org.id) ? `Collapse ${org.name}` : `Expand ${org.name}`}
+                >
+                  <ChevronRight className={`w-4 h-4 text-zinc-500 group-hover:text-zinc-300 transition-transform ${expandedOrgs.includes(org.id) ? 'rotate-90' : ''}`} />
+                </button>
                 {hoveredOrg === org.id && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 bg-zinc-900 rounded-lg px-1">
+                  <div className="absolute right-10 top-1/2 -translate-y-1/2 flex items-center gap-1 bg-zinc-900 rounded-lg px-1">
                     <button
                       onClick={() => onAddProject?.(org.id)}
                       className="p-1 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-white"
@@ -609,7 +694,7 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                       className="cursor-move relative group"
                     >
                       <div
-                        className={`relative w-full flex items-center gap-2 px-3 py-1 rounded-lg text-sm transition-all ${
+                        className={`relative w-full flex items-center gap-2 px-3 py-0.5 rounded-lg text-sm transition-all ${
                           currentView === `project-${project.id}`
                             ? 'bg-zinc-800 text-white'
                             : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'
@@ -624,10 +709,12 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                           href={`/project-${project.id}`}
                           className="flex items-center gap-2 flex-1 min-w-0"
                         >
-                          <div
-                            className="w-2 h-2 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: project.color }}
-                          />
+                          <span
+                            className="text-[9px] font-bold flex-shrink-0 w-5 text-center"
+                            style={{ color: project.color }}
+                          >
+                            {getProjectAcronym(project.name)}
+                          </span>
                           <span className="truncate">{project.name}</span>
                         </Link>
                         {hoveredProject === project.id && (
@@ -712,7 +799,7 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                       onMouseLeave={() => setHoveredProject(null)}
                     >
                       <div
-                        className={`relative w-full flex items-center gap-2 px-3 py-1 rounded-lg text-sm transition-all ${
+                        className={`relative w-full flex items-center gap-2 px-3 py-0.5 rounded-lg text-sm transition-all ${
                           currentView === `project-${project.id}`
                             ? 'bg-zinc-800 text-white'
                             : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-400'
@@ -722,10 +809,12 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                           href={`/project-${project.id}`}
                           className="flex items-center gap-2 flex-1 min-w-0"
                         >
-                          <div
-                            className="w-2 h-2 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: project.color }}
-                          />
+                          <span
+                            className="text-[9px] font-bold flex-shrink-0 w-5 text-center"
+                            style={{ color: project.color }}
+                          >
+                            {getProjectAcronym(project.name)}
+                          </span>
                           <span className="truncate">{project.name}</span>
                           {org && (
                             <span className="text-xs text-zinc-600 flex-shrink-0">({org.name})</span>
@@ -770,6 +859,54 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
               )}
             </div>
           )}
+          </div>
+        )}
+
+        {/* Pending Invitations Section - only show if there are pending users */}
+        {!isCollapsed && pendingUsers.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-zinc-800">
+            <div className="flex items-center justify-between px-3 py-2 mb-2">
+              <button
+                onClick={() => setShowPendingInvitations(!showPendingInvitations)}
+                className="flex items-center gap-2 text-xs font-medium text-zinc-500 uppercase hover:text-zinc-300 transition-colors"
+              >
+                <span className={`transform transition-transform ${showPendingInvitations ? 'rotate-90' : ''}`}>
+                  ▶
+                </span>
+                Pending Invitations
+                <span className="text-zinc-600">({pendingUsers.length})</span>
+              </button>
+            </div>
+
+            {showPendingInvitations && (
+              <div className="space-y-1 px-2">
+                {pendingUsers.map(user => {
+                  const displayName = user.firstName
+                    ? `${user.firstName} ${user.lastName?.charAt(0) || ''}.`.trim()
+                    : user.email.split('@')[0]
+
+                  return (
+                    <div
+                      key={user.id}
+                      className="flex items-center justify-between px-3 py-1.5 rounded-lg text-sm text-zinc-500 hover:bg-zinc-800/50 group"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Clock className="w-3 h-3 text-zinc-600 flex-shrink-0" />
+                        <span className="truncate">{displayName}</span>
+                      </div>
+                      <button
+                        onClick={() => handleResendInvite(user.id)}
+                        disabled={resendingUserId === user.id}
+                        className="p-1 hover:bg-zinc-700 rounded transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                        title="Resend invitation"
+                      >
+                        <Mail className={`w-3 h-3 ${resendingUserId === user.id ? 'animate-pulse' : ''}`} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
       </nav>

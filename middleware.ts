@@ -14,6 +14,18 @@ const publicRoutes = [
   '/api/health'
 ]
 
+const securityHeaders = {
+  'X-Frame-Options': 'DENY',
+  'Content-Security-Policy': "frame-ancestors 'self'"
+}
+
+const applySecurityHeaders = (response: NextResponse) => {
+  Object.entries(securityHeaders).forEach(([key, value]) => {
+    response.headers.set(key, value)
+  })
+  return response
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   
@@ -21,7 +33,7 @@ export async function middleware(request: NextRequest) {
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route))
   
   if (isPublicRoute) {
-    return NextResponse.next()
+    return applySecurityHeaders(NextResponse.next())
   }
   
   // Create a response that we'll modify
@@ -60,16 +72,16 @@ export async function middleware(request: NextRequest) {
     // Redirect to login page if not authenticated
     if (pathname.startsWith('/api/')) {
       // For API routes, return 401
-      return NextResponse.json(
+      return applySecurityHeaders(NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
-      )
+      ))
     }
     
     // For page routes, redirect to login
     const loginUrl = new URL('/auth/login', request.url)
     loginUrl.searchParams.set('from', pathname)
-    return NextResponse.redirect(loginUrl)
+    return applySecurityHeaders(NextResponse.redirect(loginUrl))
   }
   
   // Add user ID to headers for API routes
@@ -77,14 +89,14 @@ export async function middleware(request: NextRequest) {
     const requestHeaders = new Headers(request.headers)
     requestHeaders.set('x-user-id', session.user.id)
     
-    return NextResponse.next({
+    return applySecurityHeaders(NextResponse.next({
       request: {
         headers: requestHeaders,
       },
-    })
+    }))
   }
   
-  return response
+  return applySecurityHeaders(response)
 }
 
 export const config = {

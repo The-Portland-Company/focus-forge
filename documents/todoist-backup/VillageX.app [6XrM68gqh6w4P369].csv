@@ -1,0 +1,96 @@
+﻿TYPE,CONTENT,DESCRIPTION,PRIORITY,INDENT,AUTHOR,RESPONSIBLE,DATE,DATE_LANG,TIMEZONE,DURATION,DURATION_UNIT,DEADLINE,DEADLINE_LANG
+meta,view_style=list,,,,,,,,,,,,
+,,,,,,,,,,,,,
+task,Review the tasks for Village X.,,1,1,Spencer (47554087),Leland (258749),Apr 30,en,America/Los_Angeles,,,2025-05-03,en
+,,,,,,,,,,,,,
+section,Village.x,,,,,,,,,,,,
+task,"On mobile, implement the mobile menu that uses the Hamburger style.","- On mobile, implement the mobile menu that uses the Hamburger style.
+- When selected by the user, it should slide on screen from off canvas smoothly.
+- Items that have children should have an arrow beside them. When selected it should slide the parent items off canvas and reveal the children items.
+- Users should have a back button, at the bottom of the menu, when they are viewing sub items.
+- Users should be able to select the hamburger menu icon to close the menu. Which should result in it sliding back off canvas.",4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+,,,,,,,,,,,,,
+section,Administrative,,,,,,,,,,,,
+task,Transfer TheVillage.x to Your Wallet.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Create this as a Decentralized Autonomous Organization (DAO) on a blockchain.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Integrate existing Contract mechanism with blockchain Smart Contracts.,"Maybe add a button to offer it to users instead of requiring it for all of them.
+
+This feature may not be useful at this stage so identifying where it would be useful is a good idea.",4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+,,,,,,,,,,,,,
+section,Features for Members,,,,,,,,,,,,
+task,On mobile we need a hamburger menu that functions exactly like the one on ThePortlandCompany.com,,1,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Email Notifications for Matches,Users need to be notified that another user has a resource to offer them that matches a resource they are seeking.,1,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Develop an iOS app.,It needs to offer push notificitons.,1,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Setup the email marketing for The Village.,"We need to ensure we have a system to send emails to users for sales and marketing purposes.
+
+Users must be able to unsubscribe.
+
+Vision
+
+I imagine creating a Google Workspace account for [no-reply@villagex.app](mailto:no-reply@villagex.app) so we can create an account with Zoho Campaigns. Then configure DKIM and other DNS. Then we can integrate the API between the two to communicate and auto send emails based on certain things.
+
+Technical Notes:
+
+- The application currently uses [PostmarkApp.com](https://PostmarkApp.com) as our mail relay.
+    - A mail relay is required because emails sent directly from the server will be commonly blocked by firewalls or sent to spam.
+    - We **cannot** send sales and marketing emails through Postmark or our account will quickly get suspended and most likely banned. They are very strict about this.
+- We must use a formal email marketing company such as Zoho Campaigns for our email marketing. We may be able to build our own server but it's unlikely to be efficient because it will not have an established sending reputation with major email clients.
+    - I have an existing account with Zoho Campaigns for The Portland Company, but not one for Village X yet.",1,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Introduce a Gamification system.,- I want users to truly be rewarded. Tangible rewards. But I am not sure how I could do that. Free advertising is one way.,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+note,[Leland](todoist-mention://258749) I would love your input on this one specifically.,,,,Spencer (47554087),,2025-04-30T00:32:05.725000Z,,,,,,
+task,Urgently Need Services Feature,"Consider developing a feature that showcases services people are urgently in need of.
+
+For example, emergency carpet cleaning. Or time sensitive catering. Etc...",4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,When a new user is registered send an email to the Super Administrators.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Add sub items to Trends.,"- Trends are intended to be a tool for users to see what resources are most in demand so they can offer the best deals to people, acquire the most valuable ones, and more.
+- Under Trends, add a sub menu for: Pets, Animals, Equipment, and up to 12 others. When clicking on those pages use the Trends page as a template but filter to these Categories.",4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,"Ensure resources, on hover, reveal how they’re made. For example free range chicken eggs, vs medicated feed chicken eggs.",,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,On User Profile show users who have created contracts vs how many they accepted.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Send reminder emails when users receive a Proposal but don’t accept it.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Add the ability to mark a Contract as completed.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,"Under Trends, add a DYNAMIC sub menu for categories. Choose the top 12 categories based on which ones have the most Users offering the Resource and the most Proposals / Contracts.","For example: Pets, Animals, Equipment.
+
+When clicking on those pages use the Trends page as a template but filter to these Categories.
+
+We made need to structure this differently in the menu.",4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Implement identity verification.,[Civic Pricing | Flexible Plans for Auth & Pass](https://www.civic.com/pricing/?referrer=home-pricing),4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Bards Catering Community integration.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Generate 200 new memojis.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,"Marketplace - See what people are looking for, what is in demand.",,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Staking Blueprints on chain.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Educational blogs as NFTs.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Classifieds,"""I propose using 1 acre of my land for a wheatfield."" Cropsharing",4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Gifting,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+,,,,,,,,,,,,,
+section,Features for Administrators,,,,,,,,,,,,
+task,Install an analytics tools so we can track users.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Exact dates and times users have logged into the website.,,4,2,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Exactly how much time they spent on each page during a given session.,,4,2,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,"The resources they need most and most often, as well as offer most often.",,4,2,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Implement advertisements & option to upgrade and remove ads.,,1,1,Spencer (47554087),Spencer (47554087),,,America/Los_Angeles,,,,
+task,How do we deal with inactive users? Meaning users that haven’t been active for a while. Maybe demoting their visibility? How do we gauge what is active or not?,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,"On /admin/users when I click the Import from Production button it says 6 users were imported, but I see more like 16 users. Audit this feature to ensure it always imports all users from Production.",,2,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+,,,,,,,,,,,,,
+section,Design,,,,,,,,,,,,
+task,Ensure all hyperlinks use brand styling as described on admin/brand/colors page.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Ensure all headings use brand styling as described on admin/brand/colors page.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+,,,,,,,,,,,,,
+section,"Sales, Marketing & Advertising",,,,,,,,,,,,
+task,Design and print flyers.,"We need some for the free advertising offer, as well as general use.",4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Design and print business cards.,"We need some for the free advertising offer, as well as general use.",4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Post ads at the dog parks and coffee shops for Village.,,4,1,Spencer (47554087),Spencer (47554087),,,America/Los_Angeles,,,,
+task,Identify a way to scrape the internet for new users to send emails to so we can invite them.,,1,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+,,,,,,,,,,,,,
+section,Layout,,,,,,,,,,,,
+task,On /forum remove Community Guidelines panel.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+,,,,,,,,,,,,,
+section,Content,,,,,,,,,,,,
+task,On the home page under How It Works add a step for Recipes and Goals.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+,,,,,,,,,,,,,
+section,Debugging,,,,,,,,,,,,
+task,"On mobile, the logo and title are distorted.",,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,Thoroughly audit the application on mobile to identify improvements.,,1,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,"When on the /map page, the bottom of the map is cutoff by the window. The map should fill the page and never appear off canvas.",,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,The database CONSTANTLY gets Resources deleted or reverted. It's absolutely obnoxious. I cannot figure out why Claude keeps doing it. But we need the Seeder run for Resources and a backup.sql file made. And then to push this to production. Add to Git.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+task,On the /advertising page the Business Category and Business Subcategory are empty. Fix this.,,4,1,Spencer (47554087),,,,America/Los_Angeles,,,,
+,,,,,,,,,,,,,

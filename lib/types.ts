@@ -7,6 +7,8 @@ export interface User {
   email: string
   todoistId?: string
   profileColor?: string
+  profileMemoji?: string | null
+  priorityColor?: string // Custom priority color (default: green)
   animationsEnabled?: boolean
   createdAt: string
   updatedAt: string

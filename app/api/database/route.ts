@@ -102,25 +102,34 @@ export async function GET(request: NextRequest) {
         lastName: '',
         name: session.user.email?.split('@')[0] || 'User',
         profileColor: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        profileMemoji: null,
         animationsEnabled: true,
+        priorityColor: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       }
     }
     
-    // Get all organization members for the user's organizations
+    // Get all organization members using the user_organizations join table
     const organizationMemberIds = new Set<string>()
-    organizations.forEach(org => {
-      // Add owner
-      if (org.ownerId) {
-        organizationMemberIds.add(org.ownerId)
+    const orgIds = organizations.map(org => org.id)
+
+    if (orgIds.length > 0) {
+      try {
+        // Fetch all members from user_organizations for these orgs
+        const { data: userOrgs, error: userOrgsError } = await supabase
+          .from('user_organizations')
+          .select('user_id')
+          .in('organization_id', orgIds)
+
+        if (!userOrgsError && userOrgs) {
+          userOrgs.forEach(uo => organizationMemberIds.add(uo.user_id))
+        }
+      } catch (error) {
+        console.error('Error fetching user_organizations:', error)
       }
-      // Add all members
-      if (org.memberIds) {
-        org.memberIds.forEach(id => organizationMemberIds.add(id))
-      }
-    })
-    
+    }
+
     // Fetch all organization members from Supabase
     let organizationUsers = []
     if (organizationMemberIds.size > 0) {
@@ -129,7 +138,7 @@ export async function GET(request: NextRequest) {
           .from('profiles')
           .select('*')
           .in('id', Array.from(organizationMemberIds))
-        
+
         if (!error && profiles) {
           organizationUsers = profiles.map(profile => ({
             id: profile.id,
@@ -138,7 +147,9 @@ export async function GET(request: NextRequest) {
             lastName: profile.last_name || '',
             name: profile.display_name || `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.email,
             profileColor: profile.profile_color || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            profileMemoji: profile.profile_memoji || null,
             animationsEnabled: profile.animations_enabled ?? true,
+            priorityColor: profile.priority_color || null,
             status: profile.status || 'active',
             createdAt: profile.created_at,
             updatedAt: profile.updated_at
@@ -153,7 +164,14 @@ export async function GET(request: NextRequest) {
     if (!organizationUsers.find(u => u.id === session.user.id) && userProfile) {
       organizationUsers.push(userProfile)
     }
-    
+
+    // Ensure the current user is always first in the list
+    const currentUserIndex = organizationUsers.findIndex(u => u.id === session.user.id)
+    if (currentUserIndex > 0) {
+      const currentUser = organizationUsers.splice(currentUserIndex, 1)[0]
+      organizationUsers.unshift(currentUser)
+    }
+
     return NextResponse.json({
       users: organizationUsers,
       organizations,

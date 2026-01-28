@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { sendInviteEmail } from '@/lib/email'
+import crypto from 'crypto'
 
 // Create Supabase admin client with service role key for admin operations
 const supabaseAdmin = createClient(
@@ -24,85 +26,123 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Check if user already exists
+    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers()
+    const existingUser = existingUsers?.users?.find(u => u.email === email)
 
-    // Use Supabase Admin API to invite user
-    const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-      data: {
-        firstName: firstName || '',
-        lastName: lastName || '',
-        organizationId,
-        organizationName,
-        invitedAt: new Date().toISOString()
-      },
-      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3244'}/auth/accept-invite?org=${organizationId}`
-    })
+    let userId: string
 
-    if (error) {
-      console.error('Supabase invite error:', error)
-      
-      // Handle specific error cases
-      if (error.message?.includes('not authorized') || error.message?.includes('Email sending is not configured')) {
+    if (existingUser) {
+      // User exists - just add them to the organization
+      userId = existingUser.id
+    } else {
+      // Generate a secure temporary password (user will set their own on first login)
+      const tempPassword = crypto.randomBytes(32).toString('base64')
+
+      // Create user in Supabase Auth without sending email
+      const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password: tempPassword,
+        email_confirm: false, // Don't auto-confirm, they need to use the invite link
+        user_metadata: {
+          firstName: firstName || '',
+          lastName: lastName || '',
+          organizationId,
+          organizationName,
+          invitedAt: new Date().toISOString(),
+          mustResetPassword: true
+        }
+      })
+
+      if (createError) {
+        console.error('Supabase create user error:', createError)
         return NextResponse.json(
-          { 
-            error: 'Email sending is not configured', 
-            details: 'Please configure SMTP settings in Supabase dashboard to send invitation emails',
-            helpUrl: 'https://supabase.com/dashboard/project/_/settings/auth'
-          },
-          { status: 503 }
+          { error: createError.message || 'Failed to create user' },
+          { status: 500 }
         )
       }
-      
+
+      userId = newUser.user.id
+    }
+
+    // Generate invite token
+    const inviteToken = crypto.randomBytes(32).toString('hex')
+    const inviteExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+
+    // Create or update profile with pending status and invite token
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .upsert({
+        id: userId,
+        email,
+        first_name: firstName || '',
+        last_name: lastName || '',
+        display_name: `${firstName || ''} ${lastName || ''}`.trim() || email,
+        status: 'pending',
+        invite_token: inviteToken,
+        invite_expires_at: inviteExpiry.toISOString(),
+        invited_at: new Date().toISOString(),
+        profile_color: '#667eea',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'id'
+      })
+
+    if (profileError) {
+      console.error('Profile upsert error:', profileError)
+      // Continue anyway - profile might already exist
+    }
+
+    // Add user to organization via user_organizations join table
+    try {
+      const { error: userOrgError } = await supabaseAdmin
+        .from('user_organizations')
+        .upsert({
+          user_id: userId,
+          organization_id: organizationId,
+          is_owner: false
+        }, {
+          onConflict: 'user_id,organization_id'
+        })
+
+      if (userOrgError) {
+        console.error('Failed to add user to organization:', userOrgError)
+      }
+    } catch (orgError) {
+      console.error('Failed to add user to organization:', orgError)
+      // Continue anyway
+    }
+
+    // Build invite URL
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3244'
+    const inviteUrl = `${baseUrl}/auth/accept-invite?token=${inviteToken}&email=${encodeURIComponent(email)}`
+
+    // Send invite email via Resend
+    try {
+      await sendInviteEmail({
+        to: email,
+        firstName: firstName || '',
+        lastName: lastName || '',
+        organizationName,
+        inviteUrl
+      })
+    } catch (emailError: any) {
+      console.error('Failed to send invite email:', emailError)
       return NextResponse.json(
-        { error: error.message || 'Failed to send invitation' },
+        {
+          error: 'Failed to send invitation email',
+          details: emailError.message,
+          userId // Still return userId so user can be assigned
+        },
         { status: 500 }
       )
     }
 
-    // Create a pending user record in Supabase profiles
-    if (data?.user?.id) {
-      try {
-        await supabaseAdmin
-          .from('profiles')
-          .upsert({
-            id: data.user.id,
-            email,
-            first_name: firstName || '',
-            last_name: lastName || '',
-            display_name: `${firstName || ''} ${lastName || ''}`.trim(),
-            status: 'pending',
-            invited_at: new Date().toISOString(),
-            profile_color: '#667eea',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-
-        // Add to organization
-        const { data: org } = await supabaseAdmin
-          .from('organizations')
-          .select('member_ids')
-          .eq('id', organizationId)
-          .single()
-
-        if (org) {
-          const memberIds = org.member_ids || []
-          if (!memberIds.includes(data.user.id)) {
-            memberIds.push(data.user.id)
-            await supabaseAdmin
-              .from('organizations')
-              .update({ member_ids: memberIds })
-              .eq('id', organizationId)
-          }
-        }
-      } catch (dbError) {
-        console.error('Failed to update profiles:', dbError)
-        // Don't fail the request if profile update fails
-      }
-    }
-
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       message: 'Invitation email sent successfully',
-      user: data?.user
+      user: { id: userId, email }
     })
 
   } catch (error: any) {

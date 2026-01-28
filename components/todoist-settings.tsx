@@ -80,7 +80,8 @@ export function TodoistSettings({ userId }: TodoistSettingsProps) {
   }
 
   const handleConnect = async () => {
-    if (!apiToken.trim()) {
+    const trimmedToken = apiToken.trim()
+    if (!trimmedToken) {
       showError('API Token Required', 'Please enter your Todoist API token')
       return
     }
@@ -90,7 +91,7 @@ export function TodoistSettings({ userId }: TodoistSettingsProps) {
       const response = await fetch('/api/todoist/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiToken, userId })
+        body: JSON.stringify({ apiToken: trimmedToken, userId })
       })
 
       const result = await response.json()

@@ -133,7 +133,7 @@ export function AddProjectModal({ isOpen, onClose, organizationId, onAddProject 
                   type="date"
                   value={deadline}
                   onChange={(e) => setDeadline(e.target.value)}
-                  className="pl-10"
+                  className="pl-10 themed-date-input"
                 />
               </div>
             </div>

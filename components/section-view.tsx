@@ -11,6 +11,8 @@ interface SectionViewProps {
   allTasks: Task[]
   database: Database
   level?: number
+  priorityColor?: string
+  completedAccordionKey?: string
   onTaskToggle: (taskId: string) => void
   onTaskEdit: (task: Task) => void
   onTaskDelete: (taskId: string) => void
@@ -28,6 +30,8 @@ export function SectionView({
   allTasks,
   database,
   level = 0,
+  priorityColor,
+  completedAccordionKey,
   onTaskToggle,
   onTaskEdit,
   onTaskDelete,
@@ -191,7 +195,9 @@ export function SectionView({
                 tasks={sectionTasks}
                 allTasks={allTasks}
                 projects={database.projects}
+                priorityColor={priorityColor}
                 showCompleted={database.settings?.showCompletedTasks ?? true}
+                completedAccordionKey={completedAccordionKey ? `${completedAccordionKey}-section-${section.id}` : undefined}
                 onTaskToggle={onTaskToggle}
                 onTaskEdit={onTaskEdit}
                 onTaskDelete={onTaskDelete}
@@ -208,6 +214,8 @@ export function SectionView({
               allTasks={allTasks}
               database={database}
               level={level + 1}
+              priorityColor={priorityColor}
+              completedAccordionKey={completedAccordionKey}
               onTaskToggle={onTaskToggle}
               onTaskEdit={onTaskEdit}
               onTaskDelete={onTaskDelete}

@@ -2,17 +2,18 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, User, Building2, Edit } from 'lucide-react'
+import { ChevronLeft, User, Edit, Flag, Check } from 'lucide-react'
 import { ThemePicker } from '@/components/theme-picker'
 import { ThemeSwitcher } from '@/components/theme-switcher'
+import { UserAvatar } from '@/components/user-avatar'
 import { OrganizationSettingsModal } from '@/components/organization-settings-modal'
 import { TodoistIntegration } from '@/components/todoist-integration'
 import { Database, Organization } from '@/lib/types'
-import { getBackgroundStyle } from '@/lib/style-utils'
 import { useUserProfile } from '@/lib/supabase/hooks'
-import { applyUserTheme, applyTheme } from '@/lib/theme-utils'
+import { applyTheme } from '@/lib/theme-utils'
 import { ThemePreset, DEFAULT_THEME_PRESET } from '@/lib/theme-constants'
 import { useToast } from '@/contexts/ToastContext'
+import { MEMOJI_OPTIONS } from '@/lib/memoji'
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -20,6 +21,8 @@ export default function SettingsPage() {
   const [database, setDatabase] = useState<Database | null>(null)
   // Initialize with null to avoid hydration mismatch
   const [profileColor, setProfileColor] = useState<string | null>(null)
+  const [profileMemoji, setProfileMemoji] = useState<string | null>(null)
+  const [priorityColor, setPriorityColor] = useState<string | null>(null)
   const [themePreset, setThemePreset] = useState<ThemePreset>(DEFAULT_THEME_PRESET)
   const [animationsEnabled, setAnimationsEnabled] = useState<boolean | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -64,20 +67,26 @@ export default function SettingsPage() {
       const userColor = profile.profile_color || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
       const userAnimations = profile.animations_enabled !== false
       const userTheme = (profile.theme_preset as ThemePreset) || DEFAULT_THEME_PRESET
-      
+      const userMemoji = profile.profile_memoji || null
+      const userPriorityColor = (profile as any).priority_color || '#22c55e' // Default green
+
       setProfileColor(userColor)
       setAnimationsEnabled(userAnimations)
       setThemePreset(userTheme)
-      
+      setProfileMemoji(userMemoji)
+      setPriorityColor(userPriorityColor)
+
       // Apply complete theme immediately when profile loads
       applyTheme(userTheme, userColor, userAnimations)
     }
   }, [profile, profileLoading])
 
-  const handleAutoSave = async (updates: { 
-    profileColor?: string; 
-    animationsEnabled?: boolean; 
-    themePreset?: ThemePreset 
+  const handleAutoSave = async (updates: {
+    profileColor?: string;
+    profileMemoji?: string | null;
+    priorityColor?: string;
+    animationsEnabled?: boolean;
+    themePreset?: ThemePreset
   }) => {
     setSaveStatus('saving')
     try {
@@ -85,14 +94,20 @@ export default function SettingsPage() {
       const currentTheme = updates.themePreset ?? themePreset
       const currentColor = updates.profileColor ?? profileColor
       const currentAnimations = updates.animationsEnabled ?? animationsEnabled ?? true
-      
+
       applyTheme(currentTheme, currentColor || undefined, currentAnimations)
-      
+
       if (updateProfile) {
         // Update profile in Supabase
         const profileUpdates: any = {}
         if (updates.profileColor !== undefined) {
           profileUpdates.profile_color = updates.profileColor
+        }
+        if (updates.profileMemoji !== undefined) {
+          profileUpdates.profile_memoji = updates.profileMemoji
+        }
+        if (updates.priorityColor !== undefined) {
+          profileUpdates.priority_color = updates.priorityColor
         }
         if (updates.animationsEnabled !== undefined) {
           profileUpdates.animations_enabled = updates.animationsEnabled
@@ -100,10 +115,10 @@ export default function SettingsPage() {
         if (updates.themePreset !== undefined) {
           profileUpdates.theme_preset = updates.themePreset
         }
-        
+
         const result = await updateProfile(profileUpdates)
         const error = result?.error
-        
+
         if (!error) {
           setSaveStatus('saved')
           setTimeout(() => setSaveStatus('idle'), 2000)
@@ -153,6 +168,75 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-xl font-semibold mb-6">Your Profile</h2>
             <div className="space-y-6">
+              {/* Profile Photo */}
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
+                  <User className="w-5 h-5" />
+                  Profile Photo
+                </h3>
+                <p className="text-sm text-zinc-400 mb-6">
+                  Pick a Memoji for your avatar. It shows across the app anywhere your name appears.
+                </p>
+                <div className="flex items-start gap-6">
+                  <div className="flex flex-col items-center gap-3">
+                    <UserAvatar
+                      name={`${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || profile?.email || 'User'}
+                      profileColor={profileColor}
+                      memoji={profileMemoji}
+                      size={72}
+                      className="text-lg"
+                    />
+                    <div className="text-xs text-zinc-400">Current</div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="grid grid-cols-3 gap-3">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setProfileMemoji(null)
+                          await handleAutoSave({ profileMemoji: null })
+                        }}
+                        className={`rounded-lg border p-3 transition-colors ${!profileMemoji ? 'border-theme-primary bg-zinc-800' : 'border-zinc-800 hover:border-zinc-700'}`}
+                      >
+                        <div className="flex flex-col items-center gap-2">
+                          <UserAvatar
+                            name={`${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || profile?.email || 'User'}
+                            profileColor={profileColor}
+                            memoji={null}
+                            size={44}
+                            className="text-sm"
+                          />
+                          <span className="text-xs text-zinc-400">Initials</span>
+                        </div>
+                      </button>
+                      {MEMOJI_OPTIONS.map(option => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={async () => {
+                            setProfileMemoji(option.id)
+                            await handleAutoSave({ profileMemoji: option.id })
+                          }}
+                          className={`rounded-lg border p-3 transition-colors ${profileMemoji === option.id ? 'border-theme-primary bg-zinc-800' : 'border-zinc-800 hover:border-zinc-700'}`}
+                        >
+                          <div className="flex flex-col items-center gap-2">
+                            <UserAvatar
+                              name={option.label}
+                              profileColor={profileColor}
+                              memoji={option.id}
+                              size={44}
+                              className="text-sm"
+                              showFallback={false}
+                              ariaLabel={`${option.label} memoji`}
+                            />
+                            <span className="text-xs text-zinc-400">{option.label}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
               {/* Theme Settings */}
               <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
                 <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
@@ -197,6 +281,134 @@ export default function SettingsPage() {
                     </p>
                   </div>
                 </label>
+              </div>
+
+              {/* Priority Colors */}
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
+                  <Flag className="w-5 h-5" />
+                  Priority Colors
+                </h3>
+                <p className="text-sm text-zinc-400 mb-6">
+                  Choose a base color for task priorities. Shades are automatically generated - brighter colors indicate higher priority.
+                </p>
+
+                {/* Color presets */}
+                <div className="mb-6">
+                  <p className="text-sm text-zinc-500 mb-3">Suggested colors</p>
+                  <div className="flex flex-wrap gap-3">
+                    {[
+                      { color: '#22c55e', name: 'Green' },
+                      { color: '#3b82f6', name: 'Blue' },
+                      { color: '#8b5cf6', name: 'Purple' },
+                      { color: '#f59e0b', name: 'Amber' },
+                      { color: '#ec4899', name: 'Pink' },
+                      { color: '#06b6d4', name: 'Cyan' },
+                      { color: '#f97316', name: 'Orange' },
+                      { color: '#14b8a6', name: 'Teal' },
+                    ].map(({ color, name }) => (
+                      <button
+                        key={color}
+                        onClick={async () => {
+                          setPriorityColor(color)
+                          await handleAutoSave({ priorityColor: color })
+                        }}
+                        className={`relative w-10 h-10 rounded-lg transition-all ${
+                          priorityColor === color ? 'ring-2 ring-white ring-offset-2 ring-offset-zinc-900 scale-110' : 'hover:scale-105'
+                        }`}
+                        style={{ backgroundColor: color }}
+                        title={name}
+                      >
+                        {priorityColor === color && (
+                          <Check className="w-5 h-5 text-white absolute inset-0 m-auto" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom color picker */}
+                <div className="mb-6">
+                  <p className="text-sm text-zinc-500 mb-3">Or choose a custom color</p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={priorityColor || '#22c55e'}
+                      onChange={async (e) => {
+                        setPriorityColor(e.target.value)
+                        await handleAutoSave({ priorityColor: e.target.value })
+                      }}
+                      className="w-12 h-10 rounded-lg border-0 cursor-pointer bg-transparent"
+                    />
+                    <input
+                      type="text"
+                      value={priorityColor || '#22c55e'}
+                      onChange={async (e) => {
+                        const val = e.target.value
+                        if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+                          setPriorityColor(val)
+                          await handleAutoSave({ priorityColor: val })
+                        }
+                      }}
+                      className="bg-zinc-800 text-white text-sm px-3 py-2 rounded-lg border border-zinc-700 w-28 font-mono"
+                      placeholder="#22c55e"
+                    />
+                  </div>
+                </div>
+
+                {/* Preview */}
+                <div>
+                  <p className="text-sm text-zinc-500 mb-3">Preview</p>
+                  <div className="flex items-center gap-6">
+                    {[1, 2, 3, 4].map((priority) => {
+                      const baseColor = priorityColor || '#22c55e'
+                      // Generate shade based on priority
+                      const hex = baseColor.replace('#', '')
+                      const r = parseInt(hex.slice(0, 2), 16) / 255
+                      const g = parseInt(hex.slice(2, 4), 16) / 255
+                      const b = parseInt(hex.slice(4, 6), 16) / 255
+
+                      const max = Math.max(r, g, b)
+                      const min = Math.min(r, g, b)
+                      let h = 0, s = 0, l = (max + min) / 2
+
+                      if (max !== min) {
+                        const d = max - min
+                        s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+                        switch (max) {
+                          case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break
+                          case g: h = ((b - r) / d + 2) / 6; break
+                          case b: h = ((r - g) / d + 4) / 6; break
+                        }
+                      }
+
+                      const lightness = priority === 1 ? 0.45 : priority === 2 ? 0.55 : priority === 3 ? 0.65 : 0.75
+                      const saturation = priority === 1 ? Math.min(s * 1.2, 1) : priority === 2 ? s : priority === 3 ? s * 0.8 : s * 0.6
+
+                      const hue2rgb = (p: number, q: number, t: number) => {
+                        if (t < 0) t += 1
+                        if (t > 1) t -= 1
+                        if (t < 1/6) return p + (q - p) * 6 * t
+                        if (t < 1/2) return q
+                        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6
+                        return p
+                      }
+                      const q = lightness < 0.5 ? lightness * (1 + saturation) : lightness + saturation - lightness * saturation
+                      const p = 2 * lightness - q
+                      const rs = Math.round(hue2rgb(p, q, h + 1/3) * 255)
+                      const gs = Math.round(hue2rgb(p, q, h) * 255)
+                      const bs = Math.round(hue2rgb(p, q, h - 1/3) * 255)
+                      const shade = `#${rs.toString(16).padStart(2, '0')}${gs.toString(16).padStart(2, '0')}${bs.toString(16).padStart(2, '0')}`
+
+                      return (
+                        <div key={priority} className="flex flex-col items-center gap-2">
+                          <Flag className="w-6 h-6" style={{ color: shade }} />
+                          <span className="text-xs text-zinc-500">P{priority}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

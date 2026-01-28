@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { X, Search, Building2, Plus, Check, Users, Mail, UserPlus, Trash2, Loader2 } from 'lucide-react'
 import { Organization, Project, Database, User } from '@/lib/types'
 import { ColorPicker } from './color-picker'
-import { getBackgroundStyle } from '@/lib/style-utils'
+import { UserAvatar } from '@/components/user-avatar'
 
 interface OrganizationSettingsModalProps {
   organization: Organization
@@ -338,12 +338,13 @@ export function OrganizationSettingsModal({
                           className="flex items-center justify-between p-3 bg-zinc-800 rounded-lg"
                         >
                           <div className="flex items-center gap-3">
-                            <div 
-                              className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
-                              style={getBackgroundStyle(user.profileColor)}
-                            >
-                              {(user.name || `${user.firstName} ${user.lastName}`).charAt(0).toUpperCase()}
-                            </div>
+                            <UserAvatar
+                              name={user.name || `${user.firstName} ${user.lastName}`}
+                              profileColor={user.profileColor}
+                              memoji={user.profileMemoji}
+                              size={32}
+                              className="text-sm font-medium"
+                            />
                             <div>
                               <p className="text-sm font-medium flex items-center gap-2">
                                 {user.name || `${user.firstName} ${user.lastName}`}
@@ -525,12 +526,13 @@ export function OrganizationSettingsModal({
                                 }}
                                 className="w-full flex items-center gap-3 p-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-left"
                               >
-                                <div 
-                                  className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
-                                  style={getBackgroundStyle(user.profileColor)}
-                                >
-                                  {userName.charAt(0).toUpperCase()}
-                                </div>
+                                <UserAvatar
+                                  name={userName}
+                                  profileColor={user.profileColor}
+                                  memoji={user.profileMemoji}
+                                  size={32}
+                                  className="text-sm font-medium"
+                                />
                                 <div className="flex-1">
                                   <p className="text-sm font-medium">{userName}</p>
                                   <p className="text-xs text-zinc-500">{user.email}</p>

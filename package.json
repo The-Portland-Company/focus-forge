@@ -44,10 +44,12 @@
     "dotenv": "^17.2.1",
     "jose": "^6.0.12",
     "jsonwebtoken": "^9.0.2",
+    "lottie-react": "^2.4.1",
     "lucide-react": "^0.536.0",
     "next": "^16.1.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "resend": "^6.8.0",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7"
   },

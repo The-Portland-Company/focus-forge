@@ -242,6 +242,26 @@ ALTER TABLE filters ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE todoist_activity_log ENABLE ROW LEVEL SECURITY;
 
+-- Drop policies if they already exist (rerun-safe)
+DROP POLICY IF EXISTS "Users can view their own sync state" ON todoist_sync_state;
+DROP POLICY IF EXISTS "Users can manage their own sync state" ON todoist_sync_state;
+DROP POLICY IF EXISTS "Users can view their own sync history" ON todoist_sync_history;
+DROP POLICY IF EXISTS "Users can create their own sync history" ON todoist_sync_history;
+DROP POLICY IF EXISTS "Users can view comments on their tasks" ON comments;
+DROP POLICY IF EXISTS "Users can manage comments on their tasks" ON comments;
+DROP POLICY IF EXISTS "Users can view their own sync conflicts" ON todoist_sync_conflicts;
+DROP POLICY IF EXISTS "Users can manage their own sync conflicts" ON todoist_sync_conflicts;
+DROP POLICY IF EXISTS "Users can view their own backups" ON todoist_import_backup;
+DROP POLICY IF EXISTS "Users can create their own backups" ON todoist_import_backup;
+DROP POLICY IF EXISTS "Users can view their own API calls" ON todoist_api_calls;
+DROP POLICY IF EXISTS "Users can log their own API calls" ON todoist_api_calls;
+DROP POLICY IF EXISTS "Users can view their own filters" ON filters;
+DROP POLICY IF EXISTS "Users can manage their own filters" ON filters;
+DROP POLICY IF EXISTS "Users can view sections in their projects" ON sections;
+DROP POLICY IF EXISTS "Users can manage sections in their projects" ON sections;
+DROP POLICY IF EXISTS "Users can view their own activity log" ON todoist_activity_log;
+DROP POLICY IF EXISTS "Users can create their own activity log" ON todoist_activity_log;
+
 -- RLS Policies for todoist_sync_state
 CREATE POLICY "Users can view their own sync state" ON todoist_sync_state
   FOR SELECT USING (user_id = auth.uid());
@@ -342,6 +362,12 @@ CREATE POLICY "Users can create their own activity log" ON todoist_activity_log
   FOR INSERT WITH CHECK (user_id = auth.uid());
 
 -- Add updated_at triggers for new tables
+DROP TRIGGER IF EXISTS update_todoist_sync_state_updated_at ON todoist_sync_state;
+DROP TRIGGER IF EXISTS update_comments_updated_at ON comments;
+DROP TRIGGER IF EXISTS update_attachments_updated_at ON attachments;
+DROP TRIGGER IF EXISTS update_filters_updated_at ON filters;
+DROP TRIGGER IF EXISTS update_sections_updated_at ON sections;
+
 CREATE TRIGGER update_todoist_sync_state_updated_at BEFORE UPDATE ON todoist_sync_state
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

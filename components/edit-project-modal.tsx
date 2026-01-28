@@ -110,7 +110,7 @@ export function EditProjectModal({ isOpen, onClose, project, onUpdate }: EditPro
                   type="date"
                   value={deadline}
                   onChange={(e) => setDeadline(e.target.value)}
-                  className="bg-zinc-800 border-zinc-700"
+                  className="bg-zinc-800 border-zinc-700 themed-date-input"
                 />
               </div>
             </div>

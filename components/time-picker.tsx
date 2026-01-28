@@ -14,6 +14,8 @@ interface TimePickerProps {
 
 export function TimePicker({ value, onChange, className, placeholder = 'Select time' }: TimePickerProps) {
   const [isOpen, setIsOpen] = React.useState(false)
+  const [inputValue, setInputValue] = React.useState('')
+  const [isEditing, setIsEditing] = React.useState(false)
   
   // Generate hours (00-23)
   const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'))
@@ -34,9 +36,75 @@ export function TimePicker({ value, onChange, className, placeholder = 'Select t
   }
   
   const displayTime = formatDisplayTime(selectedHour, selectedMinute)
+
+  React.useEffect(() => {
+    if (!isEditing) {
+      setInputValue(displayTime)
+    }
+  }, [displayTime, isEditing])
+
+  const filterTimeInput = (raw: string) => {
+    const filtered = raw.replace(/[^0-9apm: ]/gi, '')
+    return filtered.replace(/\s+/g, ' ')
+  }
+
+  const normalizeTimeInput = (raw: string): string | null => {
+    const cleaned = raw.trim().toLowerCase()
+    if (!cleaned) return null
+
+    let period: 'am' | 'pm' | null = null
+    if (cleaned.includes('am')) period = 'am'
+    if (cleaned.includes('pm')) period = 'pm'
+    if (!period) {
+      if (cleaned.includes('a')) period = 'am'
+      if (cleaned.includes('p')) period = 'pm'
+    }
+
+    const timePart = cleaned.replace(/[apm]/g, '').replace(/\s+/g, '')
+    if (!timePart) return null
+
+    let hourStr = ''
+    let minuteStr = ''
+
+    if (timePart.includes(':')) {
+      const [h, m] = timePart.split(':')
+      hourStr = h
+      minuteStr = m ?? ''
+    } else if (timePart.length <= 2) {
+      hourStr = timePart
+      minuteStr = '00'
+    } else if (timePart.length === 3) {
+      hourStr = timePart.slice(0, 1)
+      minuteStr = timePart.slice(1)
+    } else if (timePart.length === 4) {
+      hourStr = timePart.slice(0, 2)
+      minuteStr = timePart.slice(2)
+    } else {
+      return null
+    }
+
+    if (!hourStr || !minuteStr) return null
+
+    const hour = parseInt(hourStr, 10)
+    const minute = parseInt(minuteStr.padStart(2, '0'), 10)
+    if (Number.isNaN(hour) || Number.isNaN(minute)) return null
+    if (minute < 0 || minute > 59) return null
+
+    if (period) {
+      if (hour < 1 || hour > 12) return null
+      const hour24 = period === 'pm'
+        ? (hour === 12 ? 12 : hour + 12)
+        : (hour === 12 ? 0 : hour)
+      return `${hour24.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
+    }
+
+    if (hour < 0 || hour > 23) return null
+    return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
+  }
   
   const handleTimeSelect = (hour: string, minute: string) => {
     onChange(`${hour}:${minute}`)
+    setInputValue(formatDisplayTime(hour, minute))
     setIsOpen(false)
   }
   
@@ -49,18 +117,59 @@ export function TimePicker({ value, onChange, className, placeholder = 'Select t
 
   return (
     <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
-      <Popover.Trigger asChild>
-        <button
-          type="button"
+      <Popover.Anchor asChild>
+        <input
+          type="text"
+          value={isEditing ? inputValue : (displayTime || '')}
+          onChange={(e) => {
+            const filtered = filterTimeInput(e.target.value)
+            setInputValue(filtered)
+            const normalized = normalizeTimeInput(filtered)
+            if (normalized) {
+              onChange(normalized)
+            }
+          }}
+          onFocus={() => {
+            setIsEditing(true)
+            setIsOpen(true)
+            if (!inputValue && displayTime) {
+              setInputValue(displayTime)
+            }
+          }}
+          onBlur={() => {
+            setIsEditing(false)
+            const normalized = normalizeTimeInput(inputValue)
+            if (normalized) {
+              onChange(normalized)
+              const [h, m] = normalized.split(':')
+              setInputValue(formatDisplayTime(h, m))
+            } else {
+              setInputValue(displayTime)
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              const normalized = normalizeTimeInput(inputValue)
+              if (normalized) {
+                onChange(normalized)
+                const [h, m] = normalized.split(':')
+                setInputValue(formatDisplayTime(h, m))
+                setIsOpen(false)
+              }
+            } else if (e.key === 'Escape') {
+              setIsOpen(false)
+            }
+          }}
+          placeholder={placeholder}
+          maxLength={8}
           className={cn(
-            "w-full text-left pl-3 pr-2 py-3 focus:outline-none",
+            "w-full text-left pl-3 pr-2 py-3 focus:outline-none bg-transparent",
             value ? "text-white" : "text-zinc-400",
             className
           )}
-        >
-          {displayTime || placeholder}
-        </button>
-      </Popover.Trigger>
+        />
+      </Popover.Anchor>
       
       <Popover.Portal>
         <Popover.Content

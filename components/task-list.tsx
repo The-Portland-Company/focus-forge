@@ -1,36 +1,154 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Task, Project } from '@/lib/types'
-import { Circle, CheckCircle2, Calendar, Flag, MoreHorizontal, Trash2, Edit, ChevronRight, ChevronDown, Link2, AlertCircle, ExternalLink, Repeat2, Folder, Hash } from 'lucide-react'
-import { format } from 'date-fns'
+import { Circle, CheckCircle2, Calendar, Flag, Trash2, Edit, ChevronRight, ChevronDown, Link2, AlertCircle, Repeat2, Hash, Square, CheckSquare, Loader2, FileText, MessageCircle } from 'lucide-react'
+import { format, addDays } from 'date-fns'
 import { getStartOfDay, isToday, isOverdue } from '@/lib/date-utils'
 import { isTaskBlocked, getBlockingTasks } from '@/lib/dependency-utils'
-import { getBackgroundStyle } from '@/lib/style-utils'
+import { UserAvatar } from '@/components/user-avatar'
+import * as Popover from '@radix-ui/react-popover'
 
 interface TaskListProps {
   tasks: Task[]
   allTasks?: Task[] // For dependency checking
   projects?: Project[] // For showing project names
+  currentUserId?: string // For hiding "me" avatar
+  priorityColor?: string // User's custom priority color (defaults to green)
   showCompleted?: boolean
+  completedAccordionKey?: string // localStorage key for persisting completed state
+  revealActionsOnHover?: boolean
+  bulkSelectMode?: boolean
+  selectedTaskIds?: Set<string>
+  loadingTaskIds?: Set<string> // Tasks currently being processed
+  animatingOutTaskIds?: Set<string> // Tasks animating out after processing
+  optimisticCompletedIds?: Set<string> // Tasks optimistically marked as completed
+  enableDueDateQuickEdit?: boolean
+  onTaskUpdate?: (taskId: string, updates: Partial<Task>) => Promise<void> | void
   onTaskToggle: (taskId: string) => void
   onTaskEdit: (task: Task) => void
   onTaskDelete: (taskId: string) => void
+  onTaskSelect?: (taskId: string, event?: React.MouseEvent) => void
 }
 
-const priorityColors = {
-  1: 'text-red-500',
-  2: 'text-[rgb(var(--theme-primary-rgb))]', 
-  3: 'text-blue-500',
-  4: 'text-[rgb(var(--theme-primary-rgb))]'
+// Default priority colors - shades of red (brighter = higher priority)
+const getDefaultPriorityColors = () => ({
+  1: '#ef4444', // red-500 - brightest (highest priority)
+  2: '#f87171', // red-400
+  3: '#fca5a5', // red-300
+  4: '#fecaca'  // red-200 - lightest (lowest priority)
+})
+
+// Generate priority colors based on a base hue
+const generatePriorityColors = (baseColor: string) => {
+  // If it's a hex color, use it to generate shades
+  if (baseColor.startsWith('#')) {
+    // Convert hex to HSL to generate shades
+    const hex = baseColor.replace('#', '')
+    const r = parseInt(hex.slice(0, 2), 16) / 255
+    const g = parseInt(hex.slice(2, 4), 16) / 255
+    const b = parseInt(hex.slice(4, 6), 16) / 255
+
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    let h = 0, s = 0, l = (max + min) / 2
+
+    if (max !== min) {
+      const d = max - min
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+      switch (max) {
+        case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break
+        case g: h = ((b - r) / d + 2) / 6; break
+        case b: h = ((r - g) / d + 4) / 6; break
+      }
+    }
+
+    // Generate 4 shades with same hue, varying saturation and lightness
+    const hslToHex = (h: number, s: number, l: number) => {
+      const hue2rgb = (p: number, q: number, t: number) => {
+        if (t < 0) t += 1
+        if (t > 1) t -= 1
+        if (t < 1/6) return p + (q - p) * 6 * t
+        if (t < 1/2) return q
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6
+        return p
+      }
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+      const p = 2 * l - q
+      const r = Math.round(hue2rgb(p, q, h + 1/3) * 255)
+      const g = Math.round(hue2rgb(p, q, h) * 255)
+      const b = Math.round(hue2rgb(p, q, h - 1/3) * 255)
+      return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+    }
+
+    return {
+      1: hslToHex(h, Math.min(s * 1.2, 1), 0.45), // brightest (highest priority)
+      2: hslToHex(h, s, 0.55),
+      3: hslToHex(h, s * 0.8, 0.65),
+      4: hslToHex(h, s * 0.6, 0.75)  // lightest (lowest priority)
+    }
+  }
+  return getDefaultPriorityColors()
 }
 
-export function TaskList({ tasks, allTasks, projects, showCompleted = false, onTaskToggle, onTaskEdit, onTaskDelete }: TaskListProps) {
+// Overdue colors - graduated shades of red (darker = more overdue)
+const getOverdueColor = (dueDate: string) => {
+  const due = new Date(dueDate)
+  due.setHours(0, 0, 0, 0)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const daysOverdue = Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24))
+
+  if (daysOverdue <= 0) return null // Not overdue
+  if (daysOverdue === 1) return '#fca5a5' // red-300 - lightest
+  if (daysOverdue === 2) return '#f87171' // red-400
+  if (daysOverdue === 3) return '#ef4444' // red-500
+  if (daysOverdue <= 7) return '#dc2626' // red-600
+  if (daysOverdue <= 14) return '#b91c1c' // red-700
+  if (daysOverdue <= 21) return '#991b1b' // red-800
+  return '#7f1d1d' // red-900 - darkest (4+ weeks)
+}
+
+export function TaskList({ tasks, allTasks, projects, currentUserId, priorityColor, showCompleted = false, completedAccordionKey, revealActionsOnHover = false, bulkSelectMode = false, selectedTaskIds, loadingTaskIds, animatingOutTaskIds, optimisticCompletedIds, enableDueDateQuickEdit, onTaskUpdate, onTaskToggle, onTaskEdit, onTaskDelete, onTaskSelect }: TaskListProps) {
+  // Generate priority colors based on user preference or default to green
+  const priorityColors = priorityColor ? generatePriorityColors(priorityColor) : getDefaultPriorityColors()
   const [hoveredTask, setHoveredTask] = useState<string | null>(null)
-  const [menuOpenTask, setMenuOpenTask] = useState<string | null>(null)
   const [showCompletedTasks, setShowCompletedTasks] = useState(showCompleted)
   const [collapsedTasks, setCollapsedTasks] = useState<Set<string>>(new Set())
   const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null)
+  const [hasLoadedCompletedState, setHasLoadedCompletedState] = useState(false)
+  const [quickEditTaskId, setQuickEditTaskId] = useState<string | null>(null)
+  const [quickDueDate, setQuickDueDate] = useState('')
+  const [quickDueTime, setQuickDueTime] = useState('')
+  const [quickSaving, setQuickSaving] = useState(false)
+
+  // Load completed accordion state from localStorage
+  useEffect(() => {
+    if (completedAccordionKey && !hasLoadedCompletedState) {
+      const saved = localStorage.getItem(`completedAccordion_${completedAccordionKey}`)
+      if (saved !== null) {
+        setShowCompletedTasks(saved === 'true')
+      }
+      setHasLoadedCompletedState(true)
+    }
+  }, [completedAccordionKey, hasLoadedCompletedState])
+
+  // Save completed accordion state to localStorage
+  useEffect(() => {
+    if (completedAccordionKey && hasLoadedCompletedState) {
+      localStorage.setItem(`completedAccordion_${completedAccordionKey}`, showCompletedTasks.toString())
+    }
+  }, [showCompletedTasks, completedAccordionKey, hasLoadedCompletedState])
+
+  // Helper to get project acronym
+  const getProjectAcronym = (name: string) => {
+    const words = name.split(/\s+/)
+    if (words.length === 1) {
+      return name.substring(0, 2).toUpperCase()
+    }
+    return words.map(word => word.charAt(0)).join('').toUpperCase().substring(0, 3)
+  }
 
   const copyTaskId = async (taskId: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -111,35 +229,81 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
   const sortedActiveTasks = organizeTasksHierarchically(activeTasks)
   const sortedCompletedTasks = organizeTasksHierarchically(completedTasks)
 
-  const formatDueDate = (date: string) => {
-    const taskDate = getStartOfDay(date)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    
-    if (isToday(date)) {
-      return 'Today'
-    } else if (taskDate.toDateString() === tomorrow.toDateString()) {
-      return 'Tomorrow'
-    } else if (isOverdue(date)) {
-      return format(taskDate, 'MMM d')
-    } else {
-      return format(taskDate, 'MMM d')
+  const formatFullDueDate = (date: string, time?: string, forceTime = false) => {
+    const hasTimeInDate = date.includes('T')
+    const dateOnly = hasTimeInDate ? date.split('T')[0] : date
+    const normalizedTime = time ? (time.length === 5 ? `${time}:00` : time) : null
+    const hasTime = forceTime || !!normalizedTime || hasTimeInDate
+    const dateTime = normalizedTime
+      ? `${dateOnly}T${normalizedTime}`
+      : hasTimeInDate
+      ? date
+      : `${dateOnly}T00:00:00`
+
+    const parsed = new Date(dateTime)
+    if (Number.isNaN(parsed.getTime())) {
+      const fallback = getStartOfDay(dateOnly)
+      const month = `${format(fallback, 'MMM')}.`
+      const day = format(fallback, 'do')
+      const year = `'${format(fallback, 'yy')}`
+      const timePart = forceTime ? ` ${format(fallback, 'h:mm a')}` : ''
+      return `${month} ${day} ${year}${timePart}`
     }
+
+    const month = `${format(parsed, 'MMM')}.`
+    const day = format(parsed, 'do')
+    const year = `'${format(parsed, 'yy')}`
+    const timePart = hasTime ? ` ${format(parsed, 'h:mm a')}` : ''
+    return `${month} ${day} ${year}${timePart}`
   }
 
-  const getDueDateColor = (date: string) => {
-    if (isOverdue(date)) {
-      return 'text-red-500'
-    } else if (isToday(date)) {
-      return 'text-green-500'
+  // Returns badge styling for due date
+  const getDueDateStyle = (date: string): { className: string } => {
+    // Handle both YYYY-MM-DD and ISO timestamp formats
+    const dateOnly = date.includes('T') ? date.split('T')[0] : date
+    const overdueColor = getOverdueColor(dateOnly)
+    if (overdueColor) {
+      return { className: 'bg-red-500/20 text-red-200 border border-red-500/30' }
+    } else if (isToday(dateOnly)) {
+      return { className: 'bg-orange-500/20 text-orange-200 border border-orange-500/30' }
     }
-    return 'text-zinc-400'
+    return { className: 'bg-zinc-800 text-zinc-300 border border-zinc-700' }
   }
 
   const hasChildren = (taskId: string) => {
     return tasks.some(t => t.parentId === taskId)
+  }
+
+  const quickDateOptions = [
+    { label: 'Today', date: format(new Date(), 'yyyy-MM-dd') },
+    { label: 'Tomorrow', date: format(addDays(new Date(), 1), 'yyyy-MM-dd') },
+    { label: 'Next Week', date: format(addDays(new Date(), 7), 'yyyy-MM-dd') }
+  ]
+
+  const openQuickEditor = (task: Task) => {
+    const dueDate = (task as any).due_date || task.dueDate || ''
+    const dueTime = (task as any).due_time || task.dueTime || ''
+    setQuickDueDate(dueDate || '')
+    setQuickDueTime(dueTime || '')
+    setQuickEditTaskId(task.id)
+  }
+
+  const applyQuickDueDate = async (task: Task) => {
+    if (!onTaskUpdate) return
+    setQuickSaving(true)
+    try {
+      const nextDueDate = quickDueDate || null
+      const nextDueTime = quickDueDate ? (quickDueTime || null) : null
+      await onTaskUpdate(task.id, {
+        due_date: nextDueDate as any,
+        due_time: nextDueTime as any
+      })
+      setQuickEditTaskId(null)
+    } catch (error) {
+      console.error('Error updating due date:', error)
+    } finally {
+      setQuickSaving(false)
+    }
   }
 
   const getIndentLevel = (task: Task): number => {
@@ -157,22 +321,55 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
     const indentLevel = getIndentLevel(task)
     const hasSubtasks = hasChildren(task.id)
     const isCollapsed = collapsedTasks.has(task.id)
-    
+    const isLoading = loadingTaskIds?.has(task.id)
+    const isAnimatingOut = animatingOutTaskIds?.has(task.id)
+    const isOptimisticCompleted = optimisticCompletedIds?.has(task.id)
+    const isCompleted = task.completed || isOptimisticCompleted
+    const dueDate = (task as any).due_date || task.dueDate
+    const dueDateOnly = dueDate ? (dueDate.includes('T') ? dueDate.split('T')[0] : dueDate) : null
+    const isDueToday = !!(dueDateOnly && isToday(dueDateOnly))
+    const isBlocked = !!(allTasks && isTaskBlocked(task, allTasks))
+    const showHoverActions = !revealActionsOnHover || hoveredTask === task.id
+    const actionVisibilityClass = showHoverActions
+      ? 'opacity-100 pointer-events-auto'
+      : 'opacity-0 pointer-events-none'
+
     return (
     <div
       key={task.id}
-      draggable
+      draggable={!isLoading && !isAnimatingOut}
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move'
         e.dataTransfer.setData('taskId', task.id)
       }}
-      className={`group relative flex items-start gap-3 px-4 py-2 rounded-lg hover:bg-zinc-800/50 transition-colors cursor-move ${
-        task.completed ? 'opacity-50' : ''
-      }`}
+      className={`group relative flex items-start gap-3 px-4 py-1 rounded-lg hover:bg-zinc-800/50 transition-all cursor-move ${
+        isCompleted ? 'opacity-50' : ''
+      } ${isAnimatingOut ? 'animate-slide-fade-out' : ''} ${isLoading ? 'opacity-70' : ''}`}
       style={{ paddingLeft: `${16 + indentLevel * 24}px` }}
       onMouseEnter={() => setHoveredTask(task.id)}
       onMouseLeave={() => setHoveredTask(null)}
     >
+      {bulkSelectMode && onTaskSelect && (
+        isLoading ? (
+          <Loader2 className="w-4 h-4 text-[rgb(var(--theme-primary-rgb))] animate-spin mr-1" />
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onTaskSelect(task.id, e)
+            }}
+            className="text-zinc-400 hover:text-[rgb(var(--theme-primary-rgb))] transition-colors mr-1"
+            disabled={isAnimatingOut}
+          >
+            {selectedTaskIds?.has(task.id) ? (
+              <CheckSquare className="w-4 h-4 text-[rgb(var(--theme-primary-rgb))]" />
+            ) : (
+              <Square className="w-4 h-4" />
+            )}
+          </button>
+        )
+      )}
+
       {hasSubtasks && (
         <button
           onClick={(e) => {
@@ -199,21 +396,24 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
       
       <button
         onClick={() => {
-          if (!allTasks || !isTaskBlocked(task, allTasks)) {
+          if (!isBlocked) {
             onTaskToggle(task.id)
           }
         }}
         className={`mt-0.5 transition-colors ${
-          task.completed 
-            ? 'text-zinc-400' 
-            : allTasks && isTaskBlocked(task, allTasks)
+          isCompleted
+            ? 'text-zinc-400'
+            : isBlocked
             ? 'text-zinc-500 cursor-not-allowed'
-            : priorityColors[task.priority]
+            : isDueToday
+            ? 'text-zinc-400'
+            : ''
         }`}
-        disabled={allTasks && isTaskBlocked(task, allTasks)}
-        title={allTasks && isTaskBlocked(task, allTasks) ? 'Complete dependencies first' : ''}
+        style={!isCompleted && !isBlocked && !isDueToday ? { color: priorityColors[task.priority] } : undefined}
+        disabled={isBlocked || isOptimisticCompleted}
+        title={isBlocked ? 'Complete dependencies first' : ''}
       >
-        {task.completed ? (
+        {isCompleted ? (
           <CheckCircle2 className="w-5 h-5" />
         ) : allTasks && isTaskBlocked(task, allTasks) ? (
           <AlertCircle className="w-5 h-5" />
@@ -223,154 +423,311 @@ export function TaskList({ tasks, allTasks, projects, showCompleted = false, onT
       </button>
 
       <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onTaskEdit(task)}>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <p className={`text-sm truncate ${
-              task.completed ? 'line-through text-zinc-500' :
-              allTasks && isTaskBlocked(task, allTasks) ? 'text-zinc-400' : 'text-white'
-            }`}>
-              {task.name}
-            </p>
-            <div className="relative group/taskid flex items-center flex-shrink-0">
-              <button
-                onClick={(e) => copyTaskId(task.id, e)}
-                className="text-zinc-600 hover:text-zinc-400 transition-colors"
-                title="Click to copy task ID"
-              >
-                <Hash className="w-3 h-3" />
-              </button>
-              <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/taskid:opacity-100 transition-opacity pointer-events-none z-50">
-                {task.id.slice(0, 8)}
-              </span>
-              {copiedTaskId === task.id && (
-                <span className="absolute left-full ml-2 text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up z-50">
-                  Copied!
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <p className={`text-sm truncate transition-all flex-1 min-w-0 ${
+                isCompleted ? 'line-through text-zinc-500' :
+                allTasks && isTaskBlocked(task, allTasks) ? 'text-zinc-400' : 'text-white'
+              }`}>
+                {task.name}
+              </p>
+              {(() => {
+                const dueDate = (task as any).due_date || task.dueDate
+                const dueTime = (task as any).due_time || task.dueTime
+                if (!dueDate) return null
+                const dateStyle = getDueDateStyle(dueDate)
+                const formatted = formatFullDueDate(dueDate, dueTime || undefined, true)
+                if (!enableDueDateQuickEdit || !onTaskUpdate) {
+                  return (
+                    <span
+                      className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full flex-shrink-0 ${dateStyle.className}`}
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span className="whitespace-nowrap">{formatted}</span>
+                    </span>
+                  )
+                }
+
+                const isOpen = quickEditTaskId === task.id
+
+                return (
+                  <Popover.Root
+                    open={isOpen}
+                    onOpenChange={(open) => {
+                      if (open) {
+                        openQuickEditor(task)
+                      } else if (quickEditTaskId === task.id) {
+                        setQuickEditTaskId(null)
+                      }
+                    }}
+                  >
+                    <Popover.Trigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => e.stopPropagation()}
+                        className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full flex-shrink-0 ${dateStyle.className}`}
+                        aria-label="Edit due date"
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span className="whitespace-nowrap">{formatted}</span>
+                      </button>
+                    </Popover.Trigger>
+                    <Popover.Portal>
+                      <Popover.Content
+                        side="bottom"
+                        align="start"
+                        sideOffset={8}
+                        className="z-50 w-64 rounded-lg bg-zinc-900 border border-zinc-800 shadow-xl"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-zinc-300">Due date</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setQuickDueDate('')
+                                setQuickDueTime('')
+                              }}
+                              className="text-xs text-zinc-500 hover:text-zinc-300"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {quickDateOptions.map(option => (
+                              <button
+                                key={option.label}
+                                type="button"
+                                onClick={() => setQuickDueDate(option.date)}
+                                className={`px-2 py-1 rounded text-xs border transition-colors ${
+                                  quickDueDate === option.date
+                                    ? 'bg-[rgb(var(--theme-primary-rgb))]/20 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/40'
+                                    : 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:border-zinc-500'
+                                }`}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="text-[11px] text-zinc-500">
+                              Date
+                              <input
+                                type="date"
+                                value={quickDueDate}
+                                onChange={(e) => setQuickDueDate(e.target.value)}
+                                className="mt-1 w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-white themed-date-input"
+                              />
+                            </label>
+                            <label className="text-[11px] text-zinc-500">
+                              Time
+                              <input
+                                type="time"
+                                value={quickDueTime}
+                                onChange={(e) => setQuickDueTime(e.target.value)}
+                                className="mt-1 w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-white themed-date-input"
+                              />
+                            </label>
+                          </div>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setQuickEditTaskId(null)}
+                              className="text-xs text-zinc-500 hover:text-zinc-300"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => applyQuickDueDate(task)}
+                              disabled={quickSaving}
+                              className="px-2 py-1 text-xs rounded bg-[rgb(var(--theme-primary-rgb))] text-white hover:bg-[rgb(var(--theme-primary-rgb))]/80 disabled:opacity-60"
+                            >
+                              {quickSaving ? 'Saving...' : 'Save'}
+                            </button>
+                          </div>
+                        </div>
+                        <Popover.Arrow className="fill-zinc-900 stroke-zinc-800" width={10} height={6} />
+                      </Popover.Content>
+                    </Popover.Portal>
+                  </Popover.Root>
+                )
+              })()}
+              {task.description && (
+                <span className="relative flex items-center flex-shrink-0">
+                  <FileText className="w-3.5 h-3.5 text-zinc-500" />
+                  {hoveredTask === task.id && (
+                    <span className="absolute left-1/2 top-full mt-2 -translate-x-1/2 z-50 w-[50vw] min-w-[30vw] max-w-[60vw] rounded-md bg-zinc-900 text-zinc-100 text-xs shadow-lg border border-zinc-800 px-4 py-3 pointer-events-none">
+                      <span className="block whitespace-pre-wrap">{task.description}</span>
+                      <span className="absolute left-1/2 -top-[7px] -translate-x-1/2 w-0 h-0 border-x-[7px] border-x-transparent border-b-[7px] border-b-zinc-800" />
+                      <span className="absolute left-1/2 -top-[6px] -translate-x-1/2 w-0 h-0 border-x-[6px] border-x-transparent border-b-[6px] border-b-zinc-900" />
+                    </span>
+                  )}
                 </span>
               )}
+              {allTasks && isTaskBlocked(task, allTasks) && !isCompleted && (
+                <div className="flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))] flex-shrink-0" title="Task is blocked by dependencies">
+                  <Link2 className="w-3 h-3" />
+                  <span className="text-xs">Blocked</span>
+                </div>
+              )}
             </div>
-            {allTasks && isTaskBlocked(task, allTasks) && !task.completed && (
-              <div className="flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))] flex-shrink-0" title="Task is blocked by dependencies">
-                <Link2 className="w-3 h-3" />
-                <span className="text-xs">Blocked</span>
-              </div>
-            )}
           </div>
 
-          <div className="flex items-center gap-2 text-xs flex-shrink-0">
-            {task.assignedToName && (
-              <span className="relative group/assignee flex items-center">
-                <span
-                  className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px] font-medium"
-                  style={getBackgroundStyle((task as any).assignedToColor)}
-                >
-                  {(task as any).assignedToInitial || '?'}
+          <div className="grid grid-flow-col auto-cols-[20px] items-center gap-3 text-xs flex-shrink-0">
+            {task.todoistId ? (
+              <span className={`relative group/todoist flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}>
+                <span className="text-[10px] text-zinc-500 font-bold">T</span>
+                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/todoist:opacity-100 transition-opacity pointer-events-none z-50">
+                  Synced from Todoist
                 </span>
-                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/assignee:opacity-100 transition-opacity pointer-events-none z-50">
+              </span>
+            ) : (
+              <span className="w-4 h-4" />
+            )}
+
+            {/* Recurring - first position */}
+            {task.recurringPattern ? (
+              <span className="relative group/recurring flex items-center justify-center w-4">
+                <Repeat2 className="w-4 h-4 text-purple-400" />
+                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/recurring:opacity-100 transition-opacity pointer-events-none z-50">
+                  {abbreviateRecurring(task.recurringPattern)}
+                </span>
+              </span>
+            ) : (
+              <span className="w-4 h-4" />
+            )}
+
+            {task.assignedToName && (!currentUserId || (task as any).assigned_to !== currentUserId) ? (
+              <span className="relative group/assignee flex items-center justify-center w-4">
+                <UserAvatar
+                  name={(task as any).assignedToName}
+                  profileColor={(task as any).assignedToColor}
+                  memoji={(task as any).assignedToMemoji}
+                  size={16}
+                  className="text-[9px] font-medium"
+                />
+                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/assignee:opacity-100 transition-opacity pointer-events-none z-50">
                   {task.assignedToName}
                 </span>
               </span>
+            ) : (
+              <span className="w-4 h-4" />
             )}
 
             {projects && (() => {
               const projectId = (task as any).project_id || task.projectId
-              if (!projectId) return null
+              if (!projectId) return <span className="w-4 h-4" />
               const project = projects.find(p => p.id === projectId)
               return project ? (
-                <span className="relative group/project flex items-center">
-                  <Folder
-                    className="w-3 h-3"
-                    style={{ color: project.color }}
-                  />
-                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/project:opacity-100 transition-opacity pointer-events-none z-50">
+                <span className="relative group/project flex items-center justify-center w-4">
+                  <span
+                    className="w-4 h-4 rounded-full flex items-center justify-center text-[6px] font-bold text-white"
+                    style={{ backgroundColor: project.color }}
+                  >
+                    {getProjectAcronym(project.name)}
+                  </span>
+                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/project:opacity-100 transition-opacity pointer-events-none z-50">
                     {project.name}
                   </span>
                 </span>
-              ) : null
+              ) : (
+                <span className="w-4 h-4" />
+              )
             })()}
 
-            {(() => {
-              const dueDate = (task as any).due_date || task.dueDate
-              const dueTime = (task as any).due_time || task.dueTime
-              return dueDate ? (
-                <span className={`flex items-center gap-1 ${getDueDateColor(dueDate)}`}>
-                  <Calendar className="w-3 h-3" />
-                  {formatDueDate(dueDate)}
-                  {dueTime && ` at ${dueTime}`}
-                </span>
-              ) : null
-            })()}
-
-            {task.deadline && (
-              <span className="flex items-center gap-1 text-red-400">
-                <Flag className="w-3 h-3" />
-                Deadline: {formatDueDate(task.deadline)}
-              </span>
-            )}
-
-            {task.recurringPattern && (
-              <span className="relative group/recurring flex items-center">
-                <Repeat2 className="w-3 h-3 text-purple-400" />
-                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/recurring:opacity-100 transition-opacity pointer-events-none z-50">
-                  {abbreviateRecurring(task.recurringPattern)}
+            {task.deadline ? (
+              <span className="relative group/deadline flex items-center justify-center w-4 text-red-400">
+                <Flag className="w-4 h-4" />
+                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/deadline:opacity-100 transition-opacity pointer-events-none z-50">
+                  Deadline: {formatFullDueDate(task.deadline)}
                 </span>
               </span>
+            ) : (
+              <span className="w-4 h-4" />
             )}
 
-            {task.todoistId && (
-              <span
-                className="text-[9px] text-zinc-500 font-medium"
-                title="Synced from Todoist"
-              >
-                T
-              </span>
-            )}
-            {!task.completed && (
-              <Flag className={`w-4 h-4 ${priorityColors[task.priority]}`} />
-            )}
-          </div>
-        </div>
-
-        {task.description && (
-          <p className="text-xs text-zinc-400 mt-1 line-clamp-2 break-words">
-            {task.description}
-          </p>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2">
-            <div className="relative">
+            {/* Comments indicator */}
+            {((task as any).todoistCommentCount > 0 || (task as any).commentCount > 0) ? (
               <button
-                onClick={() => setMenuOpenTask(menuOpenTask === task.id ? null : task.id)}
-                className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-white transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onTaskEdit(task)
+                }}
+                className="relative group/comments flex items-center justify-center w-4"
               >
-                <MoreHorizontal className="w-4 h-4" />
+                <MessageCircle className="w-4 h-4 text-blue-400" />
+                <span className="absolute -top-1 -right-1 min-w-[12px] h-3 bg-blue-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center px-0.5">
+                  {(task as any).todoistCommentCount || (task as any).commentCount}
+                </span>
+                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/comments:opacity-100 transition-opacity pointer-events-none z-50">
+                  {(task as any).todoistCommentCount || (task as any).commentCount} comment{((task as any).todoistCommentCount || (task as any).commentCount) !== 1 ? 's' : ''}
+                </span>
               </button>
-              
-              {menuOpenTask === task.id && (
-                <div className="absolute right-0 top-6 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg py-1 z-10">
-                  <button
-                    onClick={() => {
-                      onTaskEdit(task)
-                      setMenuOpenTask(null)
-                    }}
-                    className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white w-full"
-                  >
-                    <Edit className="w-4 h-4" />
-                    Edit task
-                  </button>
-                  <button
-                    onClick={() => {
-                      onTaskDelete(task.id)
-                      setMenuOpenTask(null)
-                    }}
-                    className="flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-zinc-700 hover:text-red-300 w-full"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete task
-                  </button>
-                </div>
+            ) : (
+              <span className="w-4 h-4" />
+            )}
+
+            {!isCompleted ? (
+              <span className="relative group/priority flex items-center justify-center w-4">
+                <Flag className="w-4 h-4" style={{ color: priorityColors[task.priority] }} />
+                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/priority:opacity-100 transition-opacity pointer-events-none z-50">
+                  Priority {task.priority}
+                </span>
+              </span>
+            ) : (
+              <span className="w-4 h-4" />
+            )}
+
+            <div className={`relative group/taskid flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}>
+              <button
+                onClick={(e) => copyTaskId(task.id, e)}
+                className="text-zinc-600 hover:text-zinc-400 transition-colors"
+              >
+                <Hash className="w-4 h-4" />
+              </button>
+              <span className="absolute right-0 top-full mt-1 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/taskid:opacity-100 transition-opacity pointer-events-none z-50">
+                {task.id.slice(0, 8)}
+              </span>
+              {copiedTaskId === task.id && (
+                <span className="absolute right-0 top-full mt-1 text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up z-50">
+                  Copied!
+                </span>
               )}
             </div>
+
+            <div className={`relative group/edit flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onTaskEdit(task)
+                }}
+                className="text-zinc-600 hover:text-zinc-400 transition-colors"
+              >
+                <Edit className="w-4 h-4" />
+              </button>
+              <span className="absolute right-0 top-full mt-1 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/edit:opacity-100 transition-opacity pointer-events-none z-50">
+                Edit
+              </span>
+            </div>
+
+            <div className={`relative group/delete flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onTaskDelete(task.id)
+                }}
+                className="text-zinc-600 hover:text-red-400 transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+              <span className="absolute right-0 top-full mt-1 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/delete:opacity-100 transition-opacity pointer-events-none z-50">
+                Delete
+              </span>
+            </div>
+
           </div>
         </div>
       </div>

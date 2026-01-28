@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from 'react'
-import { X, Calendar, Clock, Flag, Bell, Paperclip, Hash, User, Tag, Plus, Circle, CheckCircle2, Trash2, CornerDownRight, Link2, AlertCircle } from 'lucide-react'
+import { X, Calendar, Clock, Flag, Bell, Paperclip, Hash, User, Tag, Plus, Circle, CheckCircle2, Trash2, CornerDownRight, Link2, AlertCircle, Check } from 'lucide-react'
 import { Database, Task, Reminder } from '@/lib/types'
 import { format } from 'date-fns'
 import { canBeSelectedAsDependency, getBlockingTasks, isTaskBlocked } from '@/lib/dependency-utils'
@@ -15,7 +15,25 @@ import {
   SelectLabel,
 } from "@/components/ui/select"
 import { TimePicker } from '@/components/time-picker'
-import { getBackgroundStyle } from '@/lib/style-utils'
+import { UserAvatar } from '@/components/user-avatar'
+
+const quickProjectColors = [
+  '#ef4444',
+  '#f97316',
+  '#f59e0b',
+  '#84cc16',
+  '#22c55e',
+  '#10b981',
+  '#14b8a6',
+  '#06b6d4',
+  '#0ea5e9',
+  '#3b82f6',
+  '#6366f1',
+  '#8b5cf6',
+  '#a855f7',
+  '#ec4899',
+  '#f43f5e',
+]
 
 interface TaskModalProps {
   isOpen: boolean
@@ -72,6 +90,15 @@ export function TaskModal({
   const [dependencies, setDependencies] = useState<string[]>([])
   const [showDependencyPicker, setShowDependencyPicker] = useState(false)
   const [dependencySearchQuery, setDependencySearchQuery] = useState('')
+  const [isCreatingProject, setIsCreatingProject] = useState(false)
+
+  // Searchable dropdown states
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false)
+  const [projectFilterQuery, setProjectFilterQuery] = useState('')
+  const [showPriorityDropdown, setShowPriorityDropdown] = useState(false)
+  const [priorityFilterQuery, setPriorityFilterQuery] = useState('')
+  const projectDropdownRef = useRef<HTMLDivElement>(null)
+  const priorityDropdownRef = useRef<HTMLDivElement>(null)
 
   // Load task data in edit mode
   useEffect(() => {
@@ -137,6 +164,10 @@ export function TaskModal({
       setDependencies([])
       setShowDependencyPicker(false)
       setDependencySearchQuery('')
+      setShowProjectDropdown(false)
+      setProjectFilterQuery('')
+      setShowPriorityDropdown(false)
+      setPriorityFilterQuery('')
     }
   }, [isOpen, defaultProjectId, isEditMode])
 
@@ -167,6 +198,21 @@ export function TaskModal({
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [isOpen, onClose])
+
+  // Close project/priority dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (projectDropdownRef.current && !projectDropdownRef.current.contains(event.target as Node)) {
+        setShowProjectDropdown(false)
+      }
+      if (priorityDropdownRef.current && !priorityDropdownRef.current.contains(event.target as Node)) {
+        setShowPriorityDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Update tag suggestions when typing
   useEffect(() => {
@@ -251,6 +297,98 @@ export function TaskModal({
 
   const handleRemoveReminder = (id: string) => {
     setReminders(reminders.filter(r => r.id !== id))
+  }
+
+  const getDefaultOrganizationId = () => {
+    if (selectedProject) {
+      const project = data.projects.find(p => p.id === selectedProject) as any
+      return project?.organizationId || project?.organization_id || ''
+    }
+    return data.organizations?.[0]?.id || ''
+  }
+
+  const applyProjectTagToTitle = (projectName: string) => {
+    const beforeCursor = taskName.substring(0, cursorPosition)
+    const afterCursor = taskName.substring(cursorPosition)
+    const lastHashIndex = beforeCursor.lastIndexOf('#')
+    if (lastHashIndex !== -1) {
+      const newTaskName = `${taskName.substring(0, lastHashIndex)}#${projectName} ${afterCursor}`
+      setTaskName(newTaskName)
+    }
+  }
+
+  const createProjectQuick = async (
+    name: string,
+    options?: { insertInTitle?: boolean; closeSuggestions?: boolean; closeDropdown?: boolean }
+  ) => {
+    const trimmedName = name.trim()
+    if (!trimmedName || isCreatingProject) return
+
+    const existingProject = data.projects.find(
+      p => p.name.toLowerCase() === trimmedName.toLowerCase()
+    )
+    if (existingProject) {
+      setSelectedProject(existingProject.id)
+      if (options?.insertInTitle) {
+        applyProjectTagToTitle(existingProject.name)
+      }
+      if (options?.closeSuggestions) {
+        setShowProjectSuggestions(false)
+        setProjectSearchQuery('')
+      }
+      if (options?.closeDropdown) {
+        setShowProjectDropdown(false)
+        setProjectFilterQuery('')
+      }
+      return
+    }
+
+    const organizationId = getDefaultOrganizationId()
+    if (!organizationId) {
+      alert('No organization available to create this project.')
+      return
+    }
+
+    setIsCreatingProject(true)
+    try {
+      const color = quickProjectColors[Math.floor(Math.random() * quickProjectColors.length)]
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: trimmedName,
+          color,
+          organization_id: organizationId,
+          is_favorite: false,
+          archived: false
+        })
+      })
+
+      if (response.ok) {
+        const newProject = await response.json()
+        if (newProject?.id) {
+          setSelectedProject(newProject.id)
+        }
+        if (options?.insertInTitle) {
+          applyProjectTagToTitle(trimmedName)
+        }
+        if (options?.closeSuggestions) {
+          setShowProjectSuggestions(false)
+          setProjectSearchQuery('')
+        }
+        if (options?.closeDropdown) {
+          setShowProjectDropdown(false)
+          setProjectFilterQuery('')
+        }
+        if (onDataRefresh) onDataRefresh()
+        titleInputRef.current?.focus()
+      }
+    } catch (error) {
+      console.error('Failed to create project:', error)
+    } finally {
+      setIsCreatingProject(false)
+    }
   }
 
   const handleAddTag = async () => {
@@ -464,52 +602,75 @@ export function TaskModal({
             {/* Project Suggestions Dropdown */}
             {showProjectSuggestions && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
-                {data.projects
-                  .filter(project => 
+                {(() => {
+                  const query = projectSearchQuery.trim()
+                  const matches = data.projects.filter(project =>
                     project.name.toLowerCase().includes(projectSearchQuery.toLowerCase())
                   )
-                  .map(project => {
-                    const org = data.organizations.find(o => o.id === project.organizationId)
-                    return (
-                      <button
-                        key={project.id}
-                        type="button"
-                        onClick={() => {
-                          // Replace the #query with the project name
-                          const beforeCursor = taskName.substring(0, cursorPosition)
-                          const afterCursor = taskName.substring(cursorPosition)
-                          const lastHashIndex = beforeCursor.lastIndexOf('#')
-                          
-                          if (lastHashIndex !== -1) {
-                            const newTaskName = 
-                              taskName.substring(0, lastHashIndex) + 
-                              '#' + project.name + ' ' +
-                              afterCursor
-                            setTaskName(newTaskName)
-                            setSelectedProject(project.id)
-                          }
-                          
-                          setShowProjectSuggestions(false)
-                          setProjectSearchQuery('')
-                          
-                          // Focus back on input
-                          titleInputRef.current?.focus()
-                        }}
-                        className="w-full px-4 py-2 text-left hover:bg-zinc-700 transition-colors flex items-center gap-2"
-                      >
-                        <div 
-                          className="w-3 h-3 rounded-full flex-shrink-0" 
-                          style={{ backgroundColor: project.color }} 
-                        />
-                        <span className="text-sm text-white">{project.name}</span>
-                        {org && <span className="text-xs text-zinc-400">• {org.name}</span>}
-                      </button>
-                    )
-                  })
-                }
-                {data.projects.filter(p => p.name.toLowerCase().includes(projectSearchQuery.toLowerCase())).length === 0 && (
-                  <div className="px-4 py-2 text-sm text-zinc-400">No projects found</div>
-                )}
+                  const hasExactMatch = query.length > 0 && data.projects.some(
+                    project => project.name.toLowerCase() === query.toLowerCase()
+                  )
+
+                  return (
+                    <>
+                      {matches.map(project => {
+                        const orgId = (project as any).organizationId || (project as any).organization_id
+                        const org = data.organizations.find(o => o.id === orgId)
+                        return (
+                          <button
+                            key={project.id}
+                            type="button"
+                            onClick={() => {
+                              // Replace the #query with the project name
+                              const beforeCursor = taskName.substring(0, cursorPosition)
+                              const afterCursor = taskName.substring(cursorPosition)
+                              const lastHashIndex = beforeCursor.lastIndexOf('#')
+                              
+                              if (lastHashIndex !== -1) {
+                                const newTaskName = 
+                                  taskName.substring(0, lastHashIndex) + 
+                                  '#' + project.name + ' ' +
+                                  afterCursor
+                                setTaskName(newTaskName)
+                                setSelectedProject(project.id)
+                              }
+                              
+                              setShowProjectSuggestions(false)
+                              setProjectSearchQuery('')
+                              
+                              // Focus back on input
+                              titleInputRef.current?.focus()
+                            }}
+                            className="w-full px-4 py-2 text-left hover:bg-zinc-700 transition-colors flex items-center gap-2"
+                          >
+                            <div 
+                              className="w-3 h-3 rounded-full flex-shrink-0" 
+                              style={{ backgroundColor: project.color }} 
+                            />
+                            <span className="text-sm text-white">{project.name}</span>
+                            {org && <span className="text-xs text-zinc-400">• {org.name}</span>}
+                          </button>
+                        )
+                      })}
+                      {query && !hasExactMatch && (
+                        <button
+                          type="button"
+                          onClick={() => createProjectQuick(query, { insertInTitle: true, closeSuggestions: true })}
+                          disabled={isCreatingProject}
+                          className="w-full px-4 py-2 text-left hover:bg-zinc-700 transition-colors flex items-center gap-2 text-zinc-200"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span className="text-sm">
+                            {isCreatingProject ? 'Creating project...' : `Create project "${query}"`}
+                          </span>
+                        </button>
+                      )}
+                      {matches.length === 0 && !query && (
+                        <div className="px-4 py-2 text-sm text-zinc-400">No projects found</div>
+                      )}
+                    </>
+                  )
+                })()}
               </div>
             )}
           </div>
@@ -524,84 +685,170 @@ export function TaskModal({
 
           {/* Project & Parent Task */}
           <div className="grid grid-cols-2 gap-4">
-            <div>
+            <div ref={projectDropdownRef}>
               <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
                 <Hash className="w-4 h-4" />
                 Project
               </div>
-              <Select 
-                value={selectedProject ? selectedProject : undefined} 
-                onValueChange={setSelectedProject}
-              >
-                <SelectTrigger className="w-full bg-zinc-800 text-white border-zinc-700 focus:ring-2 ring-theme transition-all">
-                  {selectedProject && data?.projects ? (() => {
-                    const project = data.projects.find(p => p.id === selectedProject)
-                    return project ? (
-                      <div className="flex items-center gap-2">
-                        <div 
-                          className="w-3 h-3 rounded-full" 
-                          style={{ backgroundColor: project.color }}
-                        />
-                        <span>{project.name}</span>
-                      </div>
-                    ) : <SelectValue placeholder="Select a project" />
-                  })() : <SelectValue placeholder="Select a project" />}
-                </SelectTrigger>
-                <SelectContent>
-                  {data?.projects && data.projects.length > 0 ? (
-                    <>
-                      {data.organizations?.map((org) => {
-                        const orgProjects = data.projects?.filter(p => p.organizationId === org.id && !p.archived) || []
-                        if (orgProjects.length === 0) return null
-                        
-                        return (
-                          <SelectGroup key={org.id}>
-                            <SelectLabel className="text-xs text-zinc-500 px-2">{org.name}</SelectLabel>
-                            {orgProjects.map((project) => (
-                              <SelectItem key={project.id} value={project.id}>
-                                <div className="flex items-center gap-2">
-                                  <div 
-                                    className="w-3 h-3 rounded-full" 
-                                    style={{ backgroundColor: project.color }}
-                                  />
-                                  <span>{project.name}</span>
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        )
-                      })}
-                      {/* Include projects without organization */}
-                      {(() => {
-                        const orphanProjects = data.projects?.filter(p => !p.organizationId && !p.archived) || []
-                        if (orphanProjects.length > 0) {
-                          return (
-                            <SelectGroup>
-                              <SelectLabel className="text-xs text-zinc-500 px-2">Other</SelectLabel>
-                              {orphanProjects.map((project) => (
-                                <SelectItem key={project.id} value={project.id}>
-                                  <div className="flex items-center gap-2">
-                                    <div 
-                                      className="w-3 h-3 rounded-full" 
-                                      style={{ backgroundColor: project.color }}
-                                    />
-                                    <span>{project.name}</span>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          )
+              <div className="relative">
+                {showProjectDropdown ? (
+                  <input
+                    type="text"
+                    value={projectFilterQuery}
+                    onChange={(e) => setProjectFilterQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const query = projectFilterQuery.trim()
+                        if (query) {
+                          createProjectQuick(query, { closeDropdown: true })
                         }
-                        return null
-                      })()}
-                    </>
-                  ) : (
-                    <SelectItem value="no-projects" disabled>
-                      <span className="text-zinc-500">No projects available</span>
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+                      }
+                    }}
+                    placeholder="Search projects..."
+                    className="w-full bg-zinc-800 text-white text-sm px-3 py-2.5 rounded-lg border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all"
+                    autoFocus
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowProjectDropdown(true)
+                      setProjectFilterQuery('')
+                    }}
+                    className="w-full bg-zinc-800 text-white text-sm px-3 py-2.5 rounded-lg border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all flex items-center justify-between"
+                  >
+                    {selectedProject && data?.projects ? (() => {
+                      const project = data.projects.find(p => p.id === selectedProject)
+                      return project ? (
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: project.color }}
+                          />
+                          <span>{project.name}</span>
+                        </div>
+                      ) : <span className="text-zinc-400">Select a project</span>
+                    })() : <span className="text-zinc-400">Select a project</span>}
+                    <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                )}
+
+                {showProjectDropdown && (
+                  <div className="absolute z-50 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                    {(() => {
+                      const query = projectFilterQuery.trim()
+                      const hasExactMatch = query.length > 0 && data.projects.some(
+                        project => project.name.toLowerCase() === query.toLowerCase()
+                      )
+                      if (!query || hasExactMatch) return null
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => createProjectQuick(query, { closeDropdown: true })}
+                          disabled={isCreatingProject}
+                          className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors text-zinc-200 hover:bg-zinc-700 border-b border-zinc-700"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>{isCreatingProject ? 'Creating project...' : `Create project "${query}"`}</span>
+                        </button>
+                      )
+                    })()}
+                    {data?.organizations?.map((org) => {
+                      const orgProjects = data.projects?.filter(p =>
+                        p.organizationId === org.id &&
+                        !p.archived &&
+                        p.name.toLowerCase().includes(projectFilterQuery.toLowerCase())
+                      ) || []
+                      if (orgProjects.length === 0) return null
+
+                      return (
+                        <div key={org.id}>
+                          <div className="px-3 py-1.5 text-xs font-medium text-zinc-500 uppercase tracking-wider bg-zinc-800/50 sticky top-0">
+                            {org.name}
+                          </div>
+                          {orgProjects.map((project) => (
+                            <button
+                              key={project.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedProject(project.id)
+                                setShowProjectDropdown(false)
+                                setProjectFilterQuery('')
+                              }}
+                              className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
+                                selectedProject === project.id
+                                  ? 'bg-[rgb(var(--theme-primary-rgb))]/20 text-white'
+                                  : 'text-zinc-300 hover:bg-zinc-700'
+                              }`}
+                            >
+                              <div
+                                className="w-3 h-3 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: project.color }}
+                              />
+                              <span>{project.name}</span>
+                              {selectedProject === project.id && (
+                                <Check className="w-4 h-4 ml-auto text-[rgb(var(--theme-primary-rgb))]" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )
+                    })}
+                    {/* Orphan projects */}
+                    {(() => {
+                      const orphanProjects = data.projects?.filter(p =>
+                        !p.organizationId &&
+                        !p.archived &&
+                        p.name.toLowerCase().includes(projectFilterQuery.toLowerCase())
+                      ) || []
+                      if (orphanProjects.length > 0) {
+                        return (
+                          <div>
+                            <div className="px-3 py-1.5 text-xs font-medium text-zinc-500 uppercase tracking-wider bg-zinc-800/50 sticky top-0">
+                              Other
+                            </div>
+                            {orphanProjects.map((project) => (
+                              <button
+                                key={project.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedProject(project.id)
+                                  setShowProjectDropdown(false)
+                                  setProjectFilterQuery('')
+                                }}
+                                className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
+                                  selectedProject === project.id
+                                    ? 'bg-[rgb(var(--theme-primary-rgb))]/20 text-white'
+                                    : 'text-zinc-300 hover:bg-zinc-700'
+                                }`}
+                              >
+                                <div
+                                  className="w-3 h-3 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: project.color }}
+                                />
+                                <span>{project.name}</span>
+                                {selectedProject === project.id && (
+                                  <Check className="w-4 h-4 ml-auto text-[rgb(var(--theme-primary-rgb))]" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
+                    {/* No results */}
+                    {projectFilterQuery && data.projects?.filter(p =>
+                      !p.archived && p.name.toLowerCase().includes(projectFilterQuery.toLowerCase())
+                    ).length === 0 && (
+                      <div className="px-3 py-2 text-sm text-zinc-500">No projects found</div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div>
@@ -657,7 +904,7 @@ export function TaskModal({
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className="flex-1 bg-transparent text-white pl-3 pr-2 py-3 focus:outline-none"
+                className="flex-1 bg-transparent text-white pl-3 pr-2 py-3 focus:outline-none themed-date-input"
               />
               <button
                 onClick={() => setDueDate('')}
@@ -707,7 +954,7 @@ export function TaskModal({
                   type="date"
                   value={deadline}
                   onChange={(e) => setDeadline(e.target.value)}
-                  className={`flex-1 bg-transparent pl-3 pr-2 py-3 focus:outline-none ${
+                  className={`flex-1 bg-transparent pl-3 pr-2 py-3 focus:outline-none themed-date-input ${
                     deadlineHighlight ? deadlineHighlight : 'text-white'
                   }`}
                 />
@@ -751,18 +998,13 @@ export function TaskModal({
               </div>
               {assignedUser ? (
                 <div className="flex items-center gap-2 text-sm bg-zinc-800 rounded px-3 py-2.5 h-[42px]">
-                  <div 
-                    className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0"
-                    style={getBackgroundStyle(assignedUser.profileColor)}
-                  >
-                    {(() => {
-                      const displayName = assignedUser.name || 
-                        `${assignedUser.firstName || ''} ${assignedUser.lastName || ''}`.trim() ||
-                        assignedUser.email || 
-                        'U'
-                      return displayName.charAt(0).toUpperCase()
-                    })()}
-                  </div>
+                  <UserAvatar
+                    name={assignedUser.name || `${assignedUser.firstName || ''} ${assignedUser.lastName || ''}`.trim() || assignedUser.email}
+                    profileColor={assignedUser.profileColor}
+                    memoji={assignedUser.profileMemoji}
+                    size={24}
+                    className="text-xs font-medium flex-shrink-0"
+                  />
                   <span className="text-zinc-300 flex-1">
                     {assignedUser.name || 
                      `${assignedUser.firstName || ''} ${assignedUser.lastName || ''}`.trim() ||
@@ -810,12 +1052,13 @@ export function TaskModal({
                             onClick={() => handleAssignUser(user.id)}
                             className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-700 transition-colors text-left"
                           >
-                            <div 
-                              className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0"
-                              style={getBackgroundStyle(user.profileColor)}
-                            >
-                              {displayName.charAt(0).toUpperCase()}
-                            </div>
+                            <UserAvatar
+                              name={displayName}
+                              profileColor={user.profileColor}
+                              memoji={user.profileMemoji}
+                              size={24}
+                              className="text-xs font-medium flex-shrink-0"
+                            />
                             <div className="flex-1 text-sm">
                               <p className="font-medium">
                                 {displayName}
@@ -852,32 +1095,85 @@ export function TaskModal({
               )}
             </div>
 
-            <div>
+            <div ref={priorityDropdownRef}>
               <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
                 <Flag className="w-4 h-4" />
                 Priority
               </div>
-              <div className="flex gap-2">
-                {[1, 2, 3, 4].map((p) => (
+              <div className="relative">
+                {showPriorityDropdown ? (
+                  <input
+                    type="text"
+                    value={priorityFilterQuery}
+                    onChange={(e) => setPriorityFilterQuery(e.target.value)}
+                    placeholder="Search priority..."
+                    className="w-full bg-zinc-800 text-white text-sm px-3 py-2.5 rounded-lg border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all"
+                    autoFocus
+                  />
+                ) : (
                   <button
-                    key={p}
                     type="button"
-                    onClick={() => setPriority(p as 1 | 2 | 3 | 4)}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                      priority === p
-                        ? p === 1 
-                          ? 'bg-red-500 text-white'
-                          : p === 2
-                          ? 'bg-[rgb(var(--theme-primary-rgb))] text-white'
-                          : p === 3
-                          ? 'bg-blue-500 text-white'
-                          : 'bg-zinc-700 text-white'
-                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
-                    }`}
+                    onClick={() => {
+                      setShowPriorityDropdown(true)
+                      setPriorityFilterQuery('')
+                    }}
+                    className="w-full bg-zinc-800 text-white text-sm px-3 py-2.5 rounded-lg border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all flex items-center justify-between"
                   >
-                    P{p}
+                    <div className="flex items-center gap-2">
+                      <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                        priority === 1 ? 'bg-red-500' :
+                        priority === 2 ? 'bg-orange-500' :
+                        priority === 3 ? 'bg-blue-500' :
+                        'bg-zinc-500'
+                      }`} />
+                      <span>Priority {priority} {priority === 1 ? '(Highest)' : priority === 4 ? '(Lowest)' : ''}</span>
+                    </div>
+                    <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
                   </button>
-                ))}
+                )}
+
+                {showPriorityDropdown && (
+                  <div className="absolute z-50 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg overflow-hidden">
+                    {[
+                      { value: 1, label: 'Priority 1 (Highest)', color: 'bg-red-500' },
+                      { value: 2, label: 'Priority 2 (High)', color: 'bg-orange-500' },
+                      { value: 3, label: 'Priority 3 (Medium)', color: 'bg-blue-500' },
+                      { value: 4, label: 'Priority 4 (Lowest)', color: 'bg-zinc-500' },
+                    ]
+                      .filter(p => p.label.toLowerCase().includes(priorityFilterQuery.toLowerCase()) ||
+                                   `p${p.value}`.includes(priorityFilterQuery.toLowerCase()))
+                      .map((p) => (
+                        <button
+                          key={p.value}
+                          type="button"
+                          onClick={() => {
+                            setPriority(p.value as 1 | 2 | 3 | 4)
+                            setShowPriorityDropdown(false)
+                            setPriorityFilterQuery('')
+                          }}
+                          className={`w-full px-3 py-2.5 text-left text-sm flex items-center gap-2 transition-colors ${
+                            priority === p.value
+                              ? 'bg-[rgb(var(--theme-primary-rgb))]/20 text-white'
+                              : 'text-zinc-300 hover:bg-zinc-700'
+                          }`}
+                        >
+                          <div className={`w-3 h-3 rounded-full flex-shrink-0 ${p.color}`} />
+                          <span>{p.label}</span>
+                          {priority === p.value && (
+                            <Check className="w-4 h-4 ml-auto text-[rgb(var(--theme-primary-rgb))]" />
+                          )}
+                        </button>
+                      ))}
+                    {priorityFilterQuery && [1, 2, 3, 4].filter(p =>
+                      `priority ${p}`.includes(priorityFilterQuery.toLowerCase()) ||
+                      `p${p}`.includes(priorityFilterQuery.toLowerCase())
+                    ).length === 0 && (
+                      <div className="px-3 py-2 text-sm text-zinc-500">No priorities found</div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -922,14 +1218,14 @@ export function TaskModal({
                   type="date"
                   value={newReminderDate}
                   onChange={(e) => setNewReminderDate(e.target.value)}
-                  className="flex-1 bg-zinc-800 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                  className="flex-1 bg-zinc-800 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 ring-theme transition-all themed-date-input"
                   placeholder="Select date"
                 />
                 <input
                   type="time"
                   value={newReminderTime}
                   onChange={(e) => setNewReminderTime(e.target.value)}
-                  className="bg-zinc-800 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                  className="bg-zinc-800 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 ring-theme transition-all themed-date-input"
                   placeholder="Time (optional)"
                 />
                 <button
@@ -1259,30 +1555,44 @@ export function TaskModal({
           <div className="flex justify-between pt-6 border-t border-zinc-800">
             <div>
               {isEditMode && onDelete && task && (
-                <button
-                  type="button"
-                  onClick={() => onDelete(task.id)}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete Task
-                </button>
+                <span className="relative group/delete">
+                  <button
+                    type="button"
+                    onClick={() => onDelete(task.id)}
+                    className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                  <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/delete:opacity-100 transition-opacity pointer-events-none z-50">
+                    Delete Task
+                  </span>
+                </span>
               )}
             </div>
             <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-6 py-2 text-zinc-400 hover:text-white transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-6 py-2 btn-theme-primary text-white rounded-lg transition-all"
-              >
-                {isEditMode ? 'Save Changes' : 'Add Task'}
-              </button>
+              <span className="relative group/cancel">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/cancel:opacity-100 transition-opacity pointer-events-none z-50">
+                  Cancel
+                </span>
+              </span>
+              <span className="relative group/save">
+                <button
+                  type="submit"
+                  className="p-2.5 btn-theme-primary text-white rounded-lg transition-all"
+                >
+                  <Check className="w-5 h-5" />
+                </button>
+                <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/save:opacity-100 transition-opacity pointer-events-none z-50">
+                  {isEditMode ? 'Save Changes' : 'Add Task'}
+                </span>
+              </span>
             </div>
           </div>
         </form>
