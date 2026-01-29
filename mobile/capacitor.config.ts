@@ -1,21 +1,39 @@
 import { CapacitorConfig } from '@capacitor/cli';
 
+const serverTargets = {
+  local: process.env.CAPACITOR_LOCAL_URL || 'http://localhost:3244',
+  staging: 'https://loud-and-clear-inbox-and-task-manager-production.up.railway.app',
+  production: 'https://commandcenter.theportlandcompany.com'
+};
+
+const serverTarget = process.env.CAPACITOR_SERVER as keyof typeof serverTargets | undefined;
+const resolvedServerUrl =
+  process.env.CAPACITOR_SERVER_URL ||
+  (serverTarget && serverTargets[serverTarget] ? serverTargets[serverTarget] : undefined);
+
+const serverConfig: CapacitorConfig['server'] = resolvedServerUrl
+  ? {
+      url: resolvedServerUrl,
+      cleartext: resolvedServerUrl.startsWith('http://')
+    }
+  : {
+      iosScheme: 'capacitor',
+      cleartext: false
+    };
+
 const config: CapacitorConfig = {
-  appId: 'com.loudandclear.app',
-  appName: 'Loud & Clear',
+  appId: 'com.commandcenter.app',
+  appName: 'Command Center',
   webDir: 'dist',
   ios: {
     preferredContentMode: 'mobile',
     backgroundColor: '#000000',
     scrollEnabled: false,
     allowsLinkPreview: false,
-    limitsNavigationsToAppBoundDomains: true,
+    limitsNavigationsToAppBoundDomains: false,
     contentInset: 'automatic'
   },
-  server: {
-    iosScheme: 'capacitor',
-    cleartext: false
-  },
+  server: serverConfig,
   plugins: {
     SplashScreen: {
       launchShowDuration: 2000,

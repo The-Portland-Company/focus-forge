@@ -3,7 +3,7 @@
 # Automated Deployment Script with Monitoring
 # Handles the complete deployment workflow with validation and monitoring
 
-SERVICE_NAME="Loud & Clear"
+SERVICE_NAME="Command Center"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Colors for output

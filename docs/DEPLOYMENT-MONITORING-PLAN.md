@@ -16,7 +16,7 @@
 # deployment-monitor.sh
 
 # Configuration
-SERVICE_NAME="Loud & Clear"
+SERVICE_NAME="Command Center"
 DEPLOYMENT_URL="https://loud-and-clear-production.up.railway.app"
 HEALTH_ENDPOINT="/api/health"
 MAX_RETRIES=10
@@ -142,7 +142,7 @@ npx -y @smithery/cli@latest run @jason-tan-swe/railway-mcp \
 # post-deploy.sh
 
 # 1. Trigger deployment
-railway up -s "Loud & Clear" --detach
+railway up -s "Command Center" --detach
 
 # 2. Wait for deployment to start
 sleep 10
@@ -153,14 +153,14 @@ sleep 10
 # 4. If failed, collect diagnostics
 if [ $? -ne 0 ]; then
     echo "Collecting diagnostics..."
-    railway variables -s "Loud & Clear" > deployment-vars.txt
-    railway logs -s "Loud & Clear" > deployment-logs.txt
+    railway variables -s "Command Center" > deployment-vars.txt
+    railway logs -s "Command Center" > deployment-logs.txt
     
     # Check for common issues
     if grep -q "Supabase" deployment-logs.txt; then
         echo "⚠️ Supabase configuration issue detected"
         echo "Current variables:"
-        railway variables -s "Loud & Clear" | grep SUPABASE
+        railway variables -s "Command Center" | grep SUPABASE
     fi
 fi
 ```
@@ -187,7 +187,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway up --service "Loud & Clear" --detach
+          railway up --service "Command Center" --detach
       
       - name: Wait for deployment
         run: sleep 120
@@ -224,7 +224,7 @@ REQUIRED_VARS=(
 
 # Check Railway variables
 for var in "${REQUIRED_VARS[@]}"; do
-  value=$(railway variables -s "Loud & Clear" | grep "^$var=" | cut -d'=' -f2)
+  value=$(railway variables -s "Command Center" | grep "^$var=" | cut -d'=' -f2)
   if [ -z "$value" ]; then
     echo "❌ Missing required variable: $var"
     exit 1

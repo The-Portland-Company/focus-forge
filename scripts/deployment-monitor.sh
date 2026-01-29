@@ -4,7 +4,7 @@
 # Automatically checks deployment status and health after Railway deployment
 
 # Configuration
-SERVICE_NAME="Loud & Clear"
+SERVICE_NAME="Command Center"
 DEPLOYMENT_URL="https://loud-and-clear-production.up.railway.app"
 HEALTH_ENDPOINT="/api/health"
 MAX_RETRIES=20

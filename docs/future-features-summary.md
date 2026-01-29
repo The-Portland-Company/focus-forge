@@ -86,5 +86,5 @@ User data that should be imported into Supabase is not appearing on the applicat
 
 ## Notes
 - The app name has been updated to "Command Center" in the .env file
-- All "Loud and Clear" references should eventually be replaced with "Command Center"
+- All "Command Center" references should eventually be replaced with "Command Center"
 - Future integration with Finance app API for credit card variables

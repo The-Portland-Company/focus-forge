@@ -1,6 +1,6 @@
 # Mobile Directory
 
-This directory contains all mobile-specific code and configuration for the iOS version of Loud & Clear.
+This directory contains all mobile-specific code and configuration for the iOS version of Command Center.
 
 ## Structure
 
@@ -35,3 +35,21 @@ Mobile builds use `.env.mobile` for configuration, which sets:
 - `USE_SUPABASE=true`
 - `REQUIRE_AUTH=true`
 - `IS_MOBILE=true`
+
+## Capacitor Server Switching
+
+Use these env vars to control where the app loads from:
+- `CAPACITOR_SERVER=local|staging|production`
+- `CAPACITOR_LOCAL_URL` (defaults to `http://localhost:3244`)
+- `CAPACITOR_SERVER_URL` (overrides `CAPACITOR_SERVER`)
+
+Common commands:
+```
+npm run mobile:dev
+npm run mobile:staging
+npm run mobile:prod
+
+npm run electron:dev
+npm run electron:staging
+npm run electron:prod
+```

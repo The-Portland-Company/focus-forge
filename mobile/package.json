@@ -1,7 +1,7 @@
 {
   "name": "loud-and-clear-mobile",
   "version": "1.0.0",
-  "description": "Mobile configuration for Loud & Clear",
+  "description": "Mobile configuration for Command Center",
   "private": true,
   "scripts": {
     "prepare": "node scripts/prepare-mobile-build.js",
@@ -9,6 +9,7 @@
     "cap": "cap"
   },
   "devDependencies": {
+    "@capacitor-community/electron": "^5.0.1",
     "@capacitor/cli": "^5.0.0"
   },
   "dependencies": {

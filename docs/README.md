@@ -1,4 +1,4 @@
-# Loud & Clear - Inbox and Task Manager
+# Command Center - Inbox and Task Manager
 
 A modern, Todoist-inspired task management application built with Next.js, featuring a clean dark mode interface and powerful organizational tools.
 
@@ -34,8 +34,8 @@ A modern, Todoist-inspired task management application built with Next.js, featu
 
 1. Clone the repository:
 ```bash
-git clone git@github.com:The-Portland-Company/loud-and-clear-inbox-and-task-manager.git
-cd loud-and-clear-inbox-and-task-manager
+git clone git@github.com:The-Portland-Company/command-center.git
+cd command-center
 ```
 
 2. Install dependencies:
@@ -60,7 +60,7 @@ npm run dev
 Place your Todoist CSV backup files in the `documents/todoist-backup/` directory and run:
 
 ```bash
-npm run migrate-todoist
+npm run migrate:todoist
 ```
 
 This will import all your projects, tasks, and organizations into the application.
@@ -75,8 +75,30 @@ This will import all your projects, tasks, and organizations into the applicatio
 ├── lib/              # Utility functions and types
 ├── data/             # JSON database storage
 ├── documents/        # Import data directory
+├── mobile/          # Capacitor (iOS/Electron) setup
 └── scripts/          # Migration and utility scripts
 ```
+
+## Mobile (Capacitor)
+
+Use the shared web UI in native shells:
+
+```bash
+# iOS
+npm run mobile:dev
+npm run mobile:staging
+npm run mobile:prod
+
+# Electron
+npm run electron:dev
+npm run electron:staging
+npm run electron:prod
+```
+
+Env switching:
+- `CAPACITOR_SERVER=local|staging|production`
+- `CAPACITOR_LOCAL_URL` (defaults to `http://localhost:3244`)
+- `CAPACITOR_SERVER_URL` (overrides target)
 
 ## Key Features
 

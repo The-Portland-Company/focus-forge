@@ -1,6 +1,6 @@
-# iOS Migration Guide - Loud & Clear
+# iOS Migration Guide - Command Center
 
-This guide outlines a zero-risk approach to adding iOS support to the Loud & Clear task management application while preserving the existing web application.
+This guide outlines a zero-risk approach to adding iOS support to the Command Center task management application while preserving the existing web application.
 
 ## Overview
 

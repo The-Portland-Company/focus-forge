@@ -426,12 +426,6 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <p className={`text-sm truncate transition-all flex-1 min-w-0 ${
-                isCompleted ? 'line-through text-zinc-500' :
-                allTasks && isTaskBlocked(task, allTasks) ? 'text-zinc-400' : 'text-white'
-              }`}>
-                {task.name}
-              </p>
               {(() => {
                 const dueDate = (task as any).due_date || task.dueDate
                 const dueTime = (task as any).due_time || task.dueTime
@@ -555,18 +549,26 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                   </Popover.Root>
                 )
               })()}
-              {task.description && (
-                <span className="relative flex items-center flex-shrink-0">
-                  <FileText className="w-3.5 h-3.5 text-zinc-500" />
-                  {hoveredTask === task.id && (
-                    <span className="absolute left-1/2 top-full mt-2 -translate-x-1/2 z-50 w-[50vw] min-w-[30vw] max-w-[60vw] rounded-md bg-zinc-900 text-zinc-100 text-xs shadow-lg border border-zinc-800 px-4 py-3 pointer-events-none">
-                      <span className="block whitespace-pre-wrap">{task.description}</span>
-                      <span className="absolute left-1/2 -top-[7px] -translate-x-1/2 w-0 h-0 border-x-[7px] border-x-transparent border-b-[7px] border-b-zinc-800" />
-                      <span className="absolute left-1/2 -top-[6px] -translate-x-1/2 w-0 h-0 border-x-[6px] border-x-transparent border-b-[6px] border-b-zinc-900" />
-                    </span>
-                  )}
-                </span>
-              )}
+              <div className="flex items-center gap-1 min-w-0 flex-1">
+                <p className={`text-sm truncate transition-all flex-1 min-w-0 ${
+                  isCompleted ? 'line-through text-zinc-500' :
+                  allTasks && isTaskBlocked(task, allTasks) ? 'text-zinc-400' : 'text-white'
+                }`}>
+                  {task.name}
+                </p>
+                {task.description && (
+                  <span className="relative flex items-center flex-shrink-0">
+                    <FileText className="w-3.5 h-3.5 text-zinc-500" />
+                    {hoveredTask === task.id && (
+                      <span className="absolute left-1/2 top-full mt-2 -translate-x-1/2 z-50 w-[50vw] min-w-[30vw] max-w-[60vw] rounded-md bg-zinc-900 text-zinc-100 text-xs shadow-lg border border-zinc-800 px-4 py-3 pointer-events-none">
+                        <span className="block whitespace-pre-wrap">{task.description}</span>
+                        <span className="absolute left-1/2 -top-[7px] -translate-x-1/2 w-0 h-0 border-x-[7px] border-x-transparent border-b-[7px] border-b-zinc-800" />
+                        <span className="absolute left-1/2 -top-[6px] -translate-x-1/2 w-0 h-0 border-x-[6px] border-x-transparent border-b-[6px] border-b-zinc-900" />
+                      </span>
+                    )}
+                  </span>
+                )}
+              </div>
               {allTasks && isTaskBlocked(task, allTasks) && !isCompleted && (
                 <div className="flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))] flex-shrink-0" title="Task is blocked by dependencies">
                   <Link2 className="w-3 h-3" />
@@ -576,158 +578,167 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
             </div>
           </div>
 
-          <div className="grid grid-flow-col auto-cols-[20px] items-center gap-3 text-xs flex-shrink-0">
-            {task.todoistId ? (
-              <span className={`relative group/todoist flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}>
-                <span className="text-[10px] text-zinc-500 font-bold">T</span>
-                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/todoist:opacity-100 transition-opacity pointer-events-none z-50">
-                  Synced from Todoist
-                </span>
-              </span>
-            ) : (
-              <span className="w-4 h-4" />
-            )}
-
-            {/* Recurring - first position */}
-            {task.recurringPattern ? (
-              <span className="relative group/recurring flex items-center justify-center w-4">
-                <Repeat2 className="w-4 h-4 text-purple-400" />
-                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/recurring:opacity-100 transition-opacity pointer-events-none z-50">
-                  {abbreviateRecurring(task.recurringPattern)}
-                </span>
-              </span>
-            ) : (
-              <span className="w-4 h-4" />
-            )}
-
-            {task.assignedToName && (!currentUserId || (task as any).assigned_to !== currentUserId) ? (
-              <span className="relative group/assignee flex items-center justify-center w-4">
-                <UserAvatar
-                  name={(task as any).assignedToName}
-                  profileColor={(task as any).assignedToColor}
-                  memoji={(task as any).assignedToMemoji}
-                  size={16}
-                  className="text-[9px] font-medium"
-                />
-                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/assignee:opacity-100 transition-opacity pointer-events-none z-50">
-                  {task.assignedToName}
-                </span>
-              </span>
-            ) : (
-              <span className="w-4 h-4" />
-            )}
-
-            {projects && (() => {
-              const projectId = (task as any).project_id || task.projectId
-              if (!projectId) return <span className="w-4 h-4" />
-              const project = projects.find(p => p.id === projectId)
-              return project ? (
-                <span className="relative group/project flex items-center justify-center w-4">
-                  <span
-                    className="w-4 h-4 rounded-full flex items-center justify-center text-[6px] font-bold text-white"
-                    style={{ backgroundColor: project.color }}
-                  >
-                    {getProjectAcronym(project.name)}
-                  </span>
-                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/project:opacity-100 transition-opacity pointer-events-none z-50">
-                    {project.name}
+          <div className="flex items-center text-xs flex-shrink-0">
+            <div className="flex items-center gap-3">
+              {task.todoistId ? (
+                <span className={`relative group/todoist flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}>
+                  <span className="text-[10px] text-zinc-500 font-bold">T</span>
+                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/todoist:opacity-100 transition-opacity pointer-events-none z-50">
+                    Synced from Todoist
                   </span>
                 </span>
               ) : (
                 <span className="w-4 h-4" />
-              )
-            })()}
+              )}
 
-            {task.deadline ? (
-              <span className="relative group/deadline flex items-center justify-center w-4 text-red-400">
-                <Flag className="w-4 h-4" />
-                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/deadline:opacity-100 transition-opacity pointer-events-none z-50">
-                  Deadline: {formatFullDueDate(task.deadline)}
+              {/* Recurring - first position */}
+              {task.recurringPattern ? (
+                <span className="relative group/recurring flex items-center justify-center w-4">
+                  <Repeat2 className="w-4 h-4 text-purple-400" />
+                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/recurring:opacity-100 transition-opacity pointer-events-none z-50">
+                    {abbreviateRecurring(task.recurringPattern)}
+                  </span>
                 </span>
-              </span>
-            ) : (
-              <span className="w-4 h-4" />
-            )}
+              ) : (
+                <span className="w-4 h-4" />
+              )}
 
-            {/* Comments indicator */}
-            {((task as any).todoistCommentCount > 0 || (task as any).commentCount > 0) ? (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onTaskEdit(task)
-                }}
-                className="relative group/comments flex items-center justify-center w-4"
-              >
-                <MessageCircle className="w-4 h-4 text-blue-400" />
-                <span className="absolute -top-1 -right-1 min-w-[12px] h-3 bg-blue-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center px-0.5">
-                  {(task as any).todoistCommentCount || (task as any).commentCount}
+              {task.assignedToName && (!currentUserId || (task as any).assigned_to !== currentUserId) ? (
+                <span className="relative group/assignee flex items-center justify-center w-4">
+                  <UserAvatar
+                    name={(task as any).assignedToName}
+                    profileColor={(task as any).assignedToColor}
+                    memoji={(task as any).assignedToMemoji}
+                    size={16}
+                    className="text-[9px] font-medium"
+                  />
+                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/assignee:opacity-100 transition-opacity pointer-events-none z-50">
+                    {task.assignedToName}
+                  </span>
                 </span>
-                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/comments:opacity-100 transition-opacity pointer-events-none z-50">
-                  {(task as any).todoistCommentCount || (task as any).commentCount} comment{((task as any).todoistCommentCount || (task as any).commentCount) !== 1 ? 's' : ''}
-                </span>
-              </button>
-            ) : (
-              <span className="w-4 h-4" />
-            )}
+              ) : (
+                <span className="w-4 h-4" />
+              )}
 
-            {!isCompleted ? (
-              <span className="relative group/priority flex items-center justify-center w-4">
-                <Flag className="w-4 h-4" style={{ color: priorityColors[task.priority] }} />
-                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/priority:opacity-100 transition-opacity pointer-events-none z-50">
-                  Priority {task.priority}
-                </span>
-              </span>
-            ) : (
-              <span className="w-4 h-4" />
-            )}
+              {projects && (() => {
+                const projectId = (task as any).project_id || task.projectId
+                if (!projectId) return <span className="w-4 h-4" />
+                const project = projects.find(p => p.id === projectId)
+                return project ? (
+                  <span className="relative group/project flex items-center justify-center w-4">
+                    <span
+                      className="w-4 h-4 rounded-full flex items-center justify-center text-[6px] font-bold text-white"
+                      style={{ backgroundColor: project.color }}
+                    >
+                      {getProjectAcronym(project.name)}
+                    </span>
+                    <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/project:opacity-100 transition-opacity pointer-events-none z-50">
+                      {project.name}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="w-4 h-4" />
+                )
+              })()}
 
-            <div className={`relative group/taskid flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}>
-              <button
-                onClick={(e) => copyTaskId(task.id, e)}
-                className="text-zinc-600 hover:text-zinc-400 transition-colors"
-              >
-                <Hash className="w-4 h-4" />
-              </button>
-              <span className="absolute right-0 top-full mt-1 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/taskid:opacity-100 transition-opacity pointer-events-none z-50">
-                {task.id.slice(0, 8)}
-              </span>
-              {copiedTaskId === task.id && (
-                <span className="absolute right-0 top-full mt-1 text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up z-50">
-                  Copied!
+              {task.deadline ? (
+                <span className="relative group/deadline flex items-center justify-center w-4 text-red-400">
+                  <Flag className="w-4 h-4" />
+                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/deadline:opacity-100 transition-opacity pointer-events-none z-50">
+                    Deadline: {formatFullDueDate(task.deadline)}
+                  </span>
                 </span>
+              ) : (
+                <span className="w-4 h-4" />
+              )}
+
+              {/* Comments indicator */}
+              {((task as any).todoistCommentCount > 0 || (task as any).commentCount > 0) ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onTaskEdit(task)
+                  }}
+                  className="relative group/comments flex items-center justify-center w-4"
+                >
+                  <MessageCircle className="w-4 h-4 text-blue-400" />
+                  <span className="absolute -top-1 -right-1 min-w-[12px] h-3 bg-blue-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center px-0.5">
+                    {(task as any).todoistCommentCount || (task as any).commentCount}
+                  </span>
+                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/comments:opacity-100 transition-opacity pointer-events-none z-50">
+                    {(task as any).todoistCommentCount || (task as any).commentCount} comment{((task as any).todoistCommentCount || (task as any).commentCount) !== 1 ? 's' : ''}
+                  </span>
+                </button>
+              ) : (
+                <span className="w-4 h-4" />
+              )}
+
+              {!isCompleted ? (
+                <span className="relative group/priority flex items-center justify-center w-4">
+                  <Flag className="w-4 h-4" style={{ color: priorityColors[task.priority] }} />
+                  <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/priority:opacity-100 transition-opacity pointer-events-none z-50">
+                    Priority {task.priority}
+                  </span>
+                </span>
+              ) : (
+                <span className="w-4 h-4" />
               )}
             </div>
 
-            <div className={`relative group/edit flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onTaskEdit(task)
-                }}
-                className="text-zinc-600 hover:text-zinc-400 transition-colors"
-              >
-                <Edit className="w-4 h-4" />
-              </button>
-              <span className="absolute right-0 top-full mt-1 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/edit:opacity-100 transition-opacity pointer-events-none z-50">
-                Edit
-              </span>
-            </div>
+            <div
+              className={`flex items-center gap-3 overflow-hidden transition-[max-width,opacity,transform,margin] duration-200 ease-out ${
+                showHoverActions
+                  ? 'ml-3 max-w-[120px] opacity-100 translate-x-0 pointer-events-auto'
+                  : 'ml-0 max-w-0 opacity-0 translate-x-2 pointer-events-none'
+              }`}
+            >
+              <div className="relative group/taskid flex items-center justify-center w-4">
+                <button
+                  onClick={(e) => copyTaskId(task.id, e)}
+                  className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                >
+                  <Hash className="w-4 h-4" />
+                </button>
+                <span className="absolute right-0 top-full mt-1 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/taskid:opacity-100 transition-opacity pointer-events-none z-50">
+                  {task.id.slice(0, 8)}
+                </span>
+                {copiedTaskId === task.id && (
+                  <span className="absolute right-0 top-full mt-1 text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up z-50">
+                    Copied!
+                  </span>
+                )}
+              </div>
 
-            <div className={`relative group/delete flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onTaskDelete(task.id)
-                }}
-                className="text-zinc-600 hover:text-red-400 transition-colors"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-              <span className="absolute right-0 top-full mt-1 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/delete:opacity-100 transition-opacity pointer-events-none z-50">
-                Delete
-              </span>
-            </div>
+              <div className="relative group/edit flex items-center justify-center w-4">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onTaskEdit(task)
+                  }}
+                  className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                >
+                  <Edit className="w-4 h-4" />
+                </button>
+                <span className="absolute right-0 top-full mt-1 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/edit:opacity-100 transition-opacity pointer-events-none z-50">
+                  Edit
+                </span>
+              </div>
 
+              <div className="relative group/delete flex items-center justify-center w-4">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onTaskDelete(task.id)
+                  }}
+                  className="text-zinc-600 hover:text-red-400 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+                <span className="absolute right-0 top-full mt-1 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/delete:opacity-100 transition-opacity pointer-events-none z-50">
+                  Delete
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

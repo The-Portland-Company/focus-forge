@@ -1,6 +1,6 @@
 # iOS Build Guide
 
-This guide explains how to build and run the iOS version of Loud & Clear.
+This guide explains how to build and run the iOS version of Command Center.
 
 ## Prerequisites
 
@@ -22,6 +22,14 @@ This guide explains how to build and run the iOS version of Loud & Clear.
 
 ## Building for iOS
 
+### Choose environment (recommended)
+Use one of:
+```bash
+npm run mobile:dev
+npm run mobile:staging
+npm run mobile:prod
+```
+
 ### Step 1: Prepare Mobile Build
 ```bash
 cd mobile
@@ -32,7 +40,7 @@ This will:
 - Copy .env.mobile to .env
 - Set up mobile configuration
 
-### Step 2: Build the App
+### Step 2: Build the App (if not already done)
 ```bash
 cd ..
 npm run ios:build
@@ -97,8 +105,15 @@ Run `npm run mobile:sync` to generate iOS project files.
 
 For active development:
 1. Make changes to Next.js app
-2. Run `npm run ios:build`
+2. Run `npm run mobile:dev` (or `mobile:staging`)
 3. Test in simulator/device
 4. Repeat as needed
+
+## Switching Server Targets
+
+Env vars:
+- `CAPACITOR_SERVER=local|staging|production`
+- `CAPACITOR_LOCAL_URL` (defaults to `http://localhost:3244`)
+- `CAPACITOR_SERVER_URL` (overrides target)
 
 Remember: The web app remains unaffected by mobile builds!

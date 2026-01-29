@@ -3,7 +3,7 @@
 # Environment Variable Validation Script
 # Checks Railway environment before deployment
 
-SERVICE_NAME="Loud & Clear"
+SERVICE_NAME="Command Center"
 
 # Colors for output
 RED='\033[0;31m'
