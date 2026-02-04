@@ -172,6 +172,12 @@ export function TaskModal({
   }, [isOpen, defaultProjectId, isEditMode])
 
   useEffect(() => {
+    if (!isOpen || isEditMode) return
+    if (dueDate) return
+    setDueDate(format(new Date(), 'yyyy-MM-dd'))
+  }, [isOpen, isEditMode, dueDate])
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node
       
