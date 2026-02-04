@@ -18,6 +18,7 @@ interface TaskListProps {
   showCompleted?: boolean
   completedAccordionKey?: string // localStorage key for persisting completed state
   revealActionsOnHover?: boolean
+  uniformDueBadgeWidth?: boolean
   bulkSelectMode?: boolean
   selectedTaskIds?: Set<string>
   loadingTaskIds?: Set<string> // Tasks currently being processed
@@ -110,7 +111,7 @@ const getOverdueColor = (dueDate: string) => {
   return '#7f1d1d' // red-900 - darkest (4+ weeks)
 }
 
-export function TaskList({ tasks, allTasks, projects, currentUserId, priorityColor, showCompleted = false, completedAccordionKey, revealActionsOnHover = false, bulkSelectMode = false, selectedTaskIds, loadingTaskIds, animatingOutTaskIds, optimisticCompletedIds, enableDueDateQuickEdit, onTaskUpdate, onTaskToggle, onTaskEdit, onTaskDelete, onTaskSelect }: TaskListProps) {
+export function TaskList({ tasks, allTasks, projects, currentUserId, priorityColor, showCompleted = false, completedAccordionKey, revealActionsOnHover = false, uniformDueBadgeWidth = false, bulkSelectMode = false, selectedTaskIds, loadingTaskIds, animatingOutTaskIds, optimisticCompletedIds, enableDueDateQuickEdit, onTaskUpdate, onTaskToggle, onTaskEdit, onTaskDelete, onTaskSelect }: TaskListProps) {
   // Generate priority colors based on user preference or default to green
   const priorityColors = priorityColor ? generatePriorityColors(priorityColor) : getDefaultPriorityColors()
   const [hoveredTask, setHoveredTask] = useState<string | null>(null)
@@ -432,10 +433,11 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                 if (!dueDate) return null
                 const dateStyle = getDueDateStyle(dueDate)
                 const formatted = formatFullDueDate(dueDate, dueTime || undefined, true)
+                const uniformBadgeClass = uniformDueBadgeWidth ? 'min-w-[132px] justify-center' : ''
                 if (!enableDueDateQuickEdit || !onTaskUpdate) {
                   return (
                     <span
-                      className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full flex-shrink-0 ${dateStyle.className}`}
+                      className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full flex-shrink-0 ${uniformBadgeClass} ${dateStyle.className}`}
                     >
                       <Calendar className="w-3.5 h-3.5" />
                       <span className="whitespace-nowrap">{formatted}</span>
@@ -460,7 +462,7 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                       <button
                         type="button"
                         onClick={(e) => e.stopPropagation()}
-                        className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full flex-shrink-0 ${dateStyle.className}`}
+                        className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full flex-shrink-0 ${uniformBadgeClass} ${dateStyle.className}`}
                         aria-label="Edit due date"
                       >
                         <Calendar className="w-3.5 h-3.5" />
@@ -557,16 +559,9 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                   {task.name}
                 </p>
                 {task.description && (
-                  <span className="relative flex items-center flex-shrink-0">
-                    <FileText className="w-3.5 h-3.5 text-zinc-500" />
-                    {hoveredTask === task.id && (
-                      <span className="absolute left-1/2 top-full mt-2 -translate-x-1/2 z-50 w-[50vw] min-w-[30vw] max-w-[60vw] rounded-md bg-zinc-900 text-zinc-100 text-xs shadow-lg border border-zinc-800 px-4 py-3 pointer-events-none">
-                        <span className="block whitespace-pre-wrap">{task.description}</span>
-                        <span className="absolute left-1/2 -top-[7px] -translate-x-1/2 w-0 h-0 border-x-[7px] border-x-transparent border-b-[7px] border-b-zinc-800" />
-                        <span className="absolute left-1/2 -top-[6px] -translate-x-1/2 w-0 h-0 border-x-[6px] border-x-transparent border-b-[6px] border-b-zinc-900" />
-                      </span>
-                    )}
-                  </span>
+                  <div className="mt-1 text-xs text-zinc-500 line-clamp-2 text-left">
+                    {task.description}
+                  </div>
                 )}
               </div>
               {allTasks && isTaskBlocked(task, allTasks) && !isCompleted && (
@@ -579,7 +574,7 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
           </div>
 
           <div className="flex items-center text-xs flex-shrink-0">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {task.todoistId ? (
                 <span className={`relative group/todoist flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}>
                   <span className="text-[10px] text-zinc-500 font-bold">T</span>
@@ -587,9 +582,7 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                     Synced from Todoist
                   </span>
                 </span>
-              ) : (
-                <span className="w-4 h-4" />
-              )}
+              ) : null}
 
               {/* Recurring - first position */}
               {task.recurringPattern ? (
@@ -599,9 +592,7 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                     {abbreviateRecurring(task.recurringPattern)}
                   </span>
                 </span>
-              ) : (
-                <span className="w-4 h-4" />
-              )}
+              ) : null}
 
               {task.assignedToName && (!currentUserId || (task as any).assigned_to !== currentUserId) ? (
                 <span className="relative group/assignee flex items-center justify-center w-4">
@@ -616,13 +607,11 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                     {task.assignedToName}
                   </span>
                 </span>
-              ) : (
-                <span className="w-4 h-4" />
-              )}
+              ) : null}
 
               {projects && (() => {
                 const projectId = (task as any).project_id || task.projectId
-                if (!projectId) return <span className="w-4 h-4" />
+                if (!projectId) return null
                 const project = projects.find(p => p.id === projectId)
                 return project ? (
                   <span className="relative group/project flex items-center justify-center w-4">
@@ -636,9 +625,7 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                       {project.name}
                     </span>
                   </span>
-                ) : (
-                  <span className="w-4 h-4" />
-                )
+                ) : null
               })()}
 
               {task.deadline ? (
@@ -648,9 +635,7 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                     Deadline: {formatFullDueDate(task.deadline)}
                   </span>
                 </span>
-              ) : (
-                <span className="w-4 h-4" />
-              )}
+              ) : null}
 
               {/* Comments indicator */}
               {((task as any).todoistCommentCount > 0 || (task as any).commentCount > 0) ? (
@@ -669,9 +654,7 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                     {(task as any).todoistCommentCount || (task as any).commentCount} comment{((task as any).todoistCommentCount || (task as any).commentCount) !== 1 ? 's' : ''}
                   </span>
                 </button>
-              ) : (
-                <span className="w-4 h-4" />
-              )}
+              ) : null}
 
               {!isCompleted ? (
                 <span className="relative group/priority flex items-center justify-center w-4">
@@ -680,9 +663,7 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                     Priority {task.priority}
                   </span>
                 </span>
-              ) : (
-                <span className="w-4 h-4" />
-              )}
+              ) : null}
             </div>
 
             <div

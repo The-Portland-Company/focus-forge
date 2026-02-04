@@ -1134,6 +1134,7 @@ export default function ViewPage() {
         showCompleted: database.settings?.showCompletedTasks ?? true,
         completedAccordionKey: accordionKey,
         revealActionsOnHover: true,
+        uniformDueBadgeWidth: true,
         onTaskToggle: handleTaskToggle,
         onTaskEdit: handleTaskEdit,
         onTaskDelete: handleTaskDelete,
