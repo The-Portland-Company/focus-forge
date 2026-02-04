@@ -551,15 +551,15 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                   </Popover.Root>
                 )
               })()}
-              <div className="flex items-center gap-1 min-w-0 flex-1">
-                <p className={`text-sm truncate transition-all flex-1 min-w-0 ${
+              <div className="flex flex-col gap-1 min-w-0 flex-1">
+                <p className={`text-sm truncate transition-all ${
                   isCompleted ? 'line-through text-zinc-500' :
                   allTasks && isTaskBlocked(task, allTasks) ? 'text-zinc-400' : 'text-white'
                 }`}>
                   {task.name}
                 </p>
                 {task.description && (
-                  <div className="mt-1 text-xs text-zinc-500 line-clamp-2 text-left">
+                  <div className="text-xs text-zinc-500 line-clamp-2 text-left">
                     {task.description}
                   </div>
                 )}
