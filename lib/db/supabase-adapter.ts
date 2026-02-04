@@ -216,7 +216,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   // Tasks
   async getTasks(projectId?: string) {
     const supabase = this.supabase
-    
+
     // If fetching for a specific project, first verify user has access
     if (projectId) {
       const projects = await this.getProjects()
@@ -225,45 +225,51 @@ export class SupabaseAdapter implements DatabaseAdapter {
         return []
       }
     }
-    
-    let query = supabase
-      .from('tasks')
-      .select(`
-        *,
-        tags:task_tags(tag:tags(*)),
-        reminders(*),
-        attachments(*),
-        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color, profile_memoji)
-      `)
-      .order('created_at')
 
-    if (projectId) {
-      // For a specific project, get all tasks in that project
-      query = query.eq('project_id', projectId)
-    } else {
-      // For all tasks, get tasks assigned to this user OR unassigned tasks in user's projects
-      console.log('📋 Fetching tasks for user:', this.userId)
+    console.log('📋 Fetching tasks for user:', this.userId)
+    const projects = projectId ? [] : await this.getProjects()
+    const userProjectIds = projects.map(p => p.id)
+    const pageSize = 1000
+    let offset = 0
+    let allTasks: any[] = []
 
-      // First get the user's project IDs
-      const projects = await this.getProjects()
-      const userProjectIds = projects.map(p => p.id)
+    while (true) {
+      let query = supabase
+        .from('tasks')
+        .select(`
+          *,
+          tags:task_tags(tag:tags(*)),
+          reminders(*),
+          attachments(*),
+          assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color, profile_memoji)
+        `)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + pageSize - 1)
 
-      if (userProjectIds.length > 0) {
-        // Get tasks that are: assigned to user OR (unassigned AND in user's projects)
+      if (projectId) {
+        query = query.eq('project_id', projectId)
+      } else if (userProjectIds.length > 0) {
         query = query.or(`assigned_to.eq.${this.userId},and(assigned_to.is.null,project_id.in.(${userProjectIds.join(',')}))`)
       } else {
-        // No projects, just get tasks assigned to user
         query = query.eq('assigned_to', this.userId)
       }
+
+      const { data, error } = await query
+      if (error) throw error
+
+      const batch = data || []
+      allTasks = allTasks.concat(batch)
+
+      if (batch.length < pageSize) {
+        break
+      }
+      offset += pageSize
     }
 
-    const { data, error } = await query
-    if (error) throw error
-    
-    console.log('✅ Tasks fetched:', data?.length || 0)
+    console.log('✅ Tasks fetched:', allTasks.length)
 
     // Transform the data to match the expected format
-    return (data || []).map((task: any) => {
+    return allTasks.map((task: any) => {
       // Construct assignee info from joined profile data
       let assigneeName: string | null = null
       let assigneeColor: string | null = null
