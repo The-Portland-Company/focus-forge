@@ -1,16 +1,19 @@
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth'
+import { createClient } from '@/lib/supabase/server'
 import { mapTagFromDb, mapTagToDb } from '@/lib/api/sync-mapper'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  return withAuth(request, async (req, _userId, supabase) => {
+  const { id } = await params
+  return withAuth(request, async (req, _userId) => {
+    const supabase = await createClient()
     const { data: tag, error } = await supabase
       .from('tags')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', id)
       .single()
 
     if (error) {
@@ -23,9 +26,11 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  return withAuth(request, async (req, _userId, supabase) => {
+  const { id } = await params
+  return withAuth(request, async (req, _userId) => {
+    const supabase = await createClient()
     try {
       const body = await req.json()
 
@@ -36,7 +41,7 @@ export async function PUT(
       const { data: tag, error } = await supabase
         .from('tags')
         .update(mapTagToDb(body))
-        .eq('id', params.id)
+        .eq('id', id)
         .select()
         .single()
 
@@ -53,13 +58,15 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  return withAuth(request, async (req, _userId, supabase) => {
+  const { id } = await params
+  return withAuth(request, async (req, _userId) => {
+    const supabase = await createClient()
     const { error } = await supabase
       .from('tags')
       .delete()
-      .eq('id', params.id)
+      .eq('id', id)
 
     if (error) {
       return createErrorResponse(error.message, 500)

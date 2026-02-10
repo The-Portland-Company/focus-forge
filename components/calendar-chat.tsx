@@ -42,7 +42,7 @@ export function CalendarChat({ onUpdate }: CalendarChatProps) {
 
     if (!apiKey) {
       setShowSettings(true)
-      showToast('Please set your Claude API key first', 'error')
+      showToast('error', 'Please set your Claude API key first')
       return
     }
 
@@ -77,14 +77,14 @@ export function CalendarChat({ onUpdate }: CalendarChatProps) {
         onUpdate()
       }
 
-      showToast(data.message || 'Action completed', 'success')
+      showToast('success', data.message || 'Action completed')
     } catch (error) {
       console.error('Error sending message:', error)
       setMessages(prev => [...prev, { 
         role: 'assistant', 
         content: 'Sorry, I encountered an error processing your request.'
       }])
-      showToast('Failed to process message', 'error')
+      showToast('error', 'Failed to process message')
     } finally {
       setLoading(false)
     }
@@ -93,7 +93,7 @@ export function CalendarChat({ onUpdate }: CalendarChatProps) {
   const saveApiKey = () => {
     localStorage.setItem('claudeApiKey', apiKey)
     setShowSettings(false)
-    showToast('API key saved', 'success')
+    showToast('success', 'API key saved')
   }
 
   return (

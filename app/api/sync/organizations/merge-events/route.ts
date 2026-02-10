@@ -1,9 +1,11 @@
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth'
+import { createClient } from '@/lib/supabase/server'
 import { requireOrgAdmin } from '@/lib/api/authz'
 
 export async function GET(request: NextRequest) {
-  return withAuth(request, async (req, userId, supabase) => {
+  return withAuth(request, async (req, userId) => {
+    const supabase = await createClient()
     const url = new URL(req.url)
     const organizationId = url.searchParams.get('organizationId')
 
@@ -17,7 +19,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { data, error } = await supabase
-      .from('merge_events')
+      .from('merge_events' as any)
       .select('id, created_at, created_by, source_organization_id, target_organization_id, status')
       .or(`source_organization_id.eq.${organizationId},target_organization_id.eq.${organizationId}`)
       .order('created_at', { ascending: false })

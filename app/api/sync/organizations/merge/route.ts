@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth'
+import { createClient } from '@/lib/supabase/server'
 import { requireOrgAdmin } from '@/lib/api/authz'
 
 type Row = Record<string, any>
@@ -21,8 +22,9 @@ const buildNameMap = <T extends Row>(items: T[]) => {
 }
 
 export async function POST(request: NextRequest) {
-  return withAuth(request, async (req, userId, supabase) => {
+  return withAuth(request, async (req, userId) => {
     try {
+      const supabase = await createClient()
       const { sourceOrganizationId, targetOrganizationId } = await req.json()
 
       if (!sourceOrganizationId || !targetOrganizationId) {
@@ -278,8 +280,8 @@ export async function POST(request: NextRequest) {
       payload.deletes.push({ table: 'organizations', row: sourceOrg })
       await supabase.from('organizations').delete().eq('id', sourceOrganizationId)
 
-      const { data: mergeEvent, error: mergeEventError } = await supabase
-        .from('merge_events')
+      const { data: mergeEventRaw, error: mergeEventError } = await supabase
+        .from('merge_events' as any)
         .insert({
           created_by: userId,
           source_organization_id: sourceOrganizationId,
@@ -293,6 +295,8 @@ export async function POST(request: NextRequest) {
       if (mergeEventError) {
         return createErrorResponse(mergeEventError.message, 500)
       }
+
+      const mergeEvent = mergeEventRaw as any
 
       return createApiResponse({
         success: true,

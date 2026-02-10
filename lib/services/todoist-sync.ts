@@ -112,8 +112,9 @@ export class TodoistSyncService {
       await this.logSyncHistory('full', result)
 
     } catch (error) {
-      result.errors.push(error.message)
-      await this.saveSyncState(null, 'failed', error.message)
+      const message = error instanceof Error ? error.message : String(error)
+      result.errors.push(message)
+      await this.saveSyncState(null, 'failed', message)
     }
 
     return result
@@ -190,8 +191,9 @@ export class TodoistSyncService {
       await this.logSyncHistory('incremental', result)
 
     } catch (error) {
-      result.errors.push(error.message)
-      await this.saveSyncState(null, 'failed', error.message)
+      const message = error instanceof Error ? error.message : String(error)
+      result.errors.push(message)
+      await this.saveSyncState(null, 'failed', message)
     }
 
     return result
@@ -366,7 +368,7 @@ export class TodoistSyncService {
         .eq('todoist_id', todoistTask.id)
         .single()
 
-      const taskData = {
+      const taskData: Record<string, any> = {
         name: todoistTask.content,
         description: todoistTask.description,
         project_id: project.id,
@@ -679,7 +681,7 @@ export class TodoistSyncService {
       next_sync_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() // 5 minutes
     }
 
-    const { data: existingState } = await this.getSyncState()
+    const existingState = await this.getSyncState()
 
     if (existingState) {
       await this.supabase

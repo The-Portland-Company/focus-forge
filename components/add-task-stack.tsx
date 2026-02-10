@@ -30,9 +30,9 @@ export function AddTaskStack({
   const [stackedTaskSeed, setStackedTaskSeed] = useState<string | null>(null)
   const [stackedProjectSeed, setStackedProjectSeed] = useState<{ name: string; organizationId: string } | null>(null)
   const [stackedTagSeed, setStackedTagSeed] = useState<string | null>(null)
-  const dependencyResolverRef = useRef<(task: Task | null) => void>()
-  const projectResolverRef = useRef<(project: Project | null) => void>()
-  const tagResolverRef = useRef<(tag: Tag | null) => void>()
+  const dependencyResolverRef = useRef<((task: Task | null) => void) | null>(null)
+  const projectResolverRef = useRef<((project: Project | null) => void) | null>(null)
+  const tagResolverRef = useRef<((tag: Tag | null) => void) | null>(null)
 
   const hasStack = !!stackedTaskSeed || !!stackedProjectSeed || !!stackedTagSeed
 

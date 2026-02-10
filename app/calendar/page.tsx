@@ -48,7 +48,7 @@ export default function CalendarPage() {
       }
     } catch (error) {
       console.error('Error fetching time blocks:', error)
-      showToast('Failed to load calendar', 'error')
+      showToast('error', 'Failed to load calendar')
     } finally {
       setLoading(false)
     }
@@ -77,11 +77,11 @@ export default function CalendarPage() {
       if (res.ok) {
         const updated = await res.json()
         setTimeBlocks(prev => prev.map(b => b.id === blockId ? { ...b, ...updated } : b))
-        showToast('Time block updated', 'success')
+        showToast('success', 'Time block updated')
       }
     } catch (error) {
       console.error('Error updating time block:', error)
-      showToast('Failed to update', 'error')
+      showToast('error', 'Failed to update')
     }
     setEditingCell(null)
   }
@@ -105,11 +105,11 @@ export default function CalendarPage() {
       if (res.ok) {
         const newBlock = await res.json()
         setTimeBlocks(prev => [...prev, newBlock])
-        showToast('Time block created', 'success')
+        showToast('success', 'Time block created')
       }
     } catch (error) {
       console.error('Error creating time block:', error)
-      showToast('Failed to create time block', 'error')
+      showToast('error', 'Failed to create time block')
     }
   }
 
@@ -121,11 +121,11 @@ export default function CalendarPage() {
 
       if (res.ok) {
         setTimeBlocks(prev => prev.filter(b => b.id !== blockId))
-        showToast('Time block deleted', 'success')
+        showToast('success', 'Time block deleted')
       }
     } catch (error) {
       console.error('Error deleting time block:', error)
-      showToast('Failed to delete', 'error')
+      showToast('error', 'Failed to delete')
     }
   }
 
@@ -139,11 +139,11 @@ export default function CalendarPage() {
 
       if (res.ok) {
         fetchTimeBlocks()
-        showToast('Task added to time block', 'success')
+        showToast('success', 'Task added to time block')
       }
     } catch (error) {
       console.error('Error adding task to time block:', error)
-      showToast('Failed to add task', 'error')
+      showToast('error', 'Failed to add task')
     }
     setDraggedTask(null)
     setDragOverBlock(null)

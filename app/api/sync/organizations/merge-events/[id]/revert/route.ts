@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth'
+import { createClient } from '@/lib/supabase/server'
 
 type Row = Record<string, any>
 
@@ -7,15 +8,19 @@ const orderedTables = ['organizations', 'projects', 'sections', 'tasks', 'task_t
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  return withAuth(request, async (req, userId, supabase) => {
+  const { id } = await params
+  return withAuth(request, async (req, userId) => {
     try {
-      const { data: mergeEvent, error } = await supabase
-        .from('merge_events')
+      const supabase = await createClient()
+      const { data: mergeEventRaw, error } = await supabase
+        .from('merge_events' as any)
         .select('*')
-        .eq('id', params.id)
+        .eq('id', id)
         .single()
+
+      const mergeEvent = mergeEventRaw as any
 
       if (error || !mergeEvent) {
         return createErrorResponse('Merge event not found', 404)
@@ -61,7 +66,7 @@ export async function POST(
             .eq('organization_id', insert.row.organization_id)
         } else {
           await supabase
-            .from(insert.table)
+            .from(insert.table as any)
             .delete()
             .eq('id', insert.row.id)
         }
@@ -72,7 +77,7 @@ export async function POST(
         if (rows.length === 0) continue
 
         const { error: insertError } = await supabase
-          .from(table)
+          .from(table as any)
           .upsert(rows, { onConflict: 'id' })
 
         if (insertError) {
@@ -82,7 +87,7 @@ export async function POST(
 
       for (const update of updates) {
         const { error: updateError } = await supabase
-          .from(update.table)
+          .from(update.table as any)
           .update(update.before)
           .eq('id', update.id)
 
@@ -92,7 +97,7 @@ export async function POST(
       }
 
       const { error: statusError } = await supabase
-        .from('merge_events')
+        .from('merge_events' as any)
         .update({ status: 'reverted' })
         .eq('id', mergeEvent.id)
 

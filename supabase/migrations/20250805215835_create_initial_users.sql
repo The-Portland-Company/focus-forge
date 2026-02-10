@@ -12,7 +12,14 @@ BEGIN
   -- Note: In production, users should be created via Supabase Auth API
   -- This is a migration workaround for initial setup
   
-  -- Create the super admin profile manually since we can't directly insert into auth.users
+  -- Create auth.users rows first to satisfy profiles FK in shadow DB
+  INSERT INTO auth.users (id, email, raw_user_meta_data)
+  VALUES
+    (super_admin_id, 'spencerdhill@protonmail.com', '{}'::jsonb),
+    (demo_user_id, 'demo@demo.com', '{}'::jsonb)
+  ON CONFLICT (id) DO NOTHING;
+
+  -- Create the super admin profile
   INSERT INTO profiles (id, email, first_name, last_name, role, profile_color, animations_enabled)
   VALUES (
     super_admin_id,

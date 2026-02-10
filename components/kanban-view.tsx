@@ -49,7 +49,8 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
 
     // Sort tasks into columns
     tasks.forEach(task => {
-      const dateValue = dateType === 'deadline' ? task.deadline : task.due_date
+      const dueDate = (task as any).due_date ?? task.dueDate
+      const dateValue = dateType === 'deadline' ? task.deadline : dueDate
       if (!dateValue) return
       
       const taskDate = new Date(dateValue)
@@ -73,8 +74,10 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
     // Sort tasks within each column by the selected date type
     columns.forEach(column => {
       column.tasks.sort((a, b) => {
-        const aDate = dateType === 'deadline' ? a.deadline : a.due_date
-        const bDate = dateType === 'deadline' ? b.deadline : b.due_date
+        const aDueDate = (a as any).due_date ?? a.dueDate
+        const bDueDate = (b as any).due_date ?? b.dueDate
+        const aDate = dateType === 'deadline' ? a.deadline : aDueDate
+        const bDate = dateType === 'deadline' ? b.deadline : bDueDate
         if (!aDate || !bDate) return 0
         const dateA = new Date(aDate).getTime()
         const dateB = new Date(bDate).getTime()
@@ -107,7 +110,8 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
     if (!draggedTask) return
 
     // Calculate new date based on column
-    const currentDateValue = dateType === 'deadline' ? draggedTask.deadline : draggedTask.due_date
+    const draggedDueDate = (draggedTask as any).due_date ?? draggedTask.dueDate
+    const currentDateValue = dateType === 'deadline' ? draggedTask.deadline : draggedDueDate
     let newDate: string | undefined = currentDateValue
     const today = new Date()
     today.setHours(0, 0, 0, 0)
@@ -140,7 +144,8 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
     }
 
     if (newDate !== currentDateValue) {
-      const updateField = dateType === 'deadline' ? { deadline: newDate } : { due_date: newDate }
+      const updateField: Record<string, any> =
+        dateType === 'deadline' ? { deadline: newDate } : { due_date: newDate }
       onTaskUpdate(draggedTask.id, updateField)
     }
 
@@ -235,10 +240,10 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
                           </div>
                         )}
                         
-                        {task.due_date && (
+                        {((task as any).due_date ?? task.dueDate) && (
                           <div className="flex items-center gap-1 text-xs text-zinc-400">
                             <Calendar className="w-3 h-3" />
-                            {format(new Date(task.due_date), 'MMM d')}
+                            {format(new Date((task as any).due_date ?? task.dueDate), 'MMM d')}
                           </div>
                         )}
                         

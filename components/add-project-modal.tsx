@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { X, Calendar, DollarSign } from 'lucide-react'
-import { Project } from '@/lib/types'
+import type { Project } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -12,7 +12,10 @@ interface AddProjectModalProps {
   isOpen: boolean
   onClose: () => void
   organizationId: string
-  onAddProject: (projectData: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>) => void
+  onAddProject: (projectData: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Project | null> | Project | null | void | Promise<void>
+  renderInStack?: boolean
+  stackStyle?: CSSProperties
+  stackZIndex?: number
 }
 
 const projectColors = [
@@ -34,7 +37,15 @@ const projectColors = [
   '#f43f5e', // rose
 ]
 
-export function AddProjectModal({ isOpen, onClose, organizationId, onAddProject }: AddProjectModalProps) {
+export function AddProjectModal({
+  isOpen,
+  onClose,
+  organizationId,
+  onAddProject,
+  renderInStack = false,
+  stackStyle,
+  stackZIndex
+}: AddProjectModalProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [budget, setBudget] = useState('')
@@ -67,9 +78,13 @@ export function AddProjectModal({ isOpen, onClose, organizationId, onAddProject 
 
   if (!isOpen) return null
 
+  const wrapperClass = renderInStack
+    ? 'absolute inset-0 flex items-center justify-center pointer-events-none'
+    : 'fixed inset-0 bg-black/50 flex items-center justify-center z-50'
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-zinc-900 rounded-lg w-full max-w-md">
+    <div className={wrapperClass} style={renderInStack ? { zIndex: stackZIndex } : undefined}>
+      <div className="bg-zinc-900 rounded-lg w-full max-w-md pointer-events-auto" style={stackStyle}>
         <div className="border-b border-zinc-800 p-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">New Project</h2>
           <button

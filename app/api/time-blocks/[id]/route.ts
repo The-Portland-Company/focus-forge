@@ -4,9 +4,10 @@ import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const supabase = await createClient()
     
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -15,7 +16,7 @@ export async function GET(
     }
 
     const adapter = new SupabaseAdapter(supabase, user.id)
-    const timeBlock = await adapter.getTimeBlock(params.id)
+    const timeBlock = await adapter.getTimeBlock(id)
     
     if (!timeBlock) {
       return NextResponse.json({ error: 'Time block not found' }, { status: 404 })
@@ -33,9 +34,10 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const supabase = await createClient()
     
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -46,7 +48,7 @@ export async function PATCH(
     const adapter = new SupabaseAdapter(supabase, user.id)
     const body = await request.json()
     
-    const updatedBlock = await adapter.updateTimeBlock(params.id, body)
+    const updatedBlock = await adapter.updateTimeBlock(id, body)
     
     return NextResponse.json(updatedBlock)
   } catch (error) {
@@ -60,9 +62,10 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const supabase = await createClient()
     
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -71,7 +74,7 @@ export async function DELETE(
     }
 
     const adapter = new SupabaseAdapter(supabase, user.id)
-    await adapter.deleteTimeBlock(params.id)
+    await adapter.deleteTimeBlock(id)
     
     return NextResponse.json({ success: true })
   } catch (error) {

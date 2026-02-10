@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     // Check if another sync is already running
     const { data: syncState } = await supabase
       .from('todoist_sync_state')
-      .select('sync_status')
+      .select('sync_status, sync_token')
       .eq('user_id', userId)
       .single()
 
@@ -130,8 +130,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Sync error:', error)
+    const message = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json(
-      { error: 'Sync failed', details: error.message },
+      { error: 'Sync failed', details: message },
       { status: 500 }
     )
   }

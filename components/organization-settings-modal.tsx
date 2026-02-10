@@ -18,7 +18,7 @@ interface OrganizationSettingsModalProps {
   onUserInvite?: (email: string, organizationId: string, firstName: string, lastName: string) => void
   onUserAdd?: (userId: string, organizationId: string) => void
   onUserRemove?: (userId: string, organizationId: string) => void
-  onSendReminder?: (userId: string, organizationId: string) => void
+  onSendReminder?: (userId: string, organizationId: string) => Promise<{ delivered: boolean }>
 }
 
 export function OrganizationSettingsModal({ 

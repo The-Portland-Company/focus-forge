@@ -5,15 +5,16 @@ import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth
 // GET /api/sync/tasks/[id] - Get single task
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   return withAuth(request, async (req, userId) => {
     const supabase = await createClient()
     
     const { data: task, error } = await supabase
       .from('tasks')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', id)
       .single()
     
     if (error) {
@@ -30,8 +31,9 @@ export async function GET(
 // PUT /api/sync/tasks/[id] - Update task
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   return withAuth(request, async (req, userId) => {
     const supabase = await createClient()
     
@@ -53,7 +55,7 @@ export async function PUT(
       const { data: task, error } = await supabase
         .from('tasks')
         .update(updateData)
-        .eq('id', params.id)
+        .eq('id', id)
         .select()
         .single()
       
@@ -74,15 +76,16 @@ export async function PUT(
 // DELETE /api/sync/tasks/[id] - Delete task
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   return withAuth(request, async (req, userId) => {
     const supabase = await createClient()
     
     const { error } = await supabase
       .from('tasks')
       .delete()
-      .eq('id', params.id)
+      .eq('id', id)
     
     if (error) {
       if (error.code === 'PGRST116') {
@@ -98,8 +101,9 @@ export async function DELETE(
 // POST /api/sync/tasks/[id]/complete - Mark task as complete
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const url = new URL(request.url)
   const isComplete = url.pathname.endsWith('/complete')
   
@@ -117,7 +121,7 @@ export async function POST(
         completedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       })
-      .eq('id', params.id)
+      .eq('id', id)
       .select()
       .single()
     

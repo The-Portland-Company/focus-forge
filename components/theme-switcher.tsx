@@ -91,12 +91,11 @@ export function ThemeSwitcher({
           {showColorPicker && (
             <div className="mt-3">
               <ThemePicker
-                currentColor={currentColor || selectedTheme.defaultColor || ''}
-                onColorChange={(color) => {
+                currentTheme={currentColor || selectedTheme.defaultColor || ''}
+                onThemeChange={(color) => {
                   onColorChange(color)
                   setShowColorPicker(false)
                 }}
-                onClose={() => setShowColorPicker(false)}
               />
             </div>
           )}

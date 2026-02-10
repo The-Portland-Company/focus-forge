@@ -5,15 +5,16 @@ import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth
 // GET /api/sync/organizations/[id] - Get single organization
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   return withAuth(request, async (req, userId) => {
     const supabase = await createClient()
     
     const { data: organization, error } = await supabase
       .from('organizations')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', id)
       .single()
     
     if (error) {
@@ -30,8 +31,9 @@ export async function GET(
 // PUT /api/sync/organizations/[id] - Update organization
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   return withAuth(request, async (req, userId) => {
     const supabase = await createClient()
     
@@ -41,7 +43,7 @@ export async function PUT(
       const { data: organization, error } = await supabase
         .from('organizations')
         .update(body)
-        .eq('id', params.id)
+        .eq('id', id)
         .select()
         .single()
       
@@ -62,15 +64,16 @@ export async function PUT(
 // DELETE /api/sync/organizations/[id] - Delete organization
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   return withAuth(request, async (req, userId) => {
     const supabase = await createClient()
     
     const { error } = await supabase
       .from('organizations')
       .delete()
-      .eq('id', params.id)
+      .eq('id', id)
     
     if (error) {
       if (error.code === 'PGRST116') {

@@ -78,6 +78,8 @@ export async function migrateTodoistData(backupDir: string): Promise<Database> {
     tasks: [],
     tags: [],
     sections: [],
+    timeBlocks: [],
+    timeBlockTasks: [],
     taskSections: [],
     userSectionPreferences: [],
     settings: {

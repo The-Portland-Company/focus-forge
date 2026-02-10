@@ -1,12 +1,14 @@
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth'
+import { createClient } from '@/lib/supabase/server'
 import { mapOrganizationFromDb, mapProjectFromDb, mapSectionFromDb, mapTagFromDb, mapTaskFromDb } from '@/lib/api/sync-mapper'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  return withAuth(request, async (req, userId, supabase) => {
+  return withAuth(request, async (req, userId) => {
     try {
+      const supabase = await createClient()
       const { data: currentProfile, error: currentProfileError } = await supabase
         .from('profiles')
         .select('*')

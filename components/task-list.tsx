@@ -183,8 +183,10 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
         return a.priority - b.priority
       }
       // Then by due date
-      if (a.due_date && b.due_date) {
-        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
+      const aDueDate = (a as any).due_date ?? a.dueDate
+      const bDueDate = (b as any).due_date ?? b.dueDate
+      if (aDueDate && bDueDate) {
+        return new Date(aDueDate).getTime() - new Date(bDueDate).getTime()
       }
       return 0
     })
@@ -295,10 +297,11 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
     try {
       const nextDueDate = quickDueDate || null
       const nextDueTime = quickDueDate ? (quickDueTime || null) : null
-      await onTaskUpdate(task.id, {
-        due_date: nextDueDate as any,
-        due_time: nextDueTime as any
-      })
+      const updates: Record<string, any> = {
+        due_date: nextDueDate,
+        due_time: nextDueTime
+      }
+      await onTaskUpdate(task.id, updates as any)
       setQuickEditTaskId(null)
     } catch (error) {
       console.error('Error updating due date:', error)

@@ -14,15 +14,15 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('comments')
       .select('*')
-      .eq('isDeleted', false)
-      .order('createdAt', { ascending: false })
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false })
     
     if (taskId) {
-      query = query.eq('taskId', taskId)
+      query = query.eq('task_id', taskId)
     }
     
     if (projectId) {
-      query = query.eq('projectId', projectId)
+      query = query.eq('project_id', projectId)
     }
     
     const { data: comments, error } = await query
@@ -49,24 +49,16 @@ export async function POST(request: NextRequest) {
         return createErrorResponse('Content and either taskId or projectId are required', 400)
       }
       
-      // Get user details
-      const { data: user } = await supabase
-        .from('users')
-        .select('name')
-        .eq('authId', userId)
-        .single()
-      
       const { data: comment, error } = await supabase
         .from('comments')
         .insert({
           content,
-          taskId,
-          projectId,
-          userId,
-          userName: user?.name || 'Unknown User',
-          isDeleted: false,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+          task_id: taskId,
+          project_id: projectId,
+          user_id: userId,
+          is_deleted: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         })
         .select()
         .single()

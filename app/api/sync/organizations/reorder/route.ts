@@ -1,9 +1,11 @@
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth'
+import { createClient } from '@/lib/supabase/server'
 
 export async function POST(request: NextRequest) {
-  return withAuth(request, async (req, _userId, supabase) => {
+  return withAuth(request, async (req, _userId) => {
     try {
+      const supabase = await createClient()
       const { organizationIds } = await req.json()
 
       if (!Array.isArray(organizationIds)) {

@@ -4,9 +4,10 @@ import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const supabase = await createClient()
     
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -17,7 +18,7 @@ export async function POST(
     const adapter = new SupabaseAdapter(supabase, user.id)
     const { taskId } = await request.json()
     
-    await adapter.addTaskToTimeBlock(params.id, taskId)
+    await adapter.addTaskToTimeBlock(id, taskId)
     
     return NextResponse.json({ success: true })
   } catch (error) {
@@ -31,9 +32,10 @@ export async function POST(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const supabase = await createClient()
     
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -44,7 +46,7 @@ export async function DELETE(
     const adapter = new SupabaseAdapter(supabase, user.id)
     const { taskId } = await request.json()
     
-    await adapter.removeTaskFromTimeBlock(params.id, taskId)
+    await adapter.removeTaskFromTimeBlock(id, taskId)
     
     return NextResponse.json({ success: true })
   } catch (error) {

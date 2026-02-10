@@ -95,7 +95,7 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
 
   const checkConnectionStatus = async () => {
     try {
-      const supabase = createClient()
+      const supabase = createClient() as any
       
       // Get user profile with Todoist settings
       const { data: profile } = await supabase
@@ -175,7 +175,34 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
         .order('started_at', { ascending: false })
         .limit(10)
 
-      setSyncHistory(data || [])
+      const history: SyncHistory[] = (data || []).map((row) => {
+        const errorDetails = row.error_details
+        let errors: string[] | undefined
+
+        if (Array.isArray(errorDetails)) {
+          errors = errorDetails.map((value) => String(value))
+        } else if (errorDetails) {
+          errors = [typeof errorDetails === 'string' ? errorDetails : JSON.stringify(errorDetails)]
+        }
+
+        const syncType: SyncHistory['syncType'] =
+          row.sync_type === 'full' ? 'full' : 'incremental'
+
+        return {
+          id: row.id,
+          syncType,
+          startedAt: row.started_at,
+          completedAt: row.completed_at || '',
+          itemsCreated: row.items_created || 0,
+          itemsUpdated: row.items_updated || 0,
+          itemsDeleted: row.items_deleted || 0,
+          projectsCreated: row.projects_created || 0,
+          projectsUpdated: row.projects_updated || 0,
+          errors
+        }
+      })
+
+      setSyncHistory(history)
     } catch (error) {
       console.error('Error loading sync history:', error)
     }

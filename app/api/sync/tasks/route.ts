@@ -125,7 +125,7 @@ export async function PATCH(request: NextRequest) {
         return createErrorResponse('Tasks array is required', 400)
       }
       
-      const tasksToInsert = body.tasks.map(task => ({
+      const tasksToInsert = body.tasks.map((task: any) => ({
         ...task,
         createdBy: userId,
         createdAt: new Date().toISOString(),

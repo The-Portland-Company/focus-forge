@@ -124,7 +124,7 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
   }
 
   const handleApply = () => {
-    const updates: Partial<Task> = {}
+    const updates: Record<string, any> = {}
 
     // Only include fields that have values
     if (assignedTo) {

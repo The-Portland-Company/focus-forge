@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, type CSSProperties } from 'react'
 import { X, Calendar, Clock, Flag, Bell, Paperclip, Hash, User, Tag, Plus, Circle, CheckCircle2, Trash2, CornerDownRight, Link2, AlertCircle, Check } from 'lucide-react'
-import { Database, Task, Reminder } from '@/lib/types'
+import type { Database, Task, Reminder, Project as ProjectType, Tag as TagType } from '@/lib/types'
 import { format } from 'date-fns'
 import { canBeSelectedAsDependency, getBlockingTasks, isTaskBlocked } from '@/lib/dependency-utils'
 import {
@@ -45,6 +45,13 @@ interface TaskModalProps {
   onDataRefresh?: () => void
   defaultProjectId?: string
   onTaskSelect?: (task: Task) => void
+  onRequestNewDependencyTask?: (seedName?: string) => Promise<Task | null>
+  onRequestNewProject?: (seedName: string, organizationId: string) => Promise<ProjectType | null>
+  onRequestNewTag?: (seedName: string) => Promise<TagType | null>
+  renderInStack?: boolean
+  stackZIndex?: number
+  stackStyle?: CSSProperties
+  initialName?: string
 }
 
 export function TaskModal({ 
@@ -56,7 +63,14 @@ export function TaskModal({
   onDelete,
   onDataRefresh, 
   defaultProjectId,
-  onTaskSelect 
+  onTaskSelect,
+  onRequestNewDependencyTask,
+  onRequestNewProject,
+  onRequestNewTag,
+  renderInStack,
+  stackZIndex,
+  stackStyle,
+  initialName
 }: TaskModalProps) {
   const isEditMode = !!task
   const [taskName, setTaskName] = useState('')
@@ -135,6 +149,12 @@ export function TaskModal({
       setDependencies(dependsOn || [])
     }
   }, [task, isEditMode, data])
+
+  useEffect(() => {
+    if (!task && initialName !== undefined) {
+      setTaskName(initialName)
+    }
+  }, [initialName, task])
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -533,7 +553,10 @@ export function TaskModal({
     : ''
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      style={{ ...(stackStyle || {}), zIndex: stackZIndex ?? 50 }}
+    >
       <div 
         ref={modalRef} 
         className="bg-zinc-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-zinc-800"

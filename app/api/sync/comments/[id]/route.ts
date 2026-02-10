@@ -5,16 +5,17 @@ import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth
 // GET /api/sync/comments/[id] - Get single comment
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   return withAuth(request, async (req, userId) => {
     const supabase = await createClient()
     
     const { data: comment, error } = await supabase
       .from('comments')
       .select('*')
-      .eq('id', params.id)
-      .eq('isDeleted', false)
+      .eq('id', id)
+      .eq('is_deleted', false)
       .single()
     
     if (error) {
@@ -31,8 +32,9 @@ export async function GET(
 // PUT /api/sync/comments/[id] - Update comment
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   return withAuth(request, async (req, userId) => {
     const supabase = await createClient()
     
@@ -49,10 +51,10 @@ export async function PUT(
         .from('comments')
         .update({
           content,
-          updatedAt: new Date().toISOString()
+          updated_at: new Date().toISOString()
         })
-        .eq('id', params.id)
-        .eq('userId', userId) // Only allow users to edit their own comments
+        .eq('id', id)
+        .eq('user_id', userId) // Only allow users to edit their own comments
         .select()
         .single()
       
@@ -73,19 +75,20 @@ export async function PUT(
 // DELETE /api/sync/comments/[id] - Soft delete comment
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   return withAuth(request, async (req, userId) => {
     const supabase = await createClient()
     
     const { data: comment, error } = await supabase
       .from('comments')
       .update({
-        isDeleted: true,
-        updatedAt: new Date().toISOString()
+        is_deleted: true,
+        updated_at: new Date().toISOString()
       })
-      .eq('id', params.id)
-      .eq('userId', userId) // Only allow users to delete their own comments
+      .eq('id', id)
+      .eq('user_id', userId) // Only allow users to delete their own comments
       .select()
       .single()
     

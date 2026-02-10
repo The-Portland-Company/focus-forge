@@ -124,6 +124,8 @@ export default function ViewPage() {
           sections: [],
           taskSections: [],
           userSectionPreferences: [],
+          timeBlocks: [],
+          timeBlockTasks: [],
           settings: { showCompletedTasks: true }
         })
         return
@@ -149,6 +151,8 @@ export default function ViewPage() {
           sections: [],
           taskSections: [],
           userSectionPreferences: [],
+          timeBlocks: [],
+          timeBlockTasks: [],
           settings: { showCompletedTasks: true }
         })
       }
@@ -164,6 +168,8 @@ export default function ViewPage() {
         sections: [],
         taskSections: [],
         userSectionPreferences: [],
+        timeBlocks: [],
+        timeBlockTasks: [],
         settings: { showCompletedTasks: true }
       })
     }

@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
     
     // Get all organization members using the user_organizations join table
     const organizationMemberIds = new Set<string>()
-    const orgIds = organizations.map(org => org.id)
+    const orgIds = organizations.map((org: { id: string }) => org.id)
 
     if (orgIds.length > 0) {
       try {
@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch all organization members from Supabase
-    let organizationUsers = []
+    let organizationUsers: Array<Record<string, any>> = []
     if (organizationMemberIds.size > 0) {
       try {
         const { data: profiles, error } = await supabase

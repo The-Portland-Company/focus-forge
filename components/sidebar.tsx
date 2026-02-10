@@ -161,7 +161,10 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
 
   const orgProjects = (orgId: string) =>
     data.projects
-      .filter(project => (project.organizationId || project.organization_id) === orgId && !project.archived)
+      .filter(project => {
+        const projectOrgId = (project as any).organization_id ?? project.organizationId
+        return projectOrgId === orgId && !project.archived
+      })
       .sort((a, b) => (a.order || 0) - (b.order || 0))
 
   const getProjectAcronym = (name: string) => {
@@ -668,7 +671,11 @@ export function Sidebar({ data, onAddTask, currentView, onViewChange, onProjectU
                         e.stopPropagation()
                         if (draggedProject && draggedProject !== project.id && onProjectsReorder) {
                           const draggedProj = data.projects.find(p => p.id === draggedProject)
-                          if (draggedProj && (draggedProj.organizationId || draggedProj.organization_id) === (project.organizationId || project.organization_id)) {
+                          const draggedOrgId = draggedProj
+                            ? (draggedProj as any).organization_id ?? draggedProj.organizationId
+                            : null
+                          const projectOrgId = (project as any).organization_id ?? project.organizationId
+                          if (draggedProj && draggedOrgId === projectOrgId) {
                             // Reorder within the same organization
                             const projects = orgProjects(org.id)
                             const draggedIndex = projects.findIndex(p => p.id === draggedProject)

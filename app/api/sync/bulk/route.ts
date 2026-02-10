@@ -15,7 +15,15 @@ export async function POST(request: NextRequest) {
         return createErrorResponse('Operations array is required', 400)
       }
       
-      const results = {
+      const results: {
+        organizations: { created: any[]; updated: any[]; deleted: any[] }
+        projects: { created: any[]; updated: any[]; deleted: any[] }
+        tasks: { created: any[]; updated: any[]; deleted: any[] }
+        comments: { created: any[]; updated: any[]; deleted: any[] }
+        sections: { created: any[]; updated: any[]; deleted: any[] }
+        tags: { created: any[]; updated: any[]; deleted: any[] }
+        errors: Array<{ operation: any; error: string }>
+      } = {
         organizations: { created: [], updated: [], deleted: [] },
         projects: { created: [], updated: [], deleted: [] },
         tasks: { created: [], updated: [], deleted: [] },

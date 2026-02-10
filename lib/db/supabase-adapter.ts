@@ -51,7 +51,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       return []
     }
     
-    const orgIds = userOrgs.map(uo => uo.organization_id)
+    const orgIds = userOrgs.map((uo: { organization_id: string }) => uo.organization_id)
     console.log('📋 Organization IDs to fetch:', orgIds.length, 'IDs')
     
     // Fetch the actual organizations
@@ -142,7 +142,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
         return []
       }
       
-      const allOrgIds = userOrgs.map(uo => uo.organization_id)
+      const allOrgIds = userOrgs.map((uo: { organization_id: string }) => uo.organization_id)
       console.log('📋 Fetching projects for ALL org IDs:', allOrgIds.length)
       
       const { data, error } = await supabase
@@ -220,7 +220,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
     // If fetching for a specific project, first verify user has access
     if (projectId) {
       const projects = await this.getProjects()
-      const hasAccess = projects.some(p => p.id === projectId)
+      const hasAccess = projects.some((p: { id: string }) => p.id === projectId)
       if (!hasAccess) {
         return []
       }
@@ -228,7 +228,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
     console.log('📋 Fetching tasks for user:', this.userId)
     const projects = projectId ? [] : await this.getProjects()
-    const userProjectIds = projects.map(p => p.id)
+    const userProjectIds = projects.map((p: { id: string }) => p.id)
     const pageSize = 1000
     let offset = 0
     let allTasks: any[] = []
@@ -624,7 +624,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
     if (error) throw error
 
     // Transform the data to include tasks array
-    return (data || []).map(block => ({
+    return (data || []).map((block: any) => ({
       ...block,
       tasks: block.time_block_tasks?.map((tbt: any) => tbt.tasks).filter(Boolean) || []
     }))
