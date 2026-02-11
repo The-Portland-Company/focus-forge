@@ -99,6 +99,14 @@ export interface Task {
   sectionId?: string
 }
 
+export interface RecurringConfig {
+  frequency: 'daily' | 'weekly' | 'monthly' | 'custom'
+  days?: number[]       // 0=Sun..6=Sat (weekly)
+  dayOfMonth?: number   // 1-31 (monthly)
+  time?: string         // HH:mm
+  customPattern?: string
+}
+
 export interface Attachment {
   id: string
   name: string

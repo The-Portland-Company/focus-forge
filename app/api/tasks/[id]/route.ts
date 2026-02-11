@@ -64,7 +64,16 @@ export async function PUT(
     if (updates.projectId !== undefined) dbUpdates.project_id = updates.projectId
     if (updates.name !== undefined) dbUpdates.name = updates.name
     if (updates.description !== undefined) dbUpdates.description = updates.description
-    if (updates.order !== undefined) dbUpdates.order = updates.order
+    if (updates.indent !== undefined) dbUpdates.indent = updates.indent
+    if (updates.deadline !== undefined) dbUpdates.deadline = updates.deadline
+    if (updates.recurring_pattern !== undefined) dbUpdates.recurring_pattern = updates.recurring_pattern
+    if (updates.recurringPattern !== undefined) dbUpdates.recurring_pattern = updates.recurringPattern
+    if (updates.is_recurring !== undefined) dbUpdates.is_recurring = updates.is_recurring
+    if (updates.isRecurring !== undefined) dbUpdates.is_recurring = updates.isRecurring
+    if (updates.parent_id !== undefined) dbUpdates.parent_id = updates.parent_id
+    if (updates.parentId !== undefined) dbUpdates.parent_id = updates.parentId
+    if (updates.section_id !== undefined) dbUpdates.section_id = updates.section_id
+    if (updates.sectionId !== undefined) dbUpdates.section_id = updates.sectionId
     
     // Add updated_at timestamp
     dbUpdates.updated_at = new Date().toISOString()

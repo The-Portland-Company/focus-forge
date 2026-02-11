@@ -24,6 +24,7 @@ import { AddSectionDivider } from '@/components/add-section-divider'
 import { format } from 'date-fns'
 import { getLocalDateString, isOverdue, isTodayOrOverdue, isToday, isTomorrow, isRestOfWeek } from '@/lib/date-utils'
 import { applyUserTheme } from '@/lib/theme-utils'
+import { parseRecurringPattern, getNextDueDate } from '@/lib/recurring-utils'
 import { TodoistQuickSyncModal } from '@/components/todoist-quick-sync-modal'
 import { SkeletonSidebar, SkeletonTodayView } from '@/components/skeleton-loader'
 import { useAuth } from '@/contexts/AuthContext'
@@ -329,6 +330,39 @@ export default function ViewPage() {
           // Wait for all subtask updates to complete
           await Promise.all(updatePromises)
 
+          // Auto-generate next recurring task instance
+          const recurringRaw = (task as any).recurring_pattern || task.recurringPattern
+          if (recurringRaw) {
+            const config = parseRecurringPattern(recurringRaw)
+            if (config) {
+              const currentDue = (task as any).due_date || task.dueDate || new Date().toISOString().split('T')[0]
+              const nextDue = getNextDueDate(config, currentDue)
+              try {
+                await fetch('/api/tasks', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({
+                    name: task.name,
+                    description: task.description || undefined,
+                    dueDate: nextDue,
+                    dueTime: (task as any).due_time || task.dueTime || undefined,
+                    priority: task.priority,
+                    projectId: (task as any).project_id || task.projectId,
+                    assignedTo: (task as any).assigned_to || task.assignedTo || undefined,
+                    tags: task.tags || [],
+                    files: [],
+                    reminders: [],
+                    recurringPattern: recurringRaw,
+                    completed: false,
+                  })
+                })
+              } catch (err) {
+                console.error('Failed to create next recurring task:', err)
+              }
+            }
+          }
+
           // Start fade out animation
           setAnimatingOutTaskIds(prev => {
             const next = new Set(prev)
@@ -506,6 +540,120 @@ export default function ViewPage() {
       setAnimatingOutTaskIds(new Set())
     } catch (error) {
       console.error('Error bulk deleting tasks:', error)
+      setLoadingTaskIds(new Set())
+      setAnimatingOutTaskIds(new Set())
+    }
+  }
+
+  const handleBulkMerge = async (parentTaskId: string) => {
+    try {
+      const taskIds = Array.from(selectedTaskIds)
+      setShowBulkEditModal(false)
+      setLoadingTaskIds(new Set(taskIds))
+
+      for (let i = 0; i < taskIds.length; i++) {
+        const taskId = taskIds[i]
+        await fetch(`/api/tasks/${taskId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ parent_id: parentTaskId })
+        })
+
+        setLoadingTaskIds(prev => {
+          const next = new Set(prev)
+          next.delete(taskId)
+          return next
+        })
+        setAnimatingOutTaskIds(prev => new Set(prev).add(taskId))
+
+        if (i < taskIds.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 400))
+      await fetchData()
+      setBulkSelectMode(false)
+      setSelectedTaskIds(new Set())
+      setLastSelectedTaskId(null)
+      setLoadingTaskIds(new Set())
+      setAnimatingOutTaskIds(new Set())
+    } catch (error) {
+      console.error('Error merging tasks:', error)
+      setLoadingTaskIds(new Set())
+      setAnimatingOutTaskIds(new Set())
+    }
+  }
+
+  const handleBulkCreateAndMerge = async (parentName: string) => {
+    if (!database) return
+    try {
+      setShowBulkEditModal(false)
+      const taskIds = Array.from(selectedTaskIds)
+
+      // Determine project from first selected task
+      const firstTask = database.tasks.find(t => t.id === taskIds[0])
+      const projectId = (firstTask as any)?.project_id || firstTask?.projectId || database.projects[0]?.id
+      if (!projectId) return
+
+      // Create the new parent task with today's date so it appears in the current view
+      const today = format(new Date(), 'yyyy-MM-dd')
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: parentName,
+          projectId,
+          dueDate: today,
+          priority: 4,
+          completed: false,
+          tags: [],
+          reminders: [],
+        })
+      })
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        console.error('Failed to create parent task:', res.status, body)
+        return
+      }
+
+      const newParent = await res.json()
+
+      setLoadingTaskIds(new Set(taskIds))
+
+      for (let i = 0; i < taskIds.length; i++) {
+        const taskId = taskIds[i]
+        await fetch(`/api/tasks/${taskId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ parent_id: newParent.id })
+        })
+
+        setLoadingTaskIds(prev => {
+          const next = new Set(prev)
+          next.delete(taskId)
+          return next
+        })
+        setAnimatingOutTaskIds(prev => new Set(prev).add(taskId))
+
+        if (i < taskIds.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 400))
+      await fetchData()
+      setBulkSelectMode(false)
+      setSelectedTaskIds(new Set())
+      setLastSelectedTaskId(null)
+      setLoadingTaskIds(new Set())
+      setAnimatingOutTaskIds(new Set())
+    } catch (error) {
+      console.error('Error creating and merging tasks:', error)
       setLoadingTaskIds(new Set())
       setAnimatingOutTaskIds(new Set())
     }
@@ -2156,6 +2304,8 @@ export default function ViewPage() {
         database={database}
         onApply={handleBulkUpdate}
         onDelete={handleBulkDelete}
+        onMerge={handleBulkMerge}
+        onCreateAndMerge={handleBulkCreateAndMerge}
         onInviteUser={handleInviteUser}
       />
 

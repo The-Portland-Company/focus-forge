@@ -1,8 +1,10 @@
 "use client"
 
 import { useState, useRef, useEffect } from 'react'
-import { X, Calendar, Flag, User, Folder, Repeat, Trash2, Plus, Mail, Loader2, Check } from 'lucide-react'
-import { Task, Project, Database } from '@/lib/types'
+import { X, Calendar, Flag, User, Folder, Repeat2, Trash2, Plus, Mail, Loader2, Check, Merge, Search } from 'lucide-react'
+import { Task, Project, Database, RecurringConfig } from '@/lib/types'
+import { RecurringPicker } from '@/components/recurring-picker'
+import { serializeRecurringConfig } from '@/lib/recurring-utils'
 
 interface BulkEditModalProps {
   isOpen: boolean
@@ -11,10 +13,12 @@ interface BulkEditModalProps {
   database: Database
   onApply: (updates: Partial<Task>) => void
   onDelete: () => void
+  onMerge?: (parentTaskId: string) => void
+  onCreateAndMerge?: (parentName: string) => void
   onInviteUser?: (email: string, firstName: string, lastName: string) => Promise<{ userId: string } | null>
 }
 
-export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onApply, onDelete, onInviteUser }: BulkEditModalProps) {
+export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onApply, onDelete, onMerge, onCreateAndMerge, onInviteUser }: BulkEditModalProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [assignedTo, setAssignedTo] = useState<string>('')
   const [assignedToName, setAssignedToName] = useState<string>('')
@@ -22,7 +26,7 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
   const [dueDate, setDueDate] = useState<string>('')
   const [dueTime, setDueTime] = useState<string>('')
   const [priority, setPriority] = useState<string>('')
-  const [recurringPattern, setRecurringPattern] = useState<string>('')
+  const [recurringConfig, setRecurringConfig] = useState<RecurringConfig | null>(null)
 
   // User search state
   const [userSearchQuery, setUserSearchQuery] = useState('')
@@ -42,9 +46,17 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
   const [showPriorityDropdown, setShowPriorityDropdown] = useState(false)
   const [priorityFilterQuery, setPriorityFilterQuery] = useState('')
 
+  // Merge state
+  const [mergeMode, setMergeMode] = useState<'off' | 'existing' | 'new'>('off')
+  const [mergeTargetId, setMergeTargetId] = useState<string>('')
+  const [mergeSearchQuery, setMergeSearchQuery] = useState('')
+  const [showMergeDropdown, setShowMergeDropdown] = useState(false)
+  const [newParentName, setNewParentName] = useState('')
+
   const userSearchRef = useRef<HTMLDivElement>(null)
   const projectDropdownRef = useRef<HTMLDivElement>(null)
   const priorityDropdownRef = useRef<HTMLDivElement>(null)
+  const mergeDropdownRef = useRef<HTMLDivElement>(null)
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -57,6 +69,9 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
       }
       if (priorityDropdownRef.current && !priorityDropdownRef.current.contains(event.target as Node)) {
         setShowPriorityDropdown(false)
+      }
+      if (mergeDropdownRef.current && !mergeDropdownRef.current.contains(event.target as Node)) {
+        setShowMergeDropdown(false)
       }
     }
 
@@ -124,6 +139,20 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
   }
 
   const handleApply = () => {
+    // Handle merge into existing task
+    if (mergeMode === 'existing' && mergeTargetId && onMerge) {
+      onMerge(mergeTargetId)
+      onClose()
+      return
+    }
+
+    // Handle create new task and merge
+    if (mergeMode === 'new' && newParentName.trim() && onCreateAndMerge) {
+      onCreateAndMerge(newParentName.trim())
+      onClose()
+      return
+    }
+
     const updates: Record<string, any> = {}
 
     // Only include fields that have values
@@ -142,8 +171,11 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
     if (priority) {
       updates.priority = parseInt(priority) as 1 | 2 | 3 | 4
     }
-    if (recurringPattern) {
-      updates.recurringPattern = recurringPattern
+    if (recurringConfig) {
+      const serialized = serializeRecurringConfig(recurringConfig)
+      if (serialized) {
+        updates.recurring_pattern = serialized
+      }
     }
 
     // Only apply if there are updates
@@ -153,7 +185,8 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
     }
   }
 
-  const hasChanges = assignedTo || projectId || dueDate || priority || recurringPattern
+  const isMergeReady = (mergeMode === 'existing' && !!mergeTargetId) || (mergeMode === 'new' && !!newParentName.trim())
+  const hasChanges = assignedTo || projectId || dueDate || priority || recurringConfig || isMergeReady
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -545,17 +578,158 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
           {/* Recurring */}
           <div>
             <label className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
-              <Repeat className="w-4 h-4" />
+              <Repeat2 className="w-4 h-4" />
               Recurring
             </label>
-            <input
-              type="text"
-              value={recurringPattern}
-              onChange={(e) => setRecurringPattern(e.target.value)}
-              placeholder="e.g., Every Monday, Daily, etc."
-              className="w-full bg-zinc-800 text-white text-sm px-3 py-2.5 rounded-lg border border-zinc-700 focus:outline-none focus:ring-2 ring-theme placeholder:text-zinc-600"
-            />
+            <RecurringPicker value={recurringConfig} onChange={setRecurringConfig} />
           </div>
+
+          {/* Merge Into */}
+          {(onMerge || onCreateAndMerge) && (
+            <div>
+              <label className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
+                <Merge className="w-4 h-4" />
+                Merge as Subtasks
+              </label>
+
+              {/* Mode pills */}
+              <div className="flex items-center gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMergeMode(mergeMode === 'existing' ? 'off' : 'existing')
+                    setMergeTargetId('')
+                    setMergeSearchQuery('')
+                    setNewParentName('')
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-sm transition-all ${
+                    mergeMode === 'existing'
+                      ? 'bg-[rgb(var(--theme-primary-rgb))] text-white'
+                      : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                  }`}
+                >
+                  Existing Task
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMergeMode(mergeMode === 'new' ? 'off' : 'new')
+                    setMergeTargetId('')
+                    setMergeSearchQuery('')
+                    setNewParentName('')
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-sm transition-all ${
+                    mergeMode === 'new'
+                      ? 'bg-[rgb(var(--theme-primary-rgb))] text-white'
+                      : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                  }`}
+                >
+                  New Task
+                </button>
+                {mergeMode !== 'off' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMergeMode('off')
+                      setMergeTargetId('')
+                      setMergeSearchQuery('')
+                      setNewParentName('')
+                    }}
+                    className="p-1.5 text-zinc-500 hover:text-white transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Existing task search */}
+              {mergeMode === 'existing' && (
+                <div ref={mergeDropdownRef} className="relative">
+                  {mergeTargetId ? (
+                    <div className="flex items-center gap-2 bg-zinc-800 rounded-lg px-3 py-2.5 border border-zinc-700">
+                      <span className="text-sm text-white flex-1 truncate">
+                        {database.tasks.find(t => t.id === mergeTargetId)?.name || 'Unknown task'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMergeTargetId('')
+                          setMergeSearchQuery('')
+                        }}
+                        className="text-zinc-500 hover:text-white"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                        <input
+                          type="text"
+                          value={mergeSearchQuery}
+                          onChange={(e) => {
+                            setMergeSearchQuery(e.target.value)
+                            setShowMergeDropdown(true)
+                          }}
+                          onFocus={() => setShowMergeDropdown(true)}
+                          placeholder="Search for parent task..."
+                          className="w-full bg-zinc-800 text-white text-sm pl-9 pr-3 py-2.5 rounded-lg border border-zinc-700 focus:outline-none focus:ring-2 ring-theme"
+                        />
+                      </div>
+
+                      {showMergeDropdown && (
+                        <div className="absolute z-10 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {database.tasks
+                            .filter(t => {
+                              if (selectedTaskIds.has(t.id)) return false
+                              if (!mergeSearchQuery) return !t.completed
+                              return t.name.toLowerCase().includes(mergeSearchQuery.toLowerCase())
+                            })
+                            .slice(0, 20)
+                            .map(t => (
+                              <button
+                                key={t.id}
+                                type="button"
+                                onClick={() => {
+                                  setMergeTargetId(t.id)
+                                  setMergeSearchQuery('')
+                                  setShowMergeDropdown(false)
+                                }}
+                                className="w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-700 transition-colors flex items-center gap-2"
+                              >
+                                <span className="truncate">{t.name}</span>
+                                {t.completed && (
+                                  <span className="text-xs text-zinc-500 flex-shrink-0">Done</span>
+                                )}
+                              </button>
+                            ))}
+                          {database.tasks.filter(t =>
+                            !selectedTaskIds.has(t.id) &&
+                            t.name.toLowerCase().includes(mergeSearchQuery.toLowerCase())
+                          ).length === 0 && (
+                            <div className="px-3 py-2 text-sm text-zinc-500">No tasks found</div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* New task name input */}
+              {mergeMode === 'new' && (
+                <input
+                  type="text"
+                  value={newParentName}
+                  onChange={(e) => setNewParentName(e.target.value)}
+                  placeholder="New parent task name..."
+                  className="w-full bg-zinc-800 text-white text-sm px-3 py-2.5 rounded-lg border border-zinc-700 focus:outline-none focus:ring-2 ring-theme placeholder:text-zinc-600"
+                  autoFocus
+                />
+              )}
+            </div>
+          )}
 
         </div>
 

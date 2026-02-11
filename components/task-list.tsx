@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { Task, Project } from '@/lib/types'
-import { Circle, CheckCircle2, Calendar, Flag, Trash2, Edit, ChevronRight, ChevronDown, Link2, AlertCircle, Repeat2, Hash, Square, CheckSquare, Loader2, FileText, MessageCircle } from 'lucide-react'
+import { Circle, CheckCircle2, Calendar, CalendarX2, Flag, Trash2, Edit, ChevronRight, ChevronDown, Link2, AlertCircle, Repeat2, Hash, Square, CheckSquare, Loader2, FileText, MessageCircle } from 'lucide-react'
 import { format, addDays } from 'date-fns'
 import { getStartOfDay, isToday, isOverdue } from '@/lib/date-utils'
+import { formatRecurringLabel } from '@/lib/recurring-utils'
 import { isTaskBlocked, getBlockingTasks } from '@/lib/dependency-utils'
 import { UserAvatar } from '@/components/user-avatar'
 import * as Popover from '@radix-ui/react-popover'
@@ -162,15 +163,8 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
     }
   }
 
-  const abbreviateRecurring = (pattern: string) => {
-    return pattern
-      .replace(/Monday/gi, 'Mon.')
-      .replace(/Tuesday/gi, 'Tue.')
-      .replace(/Wednesday/gi, 'Wed.')
-      .replace(/Thursday/gi, 'Thu.')
-      .replace(/Friday/gi, 'Fri.')
-      .replace(/Saturday/gi, 'Sat.')
-      .replace(/Sunday/gi, 'Sun.')
+  const getRecurringTooltip = (pattern: string) => {
+    return formatRecurringLabel(pattern)
   }
 
   const activeTasks = tasks.filter(task => !task.completed)
@@ -429,7 +423,7 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
       <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onTaskEdit(task)}>
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-start gap-2 min-w-0">
               {(() => {
                 const dueDate = (task as any).due_date || task.dueDate
                 const dueTime = (task as any).due_time || task.dueTime
@@ -555,7 +549,7 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                 )
               })()}
               <div className="flex flex-col gap-1 min-w-0 flex-1">
-                <p className={`text-sm truncate transition-all ${
+                <p className={`text-sm truncate group-hover:whitespace-normal group-hover:text-clip transition-all ${
                   isCompleted ? 'line-through text-zinc-500' :
                   allTasks && isTaskBlocked(task, allTasks) ? 'text-zinc-400' : 'text-white'
                 }`}>
@@ -592,7 +586,7 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
                 <span className="relative group/recurring flex items-center justify-center w-4">
                   <Repeat2 className="w-4 h-4 text-purple-400" />
                   <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/recurring:opacity-100 transition-opacity pointer-events-none z-50">
-                    {abbreviateRecurring(task.recurringPattern)}
+                    {getRecurringTooltip(task.recurringPattern)}
                   </span>
                 </span>
               ) : null}
@@ -672,10 +666,27 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
             <div
               className={`flex items-center gap-3 overflow-hidden transition-[max-width,opacity,transform,margin] duration-200 ease-out ${
                 showHoverActions
-                  ? 'ml-3 max-w-[120px] opacity-100 translate-x-0 pointer-events-auto'
+                  ? 'ml-3 max-w-[150px] opacity-100 translate-x-0 pointer-events-auto'
                   : 'ml-0 max-w-0 opacity-0 translate-x-2 pointer-events-none'
               }`}
             >
+              {((task as any).due_date || task.dueDate) && onTaskUpdate ? (
+                <div className="relative group/removedate flex items-center justify-center w-4">
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      await onTaskUpdate(task.id, { due_date: null, due_time: null } as any)
+                    }}
+                    className="text-zinc-600 hover:text-orange-400 transition-colors"
+                  >
+                    <CalendarX2 className="w-4 h-4" />
+                  </button>
+                  <span className="absolute right-0 top-full mt-1 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/removedate:opacity-100 transition-opacity pointer-events-none z-50">
+                    Remove date
+                  </span>
+                </div>
+              ) : null}
+
               <div className="relative group/taskid flex items-center justify-center w-4">
                 <button
                   onClick={(e) => copyTaskId(task.id, e)}

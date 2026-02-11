@@ -368,8 +368,52 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
   async createTask(task: any) {
     const supabase = this.supabase
-    // Extract tags, reminders, and attachments
-    const { tags, reminders, attachments, ...taskData } = task
+    // Extract relational fields handled separately
+    const { tags, reminders, attachments, files, ...rawTaskData } = task
+
+    // Only these columns exist on the tasks table
+    const allowedColumns = new Set([
+      'name', 'description', 'due_date', 'due_time', 'priority',
+      'deadline', 'project_id', 'assigned_to', 'completed',
+      'completed_at', 'todoist_id', 'recurring_pattern', 'is_recurring',
+      'parent_id', 'indent', 'section_id', 'created_at', 'updated_at',
+      'todoist_assignee_id', 'todoist_assigner_id', 'todoist_child_order',
+      'todoist_collapsed', 'todoist_comment_count', 'todoist_duration_amount',
+      'todoist_duration_unit', 'todoist_labels', 'todoist_order',
+      'todoist_sync_token', 'todoist_url', 'last_todoist_sync',
+    ])
+
+    // Map camelCase fields to snake_case for Supabase
+    const fieldMap: Record<string, string> = {
+      projectId: 'project_id',
+      dueDate: 'due_date',
+      dueTime: 'due_time',
+      parentId: 'parent_id',
+      assignedTo: 'assigned_to',
+      completedAt: 'completed_at',
+      createdAt: 'created_at',
+      updatedAt: 'updated_at',
+      todoistId: 'todoist_id',
+      recurringPattern: 'recurring_pattern',
+      isRecurring: 'is_recurring',
+      sectionId: 'section_id',
+      lastTodoistSync: 'last_todoist_sync',
+      todoistOrder: 'todoist_order',
+      todoistLabels: 'todoist_labels',
+      todoistAssigneeId: 'todoist_assignee_id',
+      todoistAssignerId: 'todoist_assigner_id',
+      todoistCommentCount: 'todoist_comment_count',
+      todoistUrl: 'todoist_url',
+      todoistSyncToken: 'todoist_sync_token',
+    }
+
+    const taskData: Record<string, any> = {}
+    for (const [key, val] of Object.entries(rawTaskData)) {
+      if (val === undefined) continue
+      const column = fieldMap[key] || key
+      if (!allowedColumns.has(column)) continue
+      taskData[column] = val
+    }
 
     // Create the task
     const { data: newTask, error } = await supabase
@@ -415,7 +459,25 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
   async updateTask(id: string, updates: any) {
     const supabase = this.supabase
-    const { tags, reminders, attachments, ...taskData } = updates
+    const { tags, reminders, attachments, files, ...rawTaskData } = updates
+
+    // Filter to only valid task columns
+    const allowedColumns = new Set([
+      'name', 'description', 'due_date', 'due_time', 'priority',
+      'deadline', 'project_id', 'assigned_to', 'completed',
+      'completed_at', 'todoist_id', 'recurring_pattern', 'is_recurring',
+      'parent_id', 'indent', 'section_id', 'created_at', 'updated_at',
+      'todoist_assignee_id', 'todoist_assigner_id', 'todoist_child_order',
+      'todoist_collapsed', 'todoist_comment_count', 'todoist_duration_amount',
+      'todoist_duration_unit', 'todoist_labels', 'todoist_order',
+      'todoist_sync_token', 'todoist_url', 'last_todoist_sync',
+    ])
+
+    const taskData: Record<string, any> = {}
+    for (const [key, val] of Object.entries(rawTaskData)) {
+      if (val === undefined) continue
+      if (allowedColumns.has(key)) taskData[key] = val
+    }
 
     // Update the task
     if (Object.keys(taskData).length > 0) {

@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useRef, useEffect, type CSSProperties } from 'react'
-import { X, Calendar, Clock, Flag, Bell, Paperclip, Hash, User, Tag, Plus, Circle, CheckCircle2, Trash2, CornerDownRight, Link2, AlertCircle, Check } from 'lucide-react'
-import type { Database, Task, Reminder, Project as ProjectType, Tag as TagType } from '@/lib/types'
+import { X, Calendar, Clock, Flag, Bell, Paperclip, Hash, User, Tag, Plus, Circle, CheckCircle2, Trash2, CornerDownRight, Link2, AlertCircle, Check, Repeat2 } from 'lucide-react'
+import type { Database, Task, Reminder, Project as ProjectType, Tag as TagType, RecurringConfig } from '@/lib/types'
 import { format } from 'date-fns'
 import { canBeSelectedAsDependency, getBlockingTasks, isTaskBlocked } from '@/lib/dependency-utils'
 import {
@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/select"
 import { TimePicker } from '@/components/time-picker'
 import { UserAvatar } from '@/components/user-avatar'
+import { RecurringPicker } from '@/components/recurring-picker'
+import { parseRecurringPattern, serializeRecurringConfig } from '@/lib/recurring-utils'
 
 const quickProjectColors = [
   '#ef4444',
@@ -104,6 +106,7 @@ export function TaskModal({
   const [dependencies, setDependencies] = useState<string[]>([])
   const [showDependencyPicker, setShowDependencyPicker] = useState(false)
   const [dependencySearchQuery, setDependencySearchQuery] = useState('')
+  const [recurringConfig, setRecurringConfig] = useState<RecurringConfig | null>(null)
   const [isCreatingProject, setIsCreatingProject] = useState(false)
 
   // Searchable dropdown states
@@ -147,6 +150,7 @@ export function TaskModal({
       // Handle both snake_case and camelCase for dependsOn
       const dependsOn = (task as any).depends_on || task.dependsOn
       setDependencies(dependsOn || [])
+      setRecurringConfig(parseRecurringPattern((task as any).recurring_pattern || task.recurringPattern || ''))
     }
   }, [task, isEditMode, data])
 
@@ -184,6 +188,7 @@ export function TaskModal({
       setDependencies([])
       setShowDependencyPicker(false)
       setDependencySearchQuery('')
+      setRecurringConfig(null)
       setShowProjectDropdown(false)
       setProjectFilterQuery('')
       setShowPriorityDropdown(false)
@@ -294,6 +299,7 @@ export function TaskModal({
       assignedTo: assignedTo || undefined,
       reminders,
       dependsOn: dependencies.length > 0 ? dependencies : undefined,
+      recurringPattern: serializeRecurringConfig(recurringConfig),
     }
 
     if (!isEditMode) {
@@ -1499,6 +1505,15 @@ export function TaskModal({
                 </button>
               </div>
             )}
+          </div>
+
+          {/* Recurring */}
+          <div>
+            <label className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
+              <Repeat2 className="w-4 h-4" />
+              Recurring
+            </label>
+            <RecurringPicker value={recurringConfig} onChange={setRecurringConfig} />
           </div>
 
           {/* Subtasks (Edit mode only) */}
