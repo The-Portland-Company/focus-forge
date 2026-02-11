@@ -28,7 +28,17 @@ const applySecurityHeaders = (response: NextResponse) => {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  
+
+  // Enforce HTTPS in production
+  if (
+    process.env.NODE_ENV === 'production' &&
+    request.headers.get('x-forwarded-proto') === 'http'
+  ) {
+    const httpsUrl = new URL(request.url)
+    httpsUrl.protocol = 'https:'
+    return NextResponse.redirect(httpsUrl, 301)
+  }
+
   // Check if the route is public
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route))
   
@@ -53,12 +63,18 @@ export async function middleware(request: NextRequest) {
           return request.cookies.get(name)?.value
         },
         set(name: string, value: string, options: any) {
+          const secureOptions = process.env.NODE_ENV === 'production'
+            ? { ...options, secure: true, sameSite: 'lax' as const }
+            : options
           request.cookies.set(name, value)
-          response.cookies.set(name, value, options)
+          response.cookies.set(name, value, secureOptions)
         },
         remove(name: string, options: any) {
+          const secureOptions = process.env.NODE_ENV === 'production'
+            ? { ...options, secure: true, sameSite: 'lax' as const }
+            : options
           request.cookies.delete(name)
-          response.cookies.set(name, '', { ...options, maxAge: 0 })
+          response.cookies.set(name, '', { ...secureOptions, maxAge: 0 })
         },
       },
     }
