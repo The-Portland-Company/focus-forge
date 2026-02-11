@@ -342,7 +342,7 @@ export function TaskList({ tasks, allTasks, projects, currentUserId, priorityCol
       }}
       className={`group relative flex items-start gap-3 px-4 py-1 rounded-lg hover:bg-zinc-800/50 transition-all cursor-move ${
         isCompleted ? 'opacity-50' : ''
-      } ${isAnimatingOut ? 'animate-slide-fade-out' : ''} ${isLoading ? 'opacity-70' : ''}`}
+      } ${isAnimatingOut ? 'animate-slide-fade-out' : ''} ${isOptimisticCompleted && !isAnimatingOut ? 'gradient-strikethrough' : ''} ${isLoading ? 'opacity-70' : ''}`}
       style={{ paddingLeft: `${16 + indentLevel * 24}px` }}
       onMouseEnter={() => setHoveredTask(task.id)}
       onMouseLeave={() => setHoveredTask(null)}

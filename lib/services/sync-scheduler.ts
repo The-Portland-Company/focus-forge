@@ -4,22 +4,29 @@
 import { createClient } from '@supabase/supabase-js'
 import { TodoistSyncService } from './todoist-sync'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
 export class SyncScheduler {
   private static instance: SyncScheduler
   private intervals: Map<string, NodeJS.Timeout> = new Map()
-  private supabase: any
+  private _supabase: any
 
-  private constructor() {
-    this.supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
+  private get supabase() {
+    if (!this._supabase) {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+      if (!supabaseUrl || !supabaseServiceKey) {
+        throw new Error('Supabase env vars not available')
       }
-    })
+      this._supabase = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      })
+    }
+    return this._supabase
   }
+
+  private constructor() {}
 
   static getInstance(): SyncScheduler {
     if (!SyncScheduler.instance) {

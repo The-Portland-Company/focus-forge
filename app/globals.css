@@ -638,6 +638,37 @@ input[type="checkbox"]:focus {
   pointer-events: none;
 }
 
+/* Gradient strikethrough on task completion */
+.gradient-strikethrough {
+  position: relative;
+}
+
+.gradient-strikethrough::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  background: var(--user-profile-gradient);
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: strike-through 0.3s ease-out forwards;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes strike-through {
+  0% {
+    transform: scaleX(0);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
 /* Themed date and time inputs */
 .themed-date-input {
   color-scheme: dark;
