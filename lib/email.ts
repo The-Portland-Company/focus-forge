@@ -1,7 +1,13 @@
 import { Resend } from 'resend'
 
-// Initialize Resend client
-const resend = new Resend(process.env.RESEND_API_KEY)
+let _resend: Resend | null = null
+
+function getResend() {
+  if (!_resend) {
+    _resend = new Resend(process.env.RESEND_API_KEY)
+  }
+  return _resend
+}
 
 // Default from address - update with your verified domain
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'noreply@commandcenter.app'
@@ -26,7 +32,7 @@ export async function sendInviteEmail({
 }: SendInviteEmailParams) {
   const fullName = `${firstName} ${lastName}`.trim() || 'there'
 
-  const { data, error } = await resend.emails.send({
+  const { data, error } = await getResend().emails.send({
     from: `${FROM_NAME} <${FROM_EMAIL}>`,
     to: [to],
     ...(cc ? { cc: Array.isArray(cc) ? cc : [cc] } : {}),
@@ -129,7 +135,7 @@ export async function sendPasswordResetEmail({
   firstName,
   resetUrl
 }: SendPasswordResetEmailParams) {
-  const { data, error } = await resend.emails.send({
+  const { data, error } = await getResend().emails.send({
     from: `${FROM_NAME} <${FROM_EMAIL}>`,
     to: [to],
     subject: 'Reset your Command Center password',
