@@ -15,7 +15,24 @@ export function parseRecurringPattern(str: string | null | undefined): Recurring
       return parsed as RecurringConfig
     }
   } catch {
-    // Not valid JSON — treat as legacy free-text
+    // Not valid JSON — try to parse as Todoist text pattern
+  }
+
+  const lower = str.toLowerCase().trim()
+
+  // Parse common Todoist recurring text patterns
+  if (/^every\s+day/i.test(lower)) {
+    const timeMatch = lower.match(/at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i)
+    const time = timeMatch ? parseTimeString(timeMatch) : undefined
+    return { frequency: 'daily', time }
+  }
+
+  if (/^every\s+week/i.test(lower) || /^weekly/i.test(lower)) {
+    return { frequency: 'weekly', customPattern: str }
+  }
+
+  if (/^every\s+month/i.test(lower) || /^monthly/i.test(lower)) {
+    return { frequency: 'monthly', customPattern: str }
   }
 
   return { frequency: 'custom', customPattern: str }
@@ -71,6 +88,7 @@ export function formatRecurringLabel(str: string | null | undefined): string {
 
 /**
  * Calculate the next due date given a recurring config and the current due date.
+ * Always returns today or a future date — never a past date.
  */
 export function getNextDueDate(config: RecurringConfig, currentDueDate: string): string {
   const base = new Date(currentDueDate)
@@ -81,38 +99,60 @@ export function getNextDueDate(config: RecurringConfig, currentDueDate: string):
     return formatDateISO(tomorrow)
   }
 
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  let result: string
+
   switch (config.frequency) {
     case 'daily': {
-      base.setDate(base.getDate() + 1)
-      return formatDateISO(base)
+      // If base is in the past, next occurrence is tomorrow
+      const next = new Date(Math.max(base.getTime(), today.getTime()))
+      next.setDate(next.getDate() + 1)
+      result = formatDateISO(next)
+      break
     }
 
     case 'weekly': {
       if (config.days && config.days.length > 0) {
-        return nextWeekday(base, config.days)
+        // Start from today if base is in the past
+        const start = new Date(Math.max(base.getTime(), today.getTime()))
+        result = nextWeekday(start, config.days)
+      } else {
+        const next = new Date(Math.max(base.getTime(), today.getTime()))
+        next.setDate(next.getDate() + 7)
+        result = formatDateISO(next)
       }
-      // No specific days: +7 days
-      base.setDate(base.getDate() + 7)
-      return formatDateISO(base)
+      break
     }
 
     case 'monthly': {
       const targetDay = config.dayOfMonth || base.getDate()
-      const nextMonth = new Date(base)
+      let nextMonth = new Date(Math.max(base.getTime(), today.getTime()))
       nextMonth.setMonth(nextMonth.getMonth() + 1)
-      // Clamp to month length
       const maxDay = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate()
       nextMonth.setDate(Math.min(targetDay, maxDay))
-      return formatDateISO(nextMonth)
+      result = formatDateISO(nextMonth)
+      break
     }
 
     case 'custom':
     default: {
-      // Fallback: +1 day
-      base.setDate(base.getDate() + 1)
-      return formatDateISO(base)
+      const next = new Date(Math.max(base.getTime(), today.getTime()))
+      next.setDate(next.getDate() + 1)
+      result = formatDateISO(next)
+      break
     }
   }
+
+  // Safety: ensure result is never in the past
+  const resultDate = new Date(result)
+  if (resultDate < today) {
+    today.setDate(today.getDate() + 1)
+    return formatDateISO(today)
+  }
+
+  return result
 }
 
 // --- helpers ---
@@ -138,6 +178,18 @@ function ordinal(n: number): string {
   const s = ['th', 'st', 'nd', 'rd']
   const v = n % 100
   return n + (s[(v - 20) % 10] || s[v] || s[0])
+}
+
+/**
+ * Parse a time string from a Todoist pattern match like "5am", "10:30pm".
+ */
+function parseTimeString(match: RegExpMatchArray): string | undefined {
+  let h = parseInt(match[1], 10)
+  const m = match[2] || '00'
+  const ampm = (match[3] || '').toLowerCase()
+  if (ampm === 'pm' && h < 12) h += 12
+  if (ampm === 'am' && h === 12) h = 0
+  return `${String(h).padStart(2, '0')}:${m}`
 }
 
 /**
