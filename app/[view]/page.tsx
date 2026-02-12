@@ -1169,6 +1169,20 @@ export default function ViewPage() {
         return isOverdue(dueDate) || isToday(dueDate) || isTomorrow(dueDate) || isRestOfWeek(dueDate)
       })
 
+      // Pull in parent tasks so subtasks always appear under their parent
+      const allTaskMap = new Map(database.tasks.map(t => [t.id, t]))
+      const weekTaskIds = new Set(allWeekTasks.map(t => t.id))
+      for (const task of [...allWeekTasks]) {
+        let parentId = task.parentId
+        while (parentId && !weekTaskIds.has(parentId)) {
+          const parent = allTaskMap.get(parentId)
+          if (!parent) break
+          allWeekTasks.push(parent)
+          weekTaskIds.add(parent.id)
+          parentId = parent.parentId
+        }
+      }
+
       // Apply filters and sorting
       allWeekTasks = filterTasks(allWeekTasks)
       allWeekTasks = sortTasks(allWeekTasks)
@@ -1191,25 +1205,42 @@ export default function ViewPage() {
       const completedWeekTasks = allWeekTasks.filter(task => task.completed)
       const activeWeekTasks = allWeekTasks.filter(task => !task.completed)
 
-      const overdueTasks = activeWeekTasks.filter(task => {
+      // Helper: ensure parent tasks appear in sections with their children
+      const addMissingParents = (sectionTasks: Task[], allActive: Task[]) => {
+        const sectionIds = new Set(sectionTasks.map(t => t.id))
+        const activeMap = new Map(allActive.map(t => [t.id, t]))
+        for (const task of [...sectionTasks]) {
+          let parentId = task.parentId
+          while (parentId && !sectionIds.has(parentId)) {
+            const parent = activeMap.get(parentId)
+            if (!parent) break
+            sectionTasks.push(parent)
+            sectionIds.add(parent.id)
+            parentId = parent.parentId
+          }
+        }
+        return sectionTasks
+      }
+
+      const overdueTasks = addMissingParents(activeWeekTasks.filter(task => {
         const dueDate = (task as any).due_date || task.dueDate
         return dueDate && isOverdue(dueDate)
-      })
+      }), activeWeekTasks)
 
-      const todayTasks = activeWeekTasks.filter(task => {
+      const todayTasks = addMissingParents(activeWeekTasks.filter(task => {
         const dueDate = (task as any).due_date || task.dueDate
         return dueDate && isToday(dueDate)
-      })
+      }), activeWeekTasks)
 
-      const tomorrowTasks = activeWeekTasks.filter(task => {
+      const tomorrowTasks = addMissingParents(activeWeekTasks.filter(task => {
         const dueDate = (task as any).due_date || task.dueDate
         return dueDate && isTomorrow(dueDate)
-      })
+      }), activeWeekTasks)
 
-      const restOfWeekTasks = activeWeekTasks.filter(task => {
+      const restOfWeekTasks = addMissingParents(activeWeekTasks.filter(task => {
         const dueDate = (task as any).due_date || task.dueDate
         return dueDate && isRestOfWeek(dueDate)
-      })
+      }), activeWeekTasks)
 
       // Count overdue tasks specifically (for reschedule button)
       const overdueCount = overdueTasks.filter(t => !t.completed).length
