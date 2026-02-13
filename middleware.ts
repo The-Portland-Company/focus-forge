@@ -30,6 +30,11 @@ const applySecurityHeaders = (response: NextResponse) => {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Allow server actions to bypass auth middleware
+  if (request.headers.has("next-action")) {
+    return applySecurityHeaders(NextResponse.next());
+  }
+
   // Enforce HTTPS in production
   if (
     process.env.NODE_ENV === "production" &&
