@@ -1,10 +1,40 @@
-"use client"
+"use client";
 
-import { useState, useRef, useEffect, type CSSProperties } from 'react'
-import { X, Calendar, Clock, Flag, Bell, Paperclip, Hash, User, Tag, Plus, Circle, CheckCircle2, Trash2, CornerDownRight, Link2, AlertCircle, Check, Repeat2 } from 'lucide-react'
-import type { Database, Task, Reminder, Project as ProjectType, Tag as TagType, RecurringConfig } from '@/lib/types'
-import { format } from 'date-fns'
-import { canBeSelectedAsDependency, getBlockingTasks, isTaskBlocked } from '@/lib/dependency-utils'
+import { useState, useRef, useEffect, type CSSProperties } from "react";
+import {
+  X,
+  Calendar,
+  Clock,
+  Flag,
+  Bell,
+  Paperclip,
+  Hash,
+  User,
+  Tag,
+  Plus,
+  Circle,
+  CheckCircle2,
+  Trash2,
+  CornerDownRight,
+  Link2,
+  AlertCircle,
+  Check,
+  Repeat2,
+} from "lucide-react";
+import type {
+  Database,
+  Task,
+  Reminder,
+  Project as ProjectType,
+  Tag as TagType,
+  RecurringConfig,
+} from "@/lib/types";
+import { format } from "date-fns";
+import {
+  canBeSelectedAsDependency,
+  getBlockingTasks,
+  isTaskBlocked,
+} from "@/lib/dependency-utils";
 import {
   Select,
   SelectContent,
@@ -13,57 +43,66 @@ import {
   SelectValue,
   SelectGroup,
   SelectLabel,
-} from "@/components/ui/select"
-import { TimePicker } from '@/components/time-picker'
-import { UserAvatar } from '@/components/user-avatar'
-import { RecurringPicker } from '@/components/recurring-picker'
-import { parseRecurringPattern, serializeRecurringConfig } from '@/lib/recurring-utils'
+} from "@/components/ui/select";
+import { TimePicker } from "@/components/time-picker";
+import { UserAvatar } from "@/components/user-avatar";
+import { RecurringPicker } from "@/components/recurring-picker";
+import {
+  parseRecurringPattern,
+  serializeRecurringConfig,
+} from "@/lib/recurring-utils";
+import { useAuth } from "@/contexts/AuthContext";
 
 const quickProjectColors = [
-  '#ef4444',
-  '#f97316',
-  '#f59e0b',
-  '#84cc16',
-  '#22c55e',
-  '#10b981',
-  '#14b8a6',
-  '#06b6d4',
-  '#0ea5e9',
-  '#3b82f6',
-  '#6366f1',
-  '#8b5cf6',
-  '#a855f7',
-  '#ec4899',
-  '#f43f5e',
-]
+  "#ef4444",
+  "#f97316",
+  "#f59e0b",
+  "#84cc16",
+  "#22c55e",
+  "#10b981",
+  "#14b8a6",
+  "#06b6d4",
+  "#0ea5e9",
+  "#3b82f6",
+  "#6366f1",
+  "#8b5cf6",
+  "#a855f7",
+  "#ec4899",
+  "#f43f5e",
+];
 
 interface TaskModalProps {
-  isOpen: boolean
-  onClose: () => void
-  data: Database
-  task?: Task | null // Optional - if provided, it's edit mode
-  onSave: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> | Partial<Task>) => void
-  onDelete?: (taskId: string) => void
-  onDataRefresh?: () => void
-  defaultProjectId?: string
-  onTaskSelect?: (task: Task) => void
-  onRequestNewDependencyTask?: (seedName?: string) => Promise<Task | null>
-  onRequestNewProject?: (seedName: string, organizationId: string) => Promise<ProjectType | null>
-  onRequestNewTag?: (seedName: string) => Promise<TagType | null>
-  renderInStack?: boolean
-  stackZIndex?: number
-  stackStyle?: CSSProperties
-  initialName?: string
+  isOpen: boolean;
+  onClose: () => void;
+  data: Database;
+  task?: Task | null; // Optional - if provided, it's edit mode
+  onSave: (
+    task: Omit<Task, "id" | "createdAt" | "updatedAt"> | Partial<Task>,
+  ) => void;
+  onDelete?: (taskId: string) => void;
+  onDataRefresh?: () => void;
+  defaultProjectId?: string;
+  onTaskSelect?: (task: Task) => void;
+  onRequestNewDependencyTask?: (seedName?: string) => Promise<Task | null>;
+  onRequestNewProject?: (
+    seedName: string,
+    organizationId: string,
+  ) => Promise<ProjectType | null>;
+  onRequestNewTag?: (seedName: string) => Promise<TagType | null>;
+  renderInStack?: boolean;
+  stackZIndex?: number;
+  stackStyle?: CSSProperties;
+  initialName?: string;
 }
 
-export function TaskModal({ 
-  isOpen, 
-  onClose, 
-  data, 
-  task, 
-  onSave, 
+export function TaskModal({
+  isOpen,
+  onClose,
+  data,
+  task,
+  onSave,
   onDelete,
-  onDataRefresh, 
+  onDataRefresh,
   defaultProjectId,
   onTaskSelect,
   onRequestNewDependencyTask,
@@ -72,225 +111,272 @@ export function TaskModal({
   renderInStack,
   stackZIndex,
   stackStyle,
-  initialName
+  initialName,
 }: TaskModalProps) {
-  const isEditMode = !!task
-  const [taskName, setTaskName] = useState('')
-  const [description, setDescription] = useState('')
-  const [dueDate, setDueDate] = useState('')
-  const [dueTime, setDueTime] = useState<string>('')
-  const [deadline, setDeadline] = useState('')
-  const [deadlineTime, setDeadlineTime] = useState<string>('')
-  const [priority, setPriority] = useState<1 | 2 | 3 | 4>(4)
-  const [selectedProject, setSelectedProject] = useState(defaultProjectId || '')
-  const [selectedParentTask, setSelectedParentTask] = useState<string | null>(null)
-  const [reminders, setReminders] = useState<Reminder[]>([])
-  const [showReminderInput, setShowReminderInput] = useState(false)
-  const [newReminderDate, setNewReminderDate] = useState('')
-  const [newReminderTime, setNewReminderTime] = useState('')
-  const [selectedTags, setSelectedTags] = useState<string[]>([])
-  const [showAddTag, setShowAddTag] = useState(false)
-  const [newTagName, setNewTagName] = useState('')
-  const [assignedTo, setAssignedTo] = useState<string | null>(null)
-  const [showUserDropdown, setShowUserDropdown] = useState(false)
-  const [userSearchQuery, setUserSearchQuery] = useState('')
-  const modalRef = useRef<HTMLDivElement>(null)
-  const [newSubtaskName, setNewSubtaskName] = useState('')
-  const [isAddingSubtask, setIsAddingSubtask] = useState(false)
-  const [tagSuggestions, setTagSuggestions] = useState<typeof data.tags>([])
-  const [bouncingTagId, setBouncingTagId] = useState<string | null>(null)
-  const [showProjectSuggestions, setShowProjectSuggestions] = useState(false)
-  const [projectSearchQuery, setProjectSearchQuery] = useState('')
-  const [cursorPosition, setCursorPosition] = useState(0)
-  const titleInputRef = useRef<HTMLInputElement>(null)
-  const [dependencies, setDependencies] = useState<string[]>([])
-  const [showDependencyPicker, setShowDependencyPicker] = useState(false)
-  const [dependencySearchQuery, setDependencySearchQuery] = useState('')
-  const [recurringConfig, setRecurringConfig] = useState<RecurringConfig | null>(null)
-  const [isCreatingProject, setIsCreatingProject] = useState(false)
+  const isEditMode = !!task;
+  const { user: authUser } = useAuth();
+  const [taskName, setTaskName] = useState("");
+  const [description, setDescription] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [dueTime, setDueTime] = useState<string>("");
+  const [deadline, setDeadline] = useState("");
+  const [deadlineTime, setDeadlineTime] = useState<string>("");
+  const [priority, setPriority] = useState<1 | 2 | 3 | 4>(4);
+  const [selectedProject, setSelectedProject] = useState(
+    defaultProjectId || "",
+  );
+  const [selectedParentTask, setSelectedParentTask] = useState<string | null>(
+    null,
+  );
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [showReminderInput, setShowReminderInput] = useState(false);
+  const [newReminderDate, setNewReminderDate] = useState("");
+  const [newReminderTime, setNewReminderTime] = useState("");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [showAddTag, setShowAddTag] = useState(false);
+  const [newTagName, setNewTagName] = useState("");
+  const [assignedTo, setAssignedTo] = useState<string | null>(
+    authUser?.id ?? null,
+  );
+  const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const modalRef = useRef<HTMLDivElement>(null);
+  const [newSubtaskName, setNewSubtaskName] = useState("");
+  const [isAddingSubtask, setIsAddingSubtask] = useState(false);
+  const [pendingSubtasks, setPendingSubtasks] = useState<string[]>([]);
+  const [tagSuggestions, setTagSuggestions] = useState<typeof data.tags>([]);
+  const [bouncingTagId, setBouncingTagId] = useState<string | null>(null);
+  const [showProjectSuggestions, setShowProjectSuggestions] = useState(false);
+  const [projectSearchQuery, setProjectSearchQuery] = useState("");
+  const [cursorPosition, setCursorPosition] = useState(0);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const [dependencies, setDependencies] = useState<string[]>([]);
+  const [showDependencyPicker, setShowDependencyPicker] = useState(false);
+  const [dependencySearchQuery, setDependencySearchQuery] = useState("");
+  const [recurringConfig, setRecurringConfig] =
+    useState<RecurringConfig | null>(null);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [timeEstimate, setTimeEstimate] = useState<string>("");
+  const [copiedId, setCopiedId] = useState(false);
 
   // Searchable dropdown states
-  const [showProjectDropdown, setShowProjectDropdown] = useState(false)
-  const [projectFilterQuery, setProjectFilterQuery] = useState('')
-  const [showPriorityDropdown, setShowPriorityDropdown] = useState(false)
-  const [priorityFilterQuery, setPriorityFilterQuery] = useState('')
-  const projectDropdownRef = useRef<HTMLDivElement>(null)
-  const priorityDropdownRef = useRef<HTMLDivElement>(null)
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+  const [projectFilterQuery, setProjectFilterQuery] = useState("");
+  const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
+  const [priorityFilterQuery, setPriorityFilterQuery] = useState("");
+  const projectDropdownRef = useRef<HTMLDivElement>(null);
+  const priorityDropdownRef = useRef<HTMLDivElement>(null);
 
   // Load task data in edit mode
   useEffect(() => {
     if (task && isEditMode) {
-      setTaskName(task.name)
-      setDescription(task.description || '')
+      setTaskName(task.name);
+      setDescription(task.description || "");
       // Handle both snake_case and camelCase for due date
-      const dueDate = (task as any).due_date || task.dueDate
-      const dueTime = (task as any).due_time || task.dueTime
-      setDueDate(dueDate || '')
-      setDueTime(dueTime || '')
-      setDeadline(task.deadline ? task.deadline.split('T')[0] : '')
-      setDeadlineTime(task.deadline && task.deadline.includes('T') ? task.deadline.split('T')[1].substring(0, 5) : '')
-      setPriority(task.priority)
+      const dueDate = (task as any).due_date || task.dueDate;
+      const dueTime = (task as any).due_time || task.dueTime;
+      setDueDate(dueDate || "");
+      setDueTime(dueTime || "");
+      setDeadline(task.deadline ? task.deadline.split("T")[0] : "");
+      setDeadlineTime(
+        task.deadline && task.deadline.includes("T")
+          ? task.deadline.split("T")[1].substring(0, 5)
+          : "",
+      );
+      setPriority(task.priority);
       // Handle both snake_case and camelCase for projectId
-      const projectId = (task as any).project_id || task.projectId || ''
+      const projectId = (task as any).project_id || task.projectId || "";
       // If no project, try to select the first available project as default
       if (!projectId && data?.projects?.length > 0) {
-        const firstProject = data.projects.find(p => !p.archived)
-        setSelectedProject(firstProject?.id || '')
+        const firstProject = data.projects.find((p) => !p.archived);
+        setSelectedProject(firstProject?.id || "");
       } else {
-        setSelectedProject(projectId)
+        setSelectedProject(projectId);
       }
       // Handle both snake_case and camelCase for parentId
-      const parentId = (task as any).parent_id || task.parentId
-      setSelectedParentTask(parentId || null)
-      setSelectedTags(task.tags || [])
+      const parentId = (task as any).parent_id || task.parentId;
+      setSelectedParentTask(parentId || null);
+      setSelectedTags(task.tags || []);
       // Handle both snake_case and camelCase for assignedTo
-      const assignedTo = (task as any).assigned_to || task.assignedTo
-      setAssignedTo(assignedTo || null)
-      setReminders(task.reminders || [])
+      const assignedTo = (task as any).assigned_to || task.assignedTo;
+      setAssignedTo(assignedTo || null);
+      setReminders(task.reminders || []);
       // Handle both snake_case and camelCase for dependsOn
-      const dependsOn = (task as any).depends_on || task.dependsOn
-      setDependencies(dependsOn || [])
-      setRecurringConfig(parseRecurringPattern((task as any).recurring_pattern || task.recurringPattern || ''))
+      const dependsOn = (task as any).depends_on || task.dependsOn;
+      setDependencies(dependsOn || []);
+      setRecurringConfig(
+        parseRecurringPattern(
+          (task as any).recurring_pattern || task.recurringPattern || "",
+        ),
+      );
+      const te = (task as any).time_estimate ?? task.timeEstimate ?? undefined;
+      setTimeEstimate(te != null ? String(te) : "");
     }
-  }, [task, isEditMode, data])
+  }, [task, isEditMode, data]);
 
   useEffect(() => {
     if (!task && initialName !== undefined) {
-      setTaskName(initialName)
+      setTaskName(initialName);
     }
-  }, [initialName, task])
+  }, [initialName, task]);
 
   // Reset form when modal opens/closes
   useEffect(() => {
     if (!isOpen && !isEditMode) {
       // Reset form for add mode
-      setTaskName('')
-      setDescription('')
-      setDueDate('')
-      setDueTime('')
-      setDeadline('')
-      setDeadlineTime('')
-      setPriority(4)
-      setSelectedProject(defaultProjectId || '')
-      setSelectedParentTask(null)
-      setReminders([])
-      setSelectedTags([])
-      setAssignedTo(null)
-      setShowReminderInput(false)
-      setNewReminderDate('')
-      setShowProjectSuggestions(false)
-      setProjectSearchQuery('')
-      setNewReminderTime('')
-      setShowAddTag(false)
-      setNewTagName('')
-      setShowUserDropdown(false)
-      setUserSearchQuery('')
-      setDependencies([])
-      setShowDependencyPicker(false)
-      setDependencySearchQuery('')
-      setRecurringConfig(null)
-      setShowProjectDropdown(false)
-      setProjectFilterQuery('')
-      setShowPriorityDropdown(false)
-      setPriorityFilterQuery('')
+      setTaskName("");
+      setDescription("");
+      setDueDate("");
+      setDueTime("");
+      setDeadline("");
+      setDeadlineTime("");
+      setPriority(4);
+      setSelectedProject(defaultProjectId || "");
+      setSelectedParentTask(null);
+      setReminders([]);
+      setSelectedTags([]);
+      setAssignedTo(authUser?.id ?? null);
+      setShowReminderInput(false);
+      setNewReminderDate("");
+      setShowProjectSuggestions(false);
+      setProjectSearchQuery("");
+      setNewReminderTime("");
+      setShowAddTag(false);
+      setNewTagName("");
+      setShowUserDropdown(false);
+      setUserSearchQuery("");
+      setDependencies([]);
+      setShowDependencyPicker(false);
+      setDependencySearchQuery("");
+      setRecurringConfig(null);
+      setPendingSubtasks([]);
+      setNewSubtaskName("");
+      setIsAddingSubtask(false);
+      setShowProjectDropdown(false);
+      setProjectFilterQuery("");
+      setShowPriorityDropdown(false);
+      setPriorityFilterQuery("");
+      setTimeEstimate("");
     }
-  }, [isOpen, defaultProjectId, isEditMode])
+  }, [isOpen, defaultProjectId, isEditMode, authUser?.id]);
+
+  // Default assignedTo to current user in add mode
+  useEffect(() => {
+    if (!isOpen || isEditMode) return;
+    if (assignedTo) return;
+    if (authUser?.id) setAssignedTo(authUser.id);
+  }, [isOpen, isEditMode, authUser?.id, assignedTo]);
 
   useEffect(() => {
-    if (!isOpen || isEditMode) return
-    if (dueDate) return
-    setDueDate(format(new Date(), 'yyyy-MM-dd'))
-  }, [isOpen, isEditMode, dueDate])
+    if (!isOpen || isEditMode) return;
+    if (dueDate) return;
+    setDueDate(format(new Date(), "yyyy-MM-dd"));
+  }, [isOpen, isEditMode, dueDate]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node
-      
+      const target = event.target as Node;
+
       // Check if click is inside modal
       if (modalRef.current && modalRef.current.contains(target)) {
-        return
+        return;
       }
-      
+
       // Check if click is inside any popover content (for time picker, selects, etc)
-      const popoverContent = (target as Element)?.closest('[data-radix-popper-content-wrapper]')
+      const popoverContent = (target as Element)?.closest(
+        "[data-radix-popper-content-wrapper]",
+      );
       if (popoverContent) {
-        return
+        return;
       }
-      
+
       // If not inside modal or popover, close the modal
-      onClose()
-    }
+      onClose();
+    };
 
     if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
+      document.addEventListener("mousedown", handleClickOutside);
     }
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [isOpen, onClose])
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen, onClose]);
 
   // Close project/priority dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (projectDropdownRef.current && !projectDropdownRef.current.contains(event.target as Node)) {
-        setShowProjectDropdown(false)
+      if (
+        projectDropdownRef.current &&
+        !projectDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowProjectDropdown(false);
       }
-      if (priorityDropdownRef.current && !priorityDropdownRef.current.contains(event.target as Node)) {
-        setShowPriorityDropdown(false)
+      if (
+        priorityDropdownRef.current &&
+        !priorityDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowPriorityDropdown(false);
       }
-    }
+    };
 
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Update tag suggestions when typing
   useEffect(() => {
     if (newTagName.trim()) {
-      const filtered = data.tags.filter(tag => 
-        tag.name.toLowerCase().includes(newTagName.toLowerCase())
-      )
-      setTagSuggestions(filtered)
+      const filtered = data.tags.filter((tag) =>
+        tag.name.toLowerCase().includes(newTagName.toLowerCase()),
+      );
+      setTagSuggestions(filtered);
     } else {
-      setTagSuggestions([])
+      setTagSuggestions([]);
     }
-  }, [newTagName, data.tags])
+  }, [newTagName, data.tags]);
 
   // Automatically add reminder when date is selected (time optional)
   useEffect(() => {
     if (newReminderDate && showReminderInput) {
-      const datetime = newReminderTime 
+      const datetime = newReminderTime
         ? `${newReminderDate}T${newReminderTime}:00`
-        : `${newReminderDate}T09:00:00`
-      
-      setReminders(prevReminders => [...prevReminders, {
-        id: `reminder-${Date.now()}`,
-        type: 'custom' as const,
-        value: datetime
-      }])
-      setNewReminderDate('')
-      setNewReminderTime('')
-      setShowReminderInput(false)
+        : `${newReminderDate}T09:00:00`;
+
+      setReminders((prevReminders) => [
+        ...prevReminders,
+        {
+          id: `reminder-${Date.now()}`,
+          type: "custom" as const,
+          value: datetime,
+        },
+      ]);
+      setNewReminderDate("");
+      setNewReminderTime("");
+      setShowReminderInput(false);
     }
-  }, [newReminderDate, newReminderTime, showReminderInput])
+  }, [newReminderDate, newReminderTime, showReminderInput]);
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    
+    e.preventDefault();
+
     // Validate that a project is selected
     if (!selectedProject) {
-      console.error('No project selected')
-      alert('Please select a project')
-      return
+      console.error("No project selected");
+      alert("Please select a project");
+      return;
     }
-    
+
     const taskData: any = {
       name: taskName,
       description,
       dueDate: dueDate || undefined,
       dueTime: dueTime || undefined,
-      deadline: deadline ? (deadlineTime ? `${deadline}T${deadlineTime}` : deadline) : undefined,
+      deadline: deadline
+        ? deadlineTime
+          ? `${deadline}T${deadlineTime}`
+          : deadline
+        : undefined,
       priority,
       projectId: selectedProject,
       parentId: selectedParentTask || undefined,
@@ -300,203 +386,224 @@ export function TaskModal({
       reminders,
       dependsOn: dependencies.length > 0 ? dependencies : undefined,
       recurringPattern: serializeRecurringConfig(recurringConfig),
-    }
+      timeEstimate:
+        timeEstimate !== "" ? parseInt(timeEstimate, 10) : undefined,
+    };
 
     if (!isEditMode) {
-      taskData.completed = false
+      taskData.completed = false;
+      if (pendingSubtasks.length > 0) {
+        taskData.pendingSubtasks = pendingSubtasks;
+      }
     }
 
-    onSave(taskData)
-    onClose()
-  }
+    onSave(taskData);
+    onClose();
+  };
 
   const handleAddReminder = () => {
     if (newReminderDate) {
-      const datetime = newReminderTime 
+      const datetime = newReminderTime
         ? `${newReminderDate}T${newReminderTime}:00`
-        : `${newReminderDate}T09:00:00`
-      
-      setReminders([...reminders, {
-        id: `reminder-${Date.now()}`,
-        type: 'custom' as const,
-        value: datetime
-      }])
-      setNewReminderDate('')
-      setNewReminderTime('')
-      setShowReminderInput(false)
+        : `${newReminderDate}T09:00:00`;
+
+      setReminders([
+        ...reminders,
+        {
+          id: `reminder-${Date.now()}`,
+          type: "custom" as const,
+          value: datetime,
+        },
+      ]);
+      setNewReminderDate("");
+      setNewReminderTime("");
+      setShowReminderInput(false);
     }
-  }
+  };
 
   const handleRemoveReminder = (id: string) => {
-    setReminders(reminders.filter(r => r.id !== id))
-  }
+    setReminders(reminders.filter((r) => r.id !== id));
+  };
 
   const getDefaultOrganizationId = () => {
     if (selectedProject) {
-      const project = data.projects.find(p => p.id === selectedProject) as any
-      return project?.organizationId || project?.organization_id || ''
+      const project = data.projects.find(
+        (p) => p.id === selectedProject,
+      ) as any;
+      return project?.organizationId || project?.organization_id || "";
     }
-    return data.organizations?.[0]?.id || ''
-  }
+    return data.organizations?.[0]?.id || "";
+  };
 
   const applyProjectTagToTitle = (projectName: string) => {
-    const beforeCursor = taskName.substring(0, cursorPosition)
-    const afterCursor = taskName.substring(cursorPosition)
-    const lastHashIndex = beforeCursor.lastIndexOf('#')
+    const beforeCursor = taskName.substring(0, cursorPosition);
+    const afterCursor = taskName.substring(cursorPosition);
+    const lastHashIndex = beforeCursor.lastIndexOf("#");
     if (lastHashIndex !== -1) {
-      const newTaskName = `${taskName.substring(0, lastHashIndex)}#${projectName} ${afterCursor}`
-      setTaskName(newTaskName)
+      const newTaskName = `${taskName.substring(0, lastHashIndex)}#${projectName} ${afterCursor}`;
+      setTaskName(newTaskName);
     }
-  }
+  };
 
   const createProjectQuick = async (
     name: string,
-    options?: { insertInTitle?: boolean; closeSuggestions?: boolean; closeDropdown?: boolean }
+    options?: {
+      insertInTitle?: boolean;
+      closeSuggestions?: boolean;
+      closeDropdown?: boolean;
+    },
   ) => {
-    const trimmedName = name.trim()
-    if (!trimmedName || isCreatingProject) return
+    const trimmedName = name.trim();
+    if (!trimmedName || isCreatingProject) return;
 
     const existingProject = data.projects.find(
-      p => p.name.toLowerCase() === trimmedName.toLowerCase()
-    )
+      (p) => p.name.toLowerCase() === trimmedName.toLowerCase(),
+    );
     if (existingProject) {
-      setSelectedProject(existingProject.id)
+      setSelectedProject(existingProject.id);
       if (options?.insertInTitle) {
-        applyProjectTagToTitle(existingProject.name)
+        applyProjectTagToTitle(existingProject.name);
       }
       if (options?.closeSuggestions) {
-        setShowProjectSuggestions(false)
-        setProjectSearchQuery('')
+        setShowProjectSuggestions(false);
+        setProjectSearchQuery("");
       }
       if (options?.closeDropdown) {
-        setShowProjectDropdown(false)
-        setProjectFilterQuery('')
+        setShowProjectDropdown(false);
+        setProjectFilterQuery("");
       }
-      return
+      return;
     }
 
-    const organizationId = getDefaultOrganizationId()
+    const organizationId = getDefaultOrganizationId();
     if (!organizationId) {
-      alert('No organization available to create this project.')
-      return
+      alert("No organization available to create this project.");
+      return;
     }
 
-    setIsCreatingProject(true)
+    setIsCreatingProject(true);
     try {
-      const color = quickProjectColors[Math.floor(Math.random() * quickProjectColors.length)]
-      const response = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+      const color =
+        quickProjectColors[
+          Math.floor(Math.random() * quickProjectColors.length)
+        ];
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           name: trimmedName,
           color,
           organization_id: organizationId,
           is_favorite: false,
-          archived: false
-        })
-      })
+          archived: false,
+        }),
+      });
 
       if (response.ok) {
-        const newProject = await response.json()
+        const newProject = await response.json();
         if (newProject?.id) {
-          setSelectedProject(newProject.id)
+          setSelectedProject(newProject.id);
         }
         if (options?.insertInTitle) {
-          applyProjectTagToTitle(trimmedName)
+          applyProjectTagToTitle(trimmedName);
         }
         if (options?.closeSuggestions) {
-          setShowProjectSuggestions(false)
-          setProjectSearchQuery('')
+          setShowProjectSuggestions(false);
+          setProjectSearchQuery("");
         }
         if (options?.closeDropdown) {
-          setShowProjectDropdown(false)
-          setProjectFilterQuery('')
+          setShowProjectDropdown(false);
+          setProjectFilterQuery("");
         }
-        if (onDataRefresh) onDataRefresh()
-        titleInputRef.current?.focus()
+        if (onDataRefresh) onDataRefresh();
+        titleInputRef.current?.focus();
       }
     } catch (error) {
-      console.error('Failed to create project:', error)
+      console.error("Failed to create project:", error);
     } finally {
-      setIsCreatingProject(false)
+      setIsCreatingProject(false);
     }
-  }
+  };
 
   const handleAddTag = async () => {
     if (newTagName.trim()) {
-      const existingTag = data.tags.find(t => 
-        t.name.toLowerCase() === newTagName.trim().toLowerCase()
-      )
-      
+      const existingTag = data.tags.find(
+        (t) => t.name.toLowerCase() === newTagName.trim().toLowerCase(),
+      );
+
       if (existingTag) {
         if (!selectedTags.includes(existingTag.id)) {
-          setSelectedTags([...selectedTags, existingTag.id])
+          setSelectedTags([...selectedTags, existingTag.id]);
         }
       } else {
         const newTag = {
           id: `tag-${Date.now()}`,
           name: newTagName.trim(),
-          color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')
-        }
-        
+          color:
+            "#" +
+            Math.floor(Math.random() * 16777215)
+              .toString(16)
+              .padStart(6, "0"),
+        };
+
         try {
-          const response = await fetch('/api/tags', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newTag)
-          })
-          
+          const response = await fetch("/api/tags", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(newTag),
+          });
+
           if (response.ok) {
-            setSelectedTags([...selectedTags, newTag.id])
-            if (onDataRefresh) onDataRefresh()
+            setSelectedTags([...selectedTags, newTag.id]);
+            if (onDataRefresh) onDataRefresh();
           }
         } catch (error) {
-          console.error('Failed to create tag:', error)
+          console.error("Failed to create tag:", error);
         }
       }
-      
-      setNewTagName('')
-      setShowAddTag(false)
+
+      setNewTagName("");
+      setShowAddTag(false);
     }
-  }
+  };
 
   const toggleTag = (tagId: string) => {
-    setSelectedTags(prev => 
-      prev.includes(tagId) 
-        ? prev.filter(id => id !== tagId)
-        : [...prev, tagId]
-    )
-  }
+    setSelectedTags((prev) =>
+      prev.includes(tagId)
+        ? prev.filter((id) => id !== tagId)
+        : [...prev, tagId],
+    );
+  };
 
-  const handleSelectTagSuggestion = (tag: typeof data.tags[0]) => {
+  const handleSelectTagSuggestion = (tag: (typeof data.tags)[0]) => {
     if (selectedTags.includes(tag.id)) {
       // Tag is already selected, bounce it and close the input
-      setBouncingTagId(tag.id)
-      setTimeout(() => setBouncingTagId(null), 600) // Remove bounce class after animation
-      setNewTagName('')
-      setShowAddTag(false)
+      setBouncingTagId(tag.id);
+      setTimeout(() => setBouncingTagId(null), 600); // Remove bounce class after animation
+      setNewTagName("");
+      setShowAddTag(false);
     } else {
       // Add the tag normally
-      setSelectedTags([...selectedTags, tag.id])
-      setNewTagName('')
-      setShowAddTag(false)
+      setSelectedTags([...selectedTags, tag.id]);
+      setNewTagName("");
+      setShowAddTag(false);
     }
-  }
+  };
 
   const handleAssignUser = (userId: string) => {
-    setAssignedTo(userId)
-    setShowUserDropdown(false)
-    setUserSearchQuery('')
-  }
+    setAssignedTo(userId);
+    setShowUserDropdown(false);
+    setUserSearchQuery("");
+  };
 
   // Get assigned user details
-  const assignedUser = data.users.find(u => u.id === assignedTo)
+  const assignedUser = data.users.find((u) => u.id === assignedTo);
 
   const handleAddSubtask = async () => {
-    if (!newSubtaskName.trim() || !task) return
+    if (!newSubtaskName.trim() || !task) return;
 
-    const subtask: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> = {
+    const subtask: Omit<Task, "id" | "createdAt" | "updatedAt"> = {
       name: newSubtaskName.trim(),
       completed: false,
       priority: 4,
@@ -504,72 +611,74 @@ export function TaskModal({
       parentId: task.id,
       tags: [],
       files: [],
-      reminders: []
-    }
+      reminders: [],
+    };
 
     try {
-      const response = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(subtask)
-      })
+      const response = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(subtask),
+      });
 
       if (response.ok) {
-        setNewSubtaskName('')
-        setIsAddingSubtask(false)
-        if (onDataRefresh) onDataRefresh()
+        setNewSubtaskName("");
+        setIsAddingSubtask(false);
+        if (onDataRefresh) onDataRefresh();
       }
     } catch (error) {
-      console.error('Failed to create subtask:', error)
+      console.error("Failed to create subtask:", error);
     }
-  }
+  };
 
   const toggleSubtaskComplete = async (subtask: Task) => {
     try {
       const response = await fetch(`/api/tasks/${subtask.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completed: !subtask.completed })
-      })
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: !subtask.completed }),
+      });
 
       if (response.ok && onDataRefresh) {
-        onDataRefresh()
+        onDataRefresh();
       }
     } catch (error) {
-      console.error('Failed to update subtask:', error)
+      console.error("Failed to update subtask:", error);
     }
-  }
+  };
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
-  const currentProject = data.projects.find(p => p.id === selectedProject)
-  const projectColor = currentProject?.color || '#6B7280'
-  const parentTask = task && task.parentId 
-    ? data.tasks.find(t => t.id === task.parentId) 
-    : null
-  const subtasks = isEditMode && task
-    ? data.tasks.filter(t => t.parentId === task.id)
-    : []
-  
+  const currentProject = data.projects.find((p) => p.id === selectedProject);
+  const projectColor = currentProject?.color || "#6B7280";
+  const parentTask =
+    task && task.parentId
+      ? data.tasks.find((t) => t.id === task.parentId)
+      : null;
+  const subtasks =
+    isEditMode && task ? data.tasks.filter((t) => t.parentId === task.id) : [];
+
   // Highlight deadlines
-  const deadlineHighlight = deadline && new Date(deadline) < new Date() 
-    ? 'text-red-500' 
-    : deadline && new Date(deadline) < new Date(Date.now() + 24 * 60 * 60 * 1000)
-    ? 'text-[rgb(var(--theme-primary-rgb))]'
-    : ''
+  const deadlineHighlight =
+    deadline && new Date(deadline) < new Date()
+      ? "text-red-500"
+      : deadline &&
+          new Date(deadline) < new Date(Date.now() + 24 * 60 * 60 * 1000)
+        ? "text-[rgb(var(--theme-primary-rgb))]"
+        : "";
 
   return (
     <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
       style={{ ...(stackStyle || {}), zIndex: stackZIndex ?? 50 }}
     >
-      <div 
-        ref={modalRef} 
+      <div
+        ref={modalRef}
         className="bg-zinc-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-zinc-800"
       >
         <div className="sticky top-0 bg-zinc-900 border-b border-zinc-800 px-6 py-4 flex items-center justify-between z-10">
           <h2 className="text-xl font-semibold text-white">
-            {isEditMode ? 'Edit Task' : 'Add Task'}
+            {isEditMode ? "Edit Task" : "Add Task"}
           </h2>
           <button
             onClick={onClose}
@@ -593,39 +702,68 @@ export function TaskModal({
 
           {/* Task Name */}
           <div className="relative">
+            {isEditMode && task && (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(task.id);
+                    setCopiedId(true);
+                    setTimeout(() => setCopiedId(false), 1000);
+                  } catch {}
+                }}
+                className="relative mb-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors font-mono flex items-center gap-1"
+                title="Click to copy task ID"
+              >
+                <Hash className="w-3 h-3" />
+                {task.id.slice(0, 8)}
+                {copiedId && (
+                  <span className="absolute left-full ml-2 text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up-out">
+                    Copied!
+                  </span>
+                )}
+              </button>
+            )}
             <input
               ref={titleInputRef}
               type="text"
               value={taskName}
               onChange={(e) => {
-                const value = e.target.value
-                const cursorPos = e.target.selectionStart || 0
-                setTaskName(value)
-                setCursorPosition(cursorPos)
-                
-                // Check if user typed # 
-                const beforeCursor = value.substring(0, cursorPos)
-                const lastHashIndex = beforeCursor.lastIndexOf('#')
-                
+                const value = e.target.value;
+                const cursorPos = e.target.selectionStart || 0;
+                setTaskName(value);
+                setCursorPosition(cursorPos);
+
+                // Check if user typed #
+                const beforeCursor = value.substring(0, cursorPos);
+                const lastHashIndex = beforeCursor.lastIndexOf("#");
+
                 if (lastHashIndex !== -1 && lastHashIndex === cursorPos - 1) {
                   // Just typed #, show all projects
-                  setShowProjectSuggestions(true)
-                  setProjectSearchQuery('')
+                  setShowProjectSuggestions(true);
+                  setProjectSearchQuery("");
                 } else if (lastHashIndex !== -1 && showProjectSuggestions) {
                   // Check if we're still in a project search (no space after #)
-                  const afterHash = value.substring(lastHashIndex + 1, cursorPos)
-                  if (!afterHash.includes(' ')) {
-                    setProjectSearchQuery(afterHash)
+                  const afterHash = value.substring(
+                    lastHashIndex + 1,
+                    cursorPos,
+                  );
+                  if (!afterHash.includes(" ")) {
+                    setProjectSearchQuery(afterHash);
                   } else {
-                    setShowProjectSuggestions(false)
+                    setShowProjectSuggestions(false);
                   }
                 } else {
-                  setShowProjectSuggestions(false)
+                  setShowProjectSuggestions(false);
                 }
               }}
               onKeyDown={(e) => {
-                if (showProjectSuggestions && (e.key === 'Escape' || (e.key === ' ' && projectSearchQuery === ''))) {
-                  setShowProjectSuggestions(false)
+                if (
+                  showProjectSuggestions &&
+                  (e.key === "Escape" ||
+                    (e.key === " " && projectSearchQuery === ""))
+                ) {
+                  setShowProjectSuggestions(false);
                 }
               }}
               placeholder="Task name"
@@ -633,78 +771,109 @@ export function TaskModal({
               required
               autoFocus
             />
-            
+
             {/* Project Suggestions Dropdown */}
             {showProjectSuggestions && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
                 {(() => {
-                  const query = projectSearchQuery.trim()
-                  const matches = data.projects.filter(project =>
-                    project.name.toLowerCase().includes(projectSearchQuery.toLowerCase())
-                  )
-                  const hasExactMatch = query.length > 0 && data.projects.some(
-                    project => project.name.toLowerCase() === query.toLowerCase()
-                  )
+                  const query = projectSearchQuery.trim();
+                  const matches = data.projects.filter((project) =>
+                    project.name
+                      .toLowerCase()
+                      .includes(projectSearchQuery.toLowerCase()),
+                  );
+                  const hasExactMatch =
+                    query.length > 0 &&
+                    data.projects.some(
+                      (project) =>
+                        project.name.toLowerCase() === query.toLowerCase(),
+                    );
 
                   return (
                     <>
-                      {matches.map(project => {
-                        const orgId = (project as any).organizationId || (project as any).organization_id
-                        const org = data.organizations.find(o => o.id === orgId)
+                      {matches.map((project) => {
+                        const orgId =
+                          (project as any).organizationId ||
+                          (project as any).organization_id;
+                        const org = data.organizations.find(
+                          (o) => o.id === orgId,
+                        );
                         return (
                           <button
                             key={project.id}
                             type="button"
                             onClick={() => {
                               // Replace the #query with the project name
-                              const beforeCursor = taskName.substring(0, cursorPosition)
-                              const afterCursor = taskName.substring(cursorPosition)
-                              const lastHashIndex = beforeCursor.lastIndexOf('#')
-                              
+                              const beforeCursor = taskName.substring(
+                                0,
+                                cursorPosition,
+                              );
+                              const afterCursor =
+                                taskName.substring(cursorPosition);
+                              const lastHashIndex =
+                                beforeCursor.lastIndexOf("#");
+
                               if (lastHashIndex !== -1) {
-                                const newTaskName = 
-                                  taskName.substring(0, lastHashIndex) + 
-                                  '#' + project.name + ' ' +
-                                  afterCursor
-                                setTaskName(newTaskName)
-                                setSelectedProject(project.id)
+                                const newTaskName =
+                                  taskName.substring(0, lastHashIndex) +
+                                  "#" +
+                                  project.name +
+                                  " " +
+                                  afterCursor;
+                                setTaskName(newTaskName);
+                                setSelectedProject(project.id);
                               }
-                              
-                              setShowProjectSuggestions(false)
-                              setProjectSearchQuery('')
-                              
+
+                              setShowProjectSuggestions(false);
+                              setProjectSearchQuery("");
+
                               // Focus back on input
-                              titleInputRef.current?.focus()
+                              titleInputRef.current?.focus();
                             }}
                             className="w-full px-4 py-2 text-left hover:bg-zinc-700 transition-colors flex items-center gap-2"
                           >
-                            <div 
-                              className="w-3 h-3 rounded-full flex-shrink-0" 
-                              style={{ backgroundColor: project.color }} 
+                            <div
+                              className="w-3 h-3 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: project.color }}
                             />
-                            <span className="text-sm text-white">{project.name}</span>
-                            {org && <span className="text-xs text-zinc-400">• {org.name}</span>}
+                            <span className="text-sm text-white">
+                              {project.name}
+                            </span>
+                            {org && (
+                              <span className="text-xs text-zinc-400">
+                                • {org.name}
+                              </span>
+                            )}
                           </button>
-                        )
+                        );
                       })}
                       {query && !hasExactMatch && (
                         <button
                           type="button"
-                          onClick={() => createProjectQuick(query, { insertInTitle: true, closeSuggestions: true })}
+                          onClick={() =>
+                            createProjectQuick(query, {
+                              insertInTitle: true,
+                              closeSuggestions: true,
+                            })
+                          }
                           disabled={isCreatingProject}
                           className="w-full px-4 py-2 text-left hover:bg-zinc-700 transition-colors flex items-center gap-2 text-zinc-200"
                         >
                           <Plus className="w-3 h-3" />
                           <span className="text-sm">
-                            {isCreatingProject ? 'Creating project...' : `Create project "${query}"`}
+                            {isCreatingProject
+                              ? "Creating project..."
+                              : `Create project "${query}"`}
                           </span>
                         </button>
                       )}
                       {matches.length === 0 && !query && (
-                        <div className="px-4 py-2 text-sm text-zinc-400">No projects found</div>
+                        <div className="px-4 py-2 text-sm text-zinc-400">
+                          No projects found
+                        </div>
                       )}
                     </>
-                  )
+                  );
                 })()}
               </div>
             )}
@@ -732,11 +901,11 @@ export function TaskModal({
                     value={projectFilterQuery}
                     onChange={(e) => setProjectFilterQuery(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        const query = projectFilterQuery.trim()
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const query = projectFilterQuery.trim();
                         if (query) {
-                          createProjectQuick(query, { closeDropdown: true })
+                          createProjectQuick(query, { closeDropdown: true });
                         }
                       }
                     }}
@@ -748,25 +917,45 @@ export function TaskModal({
                   <button
                     type="button"
                     onClick={() => {
-                      setShowProjectDropdown(true)
-                      setProjectFilterQuery('')
+                      setShowProjectDropdown(true);
+                      setProjectFilterQuery("");
                     }}
                     className="w-full bg-zinc-800 text-white text-sm px-3 py-2.5 rounded-lg border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all flex items-center justify-between"
                   >
-                    {selectedProject && data?.projects ? (() => {
-                      const project = data.projects.find(p => p.id === selectedProject)
-                      return project ? (
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-3 h-3 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: project.color }}
-                          />
-                          <span>{project.name}</span>
-                        </div>
-                      ) : <span className="text-zinc-400">Select a project</span>
-                    })() : <span className="text-zinc-400">Select a project</span>}
-                    <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    {selectedProject && data?.projects ? (
+                      (() => {
+                        const project = data.projects.find(
+                          (p) => p.id === selectedProject,
+                        );
+                        return project ? (
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-3 h-3 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: project.color }}
+                            />
+                            <span>{project.name}</span>
+                          </div>
+                        ) : (
+                          <span className="text-zinc-400">
+                            Select a project
+                          </span>
+                        );
+                      })()
+                    ) : (
+                      <span className="text-zinc-400">Select a project</span>
+                    )}
+                    <svg
+                      className="w-4 h-4 text-zinc-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 9l-7 7-7-7"
+                      />
                     </svg>
                   </button>
                 )}
@@ -774,30 +963,43 @@ export function TaskModal({
                 {showProjectDropdown && (
                   <div className="absolute z-50 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg max-h-64 overflow-y-auto">
                     {(() => {
-                      const query = projectFilterQuery.trim()
-                      const hasExactMatch = query.length > 0 && data.projects.some(
-                        project => project.name.toLowerCase() === query.toLowerCase()
-                      )
-                      if (!query || hasExactMatch) return null
+                      const query = projectFilterQuery.trim();
+                      const hasExactMatch =
+                        query.length > 0 &&
+                        data.projects.some(
+                          (project) =>
+                            project.name.toLowerCase() === query.toLowerCase(),
+                        );
+                      if (!query || hasExactMatch) return null;
                       return (
                         <button
                           type="button"
-                          onClick={() => createProjectQuick(query, { closeDropdown: true })}
+                          onClick={() =>
+                            createProjectQuick(query, { closeDropdown: true })
+                          }
                           disabled={isCreatingProject}
                           className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors text-zinc-200 hover:bg-zinc-700 border-b border-zinc-700"
                         >
                           <Plus className="w-3 h-3" />
-                          <span>{isCreatingProject ? 'Creating project...' : `Create project "${query}"`}</span>
+                          <span>
+                            {isCreatingProject
+                              ? "Creating project..."
+                              : `Create project "${query}"`}
+                          </span>
                         </button>
-                      )
+                      );
                     })()}
                     {data?.organizations?.map((org) => {
-                      const orgProjects = data.projects?.filter(p =>
-                        p.organizationId === org.id &&
-                        !p.archived &&
-                        p.name.toLowerCase().includes(projectFilterQuery.toLowerCase())
-                      ) || []
-                      if (orgProjects.length === 0) return null
+                      const orgProjects =
+                        data.projects?.filter(
+                          (p) =>
+                            p.organizationId === org.id &&
+                            !p.archived &&
+                            p.name
+                              .toLowerCase()
+                              .includes(projectFilterQuery.toLowerCase()),
+                        ) || [];
+                      if (orgProjects.length === 0) return null;
 
                       return (
                         <div key={org.id}>
@@ -809,14 +1011,14 @@ export function TaskModal({
                               key={project.id}
                               type="button"
                               onClick={() => {
-                                setSelectedProject(project.id)
-                                setShowProjectDropdown(false)
-                                setProjectFilterQuery('')
+                                setSelectedProject(project.id);
+                                setShowProjectDropdown(false);
+                                setProjectFilterQuery("");
                               }}
                               className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
                                 selectedProject === project.id
-                                  ? 'bg-[rgb(var(--theme-primary-rgb))]/20 text-white'
-                                  : 'text-zinc-300 hover:bg-zinc-700'
+                                  ? "bg-[rgb(var(--theme-primary-rgb))]/20 text-white"
+                                  : "text-zinc-300 hover:bg-zinc-700"
                               }`}
                             >
                               <div
@@ -830,15 +1032,19 @@ export function TaskModal({
                             </button>
                           ))}
                         </div>
-                      )
+                      );
                     })}
                     {/* Orphan projects */}
                     {(() => {
-                      const orphanProjects = data.projects?.filter(p =>
-                        !p.organizationId &&
-                        !p.archived &&
-                        p.name.toLowerCase().includes(projectFilterQuery.toLowerCase())
-                      ) || []
+                      const orphanProjects =
+                        data.projects?.filter(
+                          (p) =>
+                            !p.organizationId &&
+                            !p.archived &&
+                            p.name
+                              .toLowerCase()
+                              .includes(projectFilterQuery.toLowerCase()),
+                        ) || [];
                       if (orphanProjects.length > 0) {
                         return (
                           <div>
@@ -850,14 +1056,14 @@ export function TaskModal({
                                 key={project.id}
                                 type="button"
                                 onClick={() => {
-                                  setSelectedProject(project.id)
-                                  setShowProjectDropdown(false)
-                                  setProjectFilterQuery('')
+                                  setSelectedProject(project.id);
+                                  setShowProjectDropdown(false);
+                                  setProjectFilterQuery("");
                                 }}
                                 className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
                                   selectedProject === project.id
-                                    ? 'bg-[rgb(var(--theme-primary-rgb))]/20 text-white'
-                                    : 'text-zinc-300 hover:bg-zinc-700'
+                                    ? "bg-[rgb(var(--theme-primary-rgb))]/20 text-white"
+                                    : "text-zinc-300 hover:bg-zinc-700"
                                 }`}
                               >
                                 <div
@@ -871,16 +1077,23 @@ export function TaskModal({
                               </button>
                             ))}
                           </div>
-                        )
+                        );
                       }
-                      return null
+                      return null;
                     })()}
                     {/* No results */}
-                    {projectFilterQuery && data.projects?.filter(p =>
-                      !p.archived && p.name.toLowerCase().includes(projectFilterQuery.toLowerCase())
-                    ).length === 0 && (
-                      <div className="px-3 py-2 text-sm text-zinc-500">No projects found</div>
-                    )}
+                    {projectFilterQuery &&
+                      data.projects?.filter(
+                        (p) =>
+                          !p.archived &&
+                          p.name
+                            .toLowerCase()
+                            .includes(projectFilterQuery.toLowerCase()),
+                      ).length === 0 && (
+                        <div className="px-3 py-2 text-sm text-zinc-500">
+                          No projects found
+                        </div>
+                      )}
                   </div>
                 )}
               </div>
@@ -891,17 +1104,21 @@ export function TaskModal({
                 <Hash className="w-4 h-4" />
                 Parent Task (Optional)
               </div>
-              <Select 
-                value={selectedParentTask || 'none'} 
-                onValueChange={(value) => setSelectedParentTask(value === 'none' ? null : value)}
+              <Select
+                value={selectedParentTask || "none"}
+                onValueChange={(value) =>
+                  setSelectedParentTask(value === "none" ? null : value)
+                }
                 disabled={!selectedProject}
               >
                 <SelectTrigger className="w-full bg-zinc-800 text-white border-zinc-700 focus:ring-2 ring-theme transition-all">
-                  <SelectValue placeholder={
-                    !selectedProject 
-                      ? "Select a project first" 
-                      : "No parent task"
-                  } />
+                  <SelectValue
+                    placeholder={
+                      !selectedProject
+                        ? "Select a project first"
+                        : "No parent task"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {selectedProject && (
@@ -910,15 +1127,22 @@ export function TaskModal({
                         <span className="text-zinc-400">No parent task</span>
                       </SelectItem>
                       {data.tasks
-                        .filter(t => t.projectId === selectedProject && !t.completed && (!isEditMode || t.id !== task?.id))
+                        .filter(
+                          (t) =>
+                            t.projectId === selectedProject &&
+                            !t.completed &&
+                            (!isEditMode || t.id !== task?.id),
+                        )
                         .map((t) => (
                           <SelectItem key={t.id} value={t.id}>
                             <div className="flex items-center gap-2">
-                              <span>{t.parentId ? '↳ ' : ''}{t.name}</span>
+                              <span>
+                                {t.parentId ? "↳ " : ""}
+                                {t.name}
+                              </span>
                             </div>
                           </SelectItem>
-                        ))
-                      }
+                        ))}
                     </>
                   )}
                 </SelectContent>
@@ -933,44 +1157,102 @@ export function TaskModal({
               Due Date
             </div>
             <div className="grid grid-cols-2 gap-4">
-            <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
-              <Calendar className="ml-4 w-4 h-4 text-zinc-500 flex-shrink-0" />
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="flex-1 bg-transparent text-white pl-3 pr-2 py-3 focus:outline-none themed-date-input"
-              />
-              <button
-                onClick={() => setDueDate('')}
-                className="text-zinc-400 hover:text-zinc-200 transition-colors p-1"
-                type="button"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
-              <Clock className="ml-4 w-4 h-4 text-zinc-500 flex-shrink-0" />
-              <TimePicker
-                value={dueTime}
-                onChange={setDueTime}
-                placeholder="Select time"
-                className="bg-transparent border-0 hover:bg-transparent focus:ring-0 flex-1"
-              />
-              {dueTime && (
+              <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
+                <Calendar className="ml-4 w-4 h-4 text-zinc-500 flex-shrink-0" />
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className="flex-1 bg-transparent text-white pl-3 pr-2 py-3 focus:outline-none themed-date-input"
+                />
                 <button
-                  onClick={() => setDueTime('')}
+                  onClick={() => setDueDate("")}
                   className="text-zinc-400 hover:text-zinc-200 transition-colors p-1"
                   type="button"
                 >
                   <X className="w-4 h-4" />
                 </button>
-              )}
+              </div>
+
+              <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
+                <Clock className="ml-4 w-4 h-4 text-zinc-500 flex-shrink-0" />
+                <TimePicker
+                  value={dueTime}
+                  onChange={setDueTime}
+                  placeholder="Select time"
+                  className="bg-transparent border-0 hover:bg-transparent focus:ring-0 flex-1"
+                />
+                {dueTime && (
+                  <button
+                    onClick={() => setDueTime("")}
+                    className="text-zinc-400 hover:text-zinc-200 transition-colors p-1"
+                    type="button"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Time Estimate */}
+          <div>
+            <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
+              <Clock className="w-4 h-4" />
+              Time Estimate
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
+                <Clock className="ml-4 w-4 h-4 text-zinc-500 flex-shrink-0" />
+                <input
+                  type="number"
+                  min="0"
+                  value={timeEstimate}
+                  onChange={(e) => setTimeEstimate(e.target.value)}
+                  placeholder="Minutes"
+                  className="w-24 bg-transparent text-white pl-3 pr-2 py-3 text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <span className="text-xs text-zinc-500 pr-2">min</span>
+                {timeEstimate && (
+                  <button
+                    onClick={() => setTimeEstimate("")}
+                    className="text-zinc-400 hover:text-zinc-200 transition-colors p-1"
+                    type="button"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { label: "15m", value: "15" },
+                  { label: "30m", value: "30" },
+                  { label: "1h", value: "60" },
+                  { label: "2h", value: "120" },
+                  { label: "4h", value: "240" },
+                  { label: "8h", value: "480" },
+                ].map((preset) => (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    onClick={() =>
+                      setTimeEstimate(
+                        timeEstimate === preset.value ? "" : preset.value,
+                      )
+                    }
+                    className={`px-2 py-1 rounded text-xs border transition-colors ${
+                      timeEstimate === preset.value
+                        ? "bg-[rgb(var(--theme-primary-rgb))]/20 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/40"
+                        : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-          
+
           {/* Deadline */}
           <div>
             <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
@@ -978,7 +1260,7 @@ export function TaskModal({
               Deadline
               {deadlineHighlight && (
                 <span className={`text-xs ${deadlineHighlight}`}>
-                  {new Date(deadline) < new Date() ? 'Overdue' : 'Due soon'}
+                  {new Date(deadline) < new Date() ? "Overdue" : "Due soon"}
                 </span>
               )}
             </div>
@@ -990,11 +1272,11 @@ export function TaskModal({
                   value={deadline}
                   onChange={(e) => setDeadline(e.target.value)}
                   className={`flex-1 bg-transparent pl-3 pr-2 py-3 focus:outline-none themed-date-input ${
-                    deadlineHighlight ? deadlineHighlight : 'text-white'
+                    deadlineHighlight ? deadlineHighlight : "text-white"
                   }`}
                 />
                 <button
-                  onClick={() => setDeadline('')}
+                  onClick={() => setDeadline("")}
                   className="text-zinc-400 hover:text-zinc-200 transition-colors p-1"
                   type="button"
                 >
@@ -1012,7 +1294,7 @@ export function TaskModal({
                 />
                 {deadlineTime && (
                   <button
-                    onClick={() => setDeadlineTime('')}
+                    onClick={() => setDeadlineTime("")}
                     className="text-zinc-400 hover:text-zinc-200 transition-colors p-1"
                     type="button"
                   >
@@ -1022,7 +1304,6 @@ export function TaskModal({
               </div>
             </div>
           </div>
-
 
           {/* Assignee & Priority */}
           <div className="grid grid-cols-2 gap-4">
@@ -1034,19 +1315,25 @@ export function TaskModal({
               {assignedUser ? (
                 <div className="flex items-center gap-2 text-sm bg-zinc-800 rounded px-3 py-2.5 h-[42px]">
                   <UserAvatar
-                    name={assignedUser.name || `${assignedUser.firstName || ''} ${assignedUser.lastName || ''}`.trim() || assignedUser.email}
+                    name={
+                      assignedUser.name ||
+                      `${assignedUser.firstName || ""} ${assignedUser.lastName || ""}`.trim() ||
+                      assignedUser.email
+                    }
                     profileColor={assignedUser.profileColor}
                     memoji={assignedUser.profileMemoji}
                     size={24}
                     className="text-xs font-medium flex-shrink-0"
                   />
                   <span className="text-zinc-300 flex-1">
-                    {assignedUser.name || 
-                     `${assignedUser.firstName || ''} ${assignedUser.lastName || ''}`.trim() ||
-                     assignedUser.email ||
-                     'Unknown User'}
-                    {assignedUser.status === 'pending' && (
-                      <span className="ml-2 text-xs text-yellow-500">(Pending)</span>
+                    {assignedUser.name ||
+                      `${assignedUser.firstName || ""} ${assignedUser.lastName || ""}`.trim() ||
+                      assignedUser.email ||
+                      "Unknown User"}
+                    {assignedUser.status === "pending" && (
+                      <span className="ml-2 text-xs text-yellow-500">
+                        (Pending)
+                      </span>
                     )}
                   </span>
                   <button
@@ -1069,17 +1356,27 @@ export function TaskModal({
                   />
                   <div className="absolute top-full mt-1 w-full bg-zinc-800 rounded-lg shadow-lg border border-zinc-700 max-h-48 overflow-y-auto z-50">
                     {data.users
-                      .filter(user => {
-                        const userName = user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || ''
-                        const userEmail = user.email || ''
-                        return userName.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
-                               userEmail.toLowerCase().includes(userSearchQuery.toLowerCase())
+                      .filter((user) => {
+                        const userName =
+                          user.name ||
+                          `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+                          "";
+                        const userEmail = user.email || "";
+                        return (
+                          userName
+                            .toLowerCase()
+                            .includes(userSearchQuery.toLowerCase()) ||
+                          userEmail
+                            .toLowerCase()
+                            .includes(userSearchQuery.toLowerCase())
+                        );
                       })
-                      .map(user => {
-                        const displayName = user.name || 
-                          `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
-                          user.email || 
-                          'Unknown User'
+                      .map((user) => {
+                        const displayName =
+                          user.name ||
+                          `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+                          user.email ||
+                          "Unknown User";
                         return (
                           <button
                             key={user.id}
@@ -1097,21 +1394,25 @@ export function TaskModal({
                             <div className="flex-1 text-sm">
                               <p className="font-medium">
                                 {displayName}
-                                {user.status === 'pending' && (
-                                  <span className="ml-2 text-xs text-yellow-500">(Pending)</span>
+                                {user.status === "pending" && (
+                                  <span className="ml-2 text-xs text-yellow-500">
+                                    (Pending)
+                                  </span>
                                 )}
                               </p>
-                              <p className="text-xs text-zinc-500">{user.email}</p>
+                              <p className="text-xs text-zinc-500">
+                                {user.email}
+                              </p>
                             </div>
                           </button>
-                        )
+                        );
                       })}
                   </div>
                   <button
                     type="button"
                     onClick={() => {
-                      setShowUserDropdown(false)
-                      setUserSearchQuery('')
+                      setShowUserDropdown(false);
+                      setUserSearchQuery("");
                     }}
                     className="absolute right-2 top-2 text-zinc-400 hover:text-white"
                   >
@@ -1149,22 +1450,44 @@ export function TaskModal({
                   <button
                     type="button"
                     onClick={() => {
-                      setShowPriorityDropdown(true)
-                      setPriorityFilterQuery('')
+                      setShowPriorityDropdown(true);
+                      setPriorityFilterQuery("");
                     }}
                     className="w-full bg-zinc-800 text-white text-sm px-3 py-2.5 rounded-lg border border-zinc-700 focus:outline-none focus:ring-2 ring-theme transition-all flex items-center justify-between"
                   >
                     <div className="flex items-center gap-2">
-                      <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-                        priority === 1 ? 'bg-red-500' :
-                        priority === 2 ? 'bg-orange-500' :
-                        priority === 3 ? 'bg-blue-500' :
-                        'bg-zinc-500'
-                      }`} />
-                      <span>Priority {priority} {priority === 1 ? '(Highest)' : priority === 4 ? '(Lowest)' : ''}</span>
+                      <div
+                        className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                          priority === 1
+                            ? "bg-red-500"
+                            : priority === 2
+                              ? "bg-orange-500"
+                              : priority === 3
+                                ? "bg-blue-500"
+                                : "bg-zinc-500"
+                        }`}
+                      />
+                      <span>
+                        Priority {priority}{" "}
+                        {priority === 1
+                          ? "(Highest)"
+                          : priority === 4
+                            ? "(Lowest)"
+                            : ""}
+                      </span>
                     </div>
-                    <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    <svg
+                      className="w-4 h-4 text-zinc-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 9l-7 7-7-7"
+                      />
                     </svg>
                   </button>
                 )}
@@ -1172,41 +1495,72 @@ export function TaskModal({
                 {showPriorityDropdown && (
                   <div className="absolute z-50 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg overflow-hidden">
                     {[
-                      { value: 1, label: 'Priority 1 (Highest)', color: 'bg-red-500' },
-                      { value: 2, label: 'Priority 2 (High)', color: 'bg-orange-500' },
-                      { value: 3, label: 'Priority 3 (Medium)', color: 'bg-blue-500' },
-                      { value: 4, label: 'Priority 4 (Lowest)', color: 'bg-zinc-500' },
+                      {
+                        value: 1,
+                        label: "Priority 1 (Highest)",
+                        color: "bg-red-500",
+                      },
+                      {
+                        value: 2,
+                        label: "Priority 2 (High)",
+                        color: "bg-orange-500",
+                      },
+                      {
+                        value: 3,
+                        label: "Priority 3 (Medium)",
+                        color: "bg-blue-500",
+                      },
+                      {
+                        value: 4,
+                        label: "Priority 4 (Lowest)",
+                        color: "bg-zinc-500",
+                      },
                     ]
-                      .filter(p => p.label.toLowerCase().includes(priorityFilterQuery.toLowerCase()) ||
-                                   `p${p.value}`.includes(priorityFilterQuery.toLowerCase()))
+                      .filter(
+                        (p) =>
+                          p.label
+                            .toLowerCase()
+                            .includes(priorityFilterQuery.toLowerCase()) ||
+                          `p${p.value}`.includes(
+                            priorityFilterQuery.toLowerCase(),
+                          ),
+                      )
                       .map((p) => (
                         <button
                           key={p.value}
                           type="button"
                           onClick={() => {
-                            setPriority(p.value as 1 | 2 | 3 | 4)
-                            setShowPriorityDropdown(false)
-                            setPriorityFilterQuery('')
+                            setPriority(p.value as 1 | 2 | 3 | 4);
+                            setShowPriorityDropdown(false);
+                            setPriorityFilterQuery("");
                           }}
                           className={`w-full px-3 py-2.5 text-left text-sm flex items-center gap-2 transition-colors ${
                             priority === p.value
-                              ? 'bg-[rgb(var(--theme-primary-rgb))]/20 text-white'
-                              : 'text-zinc-300 hover:bg-zinc-700'
+                              ? "bg-[rgb(var(--theme-primary-rgb))]/20 text-white"
+                              : "text-zinc-300 hover:bg-zinc-700"
                           }`}
                         >
-                          <div className={`w-3 h-3 rounded-full flex-shrink-0 ${p.color}`} />
+                          <div
+                            className={`w-3 h-3 rounded-full flex-shrink-0 ${p.color}`}
+                          />
                           <span>{p.label}</span>
                           {priority === p.value && (
                             <Check className="w-4 h-4 ml-auto text-[rgb(var(--theme-primary-rgb))]" />
                           )}
                         </button>
                       ))}
-                    {priorityFilterQuery && [1, 2, 3, 4].filter(p =>
-                      `priority ${p}`.includes(priorityFilterQuery.toLowerCase()) ||
-                      `p${p}`.includes(priorityFilterQuery.toLowerCase())
-                    ).length === 0 && (
-                      <div className="px-3 py-2 text-sm text-zinc-500">No priorities found</div>
-                    )}
+                    {priorityFilterQuery &&
+                      [1, 2, 3, 4].filter(
+                        (p) =>
+                          `priority ${p}`.includes(
+                            priorityFilterQuery.toLowerCase(),
+                          ) ||
+                          `p${p}`.includes(priorityFilterQuery.toLowerCase()),
+                      ).length === 0 && (
+                        <div className="px-3 py-2 text-sm text-zinc-500">
+                          No priorities found
+                        </div>
+                      )}
                   </div>
                 )}
               </div>
@@ -1231,11 +1585,14 @@ export function TaskModal({
               )}
             </div>
             {reminders.map((reminder) => (
-              <div key={reminder.id} className="flex items-center gap-2 mb-2 text-sm">
+              <div
+                key={reminder.id}
+                className="flex items-center gap-2 mb-2 text-sm"
+              >
                 <div className="bg-zinc-800 rounded px-3 py-1.5 flex items-center gap-2">
                   <Bell className="w-3 h-3 text-zinc-400" />
                   <span className="text-zinc-300">
-                    {format(new Date(reminder.value), 'MMM d, yyyy h:mm a')}
+                    {format(new Date(reminder.value), "MMM d, yyyy h:mm a")}
                   </span>
                   <button
                     type="button"
@@ -1266,9 +1623,9 @@ export function TaskModal({
                 <button
                   type="button"
                   onClick={() => {
-                    setShowReminderInput(false)
-                    setNewReminderDate('')
-                    setNewReminderTime('')
+                    setShowReminderInput(false);
+                    setNewReminderDate("");
+                    setNewReminderTime("");
                   }}
                   className="text-zinc-400 hover:text-white"
                 >
@@ -1303,13 +1660,13 @@ export function TaskModal({
                   onClick={() => toggleTag(tag.id)}
                   className={`px-3 py-1.5 rounded-full text-sm transition-all ${
                     selectedTags.includes(tag.id)
-                      ? 'bg-opacity-100 text-white'
-                      : 'bg-opacity-20 text-zinc-400 hover:bg-opacity-40'
-                  } ${bouncingTagId === tag.id ? 'animate-bounce' : ''}`}
-                  style={{ 
-                    backgroundColor: selectedTags.includes(tag.id) 
-                      ? tag.color 
-                      : tag.color + '33' 
+                      ? "bg-opacity-100 text-white"
+                      : "bg-opacity-20 text-zinc-400 hover:bg-opacity-40"
+                  } ${bouncingTagId === tag.id ? "animate-bounce" : ""}`}
+                  style={{
+                    backgroundColor: selectedTags.includes(tag.id)
+                      ? tag.color
+                      : tag.color + "33",
                   }}
                 >
                   {tag.name}
@@ -1322,7 +1679,10 @@ export function TaskModal({
                       type="text"
                       value={newTagName}
                       onChange={(e) => setNewTagName(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
+                      onKeyPress={(e) =>
+                        e.key === "Enter" &&
+                        (e.preventDefault(), handleAddTag())
+                      }
                       placeholder="Tag name"
                       className="bg-zinc-800 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 ring-theme w-32 transition-all"
                       autoFocus
@@ -1337,8 +1697,8 @@ export function TaskModal({
                     <button
                       type="button"
                       onClick={() => {
-                        setShowAddTag(false)
-                        setNewTagName('')
+                        setShowAddTag(false);
+                        setNewTagName("");
                       }}
                       className="text-zinc-400 hover:text-white"
                     >
@@ -1354,13 +1714,15 @@ export function TaskModal({
                           onClick={() => handleSelectTagSuggestion(tag)}
                           className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-700 transition-colors flex items-center gap-2"
                         >
-                          <div 
-                            className="w-3 h-3 rounded-full flex-shrink-0" 
+                          <div
+                            className="w-3 h-3 rounded-full flex-shrink-0"
                             style={{ backgroundColor: tag.color }}
                           />
                           <span className="text-zinc-300">{tag.name}</span>
                           {selectedTags.includes(tag.id) && (
-                            <span className="text-xs text-zinc-500 ml-auto">Selected</span>
+                            <span className="text-xs text-zinc-500 ml-auto">
+                              Selected
+                            </span>
                           )}
                         </button>
                       ))}
@@ -1377,7 +1739,16 @@ export function TaskModal({
               <div className="flex items-center gap-2 text-sm text-zinc-400">
                 <Link2 className="w-4 h-4" />
                 Dependencies
-                {isTaskBlocked(task || { id: 'temp', name: taskName, completed: false, dependsOn: dependencies } as unknown as Task, data.tasks) && (
+                {isTaskBlocked(
+                  task ||
+                    ({
+                      id: "temp",
+                      name: taskName,
+                      completed: false,
+                      dependsOn: dependencies,
+                    } as unknown as Task),
+                  data.tasks,
+                ) && (
                   <span className="text-xs text-[rgb(var(--theme-primary-rgb))] flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />
                     Blocked
@@ -1394,16 +1765,19 @@ export function TaskModal({
                 </div>
               )}
             </div>
-            
+
             {/* Current Dependencies */}
             {dependencies.length > 0 && (
               <div className="space-y-2 mb-3">
-                {dependencies.map(depId => {
-                  const depTask = data.tasks.find(t => t.id === depId)
-                  if (!depTask) return null
-                  
+                {dependencies.map((depId) => {
+                  const depTask = data.tasks.find((t) => t.id === depId);
+                  if (!depTask) return null;
+
                   return (
-                    <div key={depId} className="flex items-center gap-2 bg-zinc-800 rounded px-3 py-2">
+                    <div
+                      key={depId}
+                      className="flex items-center gap-2 bg-zinc-800 rounded px-3 py-2"
+                    >
                       <button
                         type="button"
                         className="text-zinc-400 hover:text-white"
@@ -1415,22 +1789,28 @@ export function TaskModal({
                           <Circle className="w-4 h-4" />
                         )}
                       </button>
-                      <span className={`flex-1 text-sm ${depTask.completed ? 'line-through text-zinc-500' : 'text-zinc-300'}`}>
+                      <span
+                        className={`flex-1 text-sm ${depTask.completed ? "line-through text-zinc-500" : "text-zinc-300"}`}
+                      >
                         {depTask.name}
                       </span>
                       <button
                         type="button"
-                        onClick={() => setDependencies(dependencies.filter(id => id !== depId))}
+                        onClick={() =>
+                          setDependencies(
+                            dependencies.filter((id) => id !== depId),
+                          )
+                        }
                         className="text-zinc-500 hover:text-red-400"
                       >
                         <X className="w-3 h-3" />
                       </button>
                     </div>
-                  )
+                  );
                 })}
               </div>
             )}
-            
+
             {/* Dependency Picker */}
             {showDependencyPicker && (
               <div className="relative mb-3">
@@ -1442,62 +1822,74 @@ export function TaskModal({
                   className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
                   autoFocus
                 />
-                
+
                 <div className="absolute top-full mt-1 w-full bg-zinc-800 rounded-lg shadow-lg border border-zinc-700 max-h-48 overflow-y-auto z-50">
                   {data.tasks
-                    .filter(t => {
+                    .filter((t) => {
                       // Don't show the current task or its subtasks
-                      if (task && (t.id === task.id || t.parentId === task.id)) return false
+                      if (task && (t.id === task.id || t.parentId === task.id))
+                        return false;
                       // Filter by search
-                      return t.name.toLowerCase().includes(dependencySearchQuery.toLowerCase())
+                      return t.name
+                        .toLowerCase()
+                        .includes(dependencySearchQuery.toLowerCase());
                     })
-                    .map(t => {
+                    .map((t) => {
                       const validation = canBeSelectedAsDependency(
-                        task?.id || 'new-task',
+                        task?.id || "new-task",
                         t.id,
-                        data.tasks
-                      )
-                      
+                        data.tasks,
+                      );
+
                       return (
                         <button
                           key={t.id}
                           type="button"
                           onClick={() => {
                             if (validation.canSelect) {
-                              setDependencies([...dependencies, t.id])
-                              setShowDependencyPicker(false)
-                              setDependencySearchQuery('')
+                              setDependencies([...dependencies, t.id]);
+                              setShowDependencyPicker(false);
+                              setDependencySearchQuery("");
                             }
                           }}
                           disabled={!validation.canSelect}
                           className="w-full px-3 py-2 text-left hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         >
                           <div className="flex-1">
-                            <div className="text-sm text-zinc-300">{t.name}</div>
+                            <div className="text-sm text-zinc-300">
+                              {t.name}
+                            </div>
                             {!validation.canSelect && (
-                              <div className="text-xs text-red-400">{validation.reason}</div>
+                              <div className="text-xs text-red-400">
+                                {validation.reason}
+                              </div>
                             )}
                           </div>
                           {t.completed && (
                             <CheckCircle2 className="w-4 h-4 text-green-500" />
                           )}
                         </button>
-                      )
+                      );
                     })}
-                  
-                  {data.tasks.filter(t => 
-                    t.name.toLowerCase().includes(dependencySearchQuery.toLowerCase()) &&
-                    (!task || t.id !== task.id)
+
+                  {data.tasks.filter(
+                    (t) =>
+                      t.name
+                        .toLowerCase()
+                        .includes(dependencySearchQuery.toLowerCase()) &&
+                      (!task || t.id !== task.id),
                   ).length === 0 && (
-                    <div className="px-3 py-2 text-sm text-zinc-500">No tasks found</div>
+                    <div className="px-3 py-2 text-sm text-zinc-500">
+                      No tasks found
+                    </div>
                   )}
                 </div>
-                
+
                 <button
                   type="button"
                   onClick={() => {
-                    setShowDependencyPicker(false)
-                    setDependencySearchQuery('')
+                    setShowDependencyPicker(false);
+                    setDependencySearchQuery("");
                   }}
                   className="absolute right-2 top-2 text-zinc-500 hover:text-white"
                 >
@@ -1513,28 +1905,32 @@ export function TaskModal({
               <Repeat2 className="w-4 h-4" />
               Recurring
             </label>
-            <RecurringPicker value={recurringConfig} onChange={setRecurringConfig} />
+            <RecurringPicker
+              value={recurringConfig}
+              onChange={setRecurringConfig}
+            />
           </div>
 
-          {/* Subtasks (Edit mode only) */}
-          {isEditMode && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 text-sm text-zinc-400">
-                  <CornerDownRight className="w-4 h-4" />
-                  Subtasks
-                </div>
-                {!isAddingSubtask && (
-                  <div
-                    className="icon-circle-bg cursor-pointer"
-                    onClick={() => setIsAddingSubtask(true)}
-                    title="Add Subtask"
-                  >
-                    <Plus className="w-4 h-4 text-white" />
-                  </div>
-                )}
+          {/* Subtasks */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-sm text-zinc-400">
+                <CornerDownRight className="w-4 h-4" />
+                Subtasks
               </div>
-              {subtasks.map((subtask) => (
+              {!isAddingSubtask && (
+                <div
+                  className="icon-circle-bg cursor-pointer"
+                  onClick={() => setIsAddingSubtask(true)}
+                  title="Add Subtask"
+                >
+                  <Plus className="w-4 h-4 text-white" />
+                </div>
+              )}
+            </div>
+            {/* Existing subtasks (edit mode) */}
+            {isEditMode &&
+              subtasks.map((subtask) => (
                 <div key={subtask.id} className="flex items-center gap-2 mb-2">
                   <button
                     type="button"
@@ -1547,7 +1943,9 @@ export function TaskModal({
                       <Circle className="w-4 h-4" />
                     )}
                   </button>
-                  <span className={`flex-1 ${subtask.completed ? 'line-through text-zinc-500' : 'text-zinc-300'}`}>
+                  <span
+                    className={`flex-1 ${subtask.completed ? "line-through text-zinc-500" : "text-zinc-300"}`}
+                  >
                     {subtask.name}
                   </span>
                   {onTaskSelect && (
@@ -1561,39 +1959,79 @@ export function TaskModal({
                   )}
                 </div>
               ))}
-              {isAddingSubtask ? (
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newSubtaskName}
-                    onChange={(e) => setNewSubtaskName(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddSubtask())}
-                    placeholder="Subtask name"
-                    className="flex-1 bg-zinc-800 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
-                    autoFocus
-                  />
+            {/* Pending subtasks (add mode) */}
+            {!isEditMode &&
+              pendingSubtasks.map((name, index) => (
+                <div key={index} className="flex items-center gap-2 mb-2">
+                  <Circle className="w-4 h-4 text-zinc-400" />
+                  <span className="flex-1 text-sm text-zinc-300">{name}</span>
                   <button
                     type="button"
-                    onClick={handleAddSubtask}
-                    className="btn-theme-primary text-white rounded px-3 py-1.5 text-sm transition-all"
+                    onClick={() =>
+                      setPendingSubtasks((prev) =>
+                        prev.filter((_, i) => i !== index),
+                      )
+                    }
+                    className="text-zinc-500 hover:text-red-400"
                   >
-                    Add
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsAddingSubtask(false)
-                      setNewSubtaskName('')
-                    }}
-                    className="text-zinc-400 hover:text-white"
-                  >
-                    <X className="w-4 h-4" />
+                    <X className="w-3 h-3" />
                   </button>
                 </div>
-              ) : null}
-            </div>
-          )}
-
+              ))}
+            {isAddingSubtask ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newSubtaskName}
+                  onChange={(e) => setNewSubtaskName(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (isEditMode) {
+                        handleAddSubtask();
+                      } else if (newSubtaskName.trim()) {
+                        setPendingSubtasks((prev) => [
+                          ...prev,
+                          newSubtaskName.trim(),
+                        ]);
+                        setNewSubtaskName("");
+                      }
+                    }
+                  }}
+                  placeholder="Subtask name"
+                  className="flex-1 bg-zinc-800 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isEditMode) {
+                      handleAddSubtask();
+                    } else if (newSubtaskName.trim()) {
+                      setPendingSubtasks((prev) => [
+                        ...prev,
+                        newSubtaskName.trim(),
+                      ]);
+                      setNewSubtaskName("");
+                    }
+                  }}
+                  className="btn-theme-primary text-white rounded px-3 py-1.5 text-sm transition-all"
+                >
+                  Add
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingSubtask(false);
+                    setNewSubtaskName("");
+                  }}
+                  className="text-zinc-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : null}
+          </div>
 
           {/* Form Actions */}
           <div className="flex justify-between pt-6 border-t border-zinc-800">
@@ -1634,7 +2072,7 @@ export function TaskModal({
                   <Check className="w-5 h-5" />
                 </button>
                 <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/save:opacity-100 transition-opacity pointer-events-none z-50">
-                  {isEditMode ? 'Save Changes' : 'Add Task'}
+                  {isEditMode ? "Save Changes" : "Add Task"}
                 </span>
               </span>
             </div>
@@ -1642,5 +2080,5 @@ export function TaskModal({
         </form>
       </div>
     </div>
-  )
+  );
 }
