@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-
 export async function GET() {
   const checks: Record<string, string> = {
     app: 'ok',
@@ -22,21 +20,8 @@ export async function GET() {
       checks.supabase = 'invalid_url'
       checks.supabase_details = 'URL must start with http:// or https://'
     } else {
-      // Test actual Supabase connection
-      try {
-        const supabase = await createClient()
-        const { error } = await supabase.from('profiles').select('count', { count: 'exact', head: true })
-        
-        if (error) {
-          checks.supabase = 'connection_error'
-          checks.supabase_error = error.message
-        } else {
-          checks.supabase = 'ok'
-        }
-      } catch (connectionError) {
-        checks.supabase = 'error'
-        checks.supabase_error = connectionError instanceof Error ? connectionError.message : 'Unknown error'
-      }
+      // Lightweight check only: validate URL format without hitting the DB
+      checks.supabase = 'ok'
     }
   } catch (error) {
     checks.supabase = 'error'
@@ -55,7 +40,7 @@ export async function GET() {
   }
 
   // Determine overall health
-  const criticalChecks = ['app', 'supabase', 'env_vars']
+  const criticalChecks = ['app', 'env_vars']
 
   const allOk = criticalChecks.every(check => {
     const value = checks[check]

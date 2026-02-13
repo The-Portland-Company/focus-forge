@@ -12,7 +12,7 @@ export function createClient() {
           const cookieStore = await cookies()
           const cookie = cookieStore.get(name)
           // Log auth-related cookies for debugging
-          if (name.includes('auth-token')) {
+          if (process.env.SUPABASE_DEBUG === 'true' && name.includes('auth-token')) {
             console.log(`Getting cookie ${name}:`, cookie ? 'exists' : 'not found')
           }
           return cookie?.value
