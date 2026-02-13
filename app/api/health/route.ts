@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server'
+import { headers } from 'next/headers'
 export async function GET() {
+  const requestHeaders = await headers()
+  const railwayRequestId = requestHeaders.get('x-railway-request-id') || 'unknown'
+
   const checks: Record<string, string> = {
     app: 'ok',
     supabase: 'unknown',
     environment: process.env.NODE_ENV || 'unknown',
     port: process.env.PORT || '3244',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    railway_request_id: railwayRequestId
   }
 
   // Check Supabase connection
@@ -53,7 +58,13 @@ export async function GET() {
     { 
       status,
       checks,
-      criticalChecks 
+      criticalChecks,
+      build: {
+        git_commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || 'unknown',
+        deployment_id: process.env.RAILWAY_DEPLOYMENT_ID || 'unknown',
+        service: process.env.RAILWAY_SERVICE_NAME || 'unknown',
+        environment: process.env.RAILWAY_ENVIRONMENT_NAME || process.env.NODE_ENV || 'unknown'
+      }
     },
     { 
       status: allOk ? 200 : 503,
