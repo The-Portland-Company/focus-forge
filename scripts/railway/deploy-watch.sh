@@ -75,6 +75,29 @@ if [[ -z "${TARGET_COMMIT}" ]]; then
   TARGET_COMMIT="$(git rev-parse HEAD)"
 fi
 
+deployment_for_commit_json() {
+  railway deployment list -s "${SERVICE_NAME}" -e "${ENV_NAME}" --limit 100 --json | node -e '
+    let s = "";
+    process.stdin.on("data", (d) => (s += d));
+    process.stdin.on("end", () => {
+      const deployments = JSON.parse(s);
+      const target = process.env.TARGET_COMMIT;
+      const match = (deployments || []).find((d) => d?.meta?.commitHash === target) || null;
+      const out = {
+        deploymentId: match?.id || "",
+        status: match?.status || "",
+        skippedReason: match?.meta?.skippedReason || "",
+        createdAt: match?.createdAt || "",
+        commitHash: match?.meta?.commitHash || "",
+        commitMessage: match?.meta?.commitMessage || "",
+      };
+      process.stdout.write(JSON.stringify(out));
+    });
+  '
+}
+
+export TARGET_COMMIT
+
 trigger_deploy() {
   case "${TRIGGER}" in
     none)
@@ -122,14 +145,23 @@ wait_for_target_commit() {
   start_epoch="$(date +%s)"
 
   while true; do
-    json="$(latest_json)"
+    json="$(deployment_for_commit_json)"
     id="$(node -e 'const j=JSON.parse(process.argv[1]);console.log(j.deploymentId||"")' "${json}")"
-    commit="$(node -e 'const j=JSON.parse(process.argv[1]);console.log(j.commitHash||"")' "${json}")"
+    status="$(node -e 'const j=JSON.parse(process.argv[1]);console.log(j.status||"")' "${json}")"
+    reason="$(node -e 'const j=JSON.parse(process.argv[1]);console.log(j.skippedReason||"")' "${json}")"
     msg="$(node -e 'const j=JSON.parse(process.argv[1]);console.log(j.commitMessage||"")' "${json}")"
 
-    echo "Latest: ${id} ${commit} ${msg}"
+    if [[ -n "${id}" ]]; then
+      echo "Deployment: ${id} status=${status} ${msg} ${reason}" >&2
+    else
+      echo "Waiting for deployment record for commit ${target}" >&2
+    fi
 
-    if [[ -n "${id}" && "${commit}" == "${target}" ]]; then
+    if [[ -n "${id}" ]]; then
+      if [[ "${status}" == "SKIPPED" ]]; then
+        echo "Deployment was skipped: ${reason}" >&2
+        return 1
+      fi
       echo "${id}"
       return 0
     fi
@@ -162,6 +194,10 @@ capture_logs() {
     set -e
 
     if [[ "${rc}" -eq 0 ]]; then
+      break
+    fi
+
+    if rg -n "Deployment does not have an associated build" "${build_path}" >/dev/null; then
       break
     fi
 
@@ -216,7 +252,8 @@ capture_logs() {
 
 is_success() {
   local build_path="$1"
-  if rg -n "Healthcheck failed|replicas never became healthy|Build failed" "${build_path}" >/dev/null; then
+  local deploy_path="$2"
+  if rg -n "Healthcheck failed|replicas never became healthy|Build failed" "${build_path}" "${deploy_path}" >/dev/null; then
     return 1
   fi
   return 0
@@ -241,7 +278,7 @@ while true; do
 
   read -r build_path deploy_path < <(capture_logs "${new_id}")
 
-  if is_success "${build_path}"; then
+  if is_success "${build_path}" "${deploy_path}"; then
     echo "Result: success"
     exit 0
   fi
