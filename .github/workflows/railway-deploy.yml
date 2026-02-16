@@ -1,0 +1,63 @@
+name: Deploy to Railway
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch: {}
+
+concurrency:
+  group: railway-deploy-main
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli@4.5.3
+
+      - name: Link Railway Project
+        run: railway link -p fbc264f9-bb98-4fbd-a7c6-ccbf3f728280 -e production -s app
+
+      - name: Deploy (Retry)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+
+          for attempt in 1 2 3; do
+            echo "railway up attempt ${attempt}/3"
+            set +e
+            railway up -c 2>&1 | tee "logs/railway-up-attempt-${attempt}.log"
+            rc="${PIPESTATUS[0]}"
+            set -e
+
+            if [ "${rc}" -eq 0 ]; then
+              echo "railway up succeeded"
+              break
+            fi
+
+            if [ "${attempt}" -eq 3 ]; then
+              echo "railway up failed after 3 attempts"
+              exit "${rc}"
+            fi
+
+            sleep 10
+          done
+
+      - name: Railway Status
+        run: railway status --json > logs/railway-status.json
+
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: railway-logs
+          path: |
+            logs/railway-up-attempt-*.log
+            logs/railway-status.json
