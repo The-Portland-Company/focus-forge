@@ -35,6 +35,11 @@ export async function middleware(request: NextRequest) {
     return applySecurityHeaders(NextResponse.next());
   }
 
+  // Railway healthchecks may come through as plain HTTP internally; do not redirect them.
+  if (pathname.startsWith("/api/health")) {
+    return applySecurityHeaders(NextResponse.next());
+  }
+
   // Enforce HTTPS in production
   if (
     process.env.NODE_ENV === "production" &&
