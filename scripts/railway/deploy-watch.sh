@@ -152,8 +152,61 @@ capture_logs() {
   local build_path="logs/railway-build-${deploy_id}-${stamp}.jsonl"
   local deploy_path="logs/railway-deploy-${deploy_id}-${stamp}.jsonl"
 
-  railway logs -b "${deploy_id}" --json | tee "${build_path}" >/dev/null
-  railway logs -d "${deploy_id}" --json | tee "${deploy_path}" >/dev/null
+  local start_epoch now_epoch
+  start_epoch="$(date +%s)"
+
+  while true; do
+    set +e
+    railway logs -b "${deploy_id}" --json | tee "${build_path}" >/dev/null
+    rc="${PIPESTATUS[0]}"
+    set -e
+
+    if [[ "${rc}" -eq 0 ]]; then
+      break
+    fi
+
+    if rg -n "Deployment not found|Deployment id does not exist" "${build_path}" >/dev/null; then
+      : > "${build_path}"
+    else
+      echo "Build logs failed (exit ${rc}). See ${build_path}" >&2
+      return "${rc}"
+    fi
+
+    now_epoch="$(date +%s)"
+    if (( now_epoch - start_epoch > 1800 )); then
+      echo "Timed out waiting for build logs for ${deploy_id}" >&2
+      return 1
+    fi
+
+    sleep 10
+  done
+
+  start_epoch="$(date +%s)"
+  while true; do
+    set +e
+    railway logs -d "${deploy_id}" --json | tee "${deploy_path}" >/dev/null
+    rc="${PIPESTATUS[0]}"
+    set -e
+
+    if [[ "${rc}" -eq 0 ]]; then
+      break
+    fi
+
+    if rg -n "Deployment not found|Deployment id does not exist" "${deploy_path}" >/dev/null; then
+      : > "${deploy_path}"
+    else
+      echo "Deploy logs failed (exit ${rc}). See ${deploy_path}" >&2
+      return "${rc}"
+    fi
+
+    now_epoch="$(date +%s)"
+    if (( now_epoch - start_epoch > 1800 )); then
+      echo "Timed out waiting for deploy logs for ${deploy_id}" >&2
+      return 1
+    fi
+
+    sleep 10
+  done
 
   ln -sf "$(basename "${build_path}")" logs/railway-build-latest.jsonl
   ln -sf "$(basename "${deploy_path}")" logs/railway-deploy-latest.jsonl
