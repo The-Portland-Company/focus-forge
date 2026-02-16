@@ -10,6 +10,7 @@ SERVICE_NAME="app"
 ENV_NAME="production"
 TRIGGER="none" # none|redeploy|push
 RETRIES="0"
+TARGET_COMMIT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,6 +28,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --retries)
       RETRIES="${2:-0}"
+      shift 2
+      ;;
+    --target-commit)
+      TARGET_COMMIT="${2:-}"
       shift 2
       ;;
     *)
@@ -65,6 +70,10 @@ latest_json() {
 }
 
 export SERVICE_NAME ENV_NAME
+
+if [[ -z "${TARGET_COMMIT}" ]]; then
+  TARGET_COMMIT="$(git rev-parse HEAD)"
+fi
 
 trigger_deploy() {
   case "${TRIGGER}" in
@@ -107,6 +116,34 @@ wait_for_new_deploy() {
   done
 }
 
+wait_for_target_commit() {
+  local target="$1"
+  local start_epoch now_epoch json id commit msg
+  start_epoch="$(date +%s)"
+
+  while true; do
+    json="$(latest_json)"
+    id="$(node -e 'const j=JSON.parse(process.argv[1]);console.log(j.deploymentId||"")' "${json}")"
+    commit="$(node -e 'const j=JSON.parse(process.argv[1]);console.log(j.commitHash||"")' "${json}")"
+    msg="$(node -e 'const j=JSON.parse(process.argv[1]);console.log(j.commitMessage||"")' "${json}")"
+
+    echo "Latest: ${id} ${commit} ${msg}"
+
+    if [[ -n "${id}" && "${commit}" == "${target}" ]]; then
+      echo "${id}"
+      return 0
+    fi
+
+    now_epoch="$(date +%s)"
+    if (( now_epoch - start_epoch > 1800 )); then
+      echo "Timed out waiting for deployment of commit ${target}" >&2
+      return 1
+    fi
+
+    sleep 10
+  done
+}
+
 capture_logs() {
   local deploy_id="$1"
   local stamp
@@ -142,12 +179,12 @@ while true; do
 
   trigger_deploy
 
-  if [[ "${TRIGGER}" == "none" ]]; then
-    new_id="${before_id}"
-  else
+  if [[ "${TRIGGER}" != "none" ]]; then
     new_id="$(wait_for_new_deploy "${before_id}")"
     echo "New deployment: ${new_id}"
   fi
+
+  new_id="$(wait_for_target_commit "${TARGET_COMMIT}")"
 
   read -r build_path deploy_path < <(capture_logs "${new_id}")
 
