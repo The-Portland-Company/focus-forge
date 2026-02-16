@@ -189,7 +189,7 @@ capture_logs() {
 
   while true; do
     set +e
-    railway logs -b "${deploy_id}" --json | tee "${build_path}" >/dev/null
+    railway logs -b "${deploy_id}" --json 2>&1 | tee "${build_path}" >/dev/null
     rc="${PIPESTATUS[0]}"
     set -e
 
@@ -198,7 +198,10 @@ capture_logs() {
     fi
 
     if rg -n "Deployment does not have an associated build" "${build_path}" >/dev/null; then
-      break
+      : > "${build_path}"
+      # Build hasn't started yet (WAITING/QUEUED). Keep polling.
+      sleep 10
+      continue
     fi
 
     if rg -n "Deployment not found|Deployment id does not exist" "${build_path}" >/dev/null; then
@@ -220,7 +223,7 @@ capture_logs() {
   start_epoch="$(date +%s)"
   while true; do
     set +e
-    railway logs -d "${deploy_id}" --json | tee "${deploy_path}" >/dev/null
+    railway logs -d "${deploy_id}" --json 2>&1 | tee "${deploy_path}" >/dev/null
     rc="${PIPESTATUS[0]}"
     set -e
 
