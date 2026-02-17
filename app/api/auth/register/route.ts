@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
 export async function POST(request: Request) {
@@ -49,6 +50,42 @@ export async function POST(request: Request) {
     })
     
     if (error) {
+      const isEmailRateLimit = /email rate limit exceeded/i.test(error.message || '')
+
+      if (isEmailRateLimit) {
+        const admin = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          { auth: { persistSession: false, autoRefreshToken: false } }
+        )
+
+        const { error: adminError } = await admin.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: {
+            first_name: firstName,
+            last_name: lastName,
+            display_name: `${firstName} ${lastName}`
+          }
+        })
+
+        if (!adminError) {
+          return NextResponse.json(
+            {
+              success: true,
+              message: 'Registration successful'
+            },
+            { status: 201 }
+          )
+        }
+
+        return NextResponse.json(
+          { error: adminError.message },
+          { status: 400 }
+        )
+      }
+
       return NextResponse.json(
         { error: error.message },
         { status: 400 }
