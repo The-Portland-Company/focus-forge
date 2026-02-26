@@ -3,7 +3,7 @@ import Foundation
 final class APIClient {
     enum APIError: LocalizedError {
         case invalidURL
-        case unauthorized
+        case unauthorized(String)
         case decodingError
         case serverError(String)
         case unknown
@@ -11,7 +11,8 @@ final class APIClient {
         var errorDescription: String? {
             switch self {
             case .invalidURL: return "Invalid API URL"
-            case .unauthorized: return "Unauthorized"
+            case .unauthorized(let details):
+                return details.isEmpty ? "Unauthorized" : details
             case .decodingError: return "Response parsing failed"
             case .serverError(let message): return message
             case .unknown: return "Unknown API error"
@@ -55,12 +56,14 @@ final class APIClient {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            if httpResponse.statusCode == 401 { throw APIError.unauthorized }
             let envelope = try? JSONDecoder().decode(APIEnvelope<EmptyPayload>.self, from: data)
             let rawBody = String(data: data, encoding: .utf8) ?? ""
             let code = envelope?.error?.code ?? "http_\(httpResponse.statusCode)"
             let message = envelope?.error?.message ?? "Request failed with status \(httpResponse.statusCode)"
             let composed = "\(code): \(message)\(rawBody.isEmpty ? "" : " | body=\(rawBody)")"
+            if httpResponse.statusCode == 401 {
+                throw APIError.unauthorized(composed)
+            }
             throw APIError.serverError(composed)
         }
 

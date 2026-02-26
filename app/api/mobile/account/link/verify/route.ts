@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
       request.headers.get('authorization'),
     )
     if (!auth.ok) {
+      console.error('❌ account link verify auth failed:', auth.error.error)
       return NextResponse.json(auth.error, { status: auth.status })
     }
 
@@ -49,6 +50,10 @@ export async function POST(request: NextRequest) {
     })
 
     if (error || !data?.user) {
+      console.error('❌ account link verify credential check failed:', {
+        email,
+        message: error?.message,
+      })
       return NextResponse.json(
         mobileFailure(
           'invalid_credentials',
@@ -123,4 +128,3 @@ export async function POST(request: NextRequest) {
     )
   }
 }
-

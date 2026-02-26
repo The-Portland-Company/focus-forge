@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
       request.headers.get('authorization'),
     )
     if (!auth.ok) {
+      console.error('❌ account link complete auth failed:', auth.error.error)
       return NextResponse.json(auth.error, { status: auth.status })
     }
 
@@ -199,4 +200,3 @@ export async function POST(request: NextRequest) {
     )
   }
 }
-

@@ -77,46 +77,63 @@ final class SessionStore: ObservableObject {
     }
 
     func verifyAccountLink(email: String, password: String) async throws -> LinkVerifyPayload {
-        guard let accessToken else {
-            throw APIClient.APIError.unauthorized
+        try await performAuthenticatedRequest { [self] accessToken in
+            let envelope = try await self.apiClient.request(
+                path: "/api/mobile/account/link/verify",
+                method: "POST",
+                accessToken: accessToken,
+                body: LinkVerifyRequest(email: email, password: password),
+                responseType: APIEnvelope<LinkVerifyPayload>.self
+            )
+
+            guard let payload = envelope.data else {
+                throw APIClient.APIError.serverError(envelope.error?.message ?? "Account verification failed")
+            }
+
+            return payload
         }
-
-        let envelope = try await apiClient.request(
-            path: "/api/mobile/account/link/verify",
-            method: "POST",
-            accessToken: accessToken,
-            body: LinkVerifyRequest(email: email, password: password),
-            responseType: APIEnvelope<LinkVerifyPayload>.self
-        )
-
-        guard let payload = envelope.data else {
-            throw APIClient.APIError.serverError(envelope.error?.message ?? "Account verification failed")
-        }
-
-        return payload
     }
 
     func completeAccountLink(linkToken: String, transferTaskOwnership: Bool) async throws -> LinkCompletePayload {
-        guard let accessToken else {
-            throw APIClient.APIError.unauthorized
+        try await performAuthenticatedRequest { [self] accessToken in
+            let envelope = try await self.apiClient.request(
+                path: "/api/mobile/account/link/complete",
+                method: "POST",
+                accessToken: accessToken,
+                body: LinkCompleteRequest(
+                    link_token: linkToken,
+                    transfer_task_ownership: transferTaskOwnership
+                ),
+                responseType: APIEnvelope<LinkCompletePayload>.self
+            )
+
+            guard let payload = envelope.data else {
+                throw APIClient.APIError.serverError(envelope.error?.message ?? "Account linking failed")
+            }
+
+            return payload
+        }
+    }
+
+    private func performAuthenticatedRequest<T>(
+        _ request: @escaping (String) async throws -> T
+    ) async throws -> T {
+        guard let token = accessToken else {
+            throw APIClient.APIError.unauthorized("No access token in session")
         }
 
-        let envelope = try await apiClient.request(
-            path: "/api/mobile/account/link/complete",
-            method: "POST",
-            accessToken: accessToken,
-            body: LinkCompleteRequest(
-                link_token: linkToken,
-                transfer_task_ownership: transferTaskOwnership
-            ),
-            responseType: APIEnvelope<LinkCompletePayload>.self
-        )
-
-        guard let payload = envelope.data else {
-            throw APIClient.APIError.serverError(envelope.error?.message ?? "Account linking failed")
+        do {
+            return try await request(token)
+        } catch let error as APIClient.APIError {
+            if case .unauthorized = error {
+                await refreshIfNeeded()
+                guard let refreshed = accessToken else {
+                    throw APIClient.APIError.unauthorized("Session expired and refresh failed")
+                }
+                return try await request(refreshed)
+            }
+            throw error
         }
-
-        return payload
     }
 
     private func applySession(_ session: MobileSessionPayload) {
