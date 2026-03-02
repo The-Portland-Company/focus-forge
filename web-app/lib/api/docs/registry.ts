@@ -95,7 +95,8 @@ const endpointOverrides: Record<
   },
   "/api/mobile/tasks": {
     auth: "bearer",
-    summary: "List/create mobile tasks.",
+    summary:
+      "List/create mobile tasks. Accepts mobile access JWT or PAT bearer token.",
     tags: ["mobile", "tasks"],
   },
   "/api/mobile/tasks/{id}": {
