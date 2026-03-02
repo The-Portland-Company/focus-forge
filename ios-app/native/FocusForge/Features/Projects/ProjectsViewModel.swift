@@ -60,6 +60,11 @@ final class ProjectsViewModel: ObservableObject {
                 accessToken: accessToken,
                 projectID: projectID
             )
+        } catch {
+            taskLists = []
+        }
+
+        do {
             do {
                 projectTasks = try await repository.fetchProjectTasks(
                     accessToken: accessToken,

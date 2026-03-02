@@ -1,0 +1,39 @@
+name: FocusForge
+options:
+  bundleIdPrefix: com.theportlandcompany
+settings:
+  base:
+    SWIFT_VERSION: 5.9
+    IPHONEOS_DEPLOYMENT_TARGET: 17.0
+targets:
+  FocusForge:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: FocusForge
+    resources:
+      - path: FocusForge/Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.theportlandcompany.focusforge
+        INFOPLIST_FILE: FocusForge/Resources/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: VP38993WK6
+        CODE_SIGN_ENTITLEMENTS: FocusForge/Resources/FocusForge.entitlements
+    info:
+      path: FocusForge/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Focus Forge
+        UILaunchScreen:
+          UIColorName: ""
+          UIImageName: ""
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIUserInterfaceStyle: Dark
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: false
+        CFBundleURLTypes:
+          - CFBundleURLName: focusforge
+            CFBundleURLSchemes:
+              - focusforge
