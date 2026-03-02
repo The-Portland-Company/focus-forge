@@ -89,7 +89,8 @@ const endpointOverrides: Record<
   },
   "/api/mobile/bootstrap": {
     auth: "bearer",
-    summary: "Load mobile bootstrap snapshot (user, orgs, projects, today tasks).",
+    summary:
+      "Load mobile bootstrap snapshot (user, orgs, projects, today tasks). Accepts mobile access JWT or PAT bearer token.",
     tags: ["mobile", "tasks"],
   },
   "/api/mobile/tasks": {
