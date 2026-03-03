@@ -10,6 +10,8 @@ final class SessionStore: ObservableObject {
     @Published var errorMessage: String?
 
     private let apiClient: APIClient
+    private let supabaseURL = "https://tnjkeunwcdfmjbgkqgjj.supabase.co"
+    private let supabaseAnonKey = "SUPABASE_ANON_KEY_REMOVED"
     private let authLogger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.theportlandcompany.focusforge",
         category: "auth"
@@ -45,8 +47,23 @@ final class SessionStore: ObservableObject {
             applySession(session)
             errorMessage = nil
         } catch {
-            print("Email login failure:", error.localizedDescription)
-            errorMessage = error.localizedDescription
+            do {
+                let session = try await apiClient.request(
+                    path: "\(supabaseURL)/auth/v1/token?grant_type=password",
+                    method: "POST",
+                    extraHeaders: [
+                        "apikey": supabaseAnonKey,
+                        "Authorization": "Bearer \(supabaseAnonKey)"
+                    ],
+                    body: LoginRequest(email: email, password: password),
+                    responseType: MobileSessionPayload.self
+                )
+                applySession(session)
+                errorMessage = nil
+            } catch {
+                print("Email login failure:", error.localizedDescription)
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -131,6 +148,12 @@ final class SessionStore: ObservableObject {
         }
     }
 
+    func withAuthenticatedToken<T>(
+        _ request: @escaping (String) async throws -> T
+    ) async throws -> T {
+        try await performAuthenticatedRequest(request)
+    }
+
     private func performAuthenticatedRequest<T>(
         _ request: @escaping (String) async throws -> T
     ) async throws -> T {
@@ -170,4 +193,52 @@ final class SessionStore: ObservableObject {
         KeychainStore.delete(key: "ff_refresh_token")
     }
 
+}
+
+@MainActor
+final class TaskDetailStore: ObservableObject {
+    private let repository: TaskRepository
+    private unowned let sessionStore: SessionStore
+
+    init(repository: TaskRepository, sessionStore: SessionStore) {
+        self.repository = repository
+        self.sessionStore = sessionStore
+    }
+
+    func updateTask(taskID: String, request: PatchTaskRequest) async throws -> MobileTaskDTO {
+        try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+            try await repository.updateTask(
+                accessToken: accessToken,
+                taskID: taskID,
+                request: request
+            )
+        }
+    }
+
+    func deleteTask(taskID: String) async throws {
+        try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+            try await repository.deleteTask(accessToken: accessToken, taskID: taskID)
+        }
+    }
+
+    func fetchTaskComments(taskID: String) async throws -> [MobileCommentDTO] {
+        try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+            try await repository.fetchTaskComments(accessToken: accessToken, taskID: taskID)
+        }
+    }
+
+    func createTaskComment(
+        taskID: String,
+        projectID: String?,
+        content: String
+    ) async throws -> MobileCommentDTO {
+        try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+            try await repository.createTaskComment(
+                accessToken: accessToken,
+                taskID: taskID,
+                projectID: projectID,
+                content: content
+            )
+        }
+    }
 }

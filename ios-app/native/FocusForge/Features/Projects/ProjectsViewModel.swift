@@ -21,20 +21,26 @@ final class ProjectsViewModel: ObservableObject {
     }
 
     func loadOrganizations() async {
-        guard let accessToken = sessionStore.accessToken else { return }
         isLoading = true
         areProjectCountsLoaded = false
         defer { isLoading = false }
 
         do {
-            organizations = try await repository.fetchOrganizations(accessToken: accessToken)
-            projects = try await repository.fetchProjects(accessToken: accessToken)
-            let allTasks = try await repository.fetchAll(accessToken: accessToken)
+            let payload = try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+                async let loadedOrganizations = repository.fetchOrganizations(accessToken: accessToken)
+                async let loadedProjects = repository.fetchProjects(accessToken: accessToken)
+                async let loadedTasks = repository.fetchAll(accessToken: accessToken)
+                return try await (loadedOrganizations, loadedProjects, loadedTasks)
+            }
+            organizations = payload.0
+            projects = payload.1
+            let allTasks = payload.2
             projectTaskCounts = Dictionary(
                 grouping: allTasks.filter { !$0.completed && ($0.project_id?.isEmpty == false) },
                 by: { $0.project_id ?? "" }
             ).mapValues(\.count)
             areProjectCountsLoaded = true
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
             areProjectCountsLoaded = false
@@ -50,33 +56,29 @@ final class ProjectsViewModel: ObservableObject {
     }
 
     func loadTaskLists(projectID: String) async {
-        guard let accessToken = sessionStore.accessToken else { return }
         isLoading = true
         defer { isLoading = false }
         activeProjectID = projectID
 
         do {
-            taskLists = try await repository.fetchProjectTaskLists(
-                accessToken: accessToken,
-                projectID: projectID
-            )
+            taskLists = try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+                try await repository.fetchProjectTaskLists(
+                    accessToken: accessToken,
+                    projectID: projectID
+                )
+            }
         } catch {
             taskLists = []
         }
 
         do {
-            do {
-                projectTasks = try await repository.fetchProjectTasks(
+            projectTasks = try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+                try await repository.fetchProjectTasks(
                     accessToken: accessToken,
                     projectID: projectID
                 )
-            } catch {
-                projectTasks = try await repository.fetchTasks(
-                    accessToken: accessToken,
-                    view: "all",
-                    projectID: projectID
-                ).filter { !$0.completed }
             }
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -105,37 +107,40 @@ final class ProjectsViewModel: ObservableObject {
     }
 
     func createTaskList(projectID: String, name: String) async {
-        guard let accessToken = sessionStore.accessToken else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         do {
-            _ = try await repository.createProjectTaskList(
-                accessToken: accessToken,
-                projectID: projectID,
-                name: trimmed
-            )
+            _ = try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+                try await repository.createProjectTaskList(
+                    accessToken: accessToken,
+                    projectID: projectID,
+                    name: trimmed
+                )
+            }
             await loadTaskLists(projectID: projectID)
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
     func moveTask(taskID: String, to taskList: MobileTaskListDTO, projectID: String) async {
-        guard let accessToken = sessionStore.accessToken else { return }
-
         do {
-            let updated = try await repository.updateTask(
-                accessToken: accessToken,
-                taskID: taskID,
-                request: PatchTaskRequest(section_id: taskList.section_id)
-            )
+            let updated = try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+                try await repository.updateTask(
+                    accessToken: accessToken,
+                    taskID: taskID,
+                    request: PatchTaskRequest(section_id: taskList.section_id)
+                )
+            }
 
             if let index = projectTasks.firstIndex(where: { $0.id == updated.id }) {
                 projectTasks[index] = updated
             }
 
             await loadTaskLists(projectID: projectID)
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -173,5 +178,17 @@ final class ProjectsViewModel: ObservableObject {
             return nil
         }
         return value
+    }
+
+    func applyTaskUpdate(_ task: MobileTaskDTO) {
+        if let index = projectTasks.firstIndex(where: { $0.id == task.id }) {
+            projectTasks[index] = task
+        } else {
+            projectTasks.insert(task, at: 0)
+        }
+    }
+
+    func removeTask(_ taskID: String) {
+        projectTasks.removeAll(where: { $0.id == taskID })
     }
 }

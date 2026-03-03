@@ -1,0 +1,78 @@
+name: iOS Build
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "ios-*"
+  pull_request:
+    paths:
+      - "ios-app/**"
+      - "web-app/app/**"
+      - "web-app/components/**"
+      - "web-app/lib/**"
+      - "web-app/package.json"
+      - "web-app/package-lock.json"
+      - "web-app/next.config.mjs"
+      - ".github/workflows/ios-build.yml"
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mobile-export:
+    name: Mobile Export
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web-app/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+        working-directory: web-app
+
+      - name: Build Mobile Bundle
+        run: npm run mobile:prod
+        working-directory: web-app
+
+  ios-simulator-build:
+    name: iOS Simulator Build
+    runs-on: macos-latest
+    needs: mobile-export
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web-app/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+        working-directory: web-app
+
+      - name: Build Mobile Bundle
+        run: npm run mobile:prod
+        working-directory: web-app
+
+      - name: Build iOS App (No Signing)
+        run: |
+          xcodebuild \
+            -workspace ios-app/capacitor/ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=iPhone 15" \
+            CODE_SIGNING_ALLOWED=NO \
+            build

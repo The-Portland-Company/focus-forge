@@ -4,6 +4,7 @@ import SwiftData
 @main
 struct FocusForgeApp: App {
     @StateObject private var sessionStore: SessionStore
+    @StateObject private var taskDetailStore: TaskDetailStore
     @StateObject private var todayViewModel: TodayViewModel
     @StateObject private var upcomingViewModel: UpcomingViewModel
     @StateObject private var searchViewModel: SearchViewModel
@@ -16,7 +17,9 @@ struct FocusForgeApp: App {
         let repository = TaskRepository(apiClient: apiClient, context: context)
 
         let session = SessionStore(apiClient: apiClient)
+        let taskDetail = TaskDetailStore(repository: repository, sessionStore: session)
         _sessionStore = StateObject(wrappedValue: session)
+        _taskDetailStore = StateObject(wrappedValue: taskDetail)
         _todayViewModel = StateObject(wrappedValue: TodayViewModel(repository: repository, sessionStore: session))
         _upcomingViewModel = StateObject(wrappedValue: UpcomingViewModel(repository: repository, sessionStore: session))
         _searchViewModel = StateObject(wrappedValue: SearchViewModel(repository: repository, sessionStore: session))
@@ -32,6 +35,7 @@ struct FocusForgeApp: App {
                 projectsViewModel: projectsViewModel
             )
             .environmentObject(sessionStore)
+            .environmentObject(taskDetailStore)
         }
     }
 }

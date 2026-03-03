@@ -26,13 +26,27 @@ final class SearchViewModel: ObservableObject {
     }
 
     func load() async {
-        guard let accessToken = sessionStore.accessToken else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            allTasks = try await repository.fetchAll(accessToken: accessToken)
+            allTasks = try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+                try await repository.fetchAll(accessToken: accessToken)
+            }
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func applyTaskUpdate(_ task: MobileTaskDTO) {
+        if let index = allTasks.firstIndex(where: { $0.id == task.id }) {
+            allTasks[index] = task
+        } else {
+            allTasks.insert(task, at: 0)
+        }
+    }
+
+    func removeTask(_ taskID: String) {
+        allTasks.removeAll(where: { $0.id == taskID })
     }
 }

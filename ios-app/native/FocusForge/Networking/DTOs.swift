@@ -169,6 +169,47 @@ struct MobileTaskDTO: Decodable, Identifiable {
     }
 }
 
+struct MobileCommentDTO: Decodable, Identifiable {
+    let id: String
+    let content: String
+    let task_id: String?
+    let project_id: String?
+    let user_id: String?
+    let created_at: String?
+    let updated_at: String?
+    let is_deleted: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case content
+        case task_id
+        case project_id
+        case user_id
+        case created_at
+        case updated_at
+        case is_deleted
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let idString = try? container.decode(String.self, forKey: .id) {
+            id = idString
+        } else if let idInt = try? container.decode(Int.self, forKey: .id) {
+            id = String(idInt)
+        } else {
+            id = UUID().uuidString
+        }
+
+        content = (try? container.decode(String.self, forKey: .content)) ?? ""
+        task_id = try? container.decodeIfPresent(String.self, forKey: .task_id)
+        project_id = try? container.decodeIfPresent(String.self, forKey: .project_id)
+        user_id = try? container.decodeIfPresent(String.self, forKey: .user_id)
+        created_at = try? container.decodeIfPresent(String.self, forKey: .created_at)
+        updated_at = try? container.decodeIfPresent(String.self, forKey: .updated_at)
+        is_deleted = try? container.decodeIfPresent(Bool.self, forKey: .is_deleted)
+    }
+}
+
 struct CreateTaskRequest: Encodable {
     let name: String
     let description: String?
@@ -259,4 +300,10 @@ struct MobileTaskListDTO: Decodable, Identifiable {
 
 struct CreateTaskListRequest: Encodable {
     let name: String
+}
+
+struct CreateCommentRequest: Encodable {
+    let content: String
+    let taskId: String?
+    let projectId: String?
 }

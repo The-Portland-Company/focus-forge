@@ -35,6 +35,7 @@ final class APIClient {
         path: String,
         method: String = "GET",
         accessToken: String? = nil,
+        extraHeaders: [String: String] = [:],
         body: Encodable? = nil,
         responseType: T.Type
     ) async throws -> T {
@@ -47,6 +48,9 @@ final class APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let accessToken {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
+        extraHeaders.forEach { key, value in
+            request.setValue(value, forHTTPHeaderField: key)
         }
 
         if let body {

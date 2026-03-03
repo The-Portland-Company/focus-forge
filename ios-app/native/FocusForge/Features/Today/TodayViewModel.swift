@@ -85,13 +85,16 @@ final class TodayViewModel: ObservableObject {
     }
 
     func loadInitial() async {
-        guard let accessToken = sessionStore.accessToken else { return }
         isLoading = true
         defer { isLoading = false }
 
         do {
-            _ = try await repository.bootstrap(accessToken: accessToken)
-            tasks = try await repository.fetchToday(accessToken: accessToken)
+            let loaded = try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+                _ = try await repository.bootstrap(accessToken: accessToken)
+                return try await repository.fetchToday(accessToken: accessToken)
+            }
+            tasks = loaded
+            errorMessage = nil
         } catch {
             tasks = repository.cachedTasks().map {
                 MobileTaskDTO(
@@ -111,41 +114,47 @@ final class TodayViewModel: ObservableObject {
     }
 
     func refresh() async {
-        guard let accessToken = sessionStore.accessToken else { return }
         do {
-            tasks = try await repository.fetchToday(accessToken: accessToken)
+            tasks = try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+                try await repository.fetchToday(accessToken: accessToken)
+            }
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
     func createTask(name: String, description: String?) async {
-        guard let accessToken = sessionStore.accessToken else { return }
         do {
-            let created = try await repository.createTask(
-                accessToken: accessToken,
-                request: CreateTaskRequest(
-                    name: name,
-                    description: description,
-                    due_date: nil,
-                    due_time: nil,
-                    priority: 4,
-                    project_id: nil
+            let created = try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+                try await repository.createTask(
+                    accessToken: accessToken,
+                    request: CreateTaskRequest(
+                        name: name,
+                        description: description,
+                        due_date: nil,
+                        due_time: nil,
+                        priority: 4,
+                        project_id: nil
+                    )
                 )
-            )
+            }
             tasks.insert(created, at: 0)
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
     func updateTask(taskID: String, patch: PatchTaskRequest) async {
-        guard let accessToken = sessionStore.accessToken else { return }
         do {
-            let updated = try await repository.updateTask(accessToken: accessToken, taskID: taskID, request: patch)
+            let updated = try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+                try await repository.updateTask(accessToken: accessToken, taskID: taskID, request: patch)
+            }
             if let index = tasks.firstIndex(where: { $0.id == updated.id }) {
                 tasks[index] = updated
             }
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -166,12 +175,26 @@ final class TodayViewModel: ObservableObject {
     }
 
     func deleteTask(taskID: String) async {
-        guard let accessToken = sessionStore.accessToken else { return }
         do {
-            try await repository.deleteTask(accessToken: accessToken, taskID: taskID)
+            try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+                try await repository.deleteTask(accessToken: accessToken, taskID: taskID)
+            }
             tasks.removeAll(where: { $0.id == taskID })
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func applyTaskUpdate(_ task: MobileTaskDTO) {
+        if let index = tasks.firstIndex(where: { $0.id == task.id }) {
+            tasks[index] = task
+        } else {
+            tasks.insert(task, at: 0)
+        }
+    }
+
+    func removeTask(_ taskID: String) {
+        tasks.removeAll(where: { $0.id == taskID })
     }
 }

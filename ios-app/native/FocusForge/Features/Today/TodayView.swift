@@ -17,8 +17,16 @@ struct TodayView: View {
 
                 Section("Overdue & Today") {
                     ForEach(viewModel.visibleTasks) { task in
-                        TaskRowView(task: task) {
-                            Task { await viewModel.toggleComplete(task) }
+                        NavigationLink {
+                            TaskDetailView(task: task) { updated in
+                                viewModel.applyTaskUpdate(updated)
+                            } onTaskDeleted: { taskID in
+                                viewModel.removeTask(taskID)
+                            }
+                        } label: {
+                            TaskRowView(task: task) {
+                                Task { await viewModel.toggleComplete(task) }
+                            }
                         }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {

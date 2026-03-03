@@ -1,0 +1,80 @@
+name: Deploy API to Railway
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "api/**"
+      - ".github/workflows/api-deploy.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: railway-api-deploy-main
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check Railway Token
+        id: token
+        shell: bash
+        run: |
+          if [ -z "${RAILWAY_TOKEN}" ]; then
+            echo "has_token=false" >> "${GITHUB_OUTPUT}"
+            echo "RAILWAY_TOKEN is not set; skipping Railway CLI deploy (job will succeed)."
+            exit 0
+          fi
+          echo "has_token=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Setup Node
+        if: steps.token.outputs.has_token == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install Railway CLI
+        if: steps.token.outputs.has_token == 'true'
+        run: npm i -g @railway/cli@4.30.1
+
+      - name: Link Railway Project
+        if: steps.token.outputs.has_token == 'true'
+        run: railway link -p fbc264f9-bb98-4fbd-a7c6-ccbf3f728280 -e production -s api
+
+      - name: Deploy API (Retry)
+        if: steps.token.outputs.has_token == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+
+          for attempt in 1 2 3; do
+            echo "railway up attempt ${attempt}/3"
+            set +e
+            railway up -c --path-as-root api 2>&1 | tee "logs/railway-up-attempt-${attempt}.log"
+            rc="${PIPESTATUS[0]}"
+            set -e
+
+            if [ "${rc}" -eq 0 ]; then
+              echo "railway up succeeded"
+              break
+            fi
+
+            if [ "${attempt}" -eq 3 ]; then
+              echo "railway up failed after 3 attempts"
+              exit "${rc}"
+            fi
+
+            sleep 10
+          done
+
+      - name: Railway Status
+        if: steps.token.outputs.has_token == 'true'
+        run: railway status --json > logs/railway-status.json

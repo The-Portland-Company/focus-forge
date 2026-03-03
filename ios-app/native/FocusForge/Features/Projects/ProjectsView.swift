@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct ProjectsView: View {
     @ObservedObject var viewModel: ProjectsViewModel
+    @SceneStorage("ff_selected_organization_id") private var selectedOrganizationID = ""
 
     var body: some View {
         NavigationStack {
@@ -14,23 +15,40 @@ struct ProjectsView: View {
                     }
                 }
 
-                Section("Organizations") {
-                    ForEach(viewModel.organizations) { organization in
-                        NavigationLink {
-                            ProjectsByOrganizationView(
-                                organization: organization,
-                                viewModel: viewModel
-                            )
-                        } label: {
-                            HStack {
+                if !viewModel.organizations.isEmpty {
+                    Section("Organization") {
+                        Picker("Organization", selection: $selectedOrganizationID) {
+                            ForEach(viewModel.organizations) { organization in
                                 Text(organization.name)
-                                Spacer()
-                                if viewModel.isLoading {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                } else {
-                                    Text("\(viewModel.projects(for: organization.id).count)")
-                                        .foregroundStyle(.secondary)
+                                    .tag(organization.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                }
+
+                if let organization = selectedOrganization {
+                    let projects = viewModel.projects(for: organization.id)
+                    Section("Projects") {
+                        if projects.isEmpty {
+                            Text("No projects in this organization")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(projects) { project in
+                                NavigationLink {
+                                    ProjectTaskListsView(project: project, viewModel: viewModel)
+                                } label: {
+                                    HStack {
+                                        Text(project.name)
+                                        Spacer()
+                                        if viewModel.areProjectCountsLoaded {
+                                            Text("\(viewModel.taskCount(for: project.id))")
+                                                .foregroundStyle(.secondary)
+                                        } else {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -39,7 +57,13 @@ struct ProjectsView: View {
             }
             .navigationTitle("Organizations")
             .refreshable { await viewModel.loadOrganizations() }
-            .task { await viewModel.loadOrganizations() }
+            .task {
+                await viewModel.loadOrganizations()
+                syncSelectedOrganization()
+            }
+            .onChange(of: viewModel.organizations.map(\.id)) { _, _ in
+                syncSelectedOrganization()
+            }
             .alert("Error", isPresented: Binding(get: {
                 viewModel.errorMessage != nil
             }, set: { newValue in
@@ -50,6 +74,21 @@ struct ProjectsView: View {
                 Text(viewModel.errorMessage ?? "")
             }
         }
+    }
+
+    private var selectedOrganization: BootstrapOrganization? {
+        viewModel.organizations.first(where: { $0.id == selectedOrganizationID })
+    }
+
+    private func syncSelectedOrganization() {
+        guard !viewModel.organizations.isEmpty else {
+            selectedOrganizationID = ""
+            return
+        }
+        if viewModel.organizations.contains(where: { $0.id == selectedOrganizationID }) {
+            return
+        }
+        selectedOrganizationID = viewModel.organizations[0].id
     }
 }
 
@@ -109,10 +148,18 @@ private struct ProjectTaskListsView: View {
                                 .font(.caption)
                         } else {
                             ForEach(tasks) { task in
-                                TaskRowView(task: task) { }
-                                    .onDrag {
-                                        NSItemProvider(object: NSString(string: task.id))
+                                NavigationLink {
+                                    TaskDetailView(task: task) { updated in
+                                        viewModel.applyTaskUpdate(updated)
+                                    } onTaskDeleted: { taskID in
+                                        viewModel.removeTask(taskID)
                                     }
+                                } label: {
+                                    TaskRowView(task: task) { }
+                                }
+                                .onDrag {
+                                    NSItemProvider(object: NSString(string: task.id))
+                                }
                             }
                         }
                     } header: {

@@ -1,0 +1,65 @@
+openapi: 3.1.0
+info:
+  title: Focus: Forge API
+  version: 0.1.0
+  description: >
+    Standalone API service for Focus: Forge. In this migration phase, most /v1
+    routes are forwarded to legacy Next.js /api handlers to preserve parity.
+servers:
+  - url: https://api.focus-forge.theportlandcompany.com
+    description: Production
+  - url: http://localhost:8081
+    description: Local
+paths:
+  /v1/health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                  error:
+                    type: "null"
+  /v1/{proxyPath}:
+    parameters:
+      - in: path
+        name: proxyPath
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Forwarded route
+      description: Forwards to web-app `/api/{proxyPath}`.
+      responses:
+        default:
+          description: Proxied response
+    post:
+      summary: Forwarded route
+      responses:
+        default:
+          description: Proxied response
+    put:
+      summary: Forwarded route
+      responses:
+        default:
+          description: Proxied response
+    patch:
+      summary: Forwarded route
+      responses:
+        default:
+          description: Proxied response
+    delete:
+      summary: Forwarded route
+      responses:
+        default:
+          description: Proxied response
+

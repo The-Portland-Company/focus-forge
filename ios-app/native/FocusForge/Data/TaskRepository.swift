@@ -76,15 +76,34 @@ final class TaskRepository {
     }
 
     func fetchProjectTasks(accessToken: String, projectID: String) async throws -> [MobileTaskDTO] {
-        let envelope = try await apiClient.request(
-            path: "/api/mobile/projects/\(projectID)/tasks",
-            accessToken: accessToken,
-            responseType: APIEnvelope<[MobileTaskDTO]>.self
-        )
+        do {
+            let envelope = try await apiClient.request(
+                path: "/api/mobile/projects/\(projectID)/tasks",
+                accessToken: accessToken,
+                responseType: APIEnvelope<[MobileTaskDTO]>.self
+            )
 
-        let tasks = envelope.data ?? []
-        cache(tasks: tasks)
-        return tasks
+            let tasks = envelope.data ?? []
+            if !tasks.isEmpty {
+                cache(tasks: tasks)
+                return tasks
+            }
+        } catch {
+            // Some production environments do not expose project-scoped routes yet.
+        }
+
+        let scopedTasks = try await fetchTasks(
+            accessToken: accessToken,
+            view: "all",
+            projectID: projectID
+        )
+        if !scopedTasks.isEmpty {
+            return scopedTasks
+        }
+
+        // Final fallback when server-side project filtering is unavailable.
+        return try await fetchAll(accessToken: accessToken)
+            .filter { !$0.completed && $0.project_id == projectID }
     }
 
     func createProjectTaskList(
@@ -154,6 +173,34 @@ final class TaskRepository {
             context.delete(existing)
             try? context.save()
         }
+    }
+
+    func fetchTaskComments(accessToken: String, taskID: String) async throws -> [MobileCommentDTO] {
+        let encodedTaskID = taskID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? taskID
+        return try await apiClient.request(
+            path: "/api/sync/comments?taskId=\(encodedTaskID)",
+            accessToken: accessToken,
+            responseType: [MobileCommentDTO].self
+        )
+    }
+
+    func createTaskComment(
+        accessToken: String,
+        taskID: String,
+        projectID: String?,
+        content: String
+    ) async throws -> MobileCommentDTO {
+        try await apiClient.request(
+            path: "/api/sync/comments",
+            method: "POST",
+            accessToken: accessToken,
+            body: CreateCommentRequest(
+                content: content,
+                taskId: taskID,
+                projectId: projectID
+            ),
+            responseType: MobileCommentDTO.self
+        )
     }
 
     func cachedTasks() -> [CachedTask] {

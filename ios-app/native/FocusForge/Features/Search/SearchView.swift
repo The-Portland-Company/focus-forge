@@ -15,7 +15,15 @@ struct SearchView: View {
 
                 Section("Results") {
                     ForEach(viewModel.filtered) { task in
-                        TaskRowView(task: task, onToggle: {})
+                        NavigationLink {
+                            TaskDetailView(task: task) { updated in
+                                viewModel.applyTaskUpdate(updated)
+                            } onTaskDeleted: { taskID in
+                                viewModel.removeTask(taskID)
+                            }
+                        } label: {
+                            TaskRowView(task: task) { }
+                        }
                     }
                 }
             }
