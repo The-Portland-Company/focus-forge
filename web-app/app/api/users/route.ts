@@ -14,7 +14,7 @@ const errorResponse = (status: number, code: string, message: string) =>
   NextResponse.json({ error: { code, message } }, { status });
 
 const generateSecurePassword = () => `${randomBytes(32).toString("base64url")}Aa1!`;
-const DUPLICATE_USER_ERROR = /already\s+registered|already\s+exists|duplicate/i;
+const DUPLICATE_USER_ERROR = /already.*registered|already.*exists|duplicate/i;
 
 const findAuthUserByEmail = async (email: string) => {
   const admin = getAdminClient();
