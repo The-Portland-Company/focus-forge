@@ -15,6 +15,7 @@ const publicRoutes = [
   "/api/auth/logout",
   "/api/users",
   "/api/mobile",
+  "/api/sync/comments",
   "/api/accept-invite",
   "/api/health",
   "/api/calendar/feed",
