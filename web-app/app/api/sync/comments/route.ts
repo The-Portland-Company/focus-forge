@@ -1,0 +1,155 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getAdminClient } from '@/lib/supabase/admin'
+import {
+  getMobileAdapterForUser,
+  getVisibleMobileUserIds,
+  verifyMobileAccessTokenOrPat,
+} from '@/lib/mobile/api'
+import { createApiResponse, createErrorResponse } from '@/lib/api/auth'
+
+const getAccessScope = async (userId: string) => {
+  const visibleUserIds = await getVisibleMobileUserIds(userId)
+  const projectGroups = await Promise.all(
+    visibleUserIds.map(async (id) => {
+      const adapter = await getMobileAdapterForUser(id)
+      return adapter.getProjects()
+    }),
+  )
+
+  const visibleProjectIds = new Set<string>()
+  projectGroups.flat().forEach((project: any) => {
+    if (project?.id) visibleProjectIds.add(String(project.id))
+  })
+
+  return { visibleUserIds, visibleProjectIds }
+}
+
+const canAccessTaskOrProject = async (
+  taskId: string | null,
+  projectId: string | null,
+  userId: string,
+) => {
+  const admin = getAdminClient()
+  const { visibleUserIds, visibleProjectIds } = await getAccessScope(userId)
+
+  if (projectId && !visibleProjectIds.has(projectId)) {
+    return false
+  }
+
+  if (!taskId) return true
+
+  const { data: task } = await admin
+    .from('tasks')
+    .select('id, project_id, assigned_to')
+    .eq('id', taskId)
+    .maybeSingle()
+
+  if (!task) return false
+  if (task.project_id && visibleProjectIds.has(String(task.project_id))) return true
+  if (task.assigned_to && visibleUserIds.includes(String(task.assigned_to))) return true
+
+  return false
+}
+
+// GET /api/sync/comments - List comments
+export async function GET(request: NextRequest) {
+  const auth = await verifyMobileAccessTokenOrPat(
+    request.headers.get('authorization'),
+    ['read', 'write', 'admin'],
+  )
+
+  if (!auth.ok) {
+    return NextResponse.json(auth.error, { status: auth.status })
+  }
+
+  const userId = auth.user.id
+  const admin = getAdminClient()
+  const url = new URL(request.url)
+  const taskId = url.searchParams.get('taskId')
+  const projectId = url.searchParams.get('projectId')
+
+  if (!(await canAccessTaskOrProject(taskId, projectId, userId))) {
+    return createErrorResponse('Forbidden', 403)
+  }
+
+  const { visibleUserIds, visibleProjectIds } = await getAccessScope(userId)
+  const visibleProjects = Array.from(visibleProjectIds)
+
+  let query = admin
+    .from('comments')
+    .select('*')
+    .eq('is_deleted', false)
+    .order('created_at', { ascending: false })
+
+  if (taskId) {
+    query = query.eq('task_id', taskId)
+  } else if (projectId) {
+    query = query.eq('project_id', projectId)
+  } else {
+    const filters = [`user_id.in.(${visibleUserIds.join(',')})`]
+    if (visibleProjects.length > 0) {
+      filters.push(`project_id.in.(${visibleProjects.join(',')})`)
+    }
+    query = query.or(filters.join(','))
+  }
+
+  const { data: comments, error } = await query
+
+  if (error) {
+    return createErrorResponse(error.message, 500)
+  }
+
+  return createApiResponse(comments || [])
+}
+
+// POST /api/sync/comments - Create new comment
+export async function POST(request: NextRequest) {
+  const auth = await verifyMobileAccessTokenOrPat(
+    request.headers.get('authorization'),
+    ['write', 'admin'],
+  )
+
+  if (!auth.ok) {
+    return NextResponse.json(auth.error, { status: auth.status })
+  }
+
+  const userId = auth.user.id
+  const admin = getAdminClient()
+
+  try {
+    const body = await request.json()
+    const content = String(body?.content || '').trim()
+    const taskId = typeof body?.taskId === 'string' ? body.taskId : null
+    const projectId = typeof body?.projectId === 'string' ? body.projectId : null
+
+    if (!content || (!taskId && !projectId)) {
+      return createErrorResponse('Content and either taskId or projectId are required', 400)
+    }
+
+    if (!(await canAccessTaskOrProject(taskId, projectId, userId))) {
+      return createErrorResponse('Forbidden', 403)
+    }
+
+    const { data: comment, error } = await admin
+      .from('comments')
+      .insert({
+        content,
+        task_id: taskId,
+        project_id: projectId,
+        user_id: userId,
+        is_deleted: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single()
+
+    if (error) {
+      return createErrorResponse(error.message, 500)
+    }
+
+    return createApiResponse(comment, 201)
+  } catch (error) {
+    return createErrorResponse('Invalid request body', 400)
+  }
+}
