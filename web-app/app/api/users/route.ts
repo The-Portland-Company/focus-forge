@@ -14,6 +14,33 @@ const errorResponse = (status: number, code: string, message: string) =>
   NextResponse.json({ error: { code, message } }, { status });
 
 const generateSecurePassword = () => `${randomBytes(32).toString("base64url")}Aa1!`;
+const DUPLICATE_USER_ERROR = /already\s+registered|already\s+exists|duplicate/i;
+
+const findAuthUserByEmail = async (email: string) => {
+  const admin = getAdminClient();
+  let page = 1;
+  const perPage = 200;
+
+  while (true) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    if (error) {
+      return null;
+    }
+
+    const users = data?.users || [];
+    const match = users.find(
+      (user) => (user.email || "").trim().toLowerCase() === email,
+    );
+    if (match) {
+      return match;
+    }
+
+    if (users.length < perPage) {
+      return null;
+    }
+    page += 1;
+  }
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -97,10 +124,54 @@ export async function POST(request: NextRequest) {
     });
 
     if (createError || !created?.user) {
+      const duplicateMessage = createError?.message || "";
+      if (DUPLICATE_USER_ERROR.test(duplicateMessage)) {
+        const existingUser = await findAuthUserByEmail(email);
+        if (!existingUser?.id) {
+          return errorResponse(
+            409,
+            "user_already_exists",
+            "User already exists, but lookup by email failed.",
+          );
+        }
+
+        const { data: existingProfile } = await admin
+          .from("profiles")
+          .select("role")
+          .eq("id", existingUser.id)
+          .maybeSingle();
+
+        if (organizationId) {
+          await admin.from("user_organizations").upsert(
+            {
+              user_id: existingUser.id,
+              organization_id: organizationId,
+              is_owner: false,
+            },
+            { onConflict: "user_id,organization_id" },
+          );
+        }
+
+        return NextResponse.json(
+          {
+            user: {
+              id: existingUser.id,
+              email: existingUser.email || email,
+              role: (existingProfile?.role as UserRole) || "team_member",
+              emailConfirmedAt: existingUser.email_confirmed_at,
+              organizationId: organizationId || null,
+            },
+            alreadyExists: true,
+            passwordResetEmailSent: false,
+          },
+          { status: 200 },
+        );
+      }
+
       return errorResponse(
         400,
         "create_user_failed",
-        createError?.message || "Failed to create user.",
+        duplicateMessage || "Failed to create user.",
       );
     }
 

@@ -192,7 +192,7 @@ const methodOverrides: Record<string, Partial<ApiMethodDoc>> = {
     },
     responses: {
       success:
-        '{"user":{"id":"uuid","email":"user@example.com","role":"team_member","emailConfirmedAt":"timestamp|null","organizationId":"uuid|null"},"passwordResetEmailSent":true}',
+        '201: {"user":{"id":"uuid","email":"user@example.com","role":"team_member","emailConfirmedAt":"timestamp|null","organizationId":"uuid|null"},"passwordResetEmailSent":true} | 200 (already exists): {"user":{"id":"uuid","email":"existing@example.com","role":"team_member","emailConfirmedAt":"timestamp|null","organizationId":"uuid|null"},"alreadyExists":true,"passwordResetEmailSent":false}',
       errors: [
         '{"error":{"code":"unauthorized","message":"Unauthorized"}}',
         '{"error":{"code":"forbidden","message":"PAT is missing required admin scope."}}',
