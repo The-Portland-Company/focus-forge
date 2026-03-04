@@ -12,6 +12,7 @@
 # next.js
 /.next/
 /out/
+web-app/.next/
 
 # production
 /build
@@ -77,3 +78,7 @@ xcuserdata/
 
 # Server logs
 /logs/
+web-app/logs/
+
+# scan/tooling cache
+.cache_ggshield

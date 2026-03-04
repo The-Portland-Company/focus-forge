@@ -10,8 +10,6 @@ final class SessionStore: ObservableObject {
     @Published var errorMessage: String?
 
     private let apiClient: APIClient
-    private let supabaseURL = "https://tnjkeunwcdfmjbgkqgjj.supabase.co"
-    private let supabaseAnonKey = "SUPABASE_ANON_KEY_REMOVED"
     private let authLogger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.theportlandcompany.focusforge",
         category: "auth"
@@ -47,23 +45,8 @@ final class SessionStore: ObservableObject {
             applySession(session)
             errorMessage = nil
         } catch {
-            do {
-                let session = try await apiClient.request(
-                    path: "\(supabaseURL)/auth/v1/token?grant_type=password",
-                    method: "POST",
-                    extraHeaders: [
-                        "apikey": supabaseAnonKey,
-                        "Authorization": "Bearer \(supabaseAnonKey)"
-                    ],
-                    body: LoginRequest(email: email, password: password),
-                    responseType: MobileSessionPayload.self
-                )
-                applySession(session)
-                errorMessage = nil
-            } catch {
-                print("Email login failure:", error.localizedDescription)
-                errorMessage = error.localizedDescription
-            }
+            print("Email login failure:", error.localizedDescription)
+            errorMessage = error.localizedDescription
         }
     }
 

@@ -1,0 +1,11 @@
+title = "focus-forge gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Allow local developer secret files"
+paths = [
+  '''^\.env$''',
+  '''^\.claude/settings\.local\.json$'''
+]
