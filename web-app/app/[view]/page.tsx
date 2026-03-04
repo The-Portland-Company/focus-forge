@@ -43,6 +43,7 @@ import { Database, Task, Project, Organization, Section } from "@/lib/types";
 import { SectionView } from "@/components/section-view";
 import { AddSectionModal } from "@/components/add-section-modal";
 import { AddSectionDivider } from "@/components/add-section-divider";
+import { ProjectNotesModal } from "@/components/project-notes-modal";
 import { format } from "date-fns";
 import {
   getLocalDateString,
@@ -165,6 +166,7 @@ export default function ViewPage() {
     taskId: null,
     taskName: "",
   });
+  const [showProjectNotesModal, setShowProjectNotesModal] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -2668,6 +2670,20 @@ export default function ViewPage() {
             </div>
           </div>
 
+          <button
+            onClick={() => setShowProjectNotesModal(true)}
+            className="w-full mb-5 text-left rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 hover:border-zinc-700 hover:bg-zinc-800/60 transition-colors"
+          >
+            <div className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">
+              Description
+            </div>
+            <div className="text-sm text-zinc-300">
+              {project?.description?.trim()
+                ? project.description
+                : "Add project description and notes..."}
+            </div>
+          </button>
+
           {/* Add Section divider at the top */}
           <AddSectionDivider
             onClick={() => openAddSection(projectId, undefined, 0)}
@@ -2742,6 +2758,17 @@ export default function ViewPage() {
               </p>
             </div>
           )}
+
+          <ProjectNotesModal
+            isOpen={showProjectNotesModal}
+            projectId={projectId}
+            projectName={project?.name || "Project"}
+            initialDescription={project?.description || ""}
+            onClose={() => setShowProjectNotesModal(false)}
+            onSaveDescription={async (description) => {
+              await handleProjectUpdate(projectId, { description });
+            }}
+          />
         </div>
       );
     }
