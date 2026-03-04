@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { X, MessageSquare, Send, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { UserAvatar } from "@/components/user-avatar";
 
 type ProjectNote = {
   id: string;
   content: string;
   created_at: string;
   user_id?: string | null;
+  author_name?: string | null;
+  author_memoji?: string | null;
+  author_email?: string | null;
 };
 
 interface ProjectNotesModalProps {
@@ -35,6 +39,7 @@ export function ProjectNotesModal({
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [addingNote, setAddingNote] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
@@ -42,19 +47,22 @@ export function ProjectNotesModal({
     setDescription(initialDescription || "");
   }, [initialDescription, isOpen]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    void loadNotes();
-  }, [isOpen, projectId]);
-
-  const getAccessToken = async () => {
+  const getAccessToken = useCallback(async () => {
     const {
       data: { session },
     } = await supabase.auth.getSession();
     return session?.access_token || null;
+  }, [supabase]);
+
+  const getAuthorName = (note: ProjectNote) => {
+    const explicit = (note.author_name || "").trim();
+    if (explicit) return explicit;
+    const email = (note.author_email || "").trim();
+    if (email) return email;
+    return "Unknown User";
   };
 
-  const loadNotes = async () => {
+  const loadNotes = useCallback(async () => {
     setLoadingNotes(true);
     setError(null);
     try {
@@ -82,7 +90,20 @@ export function ProjectNotesModal({
     } finally {
       setLoadingNotes(false);
     }
-  };
+  }, [getAccessToken, projectId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    void loadNotes();
+  }, [isOpen, loadNotes]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    void (async () => {
+      const { data } = await supabase.auth.getUser();
+      setCurrentUserId(data.user?.id || null);
+    })();
+  }, [isOpen, supabase]);
 
   const handleSaveDescription = async () => {
     setSavingDescription(true);
@@ -217,16 +238,37 @@ export function ProjectNotesModal({
                 </div>
               ) : (
                 notes.map((note) => (
-                  <div
-                    key={note.id}
-                    className="rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2"
-                  >
-                    <p className="text-sm text-zinc-200 whitespace-pre-wrap">
-                      {note.content}
-                    </p>
-                    <p className="mt-1 text-[11px] text-zinc-500">
-                      {new Date(note.created_at).toLocaleString()}
-                    </p>
+                  <div key={note.id} className={`flex ${note.user_id === currentUserId ? "justify-end" : "justify-start"}`}>
+                    <div className={`max-w-[85%] ${note.user_id === currentUserId ? "items-end" : "items-start"} flex flex-col`}>
+                      <div className="mb-1 flex items-center gap-2 px-1">
+                        <UserAvatar
+                          size={22}
+                          name={getAuthorName(note)}
+                          memoji={note.author_memoji}
+                          ariaLabel={`${getAuthorName(note)} avatar`}
+                        />
+                        <p className="text-[11px] text-zinc-400">{getAuthorName(note)}</p>
+                      </div>
+                      <div
+                        className={`relative rounded-2xl px-3 py-2 border text-sm whitespace-pre-wrap ${
+                          note.user_id === currentUserId
+                            ? "bg-theme-primary/20 border-theme-primary/40 text-zinc-100 rounded-br-md"
+                            : "bg-zinc-900 border-zinc-700 text-zinc-200 rounded-bl-md"
+                        }`}
+                      >
+                        {note.content}
+                        <span
+                          className={`absolute -bottom-1 h-2 w-2 rotate-45 border ${
+                            note.user_id === currentUserId
+                              ? "right-2 border-theme-primary/40 bg-theme-primary/20"
+                              : "left-2 border-zinc-700 bg-zinc-900"
+                          }`}
+                        />
+                      </div>
+                      <p className="mt-1 px-1 text-[11px] text-zinc-500">
+                        {new Date(note.created_at).toLocaleString()}
+                      </p>
+                    </div>
                   </div>
                 ))
               )}
@@ -237,4 +279,3 @@ export function ProjectNotesModal({
     </div>
   );
 }
-

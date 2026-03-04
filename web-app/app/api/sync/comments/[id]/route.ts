@@ -7,6 +7,39 @@ import {
 } from '@/lib/mobile/api'
 import { createApiResponse, createErrorResponse } from '@/lib/api/auth'
 
+type CommentRow = {
+  id: string
+  user_id: string | null
+  [key: string]: any
+}
+
+const enrichCommentWithAuthor = async (comment: CommentRow) => {
+  if (!comment?.user_id) {
+    return {
+      ...comment,
+      author_name: null,
+      author_memoji: null,
+      author_email: null,
+    }
+  }
+
+  const admin = getAdminClient()
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('id, first_name, last_name, email, profile_memoji')
+    .eq('id', comment.user_id)
+    .maybeSingle()
+
+  const name = `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim()
+
+  return {
+    ...comment,
+    author_name: name || profile?.email || null,
+    author_memoji: profile?.profile_memoji || null,
+    author_email: profile?.email || null,
+  }
+}
+
 const getAccessScope = async (userId: string) => {
   const visibleUserIds = await getVisibleMobileUserIds(userId)
   const projectGroups = await Promise.all(
@@ -82,7 +115,8 @@ export async function GET(
     return createErrorResponse('Forbidden', 403)
   }
 
-  return createApiResponse(comment)
+  const enrichedComment = await enrichCommentWithAuthor(comment as CommentRow)
+  return createApiResponse(enrichedComment)
 }
 
 // PUT /api/sync/comments/[id] - Update comment
@@ -132,7 +166,8 @@ export async function PUT(
       return createErrorResponse(error?.message || 'Comment not found or unauthorized', 404)
     }
 
-    return createApiResponse(updated)
+    const enrichedComment = await enrichCommentWithAuthor(updated as CommentRow)
+    return createApiResponse(enrichedComment)
   } catch (error) {
     return createErrorResponse('Invalid request body', 400)
   }

@@ -7,6 +7,63 @@ import {
 } from '@/lib/mobile/api'
 import { createApiResponse, createErrorResponse } from '@/lib/api/auth'
 
+type CommentRow = {
+  id: string
+  user_id: string | null
+  [key: string]: any
+}
+
+const enrichCommentsWithAuthors = async (comments: CommentRow[]) => {
+  if (!comments.length) return comments
+
+  const admin = getAdminClient()
+  const userIds = Array.from(
+    new Set(
+      comments
+        .map((comment) => comment.user_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    ),
+  )
+
+  if (!userIds.length) {
+    return comments.map((comment) => ({
+      ...comment,
+      author_name: null,
+      author_memoji: null,
+      author_email: null,
+    }))
+  }
+
+  const { data: profiles } = await admin
+    .from('profiles')
+    .select('id, first_name, last_name, email, profile_memoji')
+    .in('id', userIds)
+
+  const profileMap = new Map(
+    (profiles || []).map((profile: any) => {
+      const name = `${profile.first_name || ''} ${profile.last_name || ''}`.trim()
+      return [
+        String(profile.id),
+        {
+          author_name: name || profile.email || null,
+          author_memoji: profile.profile_memoji || null,
+          author_email: profile.email || null,
+        },
+      ]
+    }),
+  )
+
+  return comments.map((comment) => {
+    const profile = comment.user_id ? profileMap.get(String(comment.user_id)) : undefined
+    return {
+      ...comment,
+      author_name: profile?.author_name || null,
+      author_memoji: profile?.author_memoji || null,
+      author_email: profile?.author_email || null,
+    }
+  })
+}
+
 const getAccessScope = async (userId: string) => {
   const visibleUserIds = await getVisibleMobileUserIds(userId)
   const projectGroups = await Promise.all(
@@ -99,7 +156,8 @@ export async function GET(request: NextRequest) {
     return createErrorResponse(error.message, 500)
   }
 
-  return createApiResponse(comments || [])
+  const enrichedComments = await enrichCommentsWithAuthors((comments || []) as CommentRow[])
+  return createApiResponse(enrichedComments)
 }
 
 // POST /api/sync/comments - Create new comment
@@ -148,7 +206,8 @@ export async function POST(request: NextRequest) {
       return createErrorResponse(error.message, 500)
     }
 
-    return createApiResponse(comment, 201)
+    const [enrichedComment] = await enrichCommentsWithAuthors([comment as CommentRow])
+    return createApiResponse(enrichedComment, 201)
   } catch (error) {
     return createErrorResponse('Invalid request body', 400)
   }
