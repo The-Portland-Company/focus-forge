@@ -2,11 +2,48 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminClient } from '@/lib/supabase/admin'
 import { sendInviteEmail } from '@/lib/email'
 import crypto from 'crypto'
+import { isDuplicateUserErrorMessage, normalizeInviteEmail } from './utils'
+
+const findAuthUserByEmail = async (email: string) => {
+  const supabaseAdmin = getAdminClient()
+  let page = 1
+  const perPage = 200
+
+  while (true) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage })
+
+    if (error) {
+      throw error
+    }
+
+    const users = data?.users || []
+    const existingUser = users.find(
+      (user) => normalizeInviteEmail(user.email || '') === email
+    )
+
+    if (existingUser) {
+      return existingUser
+    }
+
+    if (users.length < perPage) {
+      return null
+    }
+
+    page += 1
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
     const supabaseAdmin = getAdminClient()
-    const { email, organizationId, organizationName, firstName, lastName } = await request.json()
+    const {
+      email: rawEmail,
+      organizationId,
+      organizationName,
+      firstName,
+      lastName
+    } = await request.json()
+    const email = normalizeInviteEmail(rawEmail || '')
 
     if (!email || !organizationId || !organizationName) {
       return NextResponse.json(
@@ -16,8 +53,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user already exists
-    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers()
-    const existingUser = existingUsers?.users?.find(u => u.email === email)
+    const existingUser = await findAuthUserByEmail(email)
 
     let userId: string
 
@@ -44,14 +80,28 @@ export async function POST(request: NextRequest) {
       })
 
       if (createError) {
-        console.error('Supabase create user error:', createError)
-        return NextResponse.json(
-          { error: createError.message || 'Failed to create user' },
-          { status: 500 }
-        )
-      }
+        if (isDuplicateUserErrorMessage(createError.message || '')) {
+          const duplicateUser = await findAuthUserByEmail(email)
 
-      userId = newUser.user.id
+          if (duplicateUser?.id) {
+            userId = duplicateUser.id
+          } else {
+            console.error('Supabase create user duplicate error with unresolved user:', createError)
+            return NextResponse.json(
+              { error: 'User already exists, but lookup by email failed' },
+              { status: 409 }
+            )
+          }
+        } else {
+          console.error('Supabase create user error:', createError)
+          return NextResponse.json(
+            { error: createError.message || 'Failed to create user' },
+            { status: 500 }
+          )
+        }
+      } else {
+        userId = newUser.user.id
+      }
     }
 
     // Generate invite token
