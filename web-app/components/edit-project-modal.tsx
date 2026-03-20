@@ -25,17 +25,35 @@ interface EditProjectModalProps {
     firstName: string,
     lastName: string,
   ) => Promise<
-    | {
-        userId?: string
-        email: string
-        firstName: string
-        lastName: string
-      }
+      | {
+          userId?: string
+          email: string
+          firstName: string
+          lastName: string
+          emailDelivery?: {
+            provider?: string | null
+            messageId?: string | null
+          } | null
+        }
     | null
     | void
   >
   onUserAdd?: (userId: string, projectId: string) => Promise<void> | void
   onUserRemove?: (userId: string, projectId: string) => Promise<void> | void
+  onResendInvite?: (
+    userId: string,
+    projectId: string,
+  ) => Promise<{
+    message?: string
+    emailDelivery?: {
+      provider?: string | null
+      messageId?: string | null
+    } | null
+  }>
+  onCancelInvite?: (
+    userId: string,
+    projectId: string,
+  ) => Promise<{ message?: string }>
 }
 
 export function EditProjectModal({
@@ -50,6 +68,8 @@ export function EditProjectModal({
   onUserInvite,
   onUserAdd,
   onUserRemove,
+  onResendInvite,
+  onCancelInvite,
 }: EditProjectModalProps) {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
@@ -65,6 +85,13 @@ export function EditProjectModal({
   const [inviteLastName, setInviteLastName] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isInviting, setIsInviting] = useState(false)
+  const [inviteStatus, setInviteStatus] = useState<{
+    tone: "success" | "error"
+    message: string
+  } | null>(null)
+  const [localPendingUsers, setLocalPendingUsers] = useState<User[]>([])
+  const [resendingInviteIds, setResendingInviteIds] = useState<Set<string>>(new Set())
+  const [cancellingInviteIds, setCancellingInviteIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (!project) return
@@ -78,6 +105,8 @@ export function EditProjectModal({
     setProjectUserIds(
       Array.from(new Set([...(project.memberIds || []), ...(project.ownerId ? [project.ownerId] : [])])),
     )
+    setLocalPendingUsers([])
+    setInviteStatus(null)
   }, [project])
 
   const isManager =
@@ -91,9 +120,30 @@ export function EditProjectModal({
     [organization?.memberIds, users],
   )
 
-  const projectMembers = useMemo(() => {
-    return users.filter((user) => projectUserIds.includes(user.id))
-  }, [projectUserIds, users])
+  const projectUsers = useMemo(() => {
+    const merged = new Map<string, User>()
+    for (const user of users) {
+      if (projectUserIds.includes(user.id)) {
+        merged.set(user.id, user)
+      }
+    }
+    for (const user of localPendingUsers) {
+      if (projectUserIds.includes(user.id)) {
+        merged.set(user.id, user)
+      }
+    }
+    return Array.from(merged.values())
+  }, [localPendingUsers, projectUserIds, users])
+
+  const pendingProjectInvites = useMemo(
+    () => projectUsers.filter((user) => user.status === "pending"),
+    [projectUsers],
+  )
+
+  const projectMembers = useMemo(
+    () => projectUsers.filter((user) => user.status !== "pending"),
+    [projectUsers],
+  )
 
   const availableUsers = useMemo(() => {
     const query = userSearchQuery.trim().toLowerCase()
@@ -134,13 +184,106 @@ export function EditProjectModal({
 
     setIsInviting(true)
     try {
-      await onUserInvite(inviteEmail, project.id, inviteFirstName, inviteLastName)
+      const result = await onUserInvite(
+        inviteEmail,
+        project.id,
+        inviteFirstName,
+        inviteLastName,
+      )
+      const pendingId = result?.userId || `pending:${inviteEmail.toLowerCase()}`
+      setProjectUserIds((current) => Array.from(new Set([...current, pendingId])))
+      setLocalPendingUsers((current) => [
+        ...current.filter((user) => user.id !== pendingId),
+        {
+          id: pendingId,
+          firstName: inviteFirstName,
+          lastName: inviteLastName,
+          name: `${inviteFirstName} ${inviteLastName}`.trim() || inviteEmail,
+          email: inviteEmail,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          status: "pending",
+        },
+      ])
+      const provider = result?.emailDelivery?.provider
+      const messageId = result?.emailDelivery?.messageId
+      setInviteStatus({
+        tone: "success",
+        message:
+          provider && messageId
+            ? `Invite sent via ${provider}. Message ID: ${messageId}`
+            : provider
+              ? `Invite sent via ${provider}.`
+              : `Invite sent to ${inviteEmail}.`,
+      })
       setShowInviteUser(false)
       setInviteEmail("")
       setInviteFirstName("")
       setInviteLastName("")
+    } catch (error) {
+      setInviteStatus({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Failed to send invite.",
+      })
     } finally {
       setIsInviting(false)
+    }
+  }
+
+  const handleResendInvite = async (user: User) => {
+    if (!onResendInvite || !project) return
+
+    setResendingInviteIds((current) => new Set(current).add(user.id))
+    try {
+      const result = await onResendInvite(user.id, project.id)
+      const provider = result?.emailDelivery?.provider
+      const messageId = result?.emailDelivery?.messageId
+      setInviteStatus({
+        tone: "success",
+        message:
+          provider && messageId
+            ? `Invite resent via ${provider}. Message ID: ${messageId}`
+            : provider
+              ? `Invite resent via ${provider}.`
+              : result?.message || `Invite resent to ${user.email}.`,
+      })
+    } catch (error) {
+      setInviteStatus({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Failed to resend invite.",
+      })
+    } finally {
+      setResendingInviteIds((current) => {
+        const next = new Set(current)
+        next.delete(user.id)
+        return next
+      })
+    }
+  }
+
+  const handleCancelInvite = async (user: User) => {
+    if (!onCancelInvite || !project) return
+
+    setCancellingInviteIds((current) => new Set(current).add(user.id))
+    try {
+      const result = await onCancelInvite(user.id, project.id)
+      setProjectUserIds((current) => current.filter((id) => id !== user.id))
+      setLocalPendingUsers((current) => current.filter((candidate) => candidate.id !== user.id))
+      setInviteStatus({
+        tone: "success",
+        message: result?.message || `Cancelled invitation for ${user.email}.`,
+      })
+    } catch (error) {
+      setInviteStatus({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Failed to cancel invite.",
+      })
+    } finally {
+      setCancellingInviteIds((current) => {
+        const next = new Set(current)
+        next.delete(user.id)
+        return next
+      })
     }
   }
 
@@ -239,9 +382,21 @@ export function EditProjectModal({
                   </p>
                 </div>
                 <span className="text-xs text-zinc-500">
-                  {projectMembers.length} members
+                  {projectUsers.length} members
                 </span>
               </div>
+
+              {inviteStatus && (
+                <div
+                  className={`rounded-lg border px-3 py-2 text-sm ${
+                    inviteStatus.tone === "success"
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                      : "border-red-500/40 bg-red-500/10 text-red-300"
+                  }`}
+                >
+                  {inviteStatus.message}
+                </div>
+              )}
 
               {isManager && (
                 <div className="flex gap-2">
@@ -377,6 +532,74 @@ export function EditProjectModal({
                       <p className="text-sm text-zinc-500">No eligible organization users found.</p>
                     )}
                   </div>
+                </div>
+              )}
+
+              {pendingProjectInvites.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-white">Pending Invitations</h4>
+                    <span className="text-xs text-zinc-500">
+                      {pendingProjectInvites.length} pending
+                    </span>
+                  </div>
+                  {pendingProjectInvites.map((user) => {
+                    const displayName = user.name || `${user.firstName} ${user.lastName}`.trim()
+                    return (
+                      <div
+                        key={user.id}
+                        className="flex items-center justify-between rounded-lg bg-zinc-800 px-3 py-2"
+                      >
+                        <div className="flex items-center gap-3">
+                          <UserAvatar
+                            name={displayName}
+                            profileColor={user.profileColor}
+                            memoji={user.profileMemoji}
+                            size={32}
+                            className="text-sm font-medium"
+                          />
+                          <div>
+                            <p className="text-sm font-medium text-white flex items-center gap-2">
+                              {displayName}
+                              <span className="rounded-full bg-yellow-500/20 px-2 py-0.5 text-xs text-yellow-400">
+                                Pending Acceptance
+                              </span>
+                            </p>
+                            <p className="text-xs text-zinc-500">{user.email}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {onResendInvite && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => handleResendInvite(user)}
+                              disabled={resendingInviteIds.has(user.id)}
+                              className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
+                            >
+                              {resendingInviteIds.has(user.id) ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Mail className="w-4 h-4" />
+                              )}
+                              Resend
+                            </Button>
+                          )}
+                          {onCancelInvite && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => handleCancelInvite(user)}
+                              disabled={cancellingInviteIds.has(user.id)}
+                              className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:text-red-200"
+                            >
+                              {cancellingInviteIds.has(user.id) ? "Cancelling..." : "Cancel"}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
 

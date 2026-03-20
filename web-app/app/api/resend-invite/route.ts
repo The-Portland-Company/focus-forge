@@ -46,6 +46,13 @@ export async function POST(request: NextRequest) {
       .single()
 
     const organizationName = (userOrgs?.organizations as any)?.name || 'Focus: Forge'
+    const { data: userProjects } = await supabaseAdmin
+      .from('user_projects')
+      .select('project_id, projects(id, name)')
+      .eq('user_id', userId)
+      .limit(1)
+
+    const projectName = (userProjects?.[0]?.projects as any)?.name || undefined
 
     // Generate new invite token
     const inviteToken = crypto.randomBytes(32).toString('hex')
@@ -76,13 +83,20 @@ export async function POST(request: NextRequest) {
 
     // Send invite email via Resend with optional CC
     try {
-      await sendInviteEmail({
+      const delivery = await sendInviteEmail({
         to: profile.email,
         firstName: profile.first_name || '',
         lastName: profile.last_name || '',
         organizationName,
+        projectName,
         inviteUrl,
         cc: ccEmail || undefined
+      })
+
+      return NextResponse.json({
+        success: true,
+        message: 'Invitation email resent successfully',
+        emailDelivery: delivery,
       })
     } catch (emailError: any) {
       console.error('Failed to send invite email:', emailError)
@@ -94,11 +108,6 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
-
-    return NextResponse.json({
-      success: true,
-      message: 'Invitation email resent successfully'
-    })
 
   } catch (error: any) {
     console.error('Resend invite error:', error)

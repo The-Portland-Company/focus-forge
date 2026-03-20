@@ -193,9 +193,11 @@ export async function POST(request: NextRequest) {
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3244'
     const inviteUrl = `${baseUrl}/auth/accept-invite?token=${inviteToken}&email=${encodeURIComponent(email)}`
 
+    let delivery: Awaited<ReturnType<typeof sendInviteEmail>> | null = null
+
     // Send invite email via Resend
     try {
-      await sendInviteEmail({
+      delivery = await sendInviteEmail({
         to: email,
         firstName: firstName || '',
         lastName: lastName || '',
@@ -218,7 +220,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Invitation email sent successfully',
-      user: { id: userId, email }
+      user: { id: userId, email },
+      emailDelivery: delivery
     })
 
   } catch (error: any) {

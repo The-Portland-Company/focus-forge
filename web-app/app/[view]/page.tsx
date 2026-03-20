@@ -946,6 +946,10 @@ export default function ViewPage() {
     email: string;
     firstName: string;
     lastName: string;
+    emailDelivery?: {
+      provider?: string | null;
+      messageId?: string | null;
+    } | null;
   } | null> => {
     if (!database) return null;
 
@@ -984,7 +988,53 @@ export default function ViewPage() {
       email,
       firstName,
       lastName,
+      emailDelivery: data.emailDelivery || null,
     };
+  };
+
+  const resendInvite = async (userId: string) => {
+    const response = await fetch("/api/resend-invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ userId }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to resend invite");
+    }
+
+    await fetchData();
+    return {
+      message: data.message,
+      emailDelivery: data.emailDelivery || null,
+    };
+  };
+
+  const cancelInvite = async ({
+    userId,
+    organizationId,
+    projectId,
+  }: {
+    userId: string;
+    organizationId?: string;
+    projectId?: string;
+  }) => {
+    const response = await fetch("/api/cancel-invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ userId, organizationId, projectId }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to cancel invite");
+    }
+
+    await fetchData();
+    return { message: data.message };
   };
 
   const handleTaskDelete = async (taskId: string) => {
@@ -3044,6 +3094,12 @@ export default function ViewPage() {
             );
             await handleOrganizationUpdate(organizationId, { memberIds });
           }}
+          onResendInvite={async (userId) => {
+            return await resendInvite(userId);
+          }}
+          onCancelInvite={async (userId, organizationId) => {
+            return await cancelInvite({ userId, organizationId });
+          }}
         />
       )}
 
@@ -3110,6 +3166,12 @@ export default function ViewPage() {
             (memberId) => memberId !== userId,
           );
           await handleProjectUpdate(projectId, { memberIds });
+        }}
+        onResendInvite={async (userId) => {
+          return await resendInvite(userId);
+        }}
+        onCancelInvite={async (userId, projectId) => {
+          return await cancelInvite({ userId, projectId });
         }}
       />
 

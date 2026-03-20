@@ -251,6 +251,9 @@ export async function GET(request: NextRequest) {
             animationsEnabled: profile.animations_enabled ?? true,
             priorityColor: profile.priority_color || null,
             status: profile.status || 'active',
+            invitedAt: profile.invited_at || null,
+            inviteToken: profile.invite_token || null,
+            inviteExpiresAt: profile.invite_expires_at || null,
             createdAt: profile.created_at,
             updatedAt: profile.updated_at
           }))

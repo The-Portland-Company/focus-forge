@@ -1048,6 +1048,7 @@ export default function SettingsPage() {
           allProjects={database.projects}
           users={database.users}
           currentUserId={profile?.id || database.users?.[0]?.id}
+          currentUserRole={profile?.role || null}
           canManageApiKeys={isSuperOrAdmin}
           initialActiveTab={organizationSettingsInitialTab}
           onClose={() => {
@@ -1200,88 +1201,75 @@ export default function SettingsPage() {
               console.error("Error removing user from organization:", error);
             }
           }}
-          onSendReminder={async (userId, organizationId) => {
+          onUserRoleChange={async (userId, organizationId, role) => {
             try {
-              // Get the user and organization details
-              const user = database.users.find((u) => u.id === userId);
-              const org = database.organizations.find(
-                (o) => o.id === organizationId,
-              );
+              const response = await fetch(`/api/users/${userId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ role, organizationId }),
+              });
 
-              if (!user || !org) {
-                showError("Error", "User or organization not found");
-                throw new Error("User or organization not found");
+              if (response.ok) {
+                await fetchData();
+                return;
               }
 
-              // Show initial status
-              showInfo(
-                "Sending reminder...",
-                `Preparing to send email to ${user.firstName} ${user.lastName}`,
+              const result = await response.json().catch(() => null);
+              showError(
+                "Role update failed",
+                result?.error || "Failed to update user role.",
               );
+            } catch (error) {
+              console.error("Error updating user role:", error);
+              showError("Role update failed", "Failed to update user role.");
+            }
+          }}
+          onResendInvite={async (userId) => {
+            try {
+              const user = database.users.find((u) => u.id === userId);
+              if (!user) {
+                throw new Error("User not found");
+              }
 
-              const response = await fetch("/api/send-reminder", {
+              const response = await fetch("/api/resend-invite", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  email: user.email,
-                  organizationId,
-                  organizationName: org.name,
-                  firstName: user.firstName,
-                  lastName: user.lastName,
-                }),
+                body: JSON.stringify({ userId }),
               });
 
               const result = await response.json();
 
               if (response.ok) {
                 await fetchData();
-
-                // Check if email was actually sent or just recorded
-                if (result.delivered) {
-                  // Email actually sent and delivered (Supabase with SMTP)
-                  showSuccess(
-                    "Reminder sent!",
-                    `Email delivered to ${user.firstName} ${user.lastName} (${user.email})`,
-                  );
-                  return { delivered: true };
-                } else {
-                  // Email queued but not yet delivered
-                  showInfo(
-                    "Reminder queued",
-                    `Email queued for ${user.firstName} ${user.lastName}. Delivery pending.`,
-                  );
-                  // In production, would poll for actual delivery status
-                  // For now, just clear the loading state after a delay
-                  return new Promise((resolve) => {
-                    setTimeout(() => resolve({ delivered: false }), 2000);
-                  });
-                }
-              } else {
-                // Show error with helpful information
-                if (result.details?.includes("already registered")) {
-                  showWarning(
-                    "Already registered",
-                    `${user.firstName} ${user.lastName} has already accepted their invitation`,
-                  );
-                } else if (result.helpUrl) {
-                  showError(
-                    "Email not configured",
-                    "Please configure SMTP settings in Supabase dashboard to send reminder emails",
-                  );
-                } else {
-                  showError(
-                    "Reminder failed",
-                    result.error || "Failed to send reminder",
-                  );
-                }
-                throw new Error(result.error || "Failed to send reminder");
+                return {
+                  message: result.message,
+                  emailDelivery: result.emailDelivery || null,
+                };
               }
+
+              throw new Error(result.error || "Failed to resend invite");
             } catch (error) {
-              console.error("Error sending reminder:", error);
-              showError(
-                "Reminder failed",
-                "Failed to send reminder. Please try again.",
-              );
+              console.error("Error resending invite:", error);
+              throw error;
+            }
+          }}
+          onCancelInvite={async (userId, organizationId) => {
+            try {
+              const response = await fetch("/api/cancel-invite", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId, organizationId }),
+              });
+
+              const result = await response.json();
+              if (!response.ok) {
+                throw new Error(result.error || "Failed to cancel invite");
+              }
+
+              await fetchData();
+              return { message: result.message };
+            } catch (error) {
+              console.error("Error cancelling invite:", error);
               throw error;
             }
           }}

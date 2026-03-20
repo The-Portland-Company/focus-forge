@@ -16,6 +16,8 @@ export interface User {
   status?: "active" | "pending";
   invitedAt?: string;
   invitedBy?: string;
+  inviteToken?: string | null;
+  inviteExpiresAt?: string | null;
   // Todoist integration fields
   todoistApiToken?: string;
   todoistUserId?: string;

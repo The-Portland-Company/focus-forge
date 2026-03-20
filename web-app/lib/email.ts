@@ -131,7 +131,11 @@ If you didn't expect this invitation, you can safely ignore this email.
     throw new Error(error.message || 'Failed to send email')
   }
 
-  return data
+  return {
+    provider: 'Resend',
+    messageId: data?.id || null,
+    raw: data || null,
+  }
 }
 
 interface SendPasswordResetEmailParams {

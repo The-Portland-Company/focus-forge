@@ -13,6 +13,18 @@ export interface OrganizationInviteResult {
   email: string
   firstName: string
   lastName: string
+  emailDelivery?: {
+    provider?: string | null
+    messageId?: string | null
+  } | null
+}
+
+export interface InviteActionResult {
+  message?: string
+  emailDelivery?: {
+    provider?: string | null
+    messageId?: string | null
+  } | null
 }
 
 export function getOrganizationUserIds(organization: Organization): string[] {
@@ -84,7 +96,14 @@ interface OrganizationSettingsModalProps {
     organizationId: string,
     role: NonNullable<User['role']>,
   ) => void
-  onSendReminder?: (userId: string, organizationId: string) => Promise<{ delivered: boolean }>
+  onResendInvite?: (
+    userId: string,
+    organizationId: string,
+  ) => Promise<InviteActionResult>
+  onCancelInvite?: (
+    userId: string,
+    organizationId: string,
+  ) => Promise<InviteActionResult>
 }
 
 export function OrganizationSettingsModal({ 
@@ -103,7 +122,8 @@ export function OrganizationSettingsModal({
   onUserAdd,
   onUserRemove,
   onUserRoleChange,
-  onSendReminder
+  onResendInvite,
+  onCancelInvite
 }: OrganizationSettingsModalProps) {
   const [name, setName] = useState(organization.name)
   const [description, setDescription] = useState(organization.description || '')
@@ -130,7 +150,8 @@ export function OrganizationSettingsModal({
   const [localInvitedUsers, setLocalInvitedUsers] = useState<User[]>([])
   const [showAddUser, setShowAddUser] = useState(false)
   const [userSearchQuery, setUserSearchQuery] = useState('')
-  const [sendingReminders, setSendingReminders] = useState<Set<string>>(new Set())
+  const [resendingInvites, setResendingInvites] = useState<Set<string>>(new Set())
+  const [cancellingInvites, setCancellingInvites] = useState<Set<string>>(new Set())
   const [apiKeys, setApiKeys] = useState<ApiKeyMeta[]>([])
   const [apiKeysLoading, setApiKeysLoading] = useState(false)
   const [apiKeyName, setApiKeyName] = useState("")
@@ -335,6 +356,27 @@ export function OrganizationSettingsModal({
   }
 
   const displayedUsers = mergeUsersById(users, localInvitedUsers)
+  const pendingUsers = displayedUsers.filter(
+    (user) => organizationUserIds.includes(user.id) && user.status === 'pending',
+  )
+  const activeUsers = displayedUsers.filter(
+    (user) => organizationUserIds.includes(user.id) && user.status !== 'pending',
+  )
+
+  const formatInviteFeedback = (
+    fallback: string,
+    result?: InviteActionResult | null,
+  ) => {
+    const provider = result?.emailDelivery?.provider
+    const messageId = result?.emailDelivery?.messageId
+    if (provider && messageId) {
+      return `${fallback} ${provider} message id: ${messageId}.`
+    }
+    if (provider) {
+      return `${fallback} Sent via ${provider}.`
+    }
+    return result?.message || fallback
+  }
 
   const handleInviteUser = async () => {
     if (!inviteEmail || !inviteFirstName || !inviteLastName || !onUserInvite) {
@@ -367,7 +409,10 @@ export function OrganizationSettingsModal({
       setLocalInvitedUsers((current) => mergeUsersById(current, [pendingUser]))
       setInviteStatus({
         tone: 'success',
-        message: `Invite sent to ${pendingUser.email}.`,
+        message: formatInviteFeedback(
+          `Invite sent to ${pendingUser.email}.`,
+          { emailDelivery: result?.emailDelivery || null },
+        ),
       })
       setShowInviteUser(false)
       setInviteEmail('')
@@ -383,6 +428,65 @@ export function OrganizationSettingsModal({
       })
     } finally {
       setIsInvitingUser(false)
+    }
+  }
+
+  const handleResendInvite = async (user: User) => {
+    if (!onResendInvite) {
+      return
+    }
+
+    setResendingInvites((current) => new Set(current).add(user.id))
+    try {
+      const result = await onResendInvite(user.id, organization.id)
+      setInviteStatus({
+        tone: 'success',
+        message: formatInviteFeedback(
+          `Invite resent to ${user.email}.`,
+          result,
+        ),
+      })
+    } catch (error) {
+      setInviteStatus({
+        tone: 'error',
+        message:
+          error instanceof Error ? error.message : `Failed to resend invite to ${user.email}.`,
+      })
+    } finally {
+      setResendingInvites((current) => {
+        const next = new Set(current)
+        next.delete(user.id)
+        return next
+      })
+    }
+  }
+
+  const handleCancelInvite = async (user: User) => {
+    if (!onCancelInvite) {
+      return
+    }
+
+    setCancellingInvites((current) => new Set(current).add(user.id))
+    try {
+      const result = await onCancelInvite(user.id, organization.id)
+      setOrganizationUserIds((current) => current.filter((id) => id !== user.id))
+      setLocalInvitedUsers((current) => current.filter((candidate) => candidate.id !== user.id))
+      setInviteStatus({
+        tone: 'success',
+        message: result?.message || `Cancelled invitation for ${user.email}.`,
+      })
+    } catch (error) {
+      setInviteStatus({
+        tone: 'error',
+        message:
+          error instanceof Error ? error.message : `Failed to cancel invite for ${user.email}.`,
+      })
+    } finally {
+      setCancellingInvites((current) => {
+        const next = new Set(current)
+        next.delete(user.id)
+        return next
+      })
     }
   }
 
@@ -651,8 +755,73 @@ export function OrganizationSettingsModal({
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {displayedUsers
-                      .filter(user => organizationUserIds.includes(user.id))
+                    {pendingUsers.length > 0 && (
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
+                        <div className="mb-3 flex items-center justify-between">
+                          <h4 className="text-sm font-semibold text-white">
+                            Pending Invitations
+                          </h4>
+                          <span className="text-xs text-zinc-500">
+                            {pendingUsers.length} pending
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {pendingUsers.map((user) => (
+                            <div
+                              key={user.id}
+                              className="flex items-center justify-between rounded-lg bg-zinc-800 p-3"
+                            >
+                              <div className="flex items-center gap-3">
+                                <UserAvatar
+                                  name={user.name || `${user.firstName} ${user.lastName}`}
+                                  profileColor={user.profileColor}
+                                  memoji={user.profileMemoji}
+                                  size={32}
+                                  className="text-sm font-medium"
+                                />
+                                <div>
+                                  <p className="text-sm font-medium flex items-center gap-2">
+                                    {user.name || `${user.firstName} ${user.lastName}`}
+                                    <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full">
+                                      Pending Acceptance
+                                    </span>
+                                  </p>
+                                  <p className="text-xs text-zinc-500">{user.email}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {onResendInvite && canManageUsers && (
+                                  <button
+                                    onClick={() => handleResendInvite(user)}
+                                    disabled={resendingInvites.has(user.id)}
+                                    className="px-3 py-1 text-xs bg-theme-gradient text-white rounded hover:opacity-90 transition-opacity disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                  >
+                                    {resendingInvites.has(user.id) ? (
+                                      <>
+                                        Resending
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      </>
+                                    ) : (
+                                      'Resend'
+                                    )}
+                                  </button>
+                                )}
+                                {onCancelInvite && canManageUsers && (
+                                  <button
+                                    onClick={() => handleCancelInvite(user)}
+                                    disabled={cancellingInvites.has(user.id)}
+                                    className="px-3 py-1 text-xs rounded border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+                                  >
+                                    {cancellingInvites.has(user.id) ? 'Cancelling…' : 'Cancel'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {activeUsers
                       .map(user => (
                         <div 
                           key={user.id}
@@ -674,49 +843,11 @@ export function OrganizationSettingsModal({
                                     Owner
                                   </span>
                                 )}
-                                {user.status === 'pending' && (
-                                  <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-500 rounded-full">
-                                    Pending Acceptance
-                                  </span>
-                                )}
                               </p>
                               <p className="text-xs text-zinc-500">{user.email}</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            {user.status === 'pending' && onSendReminder && canManageUsers && (
-                              <button
-                                onClick={async () => {
-                                  setSendingReminders(prev => new Set(prev).add(user.id))
-                                  try {
-                                    const result = await onSendReminder(user.id, organization.id)
-                                    // Only clear loading state when delivery is confirmed
-                                    if (result?.delivered) {
-                                      setSendingReminders(prev => {
-                                        const newSet = new Set(prev)
-                                        newSet.delete(user.id)
-                                        return newSet
-                                      })
-                                    }
-                                  } catch (error) {
-                                    // Clear loading state on error
-                                    setSendingReminders(prev => {
-                                      const newSet = new Set(prev)
-                                      newSet.delete(user.id)
-                                      return newSet
-                                    })
-                                  }
-                                }}
-                                disabled={sendingReminders.has(user.id)}
-                                className="px-3 py-1 text-xs bg-theme-gradient text-white rounded hover:opacity-90 transition-opacity disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-1.5"
-                                title={sendingReminders.has(user.id) ? "Sending reminder..." : "Send reminder email"}
-                              >
-                                Send Reminder
-                                {sendingReminders.has(user.id) && (
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                )}
-                              </button>
-                            )}
                             {onUserRoleChange && canManageUsers && (
                               <div className="flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-900 p-1">
                                 {(['team_member', 'admin', 'super_admin'] as const).map((roleOption) => {
