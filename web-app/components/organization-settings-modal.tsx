@@ -174,15 +174,7 @@ export function OrganizationSettingsModal({
     setIsInvitingUser(false)
     setShowAddUser(false)
     setUserSearchQuery('')
-  }, [
-    organization.id,
-    organization.name,
-    organization.description,
-    organization.color,
-    organization.ownerId,
-    organization.memberIds,
-    projects,
-  ])
+  }, [organization.id])
 
   const loadApiKeys = useCallback(async () => {
     if (!canManageApiSettings) {
