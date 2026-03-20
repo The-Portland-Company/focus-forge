@@ -18,6 +18,7 @@ interface SendInviteEmailParams {
   firstName: string
   lastName: string
   organizationName: string
+  projectName?: string
   inviteUrl: string
   cc?: string | string[]
 }
@@ -27,16 +28,23 @@ export async function sendInviteEmail({
   firstName,
   lastName,
   organizationName,
+  projectName,
   inviteUrl,
   cc
 }: SendInviteEmailParams) {
   const fullName = `${firstName} ${lastName}`.trim() || 'there'
+  const inviteContext = projectName
+    ? `You've been invited to join ${organizationName} on Focus: Forge and added to the project ${projectName}.`
+    : `You've been invited to join ${organizationName} on Focus: Forge.`
+  const inviteSubject = projectName
+    ? `You've been invited to ${projectName} in ${organizationName} on Focus: Forge`
+    : `You've been invited to join ${organizationName} on Focus: Forge`
 
   const { data, error } = await getResend().emails.send({
     from: `${FROM_NAME} <${FROM_EMAIL}>`,
     to: [to],
     ...(cc ? { cc: Array.isArray(cc) ? cc : [cc] } : {}),
-    subject: `You've been invited to join ${organizationName} on Focus: Forge`,
+    subject: inviteSubject,
     html: `
       <!DOCTYPE html>
       <html>
@@ -64,7 +72,9 @@ export async function sendInviteEmail({
                         Hi ${fullName},
                       </h2>
                       <p style="margin: 0 0 24px 0; font-size: 16px; line-height: 24px; color: #a1a1aa;">
-                        You've been invited to join <strong style="color: #ffffff;">${organizationName}</strong> on Focus: Forge, a collaborative task management platform.
+                        ${projectName
+                          ? `You've been invited to join <strong style="color: #ffffff;">${organizationName}</strong> on Focus: Forge and added to the project <strong style="color: #ffffff;">${projectName}</strong>.`
+                          : `You've been invited to join <strong style="color: #ffffff;">${organizationName}</strong> on Focus: Forge, a collaborative task management platform.`}
                       </p>
 
                       <!-- CTA Button -->
@@ -105,7 +115,7 @@ export async function sendInviteEmail({
     text: `
 Hi ${fullName},
 
-You've been invited to join ${organizationName} on Focus: Forge.
+${inviteContext}
 
 Click the link below to accept the invitation:
 ${inviteUrl}

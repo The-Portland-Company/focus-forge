@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
     const existingUser = await findAuthUserByEmail(email)
 
     let userId: string
+    let projectName: string | undefined
 
     if (existingUser) {
       // User exists - just add them to the organization
@@ -156,6 +157,20 @@ export async function POST(request: NextRequest) {
 
     if (projectId) {
       try {
+        const { data: project } = await (supabaseAdmin as any)
+          .from('projects')
+          .select('name')
+          .eq('id', projectId)
+          .single()
+
+        if (project?.name) {
+          projectName = project.name
+        }
+      } catch (projectLookupError) {
+        console.error('Failed to fetch project name for invite email:', projectLookupError)
+      }
+
+      try {
         const { error: userProjectError } = await (supabaseAdmin as any)
           .from('user_projects')
           .upsert({
@@ -185,6 +200,7 @@ export async function POST(request: NextRequest) {
         firstName: firstName || '',
         lastName: lastName || '',
         organizationName,
+        projectName,
         inviteUrl
       })
     } catch (emailError: any) {
