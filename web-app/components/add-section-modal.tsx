@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X, Palette, FileText, Smile } from 'lucide-react'
 import { Section } from '@/lib/types'
 
@@ -55,6 +55,16 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
   const [showColorPicker, setShowColorPicker] = useState(false)
   const [showIconPicker, setShowIconPicker] = useState(false)
 
+  useEffect(() => {
+    if (isOpen) return
+    setName('')
+    setDescription('')
+    setColor(colorOptions[0])
+    setIcon(iconOptions[0].value)
+    setShowColorPicker(false)
+    setShowIconPicker(false)
+  }, [isOpen])
+
   if (!isOpen) return null
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -70,13 +80,6 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
       parentId,
       order
     })
-
-    // Reset form
-    setName('')
-    setDescription('')
-    setColor(colorOptions[0])
-    setIcon(iconOptions[0].value)
-    onClose()
   }
 
   return (

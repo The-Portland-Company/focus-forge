@@ -33,10 +33,24 @@ export async function PUT(
     const supabase = await createClient()
     try {
       const body = await req.json()
+      const updates = mapSectionToDb({
+        ...body,
+        order:
+          body?.todoistOrder !== undefined && Number.isFinite(Number(body.todoistOrder))
+            ? Number(body.todoistOrder)
+            : body?.order !== undefined && Number.isFinite(Number(body.order))
+              ? Number(body.order)
+              : undefined,
+        updatedAt: new Date().toISOString(),
+      })
+
+      if (Object.keys(updates).length === 0) {
+        return createErrorResponse('No valid updates provided', 400)
+      }
 
       const { data: section, error } = await supabase
         .from('sections')
-        .update(mapSectionToDb({ ...body, updatedAt: new Date().toISOString() }))
+        .update(updates)
         .eq('id', id)
         .select()
         .single()

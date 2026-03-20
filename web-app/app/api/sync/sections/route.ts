@@ -13,10 +13,11 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('sections')
       .select('*')
-      .order('order', { ascending: true })
+      .order('todoist_order', { ascending: true })
+      .order('created_at', { ascending: true })
     
     if (projectId) {
-      query = query.eq('projectId', projectId)
+      query = query.eq('project_id', projectId)
     }
     
     const { data: sections, error } = await query
@@ -37,24 +38,27 @@ export async function POST(request: NextRequest) {
     try {
       const body = await req.json()
       
-      const { name, projectId, parentId, color, description, icon, order } = body
+      const { name, projectId, order, todoistOrder } = body
       
       if (!name || !projectId) {
         return createErrorResponse('Name and projectId are required', 400)
       }
       
+      const nextOrder =
+        todoistOrder !== undefined && Number.isFinite(Number(todoistOrder))
+          ? Number(todoistOrder)
+          : order !== undefined && Number.isFinite(Number(order))
+            ? Number(order)
+            : 0
+
       const { data: section, error } = await supabase
         .from('sections')
         .insert({
           name,
-          projectId,
-          parentId,
-          color,
-          description,
-          icon,
-          order: order ?? 0,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+          project_id: projectId,
+          todoist_order: nextOrder,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         })
         .select()
         .single()

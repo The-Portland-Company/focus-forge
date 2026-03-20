@@ -1328,7 +1328,11 @@ export default function ViewPage() {
       if (response.ok) {
         await fetchData();
         setShowAddSection(false);
+        return;
       }
+
+      const errorText = await response.text();
+      console.error("Error creating section:", response.status, errorText);
     } catch (error) {
       console.error("Error creating section:", error);
     }
