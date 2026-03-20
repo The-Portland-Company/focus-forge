@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -34,7 +34,7 @@ import { EditTaskModal } from "@/components/edit-task-modal";
 import { AddProjectModal } from "@/components/add-project-modal";
 import { EditProjectModal } from "@/components/edit-project-modal";
 import { AddOrganizationModal } from "@/components/add-organization-modal";
-import { EditOrganizationModal } from "@/components/edit-organization-modal";
+import { OrganizationSettingsModal } from "@/components/organization-settings-modal";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { TaskList } from "@/components/task-list";
 import { KanbanView } from "@/components/kanban-view";
@@ -44,6 +44,7 @@ import { SectionView } from "@/components/section-view";
 import { AddSectionModal } from "@/components/add-section-modal";
 import { AddSectionDivider } from "@/components/add-section-divider";
 import { ProjectNotesModal } from "@/components/project-notes-modal";
+import { AiPlannerFloatingChat } from "@/components/ai-planner-floating-chat";
 import { format } from "date-fns";
 import {
   getLocalDateString,
@@ -56,6 +57,7 @@ import {
 import { applyUserTheme } from "@/lib/theme-utils";
 import { parseRecurringPattern, getNextDueDate } from "@/lib/recurring-utils";
 import { TodoistQuickSyncModal } from "@/components/todoist-quick-sync-modal";
+import { ProjectProgressTimeline } from "@/components/project-progress-timeline";
 import {
   SkeletonSidebar,
   SkeletonTodayView,
@@ -927,6 +929,58 @@ export default function ViewPage() {
     }
   };
 
+  const inviteUserToScope = async ({
+    email,
+    firstName,
+    lastName,
+    organizationId,
+    projectId,
+  }: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    organizationId: string;
+    projectId?: string;
+  }): Promise<{ userId: string } | null> => {
+    if (!database) return null;
+
+    const organization = database.organizations.find(
+      (candidate) => candidate.id === organizationId,
+    );
+
+    if (!organization) {
+      throw new Error("Organization not found for invite.");
+    }
+
+    const response = await fetch("/api/invite-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        email,
+        firstName,
+        lastName,
+        organizationId,
+        organizationName: organization.name,
+        projectId,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to invite user");
+    }
+
+    await fetchData();
+
+    if (data.user?.id) {
+      return { userId: data.user.id };
+    }
+
+    return null;
+  };
+
   const handleTaskDelete = async (taskId: string) => {
     if (showEditTask) {
       setShowEditTask(false);
@@ -1309,6 +1363,34 @@ export default function ViewPage() {
     setShowAddSection(true);
   };
 
+  const projectViewData = useMemo(() => {
+    if (!database || !view.startsWith("project-")) return null;
+
+    const projectId = view.replace("project-", "");
+    const project = database.projects.find((p) => p.id === projectId);
+    const projectTasks = database.tasks.filter(
+      (t) => ((t as any).project_id || t.projectId) === projectId,
+    );
+    const projectSections =
+      database.sections
+        ?.filter((s) => s.projectId === projectId && !s.parentId)
+        .sort((a, b) => (a.order || 0) - (b.order || 0)) || [];
+
+    const unassignedTasks = projectTasks.filter((task) => {
+      const taskSections =
+        database.taskSections?.filter((ts) => ts.taskId === task.id) || [];
+      return taskSections.length === 0;
+    });
+
+    return {
+      projectId,
+      project,
+      projectTasks,
+      projectSections,
+      unassignedTasks,
+    };
+  }, [database, view]);
+
   if (!database) {
     return (
       <div className="h-screen bg-zinc-950 flex">
@@ -1366,6 +1448,9 @@ export default function ViewPage() {
   };
 
   const userPriorityColor = getCurrentUserPriorityColor();
+  const currentUserRole =
+    database?.users?.find((databaseUser) => databaseUser.id === user?.id)?.role ||
+    null;
 
   const filterTasks = (tasks: Task[]) => {
     if (filterAssignedTo === "all") {
@@ -2584,22 +2669,11 @@ export default function ViewPage() {
     }
 
     if (view.startsWith("project-")) {
-      const projectId = view.replace("project-", "");
-      const project = database.projects.find((p) => p.id === projectId);
-      const projectTasks = database.tasks.filter(
-        (t) => ((t as any).project_id || t.projectId) === projectId,
-      );
-      const projectSections =
-        database.sections
-          ?.filter((s) => s.projectId === projectId && !s.parentId)
-          .sort((a, b) => (a.order || 0) - (b.order || 0)) || [];
-
-      // Get tasks that are not in any section
-      const unassignedTasks = projectTasks.filter((task) => {
-        const taskSections =
-          database.taskSections?.filter((ts) => ts.taskId === task.id) || [];
-        return taskSections.length === 0;
-      });
+      const projectId = projectViewData?.projectId || view.replace("project-", "");
+      const project = projectViewData?.project;
+      const projectTasks = projectViewData?.projectTasks || [];
+      const projectSections = projectViewData?.projectSections || [];
+      const unassignedTasks = projectViewData?.unassignedTasks || [];
 
       const currentUserId = database.users[0]?.id || "";
 
@@ -2669,6 +2743,10 @@ export default function ViewPage() {
               </span>
             </div>
           </div>
+
+          {project && (
+            <ProjectProgressTimeline project={project} tasks={projectTasks} />
+          )}
 
           <button
             onClick={() => setShowProjectNotesModal(true)}
@@ -2823,7 +2901,7 @@ export default function ViewPage() {
           >
             <div className="flex items-center gap-3 bg-black text-white border border-zinc-800 rounded-lg px-4 py-3 shadow-lg">
               <span className="text-sm">
-                Completed "{undoCompletion.taskName}"
+                Completed &quot;{undoCompletion.taskName}&quot;
               </span>
               <button
                 onClick={handleUndoComplete}
@@ -2846,6 +2924,14 @@ export default function ViewPage() {
           view.startsWith("project-") ? view.replace("project-", "") : undefined
         }
       />
+
+      {view.startsWith("project-") && projectViewData?.project && (
+        <AiPlannerFloatingChat
+          projectId={projectViewData.project.id}
+          projectName={projectViewData.project.name}
+          onCreated={fetchData}
+        />
+      )}
 
       <EditTaskModal
         isOpen={showEditTask}
@@ -2893,19 +2979,67 @@ export default function ViewPage() {
         onAddOrganization={handleAddOrganization}
       />
 
-      <EditOrganizationModal
-        isOpen={showEditOrganization}
-        onClose={() => {
-          setShowEditOrganization(false);
-          setEditingOrganization(null);
-        }}
-        organization={editingOrganization}
-        onUpdate={(updates) => {
-          if (editingOrganization) {
-            handleOrganizationUpdate(editingOrganization.id, updates);
+      {showEditOrganization && editingOrganization && database && (
+        <OrganizationSettingsModal
+          organization={editingOrganization}
+          projects={database.projects.filter(
+            (project) =>
+              ((project as any).organization_id || project.organizationId) ===
+              editingOrganization.id,
+          )}
+          allProjects={database.projects}
+          users={database.users}
+          currentUserId={user?.id}
+          currentUserRole={currentUserRole}
+          canManageApiKeys={
+            currentUserRole === "admin" || currentUserRole === "super_admin"
           }
-        }}
-      />
+          onClose={() => {
+            setShowEditOrganization(false);
+            setEditingOrganization(null);
+          }}
+          onSave={async (updates) => {
+            await handleOrganizationUpdate(editingOrganization.id, updates);
+            setShowEditOrganization(false);
+            setEditingOrganization(null);
+          }}
+          onProjectAssociation={async (projectId, organizationIds) => {
+            await handleProjectUpdate(projectId, {
+              organizationId: organizationIds[0],
+            });
+          }}
+          onUserInvite={async (email, organizationId, firstName, lastName) => {
+            await inviteUserToScope({
+              email,
+              firstName,
+              lastName,
+              organizationId,
+            });
+          }}
+          onUserAdd={async (userId, organizationId) => {
+            const organization = database.organizations.find(
+              (candidate) => candidate.id === organizationId,
+            );
+            if (!organization) return;
+
+            const memberIds = Array.from(
+              new Set([...(organization.memberIds || []), userId]),
+            );
+            await handleOrganizationUpdate(organizationId, { memberIds });
+          }}
+          onUserRemove={async (userId, organizationId) => {
+            const organization = database.organizations.find(
+              (candidate) => candidate.id === organizationId,
+            );
+            if (!organization) return;
+
+            const memberIds = (organization.memberIds || []).filter(
+              (memberId) => memberId !== userId,
+            );
+            await handleOrganizationUpdate(organizationId, { memberIds });
+          }}
+        />
+      )}
 
       <EditProjectModal
         isOpen={showEditProject}
@@ -2914,10 +3048,62 @@ export default function ViewPage() {
           setEditingProject(null);
         }}
         project={editingProject}
+        users={database?.users || []}
+        organization={
+          editingProject
+            ? database?.organizations.find(
+                (candidate) =>
+                  candidate.id ===
+                  ((editingProject as any).organization_id ||
+                    editingProject.organizationId),
+              ) || null
+            : null
+        }
+        currentUserId={user?.id}
+        currentUserRole={currentUserRole}
         onUpdate={(updates) => {
           if (editingProject) {
             handleProjectUpdate(editingProject.id, updates);
           }
+        }}
+        onUserInvite={async (email, projectId, firstName, lastName) => {
+          const project = database?.projects.find(
+            (candidate) => candidate.id === projectId,
+          );
+          if (!project) {
+            throw new Error("Project not found for invite.");
+          }
+
+          await inviteUserToScope({
+            email,
+            firstName,
+            lastName,
+            organizationId:
+              (project as any).organization_id || project.organizationId,
+            projectId: project.id,
+          });
+        }}
+        onUserAdd={async (userId, projectId) => {
+          const project = database?.projects.find(
+            (candidate) => candidate.id === projectId,
+          );
+          if (!project) return;
+
+          const memberIds = Array.from(
+            new Set([...(project.memberIds || []), userId]),
+          );
+          await handleProjectUpdate(projectId, { memberIds });
+        }}
+        onUserRemove={async (userId, projectId) => {
+          const project = database?.projects.find(
+            (candidate) => candidate.id === projectId,
+          );
+          if (!project) return;
+
+          const memberIds = (project.memberIds || []).filter(
+            (memberId) => memberId !== userId,
+          );
+          await handleProjectUpdate(projectId, { memberIds });
         }}
       />
 

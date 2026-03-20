@@ -36,3 +36,25 @@ export async function requireOrgAdmin(supabase: any, userId: string, organizatio
 
   return { authorized: true }
 }
+
+export async function requireProjectAdmin(
+  supabase: any,
+  userId: string,
+  projectId: string,
+) {
+  const { data: project, error: projectError } = await supabase
+    .from('projects')
+    .select('organization_id')
+    .eq('id', projectId)
+    .single()
+
+  if (projectError || !project?.organization_id) {
+    return { authorized: false, organizationId: null }
+  }
+
+  const authz = await requireOrgAdmin(supabase, userId, project.organization_id)
+  return {
+    authorized: authz.authorized,
+    organizationId: project.organization_id as string,
+  }
+}

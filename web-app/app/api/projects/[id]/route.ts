@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
+import { requireProjectAdmin } from '@/lib/api/authz'
 
 export async function PUT(
   request: NextRequest,
@@ -13,6 +14,11 @@ export async function PUT(
 
     if (authError || !session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const authz = await requireProjectAdmin(supabase, session.user.id, params.id)
+    if (!authz.authorized) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const updates = await request.json()
@@ -41,6 +47,11 @@ export async function DELETE(
 
     if (authError || !session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const authz = await requireProjectAdmin(supabase, session.user.id, params.id)
+    if (!authz.authorized) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const adapter = new SupabaseAdapter(supabase, session.user.id)

@@ -51,11 +51,17 @@ export async function GET(request: NextRequest) {
     const adapter = new SupabaseAdapter(supabase, session.user.id)
     
     // Fetch all data from Supabase
-    let organizations = []
-    let projects = []
-    let tasks = []
-    let tags = []
-    let userProfile = null
+    let organizations: any[] = []
+    let projects: any[] = []
+    let tasks: any[] = []
+    let tags: any[] = []
+    let sections: any[] = []
+    let taskSections: any[] = []
+    let userProfile: any = null
+    const orgMemberMap = new Map<string, string[]>()
+    const orgOwnerMap = new Map<string, string>()
+    const projectMemberMap = new Map<string, string[]>()
+    const projectOwnerMap = new Map<string, string>()
     
     try {
       console.log('📝 Fetching organizations for user:', session.user.id)
@@ -89,6 +95,64 @@ export async function GET(request: NextRequest) {
     } catch (error) {
       console.error('Error fetching tags:', error)
     }
+
+    try {
+      const projectIds = projects.map((project: any) => project.id).filter(Boolean)
+      if (projectIds.length > 0) {
+        const { data: sectionRows, error: sectionsError } = await supabase
+          .from('sections')
+          .select('*')
+          .in('project_id', projectIds)
+          .order('todoist_order', { ascending: true })
+          .order('created_at', { ascending: true })
+
+        if (sectionsError) {
+          console.error('Error fetching sections:', sectionsError)
+        } else {
+          sections = (sectionRows || []).map((row: any) => ({
+            id: row.id,
+            name: row.name,
+            projectId: row.project_id,
+            parentId: row.parent_id || undefined,
+            color: row.color || undefined,
+            description: row.description || undefined,
+            icon: row.icon || undefined,
+            order: row.order_index ?? row.todoist_order ?? 0,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            todoistId: row.todoist_id || undefined,
+            todoistOrder: row.todoist_order ?? undefined,
+            todoistCollapsed: row.todoist_collapsed ?? undefined,
+          }))
+        }
+      }
+    } catch (error) {
+      console.error('Error mapping sections:', error)
+    }
+
+    try {
+      const taskIds = tasks.map((task: any) => task.id).filter(Boolean)
+      if (taskIds.length > 0) {
+        const { data: taskSectionRows, error: taskSectionsError } = await supabase
+          .from('task_sections')
+          .select('*')
+          .in('task_id', taskIds)
+          .order('created_at', { ascending: true })
+
+        if (taskSectionsError) {
+          console.error('Error fetching task_sections:', taskSectionsError)
+        } else {
+          taskSections = (taskSectionRows || []).map((row: any) => ({
+            id: row.id,
+            taskId: row.task_id,
+            sectionId: row.section_id,
+            createdAt: row.created_at,
+          }))
+        }
+      }
+    } catch (error) {
+      console.error('Error mapping task_sections:', error)
+    }
     
     try {
       userProfile = await adapter.getUser(session.user.id)
@@ -110,23 +174,59 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    // Get all organization members using the user_organizations join table
     const organizationMemberIds = new Set<string>()
     const orgIds = organizations.map((org: { id: string }) => org.id)
 
     if (orgIds.length > 0) {
       try {
-        // Fetch all members from user_organizations for these orgs
         const { data: userOrgs, error: userOrgsError } = await supabase
           .from('user_organizations')
-          .select('user_id')
+          .select('user_id,organization_id,is_owner')
           .in('organization_id', orgIds)
 
         if (!userOrgsError && userOrgs) {
-          userOrgs.forEach(uo => organizationMemberIds.add(uo.user_id))
+          userOrgs.forEach((uo: any) => {
+            organizationMemberIds.add(uo.user_id)
+            if (!uo.organization_id) return
+            const memberIds = orgMemberMap.get(uo.organization_id) || []
+            if (!memberIds.includes(uo.user_id)) {
+              memberIds.push(uo.user_id)
+            }
+            orgMemberMap.set(uo.organization_id, memberIds)
+            if (uo.is_owner && !orgOwnerMap.has(uo.organization_id)) {
+              orgOwnerMap.set(uo.organization_id, uo.user_id)
+            }
+          })
         }
       } catch (error) {
         console.error('Error fetching user_organizations:', error)
+      }
+    }
+
+    const projectIds = projects.map((project: any) => project.id).filter(Boolean)
+    if (projectIds.length > 0) {
+      try {
+        const { data: userProjects, error: userProjectsError } = await (supabase as any)
+          .from('user_projects')
+          .select('user_id,project_id,is_owner')
+          .in('project_id', projectIds)
+
+        if (!userProjectsError && userProjects) {
+          userProjects.forEach((row: any) => {
+            organizationMemberIds.add(row.user_id)
+            if (!row.project_id) return
+            const memberIds = projectMemberMap.get(row.project_id) || []
+            if (!memberIds.includes(row.user_id)) {
+              memberIds.push(row.user_id)
+            }
+            projectMemberMap.set(row.project_id, memberIds)
+            if (row.is_owner && !projectOwnerMap.has(row.project_id)) {
+              projectOwnerMap.set(row.project_id, row.user_id)
+            }
+          })
+        }
+      } catch (error) {
+        console.error('Error fetching user_projects:', error)
       }
     }
 
@@ -174,15 +274,23 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       users: organizationUsers,
-      organizations,
-      projects,
+      organizations: organizations.map((org: any) => ({
+        ...org,
+        memberIds: orgMemberMap.get(org.id) || [],
+        ownerId: orgOwnerMap.get(org.id) || org.owner_id || null,
+      })),
+      projects: projects.map((project: any) => ({
+        ...project,
+        memberIds: projectMemberMap.get(project.id) || [],
+        ownerId: projectOwnerMap.get(project.id) || project.owner_id || null,
+      })),
       tasks,
       tags,
-      sections: [],
+      sections,
       reminders: [],
       userSectionPreferences: [],
       settings: { showCompletedTasks: true },
-      taskSections: []
+      taskSections
     })
     
   } catch (error) {

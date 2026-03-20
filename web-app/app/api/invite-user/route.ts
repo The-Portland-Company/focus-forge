@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
       email: rawEmail,
       organizationId,
       organizationName,
+      projectId,
       firstName,
       lastName
     } = await request.json()
@@ -151,6 +152,26 @@ export async function POST(request: NextRequest) {
     } catch (orgError) {
       console.error('Failed to add user to organization:', orgError)
       // Continue anyway
+    }
+
+    if (projectId) {
+      try {
+        const { error: userProjectError } = await (supabaseAdmin as any)
+          .from('user_projects')
+          .upsert({
+            user_id: userId,
+            project_id: projectId,
+            is_owner: false,
+          }, {
+            onConflict: 'user_id,project_id'
+          })
+
+        if (userProjectError) {
+          console.error('Failed to add user to project:', userProjectError)
+        }
+      } catch (projectError) {
+        console.error('Failed to add user to project:', projectError)
+      }
     }
 
     // Build invite URL

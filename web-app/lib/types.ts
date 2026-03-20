@@ -5,6 +5,7 @@ export interface User {
   lastName: string;
   name: string;
   email: string;
+  role?: "team_member" | "admin" | "super_admin" | null;
   todoistId?: string;
   profileColor?: string;
   profileMemoji?: string | null;
@@ -45,6 +46,7 @@ export interface Project {
   color: string;
   organizationId: string;
   ownerId?: string; // User who owns this project
+  memberIds?: string[];
   isFavorite: boolean;
   archived?: boolean;
   budget?: number;

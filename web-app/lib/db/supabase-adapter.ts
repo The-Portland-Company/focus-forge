@@ -1,6 +1,46 @@
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { Database, DatabaseAdapter } from "./types";
-import { SupabaseClient } from "@supabase/supabase-js";
+import { getAdminClient } from "@/lib/supabase/admin";
+
+type OrganizationInput = {
+  name?: string;
+  color?: string;
+  description?: string | null;
+  archived?: boolean;
+  order?: number;
+  order_index?: number;
+  ownerId?: string | null;
+  memberIds?: string[];
+};
+
+type OrganizationMembershipRow = {
+  user_id: string;
+  is_owner: boolean | null;
+};
+
+type ProjectInput = {
+  name?: string;
+  color?: string;
+  description?: string | null;
+  archived?: boolean;
+  budget?: number | null;
+  deadline?: string | null;
+  isFavorite?: boolean;
+  is_favorite?: boolean;
+  organizationId?: string;
+  organization_id?: string;
+  order?: number;
+  order_index?: number;
+  todoistId?: string | null;
+  todoist_id?: string | null;
+  ownerId?: string | null;
+  memberIds?: string[];
+};
+
+type ProjectMembershipRow = {
+  user_id: string;
+  is_owner: boolean | null;
+};
 
 export class SupabaseAdapter implements DatabaseAdapter {
   private supabase: any;
@@ -91,28 +131,127 @@ export class SupabaseAdapter implements DatabaseAdapter {
     return data;
   }
 
+  private normalizeOrganizationFields(input: OrganizationInput) {
+    const payload: Record<string, unknown> = {};
+    if (input.name !== undefined) payload.name = String(input.name).trim();
+    if (input.color !== undefined) payload.color = input.color;
+    if (input.description !== undefined) payload.description = input.description;
+    if (input.archived !== undefined) payload.archived = input.archived;
+    if (input.order !== undefined) payload.order_index = input.order;
+    if (input.order_index !== undefined) payload.order_index = input.order_index;
+    return payload;
+  }
+
+  private async syncOrganizationMembers(
+    organizationId: string,
+    memberIds?: string[],
+    ownerId?: string | null,
+  ) {
+    const admin = getAdminClient();
+    const { data: existingMemberships, error: existingMembershipsError } =
+      await admin
+        .from("user_organizations")
+        .select("user_id,is_owner")
+        .eq("organization_id", organizationId);
+
+    if (existingMembershipsError) {
+      throw existingMembershipsError;
+    }
+
+    const existingRows = (existingMemberships || []) as OrganizationMembershipRow[];
+    const existingOwnerIds = existingRows
+      .filter((row) => Boolean(row.is_owner))
+      .map((row) => row.user_id);
+
+    const nextOwnerIds = ownerId
+      ? [ownerId]
+      : existingOwnerIds.length > 0
+        ? existingOwnerIds
+        : [this.userId];
+
+    const nextMemberIds = new Set<string>([
+      ...(Array.isArray(memberIds) ? memberIds : []),
+      ...nextOwnerIds,
+    ]);
+
+    const desiredRows = Array.from(nextMemberIds).map((userId) => ({
+      user_id: userId,
+      organization_id: organizationId,
+      is_owner: nextOwnerIds.includes(userId),
+    }));
+
+    if (desiredRows.length > 0) {
+      const { error: upsertError } = await admin
+        .from("user_organizations")
+        .upsert(desiredRows, { onConflict: "user_id,organization_id" });
+
+      if (upsertError) {
+        throw upsertError;
+      }
+    }
+
+    const removableUserIds = existingRows
+      .map((row) => row.user_id)
+      .filter((userId) => !nextMemberIds.has(userId));
+
+    if (removableUserIds.length > 0) {
+      const { error: deleteError } = await admin
+        .from("user_organizations")
+        .delete()
+        .eq("organization_id", organizationId)
+        .in("user_id", removableUserIds);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+    }
+  }
+
   async createOrganization(org: any) {
     const supabase = this.supabase;
+    const organizationFields = this.normalizeOrganizationFields(org);
     const { data, error } = await supabase
       .from("organizations")
-      .insert(org)
+      .insert({
+        ...organizationFields,
+        archived: organizationFields.archived ?? false,
+        order_index: organizationFields.order_index ?? 0,
+      })
       .select()
       .single();
 
     if (error) throw error;
+    await this.syncOrganizationMembers(
+      data.id,
+      Array.isArray(org?.memberIds) ? org.memberIds : [this.userId],
+      org?.ownerId || this.userId,
+    );
     return data;
   }
 
   async updateOrganization(id: string, updates: any) {
     const supabase = this.supabase;
-    const { data, error } = await supabase
-      .from("organizations")
-      .update(updates)
-      .eq("id", id)
-      .select()
-      .single();
+    const organizationFields = this.normalizeOrganizationFields(updates || {});
+    let data: any = null;
 
-    if (error) throw error;
+    if (Object.keys(organizationFields).length > 0) {
+      const response = await supabase
+        .from("organizations")
+        .update(organizationFields)
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (response.error) throw response.error;
+      data = response.data;
+    } else {
+      data = await this.getOrganization(id);
+    }
+
+    if (updates?.memberIds !== undefined || updates?.ownerId !== undefined) {
+      await this.syncOrganizationMembers(id, updates?.memberIds, updates?.ownerId);
+    }
+
     return data;
   }
 
@@ -127,6 +266,92 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   // Projects
+  private normalizeProjectFields(input: ProjectInput) {
+    const payload: Record<string, unknown> = {};
+    if (input.name !== undefined) payload.name = String(input.name).trim();
+    if (input.color !== undefined) payload.color = input.color;
+    if (input.description !== undefined) payload.description = input.description;
+    if (input.archived !== undefined) payload.archived = input.archived;
+    if (input.budget !== undefined) payload.budget = input.budget;
+    if (input.deadline !== undefined) payload.deadline = input.deadline;
+    if (input.isFavorite !== undefined) payload.is_favorite = input.isFavorite;
+    if (input.is_favorite !== undefined) payload.is_favorite = input.is_favorite;
+    if (input.organizationId !== undefined)
+      payload.organization_id = input.organizationId;
+    if (input.organization_id !== undefined)
+      payload.organization_id = input.organization_id;
+    if (input.order !== undefined) payload.order_index = input.order;
+    if (input.order_index !== undefined) payload.order_index = input.order_index;
+    if (input.todoistId !== undefined) payload.todoist_id = input.todoistId;
+    if (input.todoist_id !== undefined) payload.todoist_id = input.todoist_id;
+    return payload;
+  }
+
+  private async syncProjectMembers(
+    projectId: string,
+    memberIds?: string[],
+    ownerId?: string | null,
+  ) {
+    const admin = getAdminClient();
+    const { data: existingMemberships, error: existingMembershipsError } =
+      await admin
+        .from("user_projects")
+        .select("user_id,is_owner")
+        .eq("project_id", projectId);
+
+    if (existingMembershipsError) {
+      throw existingMembershipsError;
+    }
+
+    const existingRows = (existingMemberships || []) as ProjectMembershipRow[];
+    const existingOwnerIds = existingRows
+      .filter((row) => Boolean(row.is_owner))
+      .map((row) => row.user_id);
+
+    const nextOwnerIds = ownerId
+      ? [ownerId]
+      : existingOwnerIds.length > 0
+        ? existingOwnerIds
+        : [this.userId];
+
+    const nextMemberIds = new Set<string>([
+      ...(Array.isArray(memberIds) ? memberIds : []),
+      ...nextOwnerIds,
+    ]);
+
+    const desiredRows = Array.from(nextMemberIds).map((userId) => ({
+      user_id: userId,
+      project_id: projectId,
+      is_owner: nextOwnerIds.includes(userId),
+    }));
+
+    if (desiredRows.length > 0) {
+      const { error: upsertError } = await admin
+        .from("user_projects")
+        .upsert(desiredRows, { onConflict: "user_id,project_id" });
+
+      if (upsertError) {
+        throw upsertError;
+      }
+    }
+
+    const removableUserIds = existingRows
+      .map((row) => row.user_id)
+      .filter((userId) => !nextMemberIds.has(userId));
+
+    if (removableUserIds.length > 0) {
+      const { error: deleteError } = await admin
+        .from("user_projects")
+        .delete()
+        .eq("project_id", projectId)
+        .in("user_id", removableUserIds);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+    }
+  }
+
   async getProjects(organizationId?: string) {
     const supabase = this.supabase;
 
@@ -190,17 +415,33 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
   async createProject(project: any) {
     const supabase = this.supabase;
+    const normalizedProject = this.normalizeProjectFields(project ?? {});
     const payload = {
-      name: String(project?.name || "").trim(),
-      description: project?.description ?? null,
-      color: project?.color ?? "#6B7280",
-      organization_id: project?.organization_id ?? project?.organizationId,
-      is_favorite: project?.is_favorite ?? project?.isFavorite ?? false,
-      archived: project?.archived ?? false,
-      budget: project?.budget ?? null,
-      deadline: project?.deadline ?? null,
-      order_index: project?.order_index ?? project?.orderIndex ?? 0,
-      todoist_id: project?.todoist_id ?? project?.todoistId ?? null,
+      ...normalizedProject,
+      name: String(normalizedProject.name || "").trim(),
+      color: normalizedProject.color ?? "#6B7280",
+      organization_id:
+        normalizedProject.organization_id ??
+        project?.organization_id ??
+        project?.organizationId,
+      is_favorite:
+        normalizedProject.is_favorite ??
+        project?.is_favorite ??
+        project?.isFavorite ??
+        false,
+      archived: normalizedProject.archived ?? project?.archived ?? false,
+      budget: normalizedProject.budget ?? project?.budget ?? null,
+      deadline: normalizedProject.deadline ?? project?.deadline ?? null,
+      order_index:
+        normalizedProject.order_index ??
+        project?.order_index ??
+        project?.orderIndex ??
+        0,
+      todoist_id:
+        normalizedProject.todoist_id ??
+        project?.todoist_id ??
+        project?.todoistId ??
+        null,
     };
 
     if (!payload.name) {
@@ -218,19 +459,37 @@ export class SupabaseAdapter implements DatabaseAdapter {
       .single();
 
     if (error) throw error;
+    await this.syncProjectMembers(
+      data.id,
+      Array.isArray(project?.memberIds) ? project.memberIds : [this.userId],
+      project?.ownerId || this.userId,
+    );
     return data;
   }
 
   async updateProject(id: string, updates: any) {
     const supabase = this.supabase;
-    const { data, error } = await supabase
-      .from("projects")
-      .update(updates)
-      .eq("id", id)
-      .select()
-      .single();
+    const projectFields = this.normalizeProjectFields(updates || {});
+    let data: any = null;
 
-    if (error) throw error;
+    if (Object.keys(projectFields).length > 0) {
+      const response = await supabase
+        .from("projects")
+        .update(projectFields)
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (response.error) throw response.error;
+      data = response.data;
+    } else {
+      data = await this.getProject(id);
+    }
+
+    if (updates?.memberIds !== undefined || updates?.ownerId !== undefined) {
+      await this.syncProjectMembers(id, updates?.memberIds, updates?.ownerId);
+    }
+
     return data;
   }
 
@@ -737,6 +996,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       supabaseUpdates.animations_enabled = updates.animationsEnabled;
     if (updates.priorityColor !== undefined)
       supabaseUpdates.priority_color = updates.priorityColor;
+    if (updates.role !== undefined) supabaseUpdates.role = updates.role;
 
     const { data, error } = await supabase
       .from("profiles")

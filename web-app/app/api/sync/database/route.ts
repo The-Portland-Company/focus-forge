@@ -108,6 +108,8 @@ export async function GET(request: NextRequest) {
       let memberIds: string[] = []
       const orgMemberMap = new Map<string, string[]>()
       const orgOwnerMap = new Map<string, string>()
+      const projectMemberMap = new Map<string, string[]>()
+      const projectOwnerMap = new Map<string, string>()
       if (organizationIds.length > 0) {
         const { data: orgMembers, error: orgMembersError } = await supabase
           .from('user_organizations')
@@ -123,6 +125,31 @@ export async function GET(request: NextRequest) {
             orgMemberMap.set(row.organization_id, list)
             if (row.is_owner && !orgOwnerMap.has(row.organization_id)) {
               orgOwnerMap.set(row.organization_id, row.user_id)
+            }
+          })
+        }
+      }
+
+      if (projectIds.length > 0) {
+        const { data: projectMembers, error: projectMembersError } = await (supabase as any)
+          .from('user_projects')
+          .select('user_id, project_id, is_owner')
+          .in('project_id', projectIds)
+
+        if (!projectMembersError && projectMembers) {
+          memberIds = Array.from(
+            new Set([
+              ...memberIds,
+              ...projectMembers.map((row: any) => row.user_id).filter(Boolean),
+            ]),
+          )
+          projectMembers.forEach((row: any) => {
+            if (!row.user_id || !row.project_id) return
+            const list = projectMemberMap.get(row.project_id) || []
+            if (!list.includes(row.user_id)) list.push(row.user_id)
+            projectMemberMap.set(row.project_id, list)
+            if (row.is_owner && !projectOwnerMap.has(row.project_id)) {
+              projectOwnerMap.set(row.project_id, row.user_id)
             }
           })
         }
@@ -177,7 +204,11 @@ export async function GET(request: NextRequest) {
           memberIds: orgMemberMap.get(org.id) || [],
           ownerId: orgOwnerMap.get(org.id) || null
         })),
-        projects: (projects || []).map(mapProjectFromDb),
+        projects: (projects || []).map(project => ({
+          ...mapProjectFromDb(project),
+          memberIds: projectMemberMap.get(project.id) || [],
+          ownerId: projectOwnerMap.get(project.id) || null,
+        })),
         tasks: (tasks || []).map(mapTaskFromDb),
         tags: (tags || []).map(mapTagFromDb),
         sections: (sections || []).map(mapSectionFromDb),

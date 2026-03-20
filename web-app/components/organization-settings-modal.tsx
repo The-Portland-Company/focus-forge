@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { X, Search, Building2, Plus, Check, Users, Mail, UserPlus, Trash2, Loader2 } from 'lucide-react'
-import { Organization, Project, Database, User } from '@/lib/types'
+import { Organization, Project, User } from '@/lib/types'
 import { ColorPicker } from './color-picker'
 import { UserAvatar } from '@/components/user-avatar'
 import { type ApiKeyMeta, ALLOWED_API_SCOPES } from '@/lib/api/keys/types'
@@ -14,6 +14,7 @@ interface OrganizationSettingsModalProps {
   allProjects: Project[]
   users: User[]
   currentUserId?: string
+  currentUserRole?: User['role']
   canManageApiKeys?: boolean
   initialActiveTab?: "details" | "projects" | "users" | "api-keys"
   onClose: () => void
@@ -22,6 +23,11 @@ interface OrganizationSettingsModalProps {
   onUserInvite?: (email: string, organizationId: string, firstName: string, lastName: string) => void
   onUserAdd?: (userId: string, organizationId: string) => void
   onUserRemove?: (userId: string, organizationId: string) => void
+  onUserRoleChange?: (
+    userId: string,
+    organizationId: string,
+    role: NonNullable<User['role']>,
+  ) => void
   onSendReminder?: (userId: string, organizationId: string) => Promise<{ delivered: boolean }>
 }
 
@@ -31,6 +37,7 @@ export function OrganizationSettingsModal({
   allProjects,
   users,
   currentUserId,
+  currentUserRole,
   canManageApiKeys = false,
   initialActiveTab = "details",
   onClose, 
@@ -39,6 +46,7 @@ export function OrganizationSettingsModal({
   onUserInvite,
   onUserAdd,
   onUserRemove,
+  onUserRoleChange,
   onSendReminder
 }: OrganizationSettingsModalProps) {
   const [name, setName] = useState(organization.name)
@@ -82,6 +90,8 @@ export function OrganizationSettingsModal({
   
   // Check if current user is the owner
   const isOwner = currentUserId === organization.ownerId
+  const isAdmin = currentUserRole === 'admin' || currentUserRole === 'super_admin'
+  const canManageUsers = isOwner || isAdmin
   const canManageApiSettings = canManageApiKeys || isOwner
 
   useEffect(() => {
@@ -90,7 +100,7 @@ export function OrganizationSettingsModal({
     }
   }, [initialActiveTab])
 
-  const loadApiKeys = async () => {
+  const loadApiKeys = useCallback(async () => {
     if (!canManageApiSettings) {
       return
     }
@@ -112,7 +122,7 @@ export function OrganizationSettingsModal({
     } finally {
       setApiKeysLoading(false)
     }
-  }
+  }, [canManageApiSettings, organization.id])
 
   const createOrganizationApiKey = async () => {
     if (!canManageApiSettings) {
@@ -209,7 +219,7 @@ export function OrganizationSettingsModal({
     if (activeTab === "api-keys") {
       loadApiKeys()
     }
-  }, [activeTab, organization.id])
+  }, [activeTab, loadApiKeys])
 
   // Close color picker when clicking outside
   useEffect(() => {
@@ -229,6 +239,16 @@ export function OrganizationSettingsModal({
     project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     project.description?.toLowerCase().includes(searchQuery.toLowerCase())
   )
+  const sortedFilteredProjects = [...filteredProjects].sort((left, right) => {
+    const leftAssociated = associatedProjectIds.includes(left.id)
+    const rightAssociated = associatedProjectIds.includes(right.id)
+
+    if (leftAssociated === rightAssociated) {
+      return left.name.localeCompare(right.name)
+    }
+
+    return leftAssociated ? -1 : 1
+  })
 
   const handleProjectToggle = (projectId: string) => {
     setAssociatedProjectIds(prev => 
@@ -250,7 +270,9 @@ export function OrganizationSettingsModal({
     // Update project associations
     allProjects.forEach(project => {
       const shouldBeAssociated = associatedProjectIds.includes(project.id)
-      const isCurrentlyAssociated = project.organizationId === organization.id
+      const isCurrentlyAssociated =
+        ((project as any).organization_id || project.organizationId) ===
+        organization.id
 
       if (shouldBeAssociated !== isCurrentlyAssociated) {
         // Update the project's organization
@@ -417,7 +439,7 @@ export function OrganizationSettingsModal({
 
             {/* Project List */}
             <div className="space-y-2 max-h-64 overflow-y-auto">
-              {filteredProjects.map(project => {
+              {sortedFilteredProjects.map(project => {
                 const isAssociated = associatedProjectIds.includes(project.id)
                 return (
                   <label
@@ -459,7 +481,7 @@ export function OrganizationSettingsModal({
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-medium">Organization Members</h3>
-                {isOwner && (
+                {canManageUsers && (
                   <div className="flex gap-2">
                     <button
                       onClick={() => setShowInviteUser(true)}
@@ -522,7 +544,7 @@ export function OrganizationSettingsModal({
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            {user.status === 'pending' && onSendReminder && isOwner && (
+                            {user.status === 'pending' && onSendReminder && canManageUsers && (
                               <button
                                 onClick={async () => {
                                   setSendingReminders(prev => new Set(prev).add(user.id))
@@ -555,7 +577,36 @@ export function OrganizationSettingsModal({
                                 )}
                               </button>
                             )}
-                            {onUserRemove && isOwner && organization.ownerId !== user.id && (
+                            {onUserRoleChange && canManageUsers && (
+                              <div className="flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-900 p-1">
+                                {(['team_member', 'admin', 'super_admin'] as const).map((roleOption) => {
+                                  const isActive = (user.role || 'team_member') === roleOption
+                                  const label =
+                                    roleOption === 'team_member'
+                                      ? 'Team'
+                                      : roleOption === 'super_admin'
+                                        ? 'Super'
+                                        : 'Admin'
+
+                                  return (
+                                    <button
+                                      key={roleOption}
+                                      onClick={() => onUserRoleChange(user.id, organization.id, roleOption)}
+                                      disabled={user.id === currentUserId}
+                                      className={`rounded px-2 py-1 text-[11px] transition-colors ${
+                                        isActive
+                                          ? 'bg-theme-primary text-white'
+                                          : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                                      } disabled:cursor-not-allowed disabled:opacity-50`}
+                                      title={`Set role to ${roleOption.replace('_', ' ')}`}
+                                    >
+                                      {label}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )}
+                            {onUserRemove && canManageUsers && organization.ownerId !== user.id && (
                               <button
                                 onClick={() => onUserRemove(user.id, organization.id)}
                                 className="p-1.5 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-red-400"
@@ -879,7 +930,7 @@ export function OrganizationSettingsModal({
           >
             Cancel
           </button>
-          {isOwner ? (
+          {canManageUsers || isOwner ? (
             <button
               onClick={handleSave}
               className="px-4 py-2 bg-theme-gradient text-white rounded-lg hover:opacity-90 transition-opacity"
@@ -887,7 +938,7 @@ export function OrganizationSettingsModal({
               Save Changes
             </button>
           ) : (
-            <span className="text-sm text-zinc-500">Only the owner can make changes</span>
+            <span className="text-sm text-zinc-500">Only the owner or an admin can make changes</span>
           )}
         </div>
       </div>

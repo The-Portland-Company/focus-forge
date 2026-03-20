@@ -46,6 +46,8 @@ export function mapProjectFromDb(row: RecordShape) {
     deadline: row.deadline ?? null,
     isFavorite: row.is_favorite ?? null,
     organizationId: row.organization_id ?? null,
+    ownerId: row.owner_id ?? null,
+    memberIds: row.member_ids ?? [],
     order: row.order_index ?? null,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
