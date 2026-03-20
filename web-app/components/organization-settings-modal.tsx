@@ -8,6 +8,57 @@ import { UserAvatar } from '@/components/user-avatar'
 import { type ApiKeyMeta, ALLOWED_API_SCOPES } from '@/lib/api/keys/types'
 import { KeyRound } from 'lucide-react'
 
+export interface OrganizationInviteResult {
+  userId?: string
+  email: string
+  firstName: string
+  lastName: string
+}
+
+export function getOrganizationUserIds(organization: Organization): string[] {
+  const ids = new Set(organization.memberIds || [])
+  if (organization.ownerId) {
+    ids.add(organization.ownerId)
+  }
+  return Array.from(ids)
+}
+
+export function buildPendingOrganizationUser(
+  invite: OrganizationInviteResult,
+): User {
+  const firstName = invite.firstName.trim()
+  const lastName = invite.lastName.trim()
+  const fullName = `${firstName} ${lastName}`.trim()
+  const now = new Date().toISOString()
+
+  return {
+    id: invite.userId || `pending:${invite.email.toLowerCase()}`,
+    firstName,
+    lastName,
+    name: fullName || invite.email,
+    email: invite.email,
+    createdAt: now,
+    updatedAt: now,
+    status: 'pending',
+  }
+}
+
+export function mergeUsersById(users: User[], extraUsers: User[]): User[] {
+  const merged = new Map<string, User>()
+
+  for (const user of users) {
+    merged.set(user.id, user)
+  }
+
+  for (const user of extraUsers) {
+    if (!merged.has(user.id)) {
+      merged.set(user.id, user)
+    }
+  }
+
+  return Array.from(merged.values())
+}
+
 interface OrganizationSettingsModalProps {
   organization: Organization
   projects: Project[]
@@ -20,7 +71,12 @@ interface OrganizationSettingsModalProps {
   onClose: () => void
   onSave: (updates: Partial<Organization>) => void
   onProjectAssociation: (projectId: string, organizationIds: string[]) => void
-  onUserInvite?: (email: string, organizationId: string, firstName: string, lastName: string) => void
+  onUserInvite?: (
+    email: string,
+    organizationId: string,
+    firstName: string,
+    lastName: string,
+  ) => Promise<OrganizationInviteResult | null | void>
   onUserAdd?: (userId: string, organizationId: string) => void
   onUserRemove?: (userId: string, organizationId: string) => void
   onUserRoleChange?: (
@@ -65,6 +121,13 @@ export function OrganizationSettingsModal({
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteFirstName, setInviteFirstName] = useState('')
   const [inviteLastName, setInviteLastName] = useState('')
+  const [inviteError, setInviteError] = useState<string | null>(null)
+  const [inviteStatus, setInviteStatus] = useState<{
+    tone: 'success' | 'error'
+    message: string
+  } | null>(null)
+  const [isInvitingUser, setIsInvitingUser] = useState(false)
+  const [localInvitedUsers, setLocalInvitedUsers] = useState<User[]>([])
   const [showAddUser, setShowAddUser] = useState(false)
   const [userSearchQuery, setUserSearchQuery] = useState('')
   const [sendingReminders, setSendingReminders] = useState<Set<string>>(new Set())
@@ -79,14 +142,9 @@ export function OrganizationSettingsModal({
   const [apiKeyCopied, setApiKeyCopied] = useState(false)
   
   // Get organization members (including owner)
-  const [organizationUserIds, setOrganizationUserIds] = useState<string[]>(() => {
-    const ids = new Set(organization.memberIds || [])
-    // Always include the owner
-    if (organization.ownerId) {
-      ids.add(organization.ownerId)
-    }
-    return Array.from(ids)
-  })
+  const [organizationUserIds, setOrganizationUserIds] = useState<string[]>(() =>
+    getOrganizationUserIds(organization),
+  )
   
   // Check if current user is the owner
   const isOwner = currentUserId === organization.ownerId
@@ -99,6 +157,32 @@ export function OrganizationSettingsModal({
       setActiveTab(initialActiveTab)
     }
   }, [initialActiveTab])
+
+  useEffect(() => {
+    setName(organization.name)
+    setDescription(organization.description || '')
+    setColor(organization.color)
+    setAssociatedProjectIds(projects.map((project) => project.id))
+    setOrganizationUserIds(getOrganizationUserIds(organization))
+    setLocalInvitedUsers([])
+    setShowInviteUser(false)
+    setInviteEmail('')
+    setInviteFirstName('')
+    setInviteLastName('')
+    setInviteError(null)
+    setInviteStatus(null)
+    setIsInvitingUser(false)
+    setShowAddUser(false)
+    setUserSearchQuery('')
+  }, [
+    organization.id,
+    organization.name,
+    organization.description,
+    organization.color,
+    organization.ownerId,
+    organization.memberIds,
+    projects,
+  ])
 
   const loadApiKeys = useCallback(async () => {
     if (!canManageApiSettings) {
@@ -256,6 +340,58 @@ export function OrganizationSettingsModal({
         ? prev.filter(id => id !== projectId)
         : [...prev, projectId]
     )
+  }
+
+  const displayedUsers = mergeUsersById(users, localInvitedUsers)
+
+  const handleInviteUser = async () => {
+    if (!inviteEmail || !inviteFirstName || !inviteLastName || !onUserInvite) {
+      return
+    }
+
+    setIsInvitingUser(true)
+    setInviteError(null)
+    setInviteStatus(null)
+
+    try {
+      const result = await onUserInvite(
+        inviteEmail.trim(),
+        organization.id,
+        inviteFirstName.trim(),
+        inviteLastName.trim(),
+      )
+
+      const inviteResult: OrganizationInviteResult = {
+        userId: result?.userId,
+        email: inviteEmail.trim(),
+        firstName: inviteFirstName.trim(),
+        lastName: inviteLastName.trim(),
+      }
+      const pendingUser = buildPendingOrganizationUser(inviteResult)
+
+      setOrganizationUserIds((current) =>
+        current.includes(pendingUser.id) ? current : [...current, pendingUser.id],
+      )
+      setLocalInvitedUsers((current) => mergeUsersById(current, [pendingUser]))
+      setInviteStatus({
+        tone: 'success',
+        message: `Invite sent to ${pendingUser.email}.`,
+      })
+      setShowInviteUser(false)
+      setInviteEmail('')
+      setInviteFirstName('')
+      setInviteLastName('')
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to send invite.'
+      setInviteError(message)
+      setInviteStatus({
+        tone: 'error',
+        message,
+      })
+    } finally {
+      setIsInvitingUser(false)
+    }
   }
 
   const handleSave = () => {
@@ -501,6 +637,18 @@ export function OrganizationSettingsModal({
                 )}
               </div>
 
+              {inviteStatus && (
+                <div
+                  className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
+                    inviteStatus.tone === 'success'
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                      : 'border-red-500/40 bg-red-500/10 text-red-300'
+                  }`}
+                >
+                  {inviteStatus.message}
+                </div>
+              )}
+
               {/* Members List */}
               <div className="space-y-2">
                 {organizationUserIds.length === 0 ? (
@@ -511,7 +659,7 @@ export function OrganizationSettingsModal({
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {users
+                    {displayedUsers
                       .filter(user => organizationUserIds.includes(user.id))
                       .map(user => (
                         <div 
@@ -660,9 +808,15 @@ export function OrganizationSettingsModal({
                           className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none"
                         />
                       </div>
+                      {inviteError && (
+                        <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                          {inviteError}
+                        </div>
+                      )}
                       <div className="flex justify-end gap-3">
                         <button
                           onClick={() => {
+                            setInviteError(null)
                             setShowInviteUser(false)
                             setInviteEmail('')
                             setInviteFirstName('')
@@ -673,19 +827,16 @@ export function OrganizationSettingsModal({
                           Cancel
                         </button>
                         <button
-                          onClick={() => {
-                            if (inviteEmail && inviteFirstName && inviteLastName && onUserInvite) {
-                              onUserInvite(inviteEmail, organization.id, inviteFirstName, inviteLastName)
-                              setShowInviteUser(false)
-                              setInviteEmail('')
-                              setInviteFirstName('')
-                              setInviteLastName('')
-                            }
-                          }}
-                          disabled={!inviteEmail || !inviteFirstName || !inviteLastName}
+                          onClick={handleInviteUser}
+                          disabled={
+                            isInvitingUser ||
+                            !inviteEmail ||
+                            !inviteFirstName ||
+                            !inviteLastName
+                          }
                           className="px-4 py-2 bg-theme-gradient text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          Send Invite
+                          {isInvitingUser ? 'Sending…' : 'Send Invite'}
                         </button>
                       </div>
                     </div>
@@ -714,7 +865,7 @@ export function OrganizationSettingsModal({
                       </div>
                       
                       <div className="max-h-64 overflow-y-auto space-y-2">
-                        {users
+                        {displayedUsers
                           .filter(user => {
                             const userName = user.name || `${user.firstName} ${user.lastName}`
                             return !organizationUserIds.includes(user.id) &&

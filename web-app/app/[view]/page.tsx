@@ -941,7 +941,12 @@ export default function ViewPage() {
     lastName: string;
     organizationId: string;
     projectId?: string;
-  }): Promise<{ userId: string } | null> => {
+  }): Promise<{
+    userId?: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+  } | null> => {
     if (!database) return null;
 
     const organization = database.organizations.find(
@@ -974,11 +979,12 @@ export default function ViewPage() {
 
     await fetchData();
 
-    if (data.user?.id) {
-      return { userId: data.user.id };
-    }
-
-    return null;
+    return {
+      userId: data.user?.id,
+      email,
+      firstName,
+      lastName,
+    };
   };
 
   const handleTaskDelete = async (taskId: string) => {
@@ -3009,7 +3015,7 @@ export default function ViewPage() {
             });
           }}
           onUserInvite={async (email, organizationId, firstName, lastName) => {
-            await inviteUserToScope({
+            return await inviteUserToScope({
               email,
               firstName,
               lastName,
@@ -3074,7 +3080,7 @@ export default function ViewPage() {
             throw new Error("Project not found for invite.");
           }
 
-          await inviteUserToScope({
+          return await inviteUserToScope({
             email,
             firstName,
             lastName,

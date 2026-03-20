@@ -24,7 +24,16 @@ interface EditProjectModalProps {
     projectId: string,
     firstName: string,
     lastName: string,
-  ) => Promise<void>
+  ) => Promise<
+    | {
+        userId?: string
+        email: string
+        firstName: string
+        lastName: string
+      }
+    | null
+    | void
+  >
   onUserAdd?: (userId: string, projectId: string) => Promise<void> | void
   onUserRemove?: (userId: string, projectId: string) => Promise<void> | void
 }
