@@ -68,8 +68,11 @@ export function ProjectAiExportControls({
   }
 
   const openPreview = async () => {
-    await loadExport()
-    setShowPreview(true)
+    try {
+      await loadExport()
+    } finally {
+      setShowPreview(true)
+    }
   }
 
   const copyLink = async () => {

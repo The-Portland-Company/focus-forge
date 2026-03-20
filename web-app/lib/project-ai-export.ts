@@ -234,7 +234,6 @@ export async function getProjectAiExportForUser(projectId: string, userId: strin
         .from("sections")
         .select("*")
         .eq("project_id", projectId)
-        .order("order_index", { ascending: true })
         .order("todoist_order", { ascending: true })
         .order("created_at", { ascending: true }),
       taskIds.length
