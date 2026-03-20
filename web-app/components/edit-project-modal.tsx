@@ -56,6 +56,28 @@ interface EditProjectModalProps {
   ) => Promise<{ message?: string }>
 }
 
+export function canManageProjectMembers({
+  currentUserId,
+  currentUserRole,
+  organizationOwnerId,
+  projectOwnerId,
+  projectUserIds,
+}: {
+  currentUserId?: string
+  currentUserRole?: User["role"]
+  organizationOwnerId?: string | null
+  projectOwnerId?: string | null
+  projectUserIds: string[]
+}) {
+  return (
+    currentUserRole === "admin" ||
+    currentUserRole === "super_admin" ||
+    currentUserId === organizationOwnerId ||
+    currentUserId === projectOwnerId ||
+    (!!currentUserId && projectUserIds.includes(currentUserId))
+  )
+}
+
 export function EditProjectModal({
   isOpen,
   onClose,
@@ -109,11 +131,13 @@ export function EditProjectModal({
     setInviteStatus(null)
   }, [project])
 
-  const isManager =
-    currentUserRole === "admin" ||
-    currentUserRole === "super_admin" ||
-    currentUserId === organization?.ownerId ||
-    currentUserId === project?.ownerId
+  const isManager = canManageProjectMembers({
+    currentUserId,
+    currentUserRole,
+    organizationOwnerId: organization?.ownerId,
+    projectOwnerId: project?.ownerId,
+    projectUserIds,
+  })
 
   const organizationMemberIds = useMemo(
     () => new Set(organization?.memberIds || users.map((user) => user.id)),
