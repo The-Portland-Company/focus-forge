@@ -58,6 +58,7 @@ import { applyUserTheme } from "@/lib/theme-utils";
 import { parseRecurringPattern, getNextDueDate } from "@/lib/recurring-utils";
 import { TodoistQuickSyncModal } from "@/components/todoist-quick-sync-modal";
 import { ProjectProgressTimeline } from "@/components/project-progress-timeline";
+import { ProjectAiExportControls } from "@/components/project-ai-export-controls";
 import {
   SkeletonSidebar,
   SkeletonTodayView,
@@ -2794,6 +2795,12 @@ export default function ViewPage() {
               {project?.name || "Project"}
             </h1>
             <div className="flex items-center gap-4">
+              {project ? (
+                <ProjectAiExportControls
+                  projectId={project.id}
+                  projectName={project.name}
+                />
+              ) : null}
               <button
                 onClick={() => setShowAddTask(true)}
                 className="btn-theme-primary text-white rounded-lg px-3 py-2 flex items-center gap-2 text-sm font-medium transition-all"
