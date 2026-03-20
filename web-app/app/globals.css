@@ -135,6 +135,85 @@ input[type="checkbox"]:focus {
   filter: brightness(1.1);
 }
 
+.focus-forge-editor .ProseMirror {
+  min-height: inherit;
+}
+
+.focus-forge-editor .ProseMirror p.is-editor-empty:first-child::before {
+  color: rgb(113 113 122);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.focus-forge-editor .ProseMirror ul,
+.focus-forge-editor .ProseMirror ol,
+.focus-forge-rich-content ul,
+.focus-forge-rich-content ol {
+  margin: 0.75rem 0;
+  padding-left: 1.25rem;
+}
+
+.focus-forge-editor .ProseMirror ul,
+.focus-forge-rich-content ul {
+  list-style: disc;
+}
+
+.focus-forge-editor .ProseMirror ol,
+.focus-forge-rich-content ol {
+  list-style: decimal;
+}
+
+.focus-forge-editor .ProseMirror blockquote,
+.focus-forge-rich-content blockquote {
+  margin: 0.75rem 0;
+  border-left: 2px solid rgb(var(--theme-primary-rgb));
+  padding-left: 0.875rem;
+  color: rgb(212 212 216);
+}
+
+.focus-forge-editor .ProseMirror pre,
+.focus-forge-rich-content pre,
+.focus-forge-editor .ProseMirror code,
+.focus-forge-rich-content code {
+  border-radius: 0.5rem;
+  background: rgb(24 24 27);
+}
+
+.focus-forge-editor .ProseMirror pre,
+.focus-forge-rich-content pre {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  padding: 0.75rem 0.875rem;
+}
+
+.focus-forge-editor .ProseMirror code,
+.focus-forge-rich-content code {
+  padding: 0.125rem 0.375rem;
+}
+
+.focus-forge-editor .ProseMirror a,
+.focus-forge-rich-content a {
+  color: rgb(var(--theme-primary-rgb));
+  text-decoration: underline;
+}
+
+.focus-forge-editor .ProseMirror p,
+.focus-forge-rich-content p {
+  margin: 0.5rem 0;
+}
+
+.focus-forge-editor .ProseMirror p:first-child,
+.focus-forge-rich-content p:first-child {
+  margin-top: 0;
+}
+
+.focus-forge-editor .ProseMirror p:last-child,
+.focus-forge-rich-content p:last-child {
+  margin-bottom: 0;
+}
+
 /* Focus styles using theme */
 .focus-theme:focus {
   outline: none;

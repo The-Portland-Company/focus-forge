@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
+import { normalizeRichText } from '@/lib/rich-text-sanitize'
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
 
     const projectData = {
       name,
-      description: body?.description || null,
+      description: body?.description !== undefined ? normalizeRichText(body.description) : null,
       color: body?.color || '#6B7280',
       organization_id: organizationId,
       is_favorite: body?.is_favorite ?? body?.isFavorite ?? false,

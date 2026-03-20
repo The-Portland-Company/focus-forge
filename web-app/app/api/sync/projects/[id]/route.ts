@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth'
+import { normalizeRichText } from '@/lib/rich-text-sanitize'
 
 // GET /api/sync/projects/[id] - Get single project
 export async function GET(
@@ -42,6 +43,9 @@ export async function PUT(
       
       const updateData = {
         ...body,
+        ...(body?.description !== undefined
+          ? { description: normalizeRichText(body.description) }
+          : {}),
         updatedAt: new Date().toISOString()
       }
       

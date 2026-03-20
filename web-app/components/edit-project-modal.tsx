@@ -5,10 +5,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Organization, Project, User } from "@/lib/types"
 import { UserAvatar } from "@/components/user-avatar"
-import { Loader2, Mail, Plus, Search, Trash2, Users } from "lucide-react"
+import { Archive, Link2, Loader2, Mail, RotateCcw, Save, Search, Trash2, Users, X } from "lucide-react"
+import { RichTextEditor } from "@/components/ui/rich-text-editor"
+import { hasRichTextContent } from "@/lib/rich-text"
 
 interface EditProjectModalProps {
   isOpen: boolean
@@ -54,6 +55,8 @@ interface EditProjectModalProps {
     userId: string,
     projectId: string,
   ) => Promise<{ message?: string }>
+  onArchive?: (projectId: string) => Promise<void> | void
+  onDelete?: (projectId: string) => Promise<void> | void
 }
 
 export function canManageProjectMembers({
@@ -92,6 +95,8 @@ export function EditProjectModal({
   onUserRemove,
   onResendInvite,
   onCancelInvite,
+  onArchive,
+  onDelete,
 }: EditProjectModalProps) {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
@@ -110,10 +115,13 @@ export function EditProjectModal({
   const [inviteStatus, setInviteStatus] = useState<{
     tone: "success" | "error"
     message: string
+    detail?: string
   } | null>(null)
   const [localPendingUsers, setLocalPendingUsers] = useState<User[]>([])
   const [resendingInviteIds, setResendingInviteIds] = useState<Set<string>>(new Set())
   const [cancellingInviteIds, setCancellingInviteIds] = useState<Set<string>>(new Set())
+  const [isArchiving, setIsArchiving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     if (!project) return
@@ -190,7 +198,7 @@ export function EditProjectModal({
     try {
       await onUpdate({
         name: name.trim(),
-        description: description.trim() || undefined,
+        description: hasRichTextContent(description) ? description : undefined,
         color,
         budget: budget ? parseFloat(budget) : undefined,
         deadline: deadline || undefined,
@@ -233,12 +241,8 @@ export function EditProjectModal({
       const messageId = result?.emailDelivery?.messageId
       setInviteStatus({
         tone: "success",
-        message:
-          provider && messageId
-            ? `Invite sent via ${provider}. Message ID: ${messageId}`
-            : provider
-              ? `Invite sent via ${provider}.`
-              : `Invite sent to ${inviteEmail}.`,
+        message: "Invitation sent via email.",
+        detail: messageId ? `Message ID: ${messageId}` : undefined,
       })
       setShowInviteUser(false)
       setInviteEmail("")
@@ -264,12 +268,8 @@ export function EditProjectModal({
       const messageId = result?.emailDelivery?.messageId
       setInviteStatus({
         tone: "success",
-        message:
-          provider && messageId
-            ? `Invite resent via ${provider}. Message ID: ${messageId}`
-            : provider
-              ? `Invite resent via ${provider}.`
-              : result?.message || `Invite resent to ${user.email}.`,
+        message: "Invitation sent via email.",
+        detail: messageId ? `Message ID: ${messageId}` : undefined,
       })
     } catch (error) {
       setInviteStatus({
@@ -311,6 +311,45 @@ export function EditProjectModal({
     }
   }
 
+  const handleArchiveProject = async () => {
+    if (!project || !onArchive || isArchiving) return
+
+    const confirmed = window.confirm(
+      `Archive "${project.name}"? It will be moved out of active projects.`,
+    )
+    if (!confirmed) return
+
+    setIsArchiving(true)
+    try {
+      await onArchive(project.id)
+      onClose()
+    } finally {
+      setIsArchiving(false)
+    }
+  }
+
+  const handleDeleteProject = async () => {
+    if (!project || !onDelete || isDeleting) return
+
+    const firstConfirm = window.confirm(
+      `Delete "${project.name}"? This will also delete all tasks in this project.`,
+    )
+    if (!firstConfirm) return
+
+    const secondConfirm = window.confirm(
+      `Final confirmation: permanently delete "${project.name}" and everything inside it?`,
+    )
+    if (!secondConfirm) return
+
+    setIsDeleting(true)
+    try {
+      await onDelete(project.id)
+      onClose()
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   if (!project) return null
 
   return (
@@ -340,12 +379,13 @@ export function EditProjectModal({
 
               <div className="space-y-2">
                 <Label htmlFor="project-description">Description</Label>
-                <Textarea
+                <RichTextEditor
                   id="project-description"
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={setDescription}
                   placeholder="Optional description"
-                  className="bg-zinc-800 border-zinc-700 min-h-[96px]"
+                  className="bg-zinc-800 border-zinc-700"
+                  minHeightClassName="min-h-[140px]"
                 />
               </div>
 
@@ -418,36 +458,53 @@ export function EditProjectModal({
                       : "border-red-500/40 bg-red-500/10 text-red-300"
                   }`}
                 >
-                  {inviteStatus.message}
+                  <p>{inviteStatus.message}</p>
+                  {inviteStatus.detail ? (
+                    <p className="mt-1 text-xs opacity-80">{inviteStatus.detail}</p>
+                  ) : null}
                 </div>
               )}
 
               {isManager && (
                 <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setShowInviteUser(true)
-                      setShowAddUser(false)
-                    }}
-                    className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
-                  >
-                    <Mail className="w-4 h-4" />
-                    Invite
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setShowAddUser(true)
-                      setShowInviteUser(false)
-                    }}
-                    className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add Existing
-                  </Button>
+                  <div className="group relative">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => {
+                        setShowInviteUser(true)
+                        setShowAddUser(false)
+                      }}
+                      aria-label="Invite member"
+                      className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
+                    >
+                      <Mail className="w-4 h-4" />
+                    </Button>
+                    <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                      Invite member
+                      <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                    </span>
+                  </div>
+                  <div className="group relative">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => {
+                        setShowAddUser(true)
+                        setShowInviteUser(false)
+                      }}
+                      aria-label="Add existing member"
+                      className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
+                    >
+                      <Link2 className="w-4 h-4" />
+                    </Button>
+                    <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                      Add existing member
+                      <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                    </span>
+                  </div>
                 </div>
               )}
 
@@ -484,25 +541,40 @@ export function EditProjectModal({
                     />
                   </div>
                   <div className="flex justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => setShowInviteUser(false)}
-                      className="text-zinc-400 hover:text-white hover:bg-zinc-800"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={handleInvite}
-                      disabled={
-                        isInviting || !inviteEmail || !inviteFirstName || !inviteLastName
-                      }
-                      className="bg-red-500 hover:bg-red-600"
-                    >
-                      {isInviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-                      Send Invite
-                    </Button>
+                    <div className="group relative">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setShowInviteUser(false)}
+                        aria-label="Cancel invite"
+                        className="text-zinc-400 hover:text-white hover:bg-zinc-800"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                      <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                        Cancel invite
+                        <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                      </span>
+                    </div>
+                    <div className="group relative">
+                      <Button
+                        type="button"
+                        size="icon"
+                        onClick={handleInvite}
+                        disabled={
+                          isInviting || !inviteEmail || !inviteFirstName || !inviteLastName
+                        }
+                        aria-label="Send invite"
+                        className="bg-red-500 hover:bg-red-600"
+                      >
+                        {isInviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                      </Button>
+                      <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                        {isInviting ? "Sending invite" : "Send invite"}
+                        <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -548,7 +620,7 @@ export function EditProjectModal({
                             <p className="text-sm font-medium text-white truncate">{displayName}</p>
                             <p className="text-xs text-zinc-500 truncate">{user.email}</p>
                           </div>
-                          <Plus className="w-4 h-4 text-zinc-400" />
+                          <Link2 className="w-4 h-4 text-zinc-400" />
                         </button>
                       )
                     })}
@@ -582,43 +654,62 @@ export function EditProjectModal({
                             size={32}
                             className="text-sm font-medium"
                           />
-                          <div>
-                            <p className="text-sm font-medium text-white flex items-center gap-2">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-white">
                               {displayName}
-                              <span className="rounded-full bg-yellow-500/20 px-2 py-0.5 text-xs text-yellow-400">
-                                Pending Acceptance
-                              </span>
                             </p>
                             <p className="text-xs text-zinc-500">{user.email}</p>
+                            <span className="inline-flex rounded-full bg-yellow-500/20 px-2 py-0.5 text-xs text-yellow-400">
+                              Pending Acceptance
+                            </span>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
                           {onResendInvite && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={() => handleResendInvite(user)}
-                              disabled={resendingInviteIds.has(user.id)}
-                              className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
-                            >
-                              {resendingInviteIds.has(user.id) ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Mail className="w-4 h-4" />
-                              )}
-                              Resend
-                            </Button>
+                            <div className="group relative">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => handleResendInvite(user)}
+                                disabled={resendingInviteIds.has(user.id)}
+                                aria-label="Resend invitation"
+                                className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
+                              >
+                                {resendingInviteIds.has(user.id) ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <RotateCcw className="w-4 h-4" />
+                                )}
+                              </Button>
+                              <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                                {resendingInviteIds.has(user.id) ? "Resending" : "Retry invite"}
+                                <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                              </span>
+                            </div>
                           )}
                           {onCancelInvite && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={() => handleCancelInvite(user)}
-                              disabled={cancellingInviteIds.has(user.id)}
-                              className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:text-red-200"
-                            >
-                              {cancellingInviteIds.has(user.id) ? "Cancelling..." : "Cancel"}
-                            </Button>
+                            <div className="group relative">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => handleCancelInvite(user)}
+                                disabled={cancellingInviteIds.has(user.id)}
+                                aria-label="Delete invitation"
+                                className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:text-red-200"
+                              >
+                                {cancellingInviteIds.has(user.id) ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-4 h-4" />
+                                )}
+                              </Button>
+                              <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                                {cancellingInviteIds.has(user.id) ? "Deleting" : "Delete invite"}
+                                <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                              </span>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -677,14 +768,67 @@ export function EditProjectModal({
             </div>
           </div>
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" className="bg-red-500 hover:bg-red-600" disabled={isSubmitting}>
-              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              Update
-            </Button>
+          <DialogFooter className="flex w-full items-center justify-between sm:justify-between">
+            <div className="flex items-center gap-2">
+              {onDelete && (
+                <div className="group relative">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={handleDeleteProject}
+                    disabled={isDeleting || isArchiving || isSubmitting}
+                    aria-label="Delete project"
+                    className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:text-red-200"
+                  >
+                    {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  </Button>
+                  <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                    {isDeleting ? "Deleting project" : "Delete project"}
+                    <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                  </span>
+                </div>
+              )}
+              {onArchive && (
+                <div className="group relative">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={handleArchiveProject}
+                    disabled={isArchiving || isDeleting || isSubmitting}
+                    aria-label="Archive project"
+                    className="border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 hover:text-amber-200"
+                  >
+                    {isArchiving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
+                  </Button>
+                  <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                    {isArchiving ? "Archiving project" : "Archive project"}
+                    <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="group relative">
+                <Button type="button" variant="outline" size="icon" onClick={onClose} aria-label="Cancel" disabled={isSubmitting || isArchiving || isDeleting}>
+                  <X className="w-4 h-4" />
+                </Button>
+                <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                  Cancel
+                  <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                </span>
+              </div>
+              <div className="group relative">
+                <Button type="submit" size="icon" className="bg-red-500 hover:bg-red-600" disabled={isSubmitting || isArchiving || isDeleting} aria-label="Update project">
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                </Button>
+                <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                  {isSubmitting ? "Updating project" : "Update project"}
+                  <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                </span>
+              </div>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>

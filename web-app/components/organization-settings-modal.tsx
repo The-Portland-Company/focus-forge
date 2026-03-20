@@ -1,11 +1,12 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { X, Search, Building2, Plus, Check, Users, Mail, UserPlus, Trash2, Loader2 } from 'lucide-react'
+import { X, Search, Building2, Plus, Check, Users, UserPlus, Trash2, Loader2, RotateCcw, Mail } from 'lucide-react'
 import { Organization, Project, User } from '@/lib/types'
 import { ColorPicker } from './color-picker'
 import { UserAvatar } from '@/components/user-avatar'
 import { type ApiKeyMeta, ALLOWED_API_SCOPES } from '@/lib/api/keys/types'
+import { getRichTextPreview, richTextToPlainText } from '@/lib/rich-text'
 import { KeyRound } from 'lucide-react'
 
 export interface OrganizationInviteResult {
@@ -334,7 +335,7 @@ export function OrganizationSettingsModal({
 
   const filteredProjects = allProjects.filter(project => 
     project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    project.description?.toLowerCase().includes(searchQuery.toLowerCase())
+    richTextToPlainText(project.description).toLowerCase().includes(searchQuery.toLowerCase())
   )
   const sortedFilteredProjects = [...filteredProjects].sort((left, right) => {
     const leftAssociated = associatedProjectIds.includes(left.id)
@@ -691,7 +692,9 @@ export function OrganizationSettingsModal({
                       />
                       <span className="text-sm">{project.name}</span>
                       {project.description && (
-                        <span className="text-xs text-zinc-500">- {project.description}</span>
+                        <span className="text-xs text-zinc-500">
+                          - {getRichTextPreview(project.description, 90)}
+                        </span>
                       )}
                     </div>
                     {isAssociated && (
@@ -779,41 +782,56 @@ export function OrganizationSettingsModal({
                                   size={32}
                                   className="text-sm font-medium"
                                 />
-                                <div>
-                                  <p className="text-sm font-medium flex items-center gap-2">
+                                <div className="space-y-1">
+                                  <p className="text-sm font-medium">
                                     {user.name || `${user.firstName} ${user.lastName}`}
-                                    <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full">
-                                      Pending Acceptance
-                                    </span>
                                   </p>
                                   <p className="text-xs text-zinc-500">{user.email}</p>
+                                  <span className="inline-flex rounded-full bg-yellow-500/20 px-2 py-0.5 text-xs text-yellow-400">
+                                    Pending Acceptance
+                                  </span>
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
                                 {onResendInvite && canManageUsers && (
-                                  <button
-                                    onClick={() => handleResendInvite(user)}
-                                    disabled={resendingInvites.has(user.id)}
-                                    className="px-3 py-1 text-xs bg-theme-gradient text-white rounded hover:opacity-90 transition-opacity disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-1.5"
-                                  >
-                                    {resendingInvites.has(user.id) ? (
-                                      <>
-                                        Resending
-                                        <Loader2 className="w-3 h-3 animate-spin" />
-                                      </>
-                                    ) : (
-                                      'Resend'
-                                    )}
-                                  </button>
+                                  <div className="group relative">
+                                    <button
+                                      onClick={() => handleResendInvite(user)}
+                                      disabled={resendingInvites.has(user.id)}
+                                      aria-label="Resend invitation"
+                                      className="flex h-9 w-9 items-center justify-center rounded-md bg-theme-gradient text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
+                                    >
+                                      {resendingInvites.has(user.id) ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <RotateCcw className="h-4 w-4" />
+                                      )}
+                                    </button>
+                                    <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                                      {resendingInvites.has(user.id) ? 'Resending' : 'Retry invite'}
+                                      <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                                    </span>
+                                  </div>
                                 )}
                                 {onCancelInvite && canManageUsers && (
-                                  <button
-                                    onClick={() => handleCancelInvite(user)}
-                                    disabled={cancellingInvites.has(user.id)}
-                                    className="px-3 py-1 text-xs rounded border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
-                                  >
-                                    {cancellingInvites.has(user.id) ? 'Cancelling…' : 'Cancel'}
-                                  </button>
+                                  <div className="group relative">
+                                    <button
+                                      onClick={() => handleCancelInvite(user)}
+                                      disabled={cancellingInvites.has(user.id)}
+                                      aria-label="Delete invitation"
+                                      className="flex h-9 w-9 items-center justify-center rounded-md border border-red-500/40 bg-red-500/10 text-red-300 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-70"
+                                    >
+                                      {cancellingInvites.has(user.id) ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="h-4 w-4" />
+                                      )}
+                                    </button>
+                                    <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                                      {cancellingInvites.has(user.id) ? 'Deleting' : 'Delete invite'}
+                                      <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                                    </span>
+                                  </div>
                                 )}
                               </div>
                             </div>

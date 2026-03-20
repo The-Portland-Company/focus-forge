@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
 import { requireProjectAdmin } from '@/lib/api/authz'
+import { normalizeRichText } from '@/lib/rich-text-sanitize'
 
 export async function PUT(
   request: NextRequest,
@@ -22,6 +23,9 @@ export async function PUT(
     }
 
     const updates = await request.json()
+    if (updates?.description !== undefined) {
+      updates.description = normalizeRichText(updates.description)
+    }
     const adapter = new SupabaseAdapter(supabase, session.user.id)
     const updatedProject = await adapter.updateProject(params.id, updates)
 

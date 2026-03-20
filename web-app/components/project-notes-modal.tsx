@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { X, MessageSquare, Send, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { UserAvatar } from "@/components/user-avatar";
+import { RichTextEditor } from "@/components/ui/rich-text-editor";
+import { RichTextContent } from "@/components/ui/rich-text-content";
+import { hasRichTextContent } from "@/lib/rich-text";
 
 type ProjectNote = {
   id: string;
@@ -118,8 +121,8 @@ export function ProjectNotesModal({
   };
 
   const handleAddNote = async () => {
-    const content = newNote.trim();
-    if (!content) return;
+    const content = newNote;
+    if (!hasRichTextContent(content)) return;
 
     setAddingNote(true);
     setError(null);
@@ -181,12 +184,11 @@ export function ProjectNotesModal({
             <label className="block text-xs font-medium text-zinc-400 mb-2">
               Description
             </label>
-            <textarea
+            <RichTextEditor
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={setDescription}
               placeholder="Add a project description..."
-              rows={4}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 ring-theme transition-all"
+              minHeightClassName="min-h-[180px]"
             />
             <div className="mt-2 flex justify-end">
               <button
@@ -206,16 +208,17 @@ export function ProjectNotesModal({
             </div>
 
             <div className="mb-3 flex items-start gap-2">
-              <textarea
-                value={newNote}
-                onChange={(e) => setNewNote(e.target.value)}
-                placeholder="Add a note..."
-                rows={3}
-                className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 ring-theme transition-all"
-              />
+              <div className="flex-1">
+                <RichTextEditor
+                  value={newNote}
+                  onChange={setNewNote}
+                  placeholder="Add a note..."
+                  minHeightClassName="min-h-[120px]"
+                />
+              </div>
               <button
                 onClick={handleAddNote}
-                disabled={addingNote || !newNote.trim()}
+                disabled={addingNote || !hasRichTextContent(newNote)}
                 className="mt-1 rounded-lg bg-zinc-800 border border-zinc-700 p-2 text-zinc-300 hover:text-white hover:border-zinc-500 disabled:opacity-50 transition-colors"
                 title="Add note"
               >
@@ -250,13 +253,13 @@ export function ProjectNotesModal({
                         <p className="text-[11px] text-zinc-400">{getAuthorName(note)}</p>
                       </div>
                       <div
-                        className={`relative rounded-2xl px-3 py-2 border text-sm whitespace-pre-wrap ${
+                        className={`relative rounded-2xl px-3 py-2 border text-sm ${
                           note.user_id === currentUserId
                             ? "bg-theme-primary/20 border-theme-primary/40 text-zinc-100 rounded-br-md"
                             : "bg-zinc-900 border-zinc-700 text-zinc-200 rounded-bl-md"
                         }`}
                       >
-                        {note.content}
+                        <RichTextContent html={note.content} />
                         <span
                           className={`absolute -bottom-1 h-2 w-2 rotate-45 border ${
                             note.user_id === currentUserId

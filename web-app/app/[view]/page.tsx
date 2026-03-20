@@ -71,6 +71,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import * as Popover from "@radix-ui/react-popover";
+import { getRichTextPreview, richTextToPlainText } from "@/lib/rich-text";
 
 export default function ViewPage() {
   const params = useParams();
@@ -1607,7 +1608,7 @@ export default function ViewPage() {
         allWeekTasks = allWeekTasks.filter(
           (task) =>
             task.name.toLowerCase().includes(query) ||
-            task.description?.toLowerCase().includes(query),
+            richTextToPlainText(task.description).toLowerCase().includes(query),
         );
       }
 
@@ -2260,8 +2261,7 @@ export default function ViewPage() {
         const query = searchQuery.toLowerCase();
         return (
           task.name.toLowerCase().includes(query) ||
-          (task.description &&
-            task.description.toLowerCase().includes(query)) ||
+          richTextToPlainText(task.description).toLowerCase().includes(query) ||
           (task.tags &&
             task.tags.some((tag) => tag.toLowerCase().includes(query)))
         );
@@ -2272,8 +2272,7 @@ export default function ViewPage() {
         const query = searchQuery.toLowerCase();
         return (
           project.name.toLowerCase().includes(query) ||
-          (project.description &&
-            project.description.toLowerCase().includes(query))
+          richTextToPlainText(project.description).toLowerCase().includes(query)
         );
       });
 
@@ -2282,7 +2281,7 @@ export default function ViewPage() {
         const query = searchQuery.toLowerCase();
         return (
           org.name.toLowerCase().includes(query) ||
-          (org.description && org.description.toLowerCase().includes(query))
+          richTextToPlainText(org.description).toLowerCase().includes(query)
         );
       });
 
@@ -2400,7 +2399,7 @@ export default function ViewPage() {
                               <h3 className="font-medium">{project.name}</h3>
                               {project.description && (
                                 <p className="text-sm text-zinc-400 mt-1">
-                                  {project.description}
+                                  {getRichTextPreview(project.description, 120)}
                                 </p>
                               )}
                               <p className="text-xs text-zinc-500 mt-1">
@@ -2635,7 +2634,7 @@ export default function ViewPage() {
                       </div>
                       {project.description && (
                         <p className="text-sm text-zinc-400 mb-2">
-                          {project.description}
+                          {getRichTextPreview(project.description, 180)}
                         </p>
                       )}
                       <div className="flex items-center gap-4 text-sm text-zinc-500">
@@ -2817,8 +2816,8 @@ export default function ViewPage() {
               Description
             </div>
             <div className="text-sm text-zinc-300">
-              {project?.description?.trim()
-                ? project.description
+              {project?.description && richTextToPlainText(project.description).trim()
+                ? getRichTextPreview(project.description, 240)
                 : "Add project description and notes..."}
             </div>
           </button>
@@ -3177,6 +3176,12 @@ export default function ViewPage() {
         }}
         onCancelInvite={async (userId, projectId) => {
           return await cancelInvite({ userId, projectId });
+        }}
+        onArchive={async (projectId) => {
+          await handleProjectUpdate(projectId, { archived: true });
+        }}
+        onDelete={async (projectId) => {
+          await handleProjectDelete(projectId);
         }}
       />
 

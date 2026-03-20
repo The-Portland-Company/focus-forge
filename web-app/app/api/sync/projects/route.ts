@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth'
+import { normalizeRichText } from '@/lib/rich-text-sanitize'
 
 // GET /api/sync/projects - List all projects
 export async function GET(request: NextRequest) {
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
           name,
           color,
           organizationId,
-          description,
+          description: normalizeRichText(description),
           budget,
           deadline,
           order: order ?? 0,

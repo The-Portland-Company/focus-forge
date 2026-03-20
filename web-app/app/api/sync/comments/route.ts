@@ -6,6 +6,7 @@ import {
   verifyMobileAccessTokenOrPat,
 } from '@/lib/mobile/api'
 import { createApiResponse, createErrorResponse } from '@/lib/api/auth'
+import { normalizeRichText } from '@/lib/rich-text-sanitize'
 
 type CommentRow = {
   id: string
@@ -176,7 +177,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const content = String(body?.content || '').trim()
+    const content = normalizeRichText(body?.content)
     const taskId = typeof body?.taskId === 'string' ? body.taskId : null
     const projectId = typeof body?.projectId === 'string' ? body.projectId : null
 

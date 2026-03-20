@@ -5,8 +5,9 @@ import { X, Calendar, DollarSign } from 'lucide-react'
 import type { Project } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { RichTextEditor } from '@/components/ui/rich-text-editor'
+import { hasRichTextContent } from '@/lib/rich-text'
 
 interface AddProjectModalProps {
   isOpen: boolean
@@ -59,7 +60,7 @@ export function AddProjectModal({
     
     onAddProject({
       name: name.trim(),
-      description: description.trim() || undefined,
+      description: hasRichTextContent(description) ? description : undefined,
       color: selectedColor,
       organizationId,
       isFavorite: false,
@@ -111,13 +112,13 @@ export function AddProjectModal({
 
           <div>
             <Label htmlFor="description" className="text-sm text-zinc-400">Description</Label>
-            <Textarea
+            <RichTextEditor
               id="description"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={setDescription}
               placeholder="Optional project description"
               className="mt-1"
-              rows={3}
+              minHeightClassName="min-h-[120px]"
             />
           </div>
 

@@ -6,6 +6,7 @@ import {
   verifyMobileAccessTokenOrPat,
 } from '@/lib/mobile/api'
 import { createApiResponse, createErrorResponse } from '@/lib/api/auth'
+import { normalizeRichText } from '@/lib/rich-text-sanitize'
 
 type CommentRow = {
   id: string
@@ -138,7 +139,7 @@ export async function PUT(
 
   try {
     const body = await request.json()
-    const content = String(body?.content || '').trim()
+    const content = normalizeRichText(body?.content)
     if (!content) {
       return createErrorResponse('Content is required', 400)
     }
