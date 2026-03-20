@@ -1,13 +1,15 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { X, Search, Building2, Plus, Check, Users, UserPlus, Trash2, Loader2, RotateCcw, Mail } from 'lucide-react'
+import { X, Search, Building2, Check, Users, Trash2, Loader2, RotateCcw, Mail, Link2 } from 'lucide-react'
 import { Organization, Project, User } from '@/lib/types'
 import { ColorPicker } from './color-picker'
 import { UserAvatar } from '@/components/user-avatar'
 import { type ApiKeyMeta, ALLOWED_API_SCOPES } from '@/lib/api/keys/types'
 import { getRichTextPreview, richTextToPlainText } from '@/lib/rich-text'
 import { KeyRound } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { ExistingMemberPicker, filterAvailableMembers } from '@/components/existing-member-picker'
 
 export interface OrganizationInviteResult {
   userId?: string
@@ -362,6 +364,12 @@ export function OrganizationSettingsModal({
   )
   const activeUsers = displayedUsers.filter(
     (user) => organizationUserIds.includes(user.id) && user.status !== 'pending',
+  )
+  const availableUsers = filterAvailableMembers(
+    displayedUsers,
+    displayedUsers.map((user) => user.id),
+    organizationUserIds,
+    userSearchQuery,
   )
 
   const formatInviteFeedback = (
@@ -718,20 +726,44 @@ export function OrganizationSettingsModal({
                 <h3 className="text-lg font-medium">Organization Members</h3>
                 {canManageUsers && (
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => setShowInviteUser(true)}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm"
-                    >
-                      <Mail className="w-4 h-4" />
-                      Invite User
-                    </button>
-                    <button
-                      onClick={() => setShowAddUser(true)}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-theme-gradient hover:opacity-90 rounded-lg transition-opacity text-sm text-white"
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      Add Existing User
-                    </button>
+                    <div className="group relative">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => {
+                          setShowInviteUser(true)
+                          setShowAddUser(false)
+                        }}
+                        aria-label="Invite member"
+                        className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
+                      >
+                        <Mail className="w-4 h-4" />
+                      </Button>
+                      <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                        Invite member
+                        <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                      </span>
+                    </div>
+                    <div className="group relative">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => {
+                          setShowAddUser(true)
+                          setShowInviteUser(false)
+                        }}
+                        aria-label="Add existing member"
+                        className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
+                      >
+                        <Link2 className="w-4 h-4" />
+                      </Button>
+                      <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                        Add existing member
+                        <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -987,78 +1019,22 @@ export function OrganizationSettingsModal({
 
               {/* Add Existing User Modal */}
               {showAddUser && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
-                  <div className="bg-zinc-900 rounded-lg p-6 max-w-md w-full">
-                    <h3 className="text-lg font-semibold mb-4">Add Existing User</h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Search Users</label>
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-zinc-400 w-4 h-4" />
-                          <input
-                            type="text"
-                            value={userSearchQuery}
-                            onChange={(e) => setUserSearchQuery(e.target.value)}
-                            placeholder="Search by name or email..."
-                            className="w-full pl-10 pr-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none"
-                          />
-                        </div>
-                      </div>
-                      
-                      <div className="max-h-64 overflow-y-auto space-y-2">
-                        {displayedUsers
-                          .filter(user => {
-                            const userName = user.name || `${user.firstName} ${user.lastName}`
-                            return !organizationUserIds.includes(user.id) &&
-                              (userName.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
-                               user.email.toLowerCase().includes(userSearchQuery.toLowerCase()))
-                          })
-                          .map(user => {
-                            const userName = user.name || `${user.firstName} ${user.lastName}`
-                            return (
-                              <button
-                                key={user.id}
-                                onClick={() => {
-                                  if (onUserAdd) {
-                                    onUserAdd(user.id, organization.id)
-                                    setOrganizationUserIds([...organizationUserIds, user.id])
-                                    setShowAddUser(false)
-                                    setUserSearchQuery('')
-                                  }
-                                }}
-                                className="w-full flex items-center gap-3 p-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-left"
-                              >
-                                <UserAvatar
-                                  name={userName}
-                                  profileColor={user.profileColor}
-                                  memoji={user.profileMemoji}
-                                  size={32}
-                                  className="text-sm font-medium"
-                                />
-                                <div className="flex-1">
-                                  <p className="text-sm font-medium">{userName}</p>
-                                  <p className="text-xs text-zinc-500">{user.email}</p>
-                                </div>
-                                <Plus className="w-4 h-4 text-zinc-400" />
-                              </button>
-                            )
-                          })}
-                      </div>
-
-                      <div className="flex justify-end">
-                        <button
-                          onClick={() => {
-                            setShowAddUser(false)
-                            setUserSearchQuery('')
-                          }}
-                          className="px-4 py-2 text-zinc-400 hover:text-white transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <ExistingMemberPicker
+                  searchId="organization-user-search"
+                  searchLabel="Search Organization Users"
+                  searchQuery={userSearchQuery}
+                  onSearchQueryChange={setUserSearchQuery}
+                  users={availableUsers}
+                  emptyMessage="No eligible organization users found."
+                  onSelect={async (user) => {
+                    await onUserAdd?.(user.id, organization.id)
+                    setOrganizationUserIds((current) =>
+                      current.includes(user.id) ? current : [...current, user.id],
+                    )
+                    setShowAddUser(false)
+                    setUserSearchQuery('')
+                  }}
+                />
               )}
             </div>
           )}

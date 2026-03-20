@@ -7,6 +7,7 @@ import {
   getOrganizationUserIds,
   mergeUsersById,
 } from "../organization-settings-modal";
+import { filterAvailableMembers } from "../existing-member-picker";
 
 test("getOrganizationUserIds includes owner and members without duplicates", () => {
   const organization: Organization = {
@@ -61,4 +62,38 @@ test("mergeUsersById keeps fetched users and appends pending invite previews", (
   assert.equal(merged[0].id, "owner-1");
   assert.equal(merged[1].id, "pending-1");
   assert.equal(merged[1].status, "pending");
+});
+
+test("filterAvailableMembers excludes current organization users", () => {
+  const users: User[] = [
+    {
+      id: "owner-1",
+      firstName: "Owner",
+      lastName: "User",
+      name: "Owner User",
+      email: "owner@example.com",
+      createdAt: "2026-03-19T10:00:00.000Z",
+      updatedAt: "2026-03-19T10:00:00.000Z",
+      status: "active",
+    },
+    {
+      id: "invite-1",
+      firstName: "Alex",
+      lastName: "Rivera",
+      name: "Alex Rivera",
+      email: "alex@example.com",
+      createdAt: "2026-03-19T10:00:00.000Z",
+      updatedAt: "2026-03-19T10:00:00.000Z",
+      status: "active",
+    },
+  ];
+
+  const filtered = filterAvailableMembers(
+    users,
+    users.map((user) => user.id),
+    ["owner-1"],
+    "alex",
+  );
+
+  assert.deepEqual(filtered.map((user) => user.id), ["invite-1"]);
 });

@@ -10,6 +10,7 @@ import { UserAvatar } from "@/components/user-avatar"
 import { Archive, Link2, Loader2, Mail, RotateCcw, Save, Search, Trash2, Users, X } from "lucide-react"
 import { RichTextEditor } from "@/components/ui/rich-text-editor"
 import { hasRichTextContent } from "@/lib/rich-text"
+import { ExistingMemberPicker, filterAvailableMembers } from "@/components/existing-member-picker"
 
 interface EditProjectModalProps {
   isOpen: boolean
@@ -178,15 +179,7 @@ export function EditProjectModal({
   )
 
   const availableUsers = useMemo(() => {
-    const query = userSearchQuery.trim().toLowerCase()
-    return users.filter((user) => {
-      if (!organizationMemberIds.has(user.id) || projectUserIds.includes(user.id)) {
-        return false
-      }
-      if (!query) return true
-      const fullName = `${user.firstName} ${user.lastName}`.trim().toLowerCase()
-      return fullName.includes(query) || user.email.toLowerCase().includes(query)
-    })
+    return filterAvailableMembers(users, organizationMemberIds, projectUserIds, userSearchQuery)
   }, [organizationMemberIds, projectUserIds, userSearchQuery, users])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -580,55 +573,20 @@ export function EditProjectModal({
               )}
 
               {showAddUser && (
-                <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 space-y-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="project-user-search">Search Organization Users</Label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                      <Input
-                        id="project-user-search"
-                        value={userSearchQuery}
-                        onChange={(e) => setUserSearchQuery(e.target.value)}
-                        placeholder="Search by name or email"
-                        className="bg-zinc-800 border-zinc-700 pl-10"
-                      />
-                    </div>
-                  </div>
-                  <div className="max-h-48 overflow-y-auto space-y-2">
-                    {availableUsers.map((user) => {
-                      const displayName = user.name || `${user.firstName} ${user.lastName}`.trim()
-                      return (
-                        <button
-                          key={user.id}
-                          type="button"
-                          onClick={async () => {
-                            await onUserAdd?.(user.id, project.id)
-                            setProjectUserIds((current) => Array.from(new Set([...current, user.id])))
-                            setUserSearchQuery("")
-                            setShowAddUser(false)
-                          }}
-                          className="w-full flex items-center gap-3 rounded-lg bg-zinc-800 px-3 py-2 text-left hover:bg-zinc-700 transition-colors"
-                        >
-                          <UserAvatar
-                            name={displayName}
-                            profileColor={user.profileColor}
-                            memoji={user.profileMemoji}
-                            size={32}
-                            className="text-sm font-medium"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-white truncate">{displayName}</p>
-                            <p className="text-xs text-zinc-500 truncate">{user.email}</p>
-                          </div>
-                          <Link2 className="w-4 h-4 text-zinc-400" />
-                        </button>
-                      )
-                    })}
-                    {availableUsers.length === 0 && (
-                      <p className="text-sm text-zinc-500">No eligible organization users found.</p>
-                    )}
-                  </div>
-                </div>
+                <ExistingMemberPicker
+                  searchId="project-user-search"
+                  searchLabel="Search Organization Users"
+                  searchQuery={userSearchQuery}
+                  onSearchQueryChange={setUserSearchQuery}
+                  users={availableUsers}
+                  emptyMessage="No eligible organization users found."
+                  onSelect={async (user) => {
+                    await onUserAdd?.(user.id, project.id)
+                    setProjectUserIds((current) => Array.from(new Set([...current, user.id])))
+                    setUserSearchQuery("")
+                    setShowAddUser(false)
+                  }}
+                />
               )}
 
               {pendingProjectInvites.length > 0 && (
