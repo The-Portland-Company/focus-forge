@@ -2796,10 +2796,7 @@ export default function ViewPage() {
             </h1>
             <div className="flex items-center gap-4">
               {project ? (
-                <ProjectAiExportControls
-                  projectId={project.id}
-                  projectName={project.name}
-                />
+                <ProjectAiExportControls projectId={project.id} />
               ) : null}
               <button
                 onClick={() => setShowAddTask(true)}
