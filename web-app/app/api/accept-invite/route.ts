@@ -1,77 +1,193 @@
 import { NextRequest, NextResponse } from 'next/server'
-import fs from 'fs'
-import path from 'path'
+import { getAdminClient } from '@/lib/supabase/admin'
+import { normalizeInviteEmail } from '@/app/api/invite-user/utils'
+
+type AcceptInviteAction = 'validate' | 'accept'
+
+type InviteValidationResult = {
+  profile: {
+    id: string
+    email: string
+    firstName: string
+    lastName: string
+    status: string | null
+  }
+  authUser: {
+    id: string
+    emailConfirmedAt: string | null
+  } | null
+}
+
+export function inviteRequiresPasswordSetup(emailConfirmedAt: string | null | undefined) {
+  return !emailConfirmedAt
+}
+
+const findAuthUserByEmail = async (email: string) => {
+  const supabaseAdmin = getAdminClient()
+  let page = 1
+  const perPage = 200
+
+  while (true) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage })
+
+    if (error) {
+      throw error
+    }
+
+    const users = data?.users || []
+    const existingUser = users.find(
+      (user) => normalizeInviteEmail(user.email || '') === email
+    )
+
+    if (existingUser) {
+      return existingUser
+    }
+
+    if (users.length < perPage) {
+      return null
+    }
+
+    page += 1
+  }
+}
+
+type InviteProfileRow = {
+  id: string
+  email: string | null
+  first_name: string | null
+  last_name: string | null
+  status: string | null
+  invite_token: string | null
+  invite_expires_at: string | null
+}
+
+const validateInvite = async (email: string, token: string): Promise<InviteValidationResult> => {
+  const supabaseAdmin = getAdminClient()
+
+  const { data: rawProfile, error: profileError } = await supabaseAdmin
+    .from('profiles')
+    .select('id,email,first_name,last_name,status,invite_token,invite_expires_at')
+    .eq('email', email)
+    .eq('invite_token', token)
+    .single()
+
+  const profile = rawProfile as InviteProfileRow | null
+
+  if (profileError || !profile) {
+    throw new Error('Invalid invitation link. Please request a new invitation.')
+  }
+
+  const inviteExpiresAt =
+    typeof profile.invite_expires_at === 'string' ? profile.invite_expires_at : null
+
+  if (inviteExpiresAt && new Date(inviteExpiresAt).getTime() < Date.now()) {
+    throw new Error('This invitation link has expired. Please request a new invitation.')
+  }
+
+  const authUser = await findAuthUserByEmail(email)
+
+  return {
+    profile: {
+      id: profile.id,
+      email: profile.email || email,
+      firstName: profile.first_name || '',
+      lastName: profile.last_name || '',
+      status: profile.status || null,
+    },
+    authUser: authUser
+      ? {
+          id: authUser.id,
+          emailConfirmedAt: authUser.email_confirmed_at || null,
+        }
+      : null,
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, email, organizationId } = await request.json()
+    const body = await request.json()
+    const action = (body.action || 'accept') as AcceptInviteAction
+    const email = normalizeInviteEmail(body.email || '')
+    const token = body.token?.trim()
+    const password = typeof body.password === 'string' ? body.password : ''
 
-    if (!email) {
+    if (!email || !token) {
       return NextResponse.json(
-        { error: 'Email is required' },
+        { error: 'Invitation token and email are required' },
         { status: 400 }
       )
     }
 
-    // Update the local database
-    const dbPath = path.join(process.cwd(), 'data', 'database.json')
-    const database = JSON.parse(await fs.promises.readFile(dbPath, 'utf8'))
+    const validation = await validateInvite(email, token)
+    const requiresPasswordSetup = inviteRequiresPasswordSetup(
+      validation.authUser?.emailConfirmedAt
+    )
 
-    // Find the user by email
-    let user = database.users.find((u: any) => u.email === email)
+    if (action === 'validate') {
+      return NextResponse.json({
+        success: true,
+        invitation: {
+          email: validation.profile.email,
+          firstName: validation.profile.firstName,
+          lastName: validation.profile.lastName,
+          status: validation.profile.status,
+          requiresPasswordSetup,
+        },
+      })
+    }
 
-    if (user) {
-      // Update user status from pending to active
-      if (user.status === 'pending') {
-        user.status = 'active'
-        user.acceptedAt = new Date().toISOString()
-        user.updatedAt = new Date().toISOString()
-        
-        // Update authId if provided
-        if (userId && !user.authId) {
-          user.authId = userId
+    if (requiresPasswordSetup && password.length < 8) {
+      return NextResponse.json(
+        { error: 'Please choose a password with at least 8 characters.' },
+        { status: 400 }
+      )
+    }
+
+    const supabaseAdmin = getAdminClient()
+
+    if (validation.authUser?.id && password) {
+      const { error: updateUserError } = await supabaseAdmin.auth.admin.updateUserById(
+        validation.authUser.id,
+        {
+          password,
+          email_confirm: true,
+          user_metadata: {
+            firstName: validation.profile.firstName,
+            lastName: validation.profile.lastName,
+            mustResetPassword: false,
+          },
         }
+      )
+
+      if (updateUserError) {
+        throw new Error(updateUserError.message || 'Failed to finish account setup.')
       }
-    } else {
-      // User doesn't exist locally, create them
-      user = {
-        id: userId || `user-${Date.now()}`,
-        email,
-        firstName: '',
-        lastName: '',
-        name: email.split('@')[0], // Use email prefix as default name
+    }
+
+    const { error: profileUpdateError } = await supabaseAdmin
+      .from('profiles')
+      .update({
         status: 'active',
-        acceptedAt: new Date().toISOString(),
-        profileColor: '#667eea',
-        authId: userId,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }
-      database.users.push(user)
+        invite_token: null,
+        invite_expires_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', validation.profile.id)
+
+    if (profileUpdateError) {
+      throw new Error(profileUpdateError.message || 'Failed to accept invitation.')
     }
 
-    // Ensure user is in the organization if organizationId is provided
-    if (organizationId) {
-      const org = database.organizations.find((o: any) => o.id === organizationId)
-      if (org && !org.memberIds?.includes(user.id)) {
-        org.memberIds = org.memberIds || []
-        org.memberIds.push(user.id)
-      }
-    }
-
-    // Save the updated database
-    await fs.promises.writeFile(dbPath, JSON.stringify(database, null, 2))
-
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Invitation accepted successfully',
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name
-      }
+    return NextResponse.json({
+      success: true,
+      message: 'Invitation accepted successfully.',
+      invitation: {
+        email: validation.profile.email,
+        firstName: validation.profile.firstName,
+        lastName: validation.profile.lastName,
+        requiresPasswordSetup,
+      },
     })
-
   } catch (error: any) {
     console.error('Accept invite error:', error)
     return NextResponse.json(

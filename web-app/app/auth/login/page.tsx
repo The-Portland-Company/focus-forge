@@ -19,6 +19,14 @@ function LoginContent() {
     if (searchParams.get('registered') === 'true') {
       setMessage('Registration successful! Please log in.')
     }
+    const invitedEmail = searchParams.get('email')
+    if (invitedEmail) {
+      setEmail(invitedEmail)
+    }
+    const loginMessage = searchParams.get('message')
+    if (loginMessage) {
+      setMessage(loginMessage)
+    }
   }, [searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
