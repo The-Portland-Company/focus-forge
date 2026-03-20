@@ -1165,11 +1165,17 @@ export default function SettingsPage() {
                 },
               );
 
-              if (response.ok) {
-                await fetchData();
+              if (!response.ok) {
+                const result = await response.json().catch(() => null);
+                throw new Error(
+                  result?.error || "Failed to add user to organization.",
+                );
               }
+
+              await fetchData();
             } catch (error) {
               console.error("Error adding user to organization:", error);
+              throw error;
             }
           }}
           onUserRemove={async (userId, organizationId) => {
@@ -1194,11 +1200,17 @@ export default function SettingsPage() {
                 },
               );
 
-              if (response.ok) {
-                await fetchData();
+              if (!response.ok) {
+                const result = await response.json().catch(() => null);
+                throw new Error(
+                  result?.error || "Failed to remove user from organization.",
+                );
               }
+
+              await fetchData();
             } catch (error) {
               console.error("Error removing user from organization:", error);
+              throw error;
             }
           }}
           onUserRoleChange={async (userId, organizationId, role) => {

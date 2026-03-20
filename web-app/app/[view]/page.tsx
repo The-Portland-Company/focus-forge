@@ -3096,7 +3096,19 @@ export default function ViewPage() {
             const memberIds = Array.from(
               new Set([...(organization.memberIds || []), userId]),
             );
-            await handleOrganizationUpdate(organizationId, { memberIds });
+            const response = await fetch(`/api/organizations/${organizationId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ memberIds }),
+            });
+
+            if (!response.ok) {
+              const result = await response.json().catch(() => null);
+              throw new Error(result?.error || "Failed to add user to organization.");
+            }
+
+            await fetchData();
           }}
           onUserRemove={async (userId, organizationId) => {
             const organization = database.organizations.find(
@@ -3107,7 +3119,19 @@ export default function ViewPage() {
             const memberIds = (organization.memberIds || []).filter(
               (memberId) => memberId !== userId,
             );
-            await handleOrganizationUpdate(organizationId, { memberIds });
+            const response = await fetch(`/api/organizations/${organizationId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ memberIds }),
+            });
+
+            if (!response.ok) {
+              const result = await response.json().catch(() => null);
+              throw new Error(result?.error || "Failed to remove user from organization.");
+            }
+
+            await fetchData();
           }}
           onResendInvite={async (userId) => {
             return await resendInvite(userId);

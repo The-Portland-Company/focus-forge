@@ -92,8 +92,8 @@ interface OrganizationSettingsModalProps {
     firstName: string,
     lastName: string,
   ) => Promise<OrganizationInviteResult | null | void>
-  onUserAdd?: (userId: string, organizationId: string) => void
-  onUserRemove?: (userId: string, organizationId: string) => void
+  onUserAdd?: (userId: string, organizationId: string) => Promise<void> | void
+  onUserRemove?: (userId: string, organizationId: string) => Promise<void> | void
   onUserRoleChange?: (
     userId: string,
     organizationId: string,
@@ -495,6 +495,24 @@ export function OrganizationSettingsModal({
         const next = new Set(current)
         next.delete(user.id)
         return next
+      })
+    }
+  }
+
+  const handleRemoveUser = async (user: User) => {
+    if (!onUserRemove) {
+      return
+    }
+
+    try {
+      await onUserRemove(user.id, organization.id)
+      setOrganizationUserIds((current) => current.filter((id) => id !== user.id))
+      setInviteStatus(null)
+    } catch (error) {
+      setInviteStatus({
+        tone: 'error',
+        message:
+          error instanceof Error ? error.message : `Failed to remove ${user.email} from the organization.`,
       })
     }
   }
@@ -929,7 +947,7 @@ export function OrganizationSettingsModal({
                             )}
                             {onUserRemove && canManageUsers && organization.ownerId !== user.id && (
                               <button
-                                onClick={() => onUserRemove(user.id, organization.id)}
+                                onClick={() => void handleRemoveUser(user)}
                                 className="p-1.5 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-red-400"
                                 title="Remove from organization"
                               >
