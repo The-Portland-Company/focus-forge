@@ -1504,9 +1504,14 @@ export default function ViewPage() {
   };
 
   const userPriorityColor = getCurrentUserPriorityColor();
-  const currentUserRole =
-    database?.users?.find((databaseUser) => databaseUser.id === user?.id)?.role ||
+  const resolvedCurrentUser =
+    (user?.id
+      ? database?.users?.find((databaseUser) => databaseUser.id === user.id)
+      : null) ||
+    database?.users?.[0] ||
     null;
+  const currentUserId = user?.id || resolvedCurrentUser?.id || undefined;
+  const currentUserRole = resolvedCurrentUser?.role || null;
 
   const filterTasks = (tasks: Task[]) => {
     if (filterAssignedTo === "all") {
@@ -2352,7 +2357,7 @@ export default function ViewPage() {
                     tasks={filteredTasks}
                     allTasks={database.tasks}
                     projects={database.projects}
-                    currentUserId={user?.id}
+                    currentUserId={currentUserId}
                     priorityColor={userPriorityColor}
                     showCompleted={
                       database.settings?.showCompletedTasks ?? true
@@ -2832,7 +2837,7 @@ export default function ViewPage() {
                 allTasks={database.tasks}
                 database={database}
                 priorityColor={userPriorityColor}
-                currentUserId={user?.id}
+                currentUserId={currentUserId}
                 completedAccordionKey={`project-${projectId}`}
                 revealActionsOnHover={true}
                 dueDateLayout={dueDateLayout}
@@ -2868,7 +2873,7 @@ export default function ViewPage() {
                 tasks={unassignedTasks}
                 allTasks={database.tasks}
                 projects={database.projects}
-                currentUserId={user?.id}
+                currentUserId={currentUserId}
                 priorityColor={userPriorityColor}
                 showCompleted={database.settings?.showCompletedTasks ?? true}
                 completedAccordionKey={`project-${projectId}-unassigned`}
@@ -3045,7 +3050,7 @@ export default function ViewPage() {
           )}
           allProjects={database.projects}
           users={database.users}
-          currentUserId={user?.id}
+          currentUserId={currentUserId}
           currentUserRole={currentUserRole}
           canManageApiKeys={
             currentUserRole === "admin" || currentUserRole === "super_admin"
@@ -3121,7 +3126,7 @@ export default function ViewPage() {
               ) || null
             : null
         }
-        currentUserId={user?.id}
+        currentUserId={currentUserId}
         currentUserRole={currentUserRole}
         onUpdate={(updates) => {
           if (editingProject) {
