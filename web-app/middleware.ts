@@ -9,6 +9,7 @@ const publicRoutes = [
   "/auth/forgot-password",
   "/auth/accept-invite",
   "/docs/focus-time-agent",
+  "/docs/focus-time-openapi",
   "/developer/api",
   "/api/auth/login",
   "/api/auth/register",
@@ -21,6 +22,7 @@ const publicRoutes = [
   "/api/health",
   "/api/calendar/feed",
   "/api/v1/time/prompt",
+  "/api/v1/time/openapi",
 ];
 
 const securityHeaders = {

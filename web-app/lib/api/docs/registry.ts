@@ -159,6 +159,11 @@ const endpointOverrides: Record<
     summary: "Return the public Focus: Time implementation prompt in machine-readable form.",
     tags: ["time", "developer", "public"],
   },
+  "/api/v1/time/openapi": {
+    auth: "public",
+    summary: "Return the public OpenAPI 3.1 contract for the Focus: Time API.",
+    tags: ["time", "developer", "public"],
+  },
   "/api/v1/time/bootstrap": {
     auth: "bearer",
     summary: "Load bootstrap data for the authenticated user's Focus: Time UI.",
