@@ -184,18 +184,8 @@ export async function getTimeBootstrap(userId: string): Promise<TimeTrackingBoot
       .from("user_organizations")
       .select("organization_id,user_id,profiles!inner(id,email,first_name,last_name,role)")
       .in("organization_id", organizationIds),
-    admin
-      .schema("time_tracking")
-      .from("groups")
-      .select("id,organization_id,name,description,created_by,created_at,updated_at,group_members(user_id)")
-      .in("organization_id", organizationIds)
-      .order("name"),
-    admin
-      .schema("time_tracking")
-      .from("api_tokens")
-      .select("id,organization_id,created_by,name,description,prefix,scopes,expires_at,last_used_at,is_active,share_mode,created_at,token_users(user_id),token_groups(group_id)")
-      .in("organization_id", organizationIds)
-      .order("created_at", { ascending: false }),
+    admin.rpc("time_list_groups", { p_org_ids: organizationIds }),
+    admin.rpc("time_list_api_tokens", { p_org_ids: organizationIds }),
   ]);
 
   if (organizationsResult.error) throw organizationsResult.error;
@@ -205,8 +195,12 @@ export async function getTimeBootstrap(userId: string): Promise<TimeTrackingBoot
   if (groupsResult.error) throw groupsResult.error;
   if (timeTokensResult.error) throw timeTokensResult.error;
 
-  const visibleTokens =
-    (timeTokensResult.data || []).filter((row: TimeTokenRow) => {
+  const groups = Array.isArray(groupsResult.data) ? (groupsResult.data as TimeGroupRow[]) : [];
+  const timeTokens = Array.isArray(timeTokensResult.data)
+    ? (timeTokensResult.data as TimeTokenRow[])
+    : [];
+
+  const visibleTokens = timeTokens.filter((row: TimeTokenRow) => {
       if (String(row.created_by) === userId) {
         return true;
       }
@@ -230,7 +224,7 @@ export async function getTimeBootstrap(userId: string): Promise<TimeTrackingBoot
         return false;
       }
 
-      return (groupsResult.data || []).some(
+      return groups.some(
         (group: TimeGroupRow) =>
           sharedGroupIds.includes(group.id) &&
           Array.isArray(group.group_members) &&
@@ -254,7 +248,7 @@ export async function getTimeBootstrap(userId: string): Promise<TimeTrackingBoot
     sections: (sectionsResult.data || []).map(mapTimeSection),
     tasks: (tasksResult.data || []).map(mapTimeTask),
     users: Array.from(users.values()).sort((a, b) => a.name.localeCompare(b.name)),
-    groups: (groupsResult.data || []).map(mapTimeGroup),
+    groups: groups.map(mapTimeGroup),
     timeTokens: visibleTokens.map(mapTimeToken),
   };
 }
@@ -423,26 +417,11 @@ export async function getCurrentTimeEntry(
   requestedUserId?: string | null,
 ) {
   const admin = getAdminClient();
-  const query = admin
-    .schema("time_tracking")
-    .from("entries")
-    .select(
-      "id,organization_id,user_id,project_id,section_id,title,description,timezone,started_at,ended_at,created_at,updated_at,source,source_metadata,organizations(id,name),profiles(id,email,first_name,last_name,role),projects(id,name,organization_id),sections(id,name,project_id),entry_tasks(task_id,tasks(id,name,project_id,section_id))",
-    )
-    .is("ended_at", null)
-    .order("started_at", { ascending: false })
-    .limit(1);
-
-  if (principal.kind === "org_token") {
-    query.eq("organization_id", principal.organizationId);
-    if (requestedUserId) {
-      query.eq("user_id", requestedUserId);
-    }
-  } else {
-    query.eq("user_id", requestedUserId || principal.userId);
-  }
-
-  const { data, error } = await query.maybeSingle();
+  const { data, error } = await admin.rpc("time_get_current_entry", {
+    p_org_id: principal.kind === "org_token" ? principal.organizationId : null,
+    p_user_id:
+      principal.kind === "org_token" ? requestedUserId || null : requestedUserId || principal.userId,
+  });
   if (error) {
     throw error;
   }

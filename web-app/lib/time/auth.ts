@@ -173,12 +173,9 @@ export async function requireTimePrincipal(
     };
   }
 
-  const { data: orgToken } = await admin
-    .schema("time_tracking")
-    .from("api_tokens")
-    .select("id, organization_id, created_by, scopes, is_active, expires_at")
-    .eq("hashed_key", hashedKey)
-    .maybeSingle();
+  const { data: orgToken } = await admin.rpc("time_get_org_token", {
+    p_hashed_key: hashedKey,
+  });
 
   if (!orgToken) {
     return { errorResponse: failure("Unauthorized") };
@@ -196,11 +193,9 @@ export async function requireTimePrincipal(
     };
   }
 
-  void admin
-    .schema("time_tracking")
-    .from("api_tokens")
-    .update({ last_used_at: new Date().toISOString() })
-    .eq("id", orgToken.id);
+  void admin.rpc("time_touch_org_token", {
+    p_token_id: orgToken.id,
+  });
 
   return {
     principal: {
