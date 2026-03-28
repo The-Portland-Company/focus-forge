@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 
-let _adminClient: ReturnType<typeof createClient> | null = null
+let _adminClient: any = null
 
 export function getAdminClient() {
   if (!_adminClient) {
@@ -16,5 +16,5 @@ export function getAdminClient() {
       }
     })
   }
-  return _adminClient
+  return _adminClient as any
 }

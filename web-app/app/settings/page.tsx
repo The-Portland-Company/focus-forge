@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -12,6 +13,7 @@ import {
   Copy,
   RefreshCw,
   KeyRound,
+  ExternalLink,
 } from "lucide-react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { UserAvatar } from "@/components/user-avatar";
@@ -740,6 +742,28 @@ export default function SettingsPage() {
           <div id="personal-access-keys">
             <h2 className="text-xl font-semibold mb-6">Personal Access Tokens</h2>
             <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+              <div className="mb-5 rounded-2xl border border-emerald-800/50 bg-emerald-950/30 p-4 text-sm text-emerald-100">
+                <div className="font-medium">Focus: Time bootstrap</div>
+                <p className="mt-1 text-emerald-200/80">
+                  Create a PAT with the <code>admin</code> scope when you want AI or external tooling to generate Focus: Time organization tokens.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-3">
+                  <Link
+                    href="/docs/focus-time-agent"
+                    className="inline-flex items-center gap-2 rounded-full border border-emerald-700/60 px-3 py-1.5 text-xs font-medium text-emerald-100 hover:border-emerald-500 hover:text-white"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Public Focus: Time Prompt
+                  </Link>
+                  <Link
+                    href="/developer/api"
+                    className="inline-flex items-center gap-2 rounded-full border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:border-zinc-500 hover:text-white"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    API Docs
+                  </Link>
+                </div>
+              </div>
               <div className="flex items-start justify-between gap-2">
                 <h3 className="text-lg font-medium flex items-center gap-2">
                   <KeyRound className="w-5 h-5" />

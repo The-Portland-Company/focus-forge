@@ -2,6 +2,9 @@
 
 # dependencies
 /node_modules
+/api/node_modules/
+/web-app/node_modules/
+/ios-app/capacitor/node_modules/
 /.pnp
 .pnp.js
 .yarn/install-state.gz

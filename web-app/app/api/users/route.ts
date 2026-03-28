@@ -29,7 +29,7 @@ const findAuthUserByEmail = async (email: string) => {
 
     const users = data?.users || [];
     const match = users.find(
-      (user) => (user.email || "").trim().toLowerCase() === email,
+      (user: any) => (user.email || "").trim().toLowerCase() === email,
     );
     if (match) {
       return match;

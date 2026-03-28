@@ -36,6 +36,7 @@ import {
 import { Database, Project } from "@/lib/types";
 import { UserAvatar } from "@/components/user-avatar";
 import { Tooltip } from "./tooltip";
+import { formatElapsed } from "@/lib/time/client";
 
 interface SidebarProps {
   data: Database;
@@ -97,6 +98,9 @@ export function Sidebar({
   const [showCalendarPopover, setShowCalendarPopover] = useState(false);
   const [calendarCopied, setCalendarCopied] = useState(false);
   const calendarPopoverRef = useRef<HTMLDivElement>(null);
+  const [currentTimerStartedAt, setCurrentTimerStartedAt] = useState<string | null>(null);
+  const [currentTimerLabel, setCurrentTimerLabel] = useState("Focus: Time");
+  const [currentTimerElapsed, setCurrentTimerElapsed] = useState("00:00:00");
 
   // Load saved preferences from localStorage
   useEffect(() => {
@@ -168,6 +172,43 @@ export function Sidebar({
     };
     fetchToken();
   }, []);
+
+  useEffect(() => {
+    const loadCurrentTimer = async () => {
+      try {
+        const response = await fetch("/api/v1/time/current", {
+          credentials: "include",
+        });
+        const payload = await response.json();
+        if (!response.ok) return;
+        setCurrentTimerStartedAt(payload.data?.startedAt || null);
+        setCurrentTimerLabel(payload.data?.title || "Focus: Time");
+      } catch (error) {
+        console.error("Failed to load current time entry:", error);
+      }
+    };
+
+    void loadCurrentTimer();
+    const interval = window.setInterval(() => {
+      void loadCurrentTimer();
+    }, 30000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!currentTimerStartedAt) {
+      setCurrentTimerElapsed("00:00:00");
+      return;
+    }
+
+    setCurrentTimerElapsed(formatElapsed(currentTimerStartedAt));
+    const interval = window.setInterval(() => {
+      setCurrentTimerElapsed(formatElapsed(currentTimerStartedAt));
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [currentTimerStartedAt]);
 
   // Close calendar popover on outside click
   useEffect(() => {
@@ -521,6 +562,46 @@ export function Sidebar({
           >
             <Calendar className="w-4 h-4" />
             Calendar
+          </Link>
+        )}
+
+        {isCollapsed ? (
+          <Tooltip
+            content={
+              currentTimerStartedAt
+                ? `${currentTimerLabel} · ${currentTimerElapsed}`
+                : "Focus: Time"
+            }
+          >
+            <Link
+              href="/time"
+              className={`mt-1 w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
+                currentView === "time"
+                  ? "bg-zinc-800 text-white"
+                  : currentTimerStartedAt
+                    ? "text-emerald-300 hover:bg-zinc-800/50 hover:text-white"
+                    : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+              }`}
+            >
+              <Clock className="w-4 h-4" />
+            </Link>
+          </Tooltip>
+        ) : (
+          <Link
+            href="/time"
+            className={`mt-1 w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+              currentView === "time"
+                ? "bg-zinc-800 text-white"
+                : currentTimerStartedAt
+                  ? "text-emerald-300 hover:bg-zinc-800/50 hover:text-white"
+                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+            }`}
+          >
+            <span className="flex items-center gap-3">
+              <Clock className="w-4 h-4" />
+              <span>{currentTimerLabel}</span>
+            </span>
+            <span className="font-mono text-xs">{currentTimerElapsed}</span>
           </Link>
         )}
 

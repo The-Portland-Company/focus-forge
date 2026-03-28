@@ -25,6 +25,7 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
+import { TimeTrackingView } from "@/components/time-tracking-view";
 import {
   filterTasksByBlockedStatus,
   isTaskBlocked,
@@ -2771,6 +2772,10 @@ export default function ViewPage() {
       );
     }
 
+    if (view === "time") {
+      return <TimeTrackingView />;
+    }
+
     if (view.startsWith("org-")) {
       const orgId = view.replace("org-", "");
       const organization = database.organizations.find((o) => o.id === orgId);
@@ -3575,6 +3580,8 @@ export default function ViewPage() {
               ? "p-8"
               : view === "today"
                 ? "p-0"
+                : view === "time"
+                  ? "p-6"
                 : "max-w-4xl mx-auto p-8"
           }
         >

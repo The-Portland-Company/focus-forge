@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
         throw orgProjectsError
       }
 
-      const projectIds = (orgProjects || []).map((project) => project.id)
+      const projectIds = (orgProjects || []).map((project: any) => project.id)
       if (projectIds.length > 0) {
         const { error: removeProjectMembershipsError } = await supabaseAdmin
           .from('user_projects')

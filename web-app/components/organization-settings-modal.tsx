@@ -10,6 +10,7 @@ import { getRichTextPreview, richTextToPlainText } from '@/lib/rich-text'
 import { KeyRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ExistingMemberPicker, filterAvailableMembers } from '@/components/existing-member-picker'
+import { FocusTimeOrganizationPanel } from '@/components/focus-time-organization-panel'
 
 export interface OrganizationInviteResult {
   userId?: string
@@ -359,6 +360,7 @@ export function OrganizationSettingsModal({
   }
 
   const displayedUsers = mergeUsersById(users, localInvitedUsers)
+  const organizationUsers = displayedUsers.filter((user) => organizationUserIds.includes(user.id))
   const pendingUsers = displayedUsers.filter(
     (user) => organizationUserIds.includes(user.id) && user.status === 'pending',
   )
@@ -1203,6 +1205,15 @@ export function OrganizationSettingsModal({
                     </div>
                   ))
                 )}
+              </div>
+
+              <div className="pt-4">
+                <h3 className="text-lg font-medium mb-4">Focus: Time Tokens and Groups</h3>
+                <FocusTimeOrganizationPanel
+                  organizationId={organization.id}
+                  users={organizationUsers}
+                  canManage={canManageApiSettings}
+                />
               </div>
             </div>
           )}

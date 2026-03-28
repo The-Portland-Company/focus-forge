@@ -154,6 +154,46 @@ const endpointOverrides: Record<
     summary: "Revoke a specific organization API key.",
     tags: ["api-keys", "organizations", "developer"],
   },
+  "/api/v1/time/prompt": {
+    auth: "public",
+    summary: "Return the public Focus: Time implementation prompt in machine-readable form.",
+    tags: ["time", "developer", "public"],
+  },
+  "/api/v1/time/bootstrap": {
+    auth: "bearer",
+    summary: "Load bootstrap data for the authenticated user's Focus: Time UI.",
+    tags: ["time", "developer"],
+  },
+  "/api/v1/time/current": {
+    auth: "bearer",
+    summary: "Fetch the currently running timer for the authenticated user or org token context.",
+    tags: ["time"],
+  },
+  "/api/v1/time/entries": {
+    auth: "bearer",
+    summary: "List or create time entries with org/project/task-list/task filters.",
+    tags: ["time"],
+  },
+  "/api/v1/time/entries/{id}": {
+    auth: "bearer",
+    summary: "Fetch, update, or delete a specific time entry.",
+    tags: ["time"],
+  },
+  "/api/v1/time/organizations/{organizationId}/groups": {
+    auth: "bearer",
+    summary: "List or create Focus: Time sharing groups for an organization.",
+    tags: ["time", "organizations"],
+  },
+  "/api/v1/time/organizations/{organizationId}/tokens": {
+    auth: "bearer",
+    summary: "List or create Focus: Time organization API tokens.",
+    tags: ["time", "api-keys", "organizations"],
+  },
+  "/api/v1/time/organizations/{organizationId}/tokens/{tokenId}": {
+    auth: "bearer",
+    summary: "Revoke a Focus: Time organization API token.",
+    tags: ["time", "api-keys", "organizations"],
+  },
   "/api/attachments/upload": {
     auth: "cookie_session",
     summary: "Upload an attachment.",

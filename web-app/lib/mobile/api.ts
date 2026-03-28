@@ -134,7 +134,7 @@ export const verifyMobileAccessTokenOrPat = async (
   }
 
   const scopes = Array.isArray(pat.scopes)
-    ? (pat.scopes.filter((scope): scope is ApiKeyScope => typeof scope === 'string') as ApiKeyScope[])
+    ? (pat.scopes.filter((scope: unknown): scope is ApiKeyScope => typeof scope === 'string') as ApiKeyScope[])
     : []
   if (!hasAnyRequiredScope(scopes, requiredPatScopes)) {
     return {

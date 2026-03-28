@@ -14,6 +14,12 @@ type CommentRow = {
   [key: string]: any
 }
 
+type AuthorProfile = {
+  author_name: string | null
+  author_memoji: string | null
+  author_email: string | null
+}
+
 const enrichCommentsWithAuthors = async (comments: CommentRow[]) => {
   if (!comments.length) return comments
 
@@ -40,7 +46,7 @@ const enrichCommentsWithAuthors = async (comments: CommentRow[]) => {
     .select('id, first_name, last_name, email, profile_memoji')
     .in('id', userIds)
 
-  const profileMap = new Map(
+  const profileMap = new Map<string, AuthorProfile>(
     (profiles || []).map((profile: any) => {
       const name = `${profile.first_name || ''} ${profile.last_name || ''}`.trim()
       return [

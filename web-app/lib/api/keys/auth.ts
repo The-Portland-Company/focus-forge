@@ -98,7 +98,7 @@ export async function requireAdminSessionOrPatAdminScope(
     }
 
     const scopes = Array.isArray(personalToken.scopes)
-      ? (personalToken.scopes.filter((scope): scope is ApiKeyScope =>
+      ? (personalToken.scopes.filter((scope: unknown): scope is ApiKeyScope =>
           typeof scope === "string",
         ) as ApiKeyScope[])
       : [];

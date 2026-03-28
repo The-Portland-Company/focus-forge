@@ -18,7 +18,7 @@ const findAuthUserByEmail = async (email: string) => {
 
     const users = data?.users || []
     const existingUser = users.find(
-      (user) => normalizeInviteEmail(user.email || '') === email
+      (user: any) => normalizeInviteEmail(user.email || '') === email
     )
 
     if (existingUser) {
