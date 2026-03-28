@@ -13,6 +13,7 @@ servers:
     description: Production
 security:
   - sessionAuth: []
+  - nativeSessionAuth: []
   - bearerAuth: []
 tags:
   - name: time
@@ -271,6 +272,11 @@ components:
       in: cookie
       name: sb-<project>-auth-token
       description: Existing authenticated Focus: Forge web session
+    nativeSessionAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Native app session header using the format \`Session <supabase-access-token>\`
     bearerAuth:
       type: http
       scheme: bearer
@@ -735,4 +741,3 @@ components:
 export function getFocusTimeOpenApiUrl(baseUrl: string) {
   return `${baseUrl.replace(/\/$/, "")}/docs/${FOCUS_TIME_OPENAPI_SLUG}`;
 }
-

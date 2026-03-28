@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { hashApiKeySecret } from "@/lib/api/keys/utils";
+import { createAnonSupabase } from "@/lib/mobile/api";
 import { mapTimeScopes } from "./utils";
 import type { TimeScope } from "./types";
 
@@ -41,6 +42,31 @@ function hasRequiredScope(granted: TimeScope[], required: TimeScope[]) {
   return required.every((scope) => granted.includes(scope));
 }
 
+async function buildSessionPrincipal(userId: string) {
+  const supabase = await createClient();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .single();
+
+  const scopes: TimeScope[] =
+    profile?.role === "admin" || profile?.role === "super_admin"
+      ? ["read", "write", "admin"]
+      : ["read", "write"];
+
+  return {
+    userId,
+    scopes,
+    role:
+      profile?.role === "team_member" ||
+      profile?.role === "admin" ||
+      profile?.role === "super_admin"
+        ? profile.role
+        : null,
+  };
+}
+
 export async function requireTimePrincipal(
   request: NextRequest,
   requiredScopes: TimeScope[] = ["read"],
@@ -51,18 +77,9 @@ export async function requireTimePrincipal(
   } = await supabase.auth.getSession();
 
   if (session?.user) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", session.user.id)
-      .single();
+    const sessionPrincipal = await buildSessionPrincipal(session.user.id);
 
-    const scopes: TimeScope[] =
-      profile?.role === "admin" || profile?.role === "super_admin"
-        ? ["read", "write", "admin"]
-        : ["read", "write"];
-
-    if (!hasRequiredScope(scopes, requiredScopes)) {
+    if (!hasRequiredScope(sessionPrincipal.scopes, requiredScopes)) {
       return {
         errorResponse: failure("Missing required scope.", 403),
       };
@@ -71,24 +88,52 @@ export async function requireTimePrincipal(
     return {
       principal: {
         kind: "session",
-        userId: session.user.id,
-        scopes,
-        role:
-          profile?.role === "team_member" ||
-          profile?.role === "admin" ||
-          profile?.role === "super_admin"
-            ? profile.role
-            : null,
+        userId: sessionPrincipal.userId,
+        scopes: sessionPrincipal.scopes,
+        role: sessionPrincipal.role,
       },
     };
   }
 
   const authHeader = request.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
+  if (!authHeader) {
     return { errorResponse: failure("Unauthorized") };
   }
 
-  const token = authHeader.slice("Bearer ".length).trim();
+  const [scheme, ...tokenParts] = authHeader.split(" ");
+  const token = tokenParts.join(" ").trim();
+
+  if (!scheme || !token) {
+    return { errorResponse: failure("Unauthorized") };
+  }
+
+  if (scheme.toLowerCase() === "session") {
+    const anon = createAnonSupabase();
+    const { data, error } = await anon.auth.getUser(token);
+
+    if (error || !data?.user) {
+      return { errorResponse: failure("Session token is invalid or expired.") };
+    }
+
+    const sessionPrincipal = await buildSessionPrincipal(data.user.id);
+    if (!hasRequiredScope(sessionPrincipal.scopes, requiredScopes)) {
+      return { errorResponse: failure("Missing required scope.", 403) };
+    }
+
+    return {
+      principal: {
+        kind: "session",
+        userId: sessionPrincipal.userId,
+        scopes: sessionPrincipal.scopes,
+        role: sessionPrincipal.role,
+      },
+    };
+  }
+
+  if (scheme.toLowerCase() !== "bearer") {
+    return { errorResponse: failure("Unauthorized") };
+  }
+
   if (!token) {
     return { errorResponse: failure("Unauthorized") };
   }
