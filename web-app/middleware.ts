@@ -21,6 +21,7 @@ const publicRoutes = [
   "/api/accept-invite",
   "/api/health",
   "/api/calendar/feed",
+  "/api/v1/time",
   "/api/v1/time/prompt",
   "/api/v1/time/openapi",
 ];
