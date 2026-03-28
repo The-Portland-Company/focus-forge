@@ -4,7 +4,7 @@ import {
   getMobileAdapterForUser,
   mobileFailure,
   mobileSuccess,
-  verifyMobileAccessToken,
+  verifyMobileAccessTokenOrPat,
 } from '@/lib/mobile/api'
 
 type TaskListSummary = {
@@ -19,7 +19,7 @@ export async function GET(
   props: { params: Promise<{ id: string }> },
 ) {
   try {
-    const auth = await verifyMobileAccessToken(
+    const auth = await verifyMobileAccessTokenOrPat(
       request.headers.get('authorization'),
     )
 
@@ -102,7 +102,7 @@ export async function POST(
   props: { params: Promise<{ id: string }> },
 ) {
   try {
-    const auth = await verifyMobileAccessToken(
+    const auth = await verifyMobileAccessTokenOrPat(
       request.headers.get('authorization'),
     )
 

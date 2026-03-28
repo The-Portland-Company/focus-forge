@@ -67,6 +67,10 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
 
   if (!isOpen) return null
 
+  const isSubSection = Boolean(parentId)
+  const title = isSubSection ? 'Add Sub-Section' : 'Add Section'
+  const submitLabel = isSubSection ? 'Add Sub-Section' : 'Add Section'
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
@@ -86,7 +90,7 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-zinc-900 rounded-lg p-6 w-full max-w-md">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-white">Add Section</h2>
+          <h2 className="text-xl font-semibold text-white">{title}</h2>
           <button
             onClick={onClose}
             className="text-zinc-400 hover:text-white transition-colors"
@@ -106,7 +110,7 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Section name"
+                placeholder={isSubSection ? "Sub-section name" : "Section name"}
                 className="w-full bg-zinc-800 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 ring-theme transition-all"
                 autoFocus
               />
@@ -221,7 +225,7 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
               className="px-4 py-2 btn-theme-primary text-white rounded-lg transition-all"
               disabled={!name.trim()}
             >
-              Add Section
+              {submitLabel}
             </button>
           </div>
         </form>

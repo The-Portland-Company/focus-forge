@@ -15,46 +15,48 @@ struct TodayView: View {
                     }
                 }
 
-                Section("Overdue & Today") {
-                    ForEach(viewModel.visibleTasks) { task in
-                        NavigationLink {
-                            TaskDetailView(task: task) { updated in
-                                viewModel.applyTaskUpdate(updated)
-                            } onTaskDeleted: { taskID in
-                                viewModel.removeTask(taskID)
-                            }
-                        } label: {
-                            TaskRowView(task: task) {
-                                Task { await viewModel.toggleComplete(task) }
-                            }
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                Task { await viewModel.deleteTask(taskID: task.id) }
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                        .swipeActions(edge: .leading) {
-                            Button {
-                                Task {
-                                    await viewModel.updateTask(
-                                        taskID: task.id,
-                                        patch: PatchTaskRequest(
-                                            name: task.name,
-                                            description: task.description,
-                                            due_date: task.due_date,
-                                            due_time: task.due_time,
-                                            priority: task.priority == 1 ? 4 : task.priority - 1,
-                                            completed: task.completed,
-                                            section_id: task.section_id
-                                        )
-                                    )
+                ForEach(viewModel.groupedVisibleTasksByDate(), id: \.title) { group in
+                    Section(group.title) {
+                        ForEach(group.tasks) { task in
+                            NavigationLink {
+                                TaskDetailView(task: task) { updated in
+                                    viewModel.applyTaskUpdate(updated)
+                                } onTaskDeleted: { taskID in
+                                    viewModel.removeTask(taskID)
                                 }
                             } label: {
-                                Label("Priority", systemImage: "flag")
+                                TaskRowView(task: task, metadataLine: viewModel.breadcrumb(for: task)) {
+                                    Task { await viewModel.toggleComplete(task) }
+                                }
                             }
-                            .tint(.orange)
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) {
+                                    Task { await viewModel.deleteTask(taskID: task.id) }
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    Task {
+                                        await viewModel.updateTask(
+                                            taskID: task.id,
+                                            patch: PatchTaskRequest(
+                                                name: task.name,
+                                                description: task.description,
+                                                due_date: task.due_date,
+                                                due_time: task.due_time,
+                                                priority: task.priority == 1 ? 4 : task.priority - 1,
+                                                completed: task.completed,
+                                                section_id: task.section_id
+                                            )
+                                        )
+                                    }
+                                } label: {
+                                    Label("Priority", systemImage: "flag")
+                                }
+                                .tint(.orange)
+                            }
                         }
                     }
                 }
@@ -111,8 +113,8 @@ struct TodayView: View {
                 await viewModel.loadInitial()
             }
             .sheet(isPresented: $viewModel.showingTaskEditor) {
-                TaskEditorView { name, description in
-                    Task { await viewModel.createTask(name: name, description: description) }
+                TaskEditorView { submission in
+                    await viewModel.createTask(submission: submission)
                 }
             }
             .sheet(isPresented: $showingAccountLink) {

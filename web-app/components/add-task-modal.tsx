@@ -10,6 +10,7 @@ interface AddTaskModalProps {
   onAddTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> | Partial<Task>) => void
   onDataRefresh?: () => void
   defaultProjectId?: string
+  defaultSectionId?: string
 }
 
 export function AddTaskModal({ 
@@ -18,7 +19,8 @@ export function AddTaskModal({
   data, 
   onAddTask, 
   onDataRefresh, 
-  defaultProjectId 
+  defaultProjectId,
+  defaultSectionId,
 }: AddTaskModalProps) {
   return (
     <TaskModal
@@ -28,6 +30,7 @@ export function AddTaskModal({
       onSave={onAddTask}
       onDataRefresh={onDataRefresh}
       defaultProjectId={defaultProjectId}
+      defaultSectionId={defaultSectionId}
     />
   )
 }

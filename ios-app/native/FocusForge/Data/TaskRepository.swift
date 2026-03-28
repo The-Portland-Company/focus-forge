@@ -65,6 +65,47 @@ final class TaskRepository {
         return payload.organizations
     }
 
+    func createOrganization(accessToken: String, name: String) async throws -> BootstrapOrganization {
+        let envelope = try await apiClient.request(
+            path: "/api/mobile/organizations",
+            method: "POST",
+            accessToken: accessToken,
+            body: CreateOrganizationRequest(
+                name: name,
+                color: "#6B7280"
+            ),
+            responseType: APIEnvelope<BootstrapOrganization>.self
+        )
+
+        guard let organization = envelope.data else {
+            throw APIClient.APIError.serverError(envelope.error?.message ?? "Create organization failed")
+        }
+        return organization
+    }
+
+    func createProject(
+        accessToken: String,
+        organizationID: String,
+        name: String
+    ) async throws -> BootstrapProject {
+        let envelope = try await apiClient.request(
+            path: "/api/mobile/projects",
+            method: "POST",
+            accessToken: accessToken,
+            body: CreateProjectRequest(
+                name: name,
+                color: "#6B7280",
+                organization_id: organizationID
+            ),
+            responseType: APIEnvelope<BootstrapProject>.self
+        )
+
+        guard let project = envelope.data else {
+            throw APIClient.APIError.serverError(envelope.error?.message ?? "Create project failed")
+        }
+        return project
+    }
+
     func fetchProjectTaskLists(accessToken: String, projectID: String) async throws -> [MobileTaskListDTO] {
         let envelope = try await apiClient.request(
             path: "/api/mobile/projects/\(projectID)/task-lists",

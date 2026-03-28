@@ -83,16 +83,26 @@ export async function POST(request: NextRequest) {
       body?.order !== undefined && Number.isFinite(Number(body.order))
         ? Number(body.order)
         : 0;
+    const parentId =
+      typeof body?.parentId === "string" && body.parentId.trim()
+        ? body.parentId.trim()
+        : null;
+
+    const insertPayload: any = {
+      name,
+      project_id: projectId,
+      todoist_order: order,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (parentId) {
+      insertPayload.parent_id = parentId;
+    }
 
     const { data, error } = await supabase
       .from("sections")
-      .insert({
-        name,
-        project_id: projectId,
-        todoist_order: order,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .insert(insertPayload)
       .select("*")
       .single();
 

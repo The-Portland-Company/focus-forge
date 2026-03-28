@@ -140,8 +140,17 @@ final class SessionStore: ObservableObject {
     private func performAuthenticatedRequest<T>(
         _ request: @escaping (String) async throws -> T
     ) async throws -> T {
-        guard let token = accessToken else {
+        guard let initialToken = accessToken else {
             throw APIClient.APIError.unauthorized("No access token in session")
+        }
+        var token = initialToken
+
+        if isTokenExpired(token) {
+            let refreshedOK = await refreshIfNeeded()
+            guard refreshedOK, let refreshed = accessToken else {
+                throw APIClient.APIError.unauthorized("Session expired and refresh failed")
+            }
+            token = refreshed
         }
 
         do {
@@ -149,13 +158,29 @@ final class SessionStore: ObservableObject {
         } catch let error as APIClient.APIError {
             if case .unauthorized = error {
                 let refreshedOK = await refreshIfNeeded()
-                guard refreshedOK, let refreshed = accessToken, refreshed != token else {
+                guard refreshedOK, let refreshed = accessToken else {
                     throw APIClient.APIError.unauthorized("Session expired and refresh failed")
                 }
                 return try await request(refreshed)
             }
             throw error
         }
+    }
+
+    private func isTokenExpired(_ token: String) -> Bool {
+        let parts = token.split(separator: ".")
+        guard parts.count >= 2 else { return false }
+        let payloadPart = String(parts[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padding = 4 - (payloadPart.count % 4)
+        let padded = payloadPart + String(repeating: "=", count: padding == 4 ? 0 : padding)
+        guard let data = Data(base64Encoded: padded),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let exp = object["exp"] as? TimeInterval else {
+            return false
+        }
+        return exp <= Date().timeIntervalSince1970 + 30
     }
 
     private func applySession(_ session: MobileSessionPayload) {
@@ -222,6 +247,56 @@ final class TaskDetailStore: ObservableObject {
                 projectID: projectID,
                 content: content
             )
+        }
+    }
+
+    func fetchOrganizations() async throws -> [BootstrapOrganization] {
+        try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+            try await repository.fetchOrganizations(accessToken: accessToken)
+        }
+    }
+
+    func fetchProjects() async throws -> [BootstrapProject] {
+        try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+            try await repository.fetchProjects(accessToken: accessToken)
+        }
+    }
+
+    func fetchTaskLists(projectID: String) async throws -> [MobileTaskListDTO] {
+        try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+            try await repository.fetchProjectTaskLists(accessToken: accessToken, projectID: projectID)
+        }
+    }
+
+    func createOrganization(name: String) async throws -> BootstrapOrganization {
+        try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+            try await repository.createOrganization(accessToken: accessToken, name: name)
+        }
+    }
+
+    func createProject(name: String, organizationID: String) async throws -> BootstrapProject {
+        try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+            try await repository.createProject(
+                accessToken: accessToken,
+                organizationID: organizationID,
+                name: name
+            )
+        }
+    }
+
+    func createTaskList(projectID: String, name: String) async throws -> MobileTaskListDTO {
+        try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+            try await repository.createProjectTaskList(
+                accessToken: accessToken,
+                projectID: projectID,
+                name: name
+            )
+        }
+    }
+
+    func createTask(request: CreateTaskRequest) async throws -> MobileTaskDTO {
+        try await sessionStore.withAuthenticatedToken { [repository] accessToken in
+            try await repository.createTask(accessToken: accessToken, request: request)
         }
     }
 }

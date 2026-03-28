@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
 import { normalizeRichText } from '@/lib/rich-text-sanitize'
+import { normalizeProjectContentFields } from '@/lib/devnotes-meta'
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,9 +30,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'organization_id is required' }, { status: 400 })
     }
 
+    const normalizedDescription =
+      body?.description !== undefined ? normalizeRichText(body.description) : null
+    const normalizedContent = normalizeProjectContentFields({
+      description: normalizedDescription,
+      devnotesMeta: body?.devnotesMeta,
+      devnotes_meta: body?.devnotes_meta,
+    })
+
     const projectData = {
       name,
-      description: body?.description !== undefined ? normalizeRichText(body.description) : null,
+      description: normalizedContent.description,
+      devnotes_meta: normalizedContent.devnotesMeta,
       color: body?.color || '#6B7280',
       organization_id: organizationId,
       is_favorite: body?.is_favorite ?? body?.isFavorite ?? false,

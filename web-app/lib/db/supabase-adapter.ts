@@ -22,6 +22,8 @@ type ProjectInput = {
   name?: string;
   color?: string;
   description?: string | null;
+  devnotesMeta?: string | null;
+  devnotes_meta?: string | null;
   archived?: boolean;
   budget?: number | null;
   deadline?: string | null;
@@ -41,6 +43,50 @@ type ProjectMembershipRow = {
   user_id: string;
   is_owner: boolean | null;
 };
+
+type UserOrganizationScopeRow = {
+  organization_id: string;
+  is_owner: boolean | null;
+};
+
+type ProjectScopeRow = {
+  id: string;
+  organization_id: string;
+};
+
+export function resolveVisibleProjectIds({
+  orgMemberships,
+  explicitProjects,
+}: {
+  orgMemberships: UserOrganizationScopeRow[];
+  explicitProjects: ProjectScopeRow[];
+}) {
+  const fullyVisibleOrganizationIds = new Set<string>();
+  const explicitProjectIds = new Set<string>();
+  const explicitProjectsByOrganization = new Map<string, string[]>();
+
+  for (const project of explicitProjects) {
+    explicitProjectIds.add(project.id);
+    const orgProjectIds =
+      explicitProjectsByOrganization.get(project.organization_id) || [];
+    orgProjectIds.push(project.id);
+    explicitProjectsByOrganization.set(project.organization_id, orgProjectIds);
+  }
+
+  for (const membership of orgMemberships) {
+    const orgId = membership.organization_id;
+    const hasExplicitProjects = explicitProjectsByOrganization.has(orgId);
+
+    if (membership.is_owner || !hasExplicitProjects) {
+      fullyVisibleOrganizationIds.add(orgId);
+    }
+  }
+
+  return {
+    fullyVisibleOrganizationIds,
+    explicitProjectIds,
+  };
+}
 
 export class SupabaseAdapter implements DatabaseAdapter {
   private supabase: any;
@@ -271,6 +317,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
     if (input.name !== undefined) payload.name = String(input.name).trim();
     if (input.color !== undefined) payload.color = input.color;
     if (input.description !== undefined) payload.description = input.description;
+    if (input.devnotesMeta !== undefined) payload.devnotes_meta = input.devnotesMeta;
+    if (input.devnotes_meta !== undefined) payload.devnotes_meta = input.devnotes_meta;
     if (input.archived !== undefined) payload.archived = input.archived;
     if (input.budget !== undefined) payload.budget = input.budget;
     if (input.deadline !== undefined) payload.deadline = input.deadline;
@@ -354,51 +402,122 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
   async getProjects(organizationId?: string) {
     const supabase = this.supabase;
-
-    // First get user's organizations if not specified
-    if (!organizationId) {
-      // Get ALL user organizations (including duplicates) for project fetching
-      const { data: userOrgs, error: userOrgsError } = await supabase
+    const { data: orgMembershipsRaw, error: orgMembershipsError } =
+      await supabase
         .from("user_organizations")
-        .select("organization_id")
+        .select("organization_id,is_owner")
         .eq("user_id", this.userId);
 
-      if (userOrgsError) {
+    if (orgMembershipsError) {
+      console.error(
+        "Error fetching user organizations for projects:",
+        orgMembershipsError,
+      );
+      return [];
+    }
+
+    const { data: userProjectMemberships, error: userProjectMembershipsError } =
+      await supabase
+        .from("user_projects")
+        .select("project_id")
+        .eq("user_id", this.userId);
+
+    if (userProjectMembershipsError) {
+      console.error(
+        "Error fetching user project memberships for projects:",
+        userProjectMembershipsError,
+      );
+      return [];
+    }
+
+    const explicitProjectIds = (userProjectMemberships || [])
+      .map((row: { project_id: string | null }) => row.project_id)
+      .filter(Boolean) as string[];
+
+    let explicitProjects: ProjectScopeRow[] = [];
+    if (explicitProjectIds.length > 0) {
+      const { data: explicitProjectRows, error: explicitProjectsError } =
+        await supabase
+          .from("projects")
+          .select("id,organization_id")
+          .in("id", explicitProjectIds);
+
+      if (explicitProjectsError) {
         console.error(
-          "Error fetching user organizations for projects:",
-          userOrgsError,
+          "Error fetching explicit project scope rows:",
+          explicitProjectsError,
         );
         return [];
       }
 
-      if (!userOrgs || userOrgs.length === 0) {
+      explicitProjects = (explicitProjectRows || []) as ProjectScopeRow[];
+    }
+
+    const { fullyVisibleOrganizationIds, explicitProjectIds: explicitlyVisibleIds } =
+      resolveVisibleProjectIds({
+        orgMemberships: (orgMembershipsRaw || []) as UserOrganizationScopeRow[],
+        explicitProjects,
+      });
+
+    if (organizationId) {
+      if (fullyVisibleOrganizationIds.has(organizationId)) {
+        const { data, error } = await supabase
+          .from("projects")
+          .select("*")
+          .eq("organization_id", organizationId)
+          .order("order_index");
+
+        if (error) throw error;
+        return data || [];
+      }
+
+      const visibleIdsInOrganization = explicitProjects
+        .filter((project) => project.organization_id === organizationId)
+        .map((project) => project.id);
+
+      if (visibleIdsInOrganization.length === 0) {
         return [];
       }
 
-      const allOrgIds = userOrgs.map(
-        (uo: { organization_id: string }) => uo.organization_id,
-      );
-      console.log("📋 Fetching projects for ALL org IDs:", allOrgIds.length);
-
       const { data, error } = await supabase
         .from("projects")
         .select("*")
-        .in("organization_id", allOrgIds)
-        .order("order_index");
-
-      if (error) throw error;
-      console.log("✅ Projects fetched:", data?.length || 0);
-      return data || [];
-    } else {
-      const { data, error } = await supabase
-        .from("projects")
-        .select("*")
-        .eq("organization_id", organizationId)
+        .in("id", visibleIdsInOrganization)
         .order("order_index");
 
       if (error) throw error;
       return data || [];
     }
+
+    const scopedOrganizationIds = Array.from(
+      new Set([
+        ...Array.from(fullyVisibleOrganizationIds),
+        ...explicitProjects.map((project) => project.organization_id),
+      ]),
+    );
+
+    if (scopedOrganizationIds.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from("projects")
+      .select("*")
+      .in("organization_id", scopedOrganizationIds)
+      .order("order_index");
+
+    if (error) throw error;
+
+    const filteredProjects = (data || []).filter((project: any) => {
+      const projectOrganizationId = project.organization_id;
+      return (
+        fullyVisibleOrganizationIds.has(projectOrganizationId) ||
+        explicitlyVisibleIds.has(project.id)
+      );
+    });
+
+    console.log("✅ Projects fetched:", filteredProjects.length);
+    return filteredProjects;
   }
 
   async getProject(id: string) {
@@ -589,6 +708,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
         dueDate: task.due_date,
         dueTime: task.due_time,
         parentId: task.parent_id,
+        sectionId: task.section_id,
         assignedTo: task.assigned_to,
         assignedToName: assigneeName,
         assignedToColor: assigneeColor,
@@ -658,6 +778,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       dueDate: data.due_date,
       dueTime: data.due_time,
       parentId: data.parent_id,
+      sectionId: data.section_id,
       assignedTo: data.assigned_to,
       assignedToName: assigneeName,
       assignedToColor: assigneeColor,

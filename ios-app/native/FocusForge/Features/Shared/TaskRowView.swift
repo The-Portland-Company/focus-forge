@@ -2,7 +2,14 @@ import SwiftUI
 
 struct TaskRowView: View {
     let task: MobileTaskDTO
+    let metadataLine: String?
     let onToggle: () -> Void
+
+    init(task: MobileTaskDTO, metadataLine: String? = nil, onToggle: @escaping () -> Void) {
+        self.task = task
+        self.metadataLine = metadataLine
+        self.onToggle = onToggle
+    }
 
     private var dueLabel: String {
         guard let dueDate = task.due_date, !dueDate.isEmpty else { return "No due date" }
@@ -29,6 +36,13 @@ struct TaskRowView: View {
 
                 Spacer(minLength: 8)
                 PriorityBadgeView(priority: task.priority)
+            }
+
+            if let metadataLine, !metadataLine.isEmpty {
+                Text(metadataLine)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             HStack(spacing: 8) {

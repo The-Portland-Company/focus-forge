@@ -8,6 +8,7 @@ import {
   Trash2,
   Edit,
   Plus,
+  Bot,
   Link2,
   Link2Off,
   CalendarClock,
@@ -64,6 +65,7 @@ import {
   SkeletonTodayView,
 } from "@/components/skeleton-loader";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/contexts/ToastContext";
 import {
   Select,
   SelectContent,
@@ -73,16 +75,25 @@ import {
 } from "@/components/ui/select";
 import * as Popover from "@radix-ui/react-popover";
 import { getRichTextPreview, richTextToPlainText } from "@/lib/rich-text";
+import {
+  getBulkSelectionState,
+  setBulkSelectionForTaskIds,
+} from "@/lib/project-bulk-selection";
 
 export default function ViewPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
+  const { showError, showSuccess, showInfo } = useToast();
   const view = params.view as string;
 
   const [database, setDatabase] = useState<Database | null>(null);
   const [showTodoistSync, setShowTodoistSync] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
+  const [addTaskDefaults, setAddTaskDefaults] = useState<{
+    projectId?: string;
+    sectionId?: string;
+  }>({});
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [showEditTask, setShowEditTask] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
@@ -140,6 +151,13 @@ export default function ViewPage() {
   );
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
+  const [projectTaskSearchQuery, setProjectTaskSearchQuery] = useState("");
+  const [projectAssigneeFilter, setProjectAssigneeFilter] = useState("all");
+  const [projectCreatorFilter, setProjectCreatorFilter] = useState("all");
+  const [projectPriorityFilter, setProjectPriorityFilter] = useState("all");
+  const [projectStatusFilter, setProjectStatusFilter] = useState<
+    "active" | "completed" | "all"
+  >("active");
   const [dueDateLayout, setDueDateLayout] = useState<
     "inline" | "below" | "right"
   >("inline");
@@ -171,10 +189,18 @@ export default function ViewPage() {
     taskName: "",
   });
   const [showProjectNotesModal, setShowProjectNotesModal] = useState(false);
+  const [showAutoSectionConfirm, setShowAutoSectionConfirm] = useState(false);
+  const [autoSectioning, setAutoSectioning] = useState(false);
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    setBulkSelectMode(false);
+    setSelectedTaskIds(new Set());
+    setLastSelectedTaskId(null);
+  }, [view]);
 
   // Theme is now handled by AuthContext
 
@@ -392,7 +418,24 @@ export default function ViewPage() {
 
     setDatabase((prev) => {
       if (!prev) return prev;
-      return { ...prev, tasks: [...prev.tasks, optimisticTask] };
+      const nextTaskSections =
+        taskPayload.sectionId && tempId
+          ? [
+              ...prev.taskSections,
+              {
+                id: `temp-task-section-${Date.now()}`,
+                taskId: tempId,
+                sectionId: taskPayload.sectionId,
+                createdAt: now,
+              },
+            ]
+          : prev.taskSections;
+
+      return {
+        ...prev,
+        tasks: [...prev.tasks, optimisticTask],
+        taskSections: nextTaskSections,
+      };
     });
     setLoadingTaskIds((prev) => new Set(prev).add(tempId));
 
@@ -406,6 +449,25 @@ export default function ViewPage() {
 
       if (response.ok) {
         const createdTask = await response.json();
+
+        if (taskPayload.sectionId && createdTask?.id) {
+          const taskSectionResponse = await fetch("/api/task-sections", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              taskId: createdTask.id,
+              sectionId: taskPayload.sectionId,
+            }),
+          });
+
+          if (!taskSectionResponse.ok) {
+            const taskSectionError = await taskSectionResponse.text();
+            throw new Error(
+              `Failed to attach task to section: ${taskSectionError}`,
+            );
+          }
+        }
 
         // Create pending subtasks if any
         if (pendingSubtasks?.length > 0 && createdTask?.id) {
@@ -439,6 +501,7 @@ export default function ViewPage() {
           return {
             ...prev,
             tasks: prev.tasks.filter((t) => t.id !== tempId),
+            taskSections: prev.taskSections.filter((ts) => ts.taskId !== tempId),
           };
         });
       }
@@ -450,6 +513,7 @@ export default function ViewPage() {
         return {
           ...prev,
           tasks: prev.tasks.filter((t) => t.id !== tempId),
+          taskSections: prev.taskSections.filter((ts) => ts.taskId !== tempId),
         };
       });
     } finally {
@@ -1382,19 +1446,71 @@ export default function ViewPage() {
   };
 
   const handleTaskDropToSection = async (taskId: string, sectionId: string) => {
+    const movedAt = new Date().toISOString();
+
+    setDatabase((prev) => {
+      if (!prev) return prev;
+
+      const nextTasks = prev.tasks.map((task) =>
+        task.id === taskId
+          ? ({
+              ...task,
+              sectionId,
+              updatedAt: movedAt,
+              section_id: sectionId,
+              updated_at: movedAt,
+            } as any)
+          : task,
+      );
+
+      const filteredTaskSections = prev.taskSections.filter(
+        (taskSection) => taskSection.taskId !== taskId,
+      );
+
+      return {
+        ...prev,
+        tasks: nextTasks,
+        taskSections: [
+          ...filteredTaskSections,
+          {
+            id: `temp-task-section-drop-${taskId}`,
+            taskId,
+            sectionId,
+            createdAt: movedAt,
+          },
+        ],
+      };
+    });
+
     try {
-      const response = await fetch("/api/task-sections", {
+      const taskUpdateResponse = await fetch(`/api/tasks/${taskId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ sectionId }),
+      });
+
+      if (!taskUpdateResponse.ok) {
+        const taskUpdateError = await taskUpdateResponse.text();
+        throw new Error(`Failed to update task section: ${taskUpdateError}`);
+      }
+
+      const taskSectionResponse = await fetch("/api/task-sections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ taskId, sectionId }),
       });
 
-      if (response.ok) {
-        await fetchData();
+      if (!taskSectionResponse.ok) {
+        const taskSectionError = await taskSectionResponse.text();
+        console.error("Failed to upsert task-section association:", taskSectionError);
       }
+
+      await fetchData();
     } catch (error) {
       console.error("Error adding task to section:", error);
+      await fetchData();
     }
   };
 
@@ -1425,6 +1541,44 @@ export default function ViewPage() {
     setShowAddSection(true);
   };
 
+  const openAddTask = (projectId?: string, sectionId?: string) => {
+    setAddTaskDefaults({ projectId, sectionId });
+    setShowAddTask(true);
+  };
+
+  const handleAutoOrganizeUnassignedTasks = async (projectId: string) => {
+    try {
+      setAutoSectioning(true);
+      const response = await fetch("/api/ai-planner/auto-section", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ projectId }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to auto-organize tasks");
+      }
+
+      await fetchData();
+
+      if (data.movedTasks > 0 || data.createdSections > 0) {
+        showSuccess(
+          "AI organized tasks",
+          `${data.movedTasks} task(s) moved${data.createdSections ? `, ${data.createdSections} section(s) created` : ""}.`,
+        );
+      } else {
+        showInfo("AI organizer", data.summary || "No unassigned tasks to organize.");
+      }
+    } catch (error: any) {
+      showError("AI organizer failed", error?.message || "Unknown error");
+    } finally {
+      setAutoSectioning(false);
+    }
+  };
+
   const projectViewData = useMemo(() => {
     if (!database || !view.startsWith("project-")) return null;
 
@@ -1441,7 +1595,7 @@ export default function ViewPage() {
     const unassignedTasks = projectTasks.filter((task) => {
       const taskSections =
         database.taskSections?.filter((ts) => ts.taskId === task.id) || [];
-      return taskSections.length === 0;
+      return taskSections.length === 0 && !task.sectionId && !(task as any).section_id;
     });
 
     return {
@@ -1452,6 +1606,115 @@ export default function ViewPage() {
       unassignedTasks,
     };
   }, [database, view]);
+
+  const visibleProjectTaskIdsForSelection = useMemo(() => {
+    if (!database || !projectViewData || !view.startsWith("project-")) {
+      return [];
+    }
+
+    const currentProjectUserId = user?.id || database.users[0]?.id || "";
+    const projectSearchValue = projectTaskSearchQuery.trim().toLowerCase();
+
+    return projectViewData.projectTasks
+      .filter((task) => {
+        if (projectStatusFilter === "active" && task.completed) return false;
+        if (projectStatusFilter === "completed" && !task.completed) return false;
+
+        if (
+          projectAssigneeFilter === "assigned" &&
+          !task.assignedTo &&
+          !(task as any).assigned_to
+        ) {
+          return false;
+        }
+        if (
+          projectAssigneeFilter === "unassigned" &&
+          (task.assignedTo || (task as any).assigned_to)
+        ) {
+          return false;
+        }
+        if (
+          !["all", "assigned", "unassigned"].includes(projectAssigneeFilter) &&
+          (task.assignedTo || (task as any).assigned_to) !== projectAssigneeFilter
+        ) {
+          return false;
+        }
+
+        const creatorId =
+          ((task as any).created_by as string | undefined) ||
+          task.createdBy ||
+          null;
+        if (projectCreatorFilter === "me" && creatorId !== currentProjectUserId) {
+          return false;
+        }
+        if (
+          projectCreatorFilter !== "all" &&
+          projectCreatorFilter !== "me" &&
+          creatorId !== projectCreatorFilter
+        ) {
+          return false;
+        }
+
+        if (
+          projectPriorityFilter !== "all" &&
+          String(task.priority) !== projectPriorityFilter
+        ) {
+          return false;
+        }
+
+        if (!showBlockedTasks && isTaskBlocked(task, database.tasks)) {
+          return false;
+        }
+
+        const taskSearchText = [
+          task.name,
+          richTextToPlainText(task.description),
+          task.assignedToName,
+          database.users.find((candidate) => candidate.id === creatorId)?.name,
+          database.users.find((candidate) => candidate.id === creatorId)?.email,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        if (projectSearchValue && !taskSearchText.includes(projectSearchValue)) {
+          return false;
+        }
+
+        return true;
+      })
+      .map((task) => task.id);
+  }, [
+    database,
+    projectAssigneeFilter,
+    projectCreatorFilter,
+    projectPriorityFilter,
+    projectStatusFilter,
+    projectTaskSearchQuery,
+    projectViewData,
+    showBlockedTasks,
+    user?.id,
+    view,
+  ]);
+
+  useEffect(() => {
+    if (!view.startsWith("project-")) return;
+
+    const visibleTaskIds = new Set(visibleProjectTaskIdsForSelection);
+    setSelectedTaskIds((prev) => {
+      const next = new Set(
+        [...prev].filter((taskId) => visibleTaskIds.has(taskId)),
+      );
+      if (next.size === prev.size) {
+        return prev;
+      }
+      return next;
+    });
+
+    if (lastSelectedTaskId && !visibleTaskIds.has(lastSelectedTaskId)) {
+      setLastSelectedTaskId(null);
+    }
+  }, [lastSelectedTaskId, view, visibleProjectTaskIdsForSelection]);
 
   if (!database) {
     return (
@@ -1553,6 +1816,21 @@ export default function ViewPage() {
       return assignedTo === filterAssignedTo;
     });
   };
+
+  const getTaskCreatorId = (task: Task) =>
+    ((task as any).created_by as string | undefined) || task.createdBy || null;
+
+  const getTaskProjectSearchText = (task: Task) =>
+    [
+      task.name,
+      richTextToPlainText(task.description),
+      task.assignedToName,
+      database?.users.find((user) => user.id === getTaskCreatorId(task))?.name,
+      database?.users.find((user) => user.id === getTaskCreatorId(task))?.email,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
 
   const renderContent = () => {
     if (view === "today") {
@@ -2739,8 +3017,102 @@ export default function ViewPage() {
       const projectTasks = projectViewData?.projectTasks || [];
       const projectSections = projectViewData?.projectSections || [];
       const unassignedTasks = projectViewData?.unassignedTasks || [];
+      const projectSearchValue = projectTaskSearchQuery.trim().toLowerCase();
 
       const currentUserId = database.users[0]?.id || "";
+
+      const visibleProjectTasks = projectTasks.filter((task) => {
+        if (projectStatusFilter === "active" && task.completed) return false;
+        if (projectStatusFilter === "completed" && !task.completed) return false;
+
+        if (projectAssigneeFilter === "assigned" && !task.assignedTo && !(task as any).assigned_to) {
+          return false;
+        }
+        if (projectAssigneeFilter === "unassigned" && (task.assignedTo || (task as any).assigned_to)) {
+          return false;
+        }
+        if (
+          !["all", "assigned", "unassigned"].includes(projectAssigneeFilter) &&
+          (task.assignedTo || (task as any).assigned_to) !== projectAssigneeFilter
+        ) {
+          return false;
+        }
+
+        const creatorId = getTaskCreatorId(task);
+        if (projectCreatorFilter === "me" && creatorId !== currentUserId) {
+          return false;
+        }
+        if (
+          projectCreatorFilter !== "all" &&
+          projectCreatorFilter !== "me" &&
+          creatorId !== projectCreatorFilter
+        ) {
+          return false;
+        }
+
+        if (projectPriorityFilter !== "all" && String(task.priority) !== projectPriorityFilter) {
+          return false;
+        }
+
+        if (
+          !showBlockedTasks &&
+          database &&
+          isTaskBlocked(task, database.tasks)
+        ) {
+          return false;
+        }
+
+        if (projectSearchValue && !getTaskProjectSearchText(task).includes(projectSearchValue)) {
+          return false;
+        }
+
+        return true;
+      });
+
+      const visibleProjectTaskIds = new Set(visibleProjectTasks.map((task) => task.id));
+      const visibleProjectTaskIdList = visibleProjectTasks.map((task) => task.id);
+      const {
+        visibleSelectedCount,
+        hasVisibleSelection,
+        allVisibleSelected,
+      } = getBulkSelectionState(visibleProjectTaskIdList, selectedTaskIds);
+      const visibleUnassignedTasks = unassignedTasks.filter((task) =>
+        visibleProjectTaskIds.has(task.id),
+      );
+      const sectionChildrenByParent = new Map<string, Section[]>();
+      for (const section of database.sections || []) {
+        if (!section.parentId) continue;
+        const siblings = sectionChildrenByParent.get(section.parentId) || [];
+        siblings.push(section);
+        sectionChildrenByParent.set(section.parentId, siblings);
+      }
+      const sectionHasVisibleTasks = (sectionId: string): boolean => {
+        const hasOwnVisibleTasks = visibleProjectTasks.some((task) => {
+          const taskSections =
+            database.taskSections?.filter((ts) => ts.taskId === task.id) || [];
+          return (
+            task.sectionId === sectionId ||
+            (task as any).section_id === sectionId ||
+            taskSections.some((ts) => ts.sectionId === sectionId)
+          );
+        });
+
+        if (hasOwnVisibleTasks) return true;
+
+        const childSections = sectionChildrenByParent.get(sectionId) || [];
+        return childSections.some((childSection) => sectionHasVisibleTasks(childSection.id));
+      };
+
+      const visibleProjectSections = projectSections.filter((section) =>
+        sectionHasVisibleTasks(section.id),
+      );
+      const projectCreatorIds = Array.from(
+        new Set(
+          projectTasks
+            .map((task) => getTaskCreatorId(task))
+            .filter((value): value is string => Boolean(value)),
+        ),
+      );
 
       const handleProjectTaskUpdate = async (
         taskId: string,
@@ -2763,6 +3135,37 @@ export default function ViewPage() {
           console.error("Error updating task:", error);
           await fetchData();
         }
+      };
+
+      const handleProjectTaskSelect = (
+        taskId: string,
+        event?: React.MouseEvent,
+      ) => {
+        if (event?.shiftKey && lastSelectedTaskId) {
+          const lastIndex = visibleProjectTaskIdList.indexOf(lastSelectedTaskId);
+          const currentIndex = visibleProjectTaskIdList.indexOf(taskId);
+          if (lastIndex !== -1 && currentIndex !== -1) {
+            const start = Math.min(lastIndex, currentIndex);
+            const end = Math.max(lastIndex, currentIndex);
+            const rangeIds = visibleProjectTaskIdList.slice(start, end + 1);
+            setSelectedTaskIds((prev) =>
+              setBulkSelectionForTaskIds(prev, rangeIds, true),
+            );
+            setLastSelectedTaskId(taskId);
+            return;
+          }
+        }
+
+        setSelectedTaskIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(taskId)) {
+            next.delete(taskId);
+          } else {
+            next.add(taskId);
+          }
+          return next;
+        });
+        setLastSelectedTaskId(taskId);
       };
 
       return (
@@ -2799,7 +3202,7 @@ export default function ViewPage() {
                 <ProjectAiExportControls projectId={project.id} />
               ) : null}
               <button
-                onClick={() => setShowAddTask(true)}
+                onClick={() => openAddTask(project?.id)}
                 className="btn-theme-primary text-white rounded-lg px-3 py-2 flex items-center gap-2 text-sm font-medium transition-all"
               >
                 <Plus className="w-4 h-4" />
@@ -2830,17 +3233,199 @@ export default function ViewPage() {
             </div>
           </button>
 
+          <button
+            onClick={() => handleOpenEditProject(projectId)}
+            className="w-full mb-5 text-left rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 hover:border-zinc-700 hover:bg-zinc-800/50 transition-colors"
+          >
+            <div className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">
+              DevNotes Meta
+            </div>
+            <div className="text-sm text-zinc-300 break-all">
+              {project?.devnotesMeta?.trim()
+                ? project.devnotesMeta
+                : "Add DevNotes metadata in Edit Project..."}
+            </div>
+          </button>
+
+          <div className="mb-5 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-[11px] uppercase tracking-wide text-zinc-500">
+                Project Task Filters
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="text-xs text-zinc-500">
+                  {visibleProjectTasks.length} visible
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (bulkSelectMode) {
+                      setBulkSelectMode(false);
+                      setSelectedTaskIds(new Set());
+                      setLastSelectedTaskId(null);
+                      return;
+                    }
+
+                    setBulkSelectMode(true);
+                    setSelectedTaskIds(new Set());
+                    setLastSelectedTaskId(null);
+                  }}
+                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    bulkSelectMode
+                      ? "border-[rgb(var(--theme-primary-rgb))]/30 bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))]"
+                      : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600 hover:text-white"
+                  }`}
+                >
+                  {bulkSelectMode ? (
+                    <CheckSquare className="h-3.5 w-3.5" />
+                  ) : (
+                    <Square className="h-3.5 w-3.5" />
+                  )}
+                  {bulkSelectMode ? "Cancel Bulk Select" : "Bulk Select"}
+                </button>
+                {bulkSelectMode && visibleProjectTaskIdList.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedTaskIds((prev) =>
+                        setBulkSelectionForTaskIds(
+                          prev,
+                          visibleProjectTaskIdList,
+                          !allVisibleSelected,
+                        ),
+                      );
+                      if (!allVisibleSelected) {
+                        setLastSelectedTaskId(
+                          visibleProjectTaskIdList[
+                            visibleProjectTaskIdList.length - 1
+                          ] || null,
+                        );
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                  >
+                    {allVisibleSelected ? "Clear Visible" : "Select Visible"}
+                  </button>
+                )}
+                {bulkSelectMode && hasVisibleSelection && (
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkEditModal(true)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[rgb(var(--theme-primary-rgb))]/80"
+                  >
+                    Apply to {visibleSelectedCount} task
+                    {visibleSelectedCount === 1 ? "" : "s"}
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type="text"
+                  value={projectTaskSearchQuery}
+                  onChange={(e) => setProjectTaskSearchQuery(e.target.value)}
+                  placeholder="Search this project..."
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2 pl-9 pr-9 text-sm text-white transition-all focus:outline-none focus:ring-2 ring-theme"
+                />
+                {projectTaskSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setProjectTaskSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-zinc-300"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+
+              <Select
+                value={projectAssigneeFilter}
+                onValueChange={setProjectAssigneeFilter}
+              >
+                <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                  <SelectValue placeholder="Assigned To" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Assigned To: All</SelectItem>
+                  <SelectItem value="assigned">Assigned To: Assigned</SelectItem>
+                  <SelectItem value="unassigned">Assigned To: Unassigned</SelectItem>
+                  {database.users.map((user) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      Assigned To: {user.firstName} {user.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={projectCreatorFilter}
+                onValueChange={setProjectCreatorFilter}
+              >
+                <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                  <SelectValue placeholder="Created By" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Created By: All</SelectItem>
+                  <SelectItem value="me">Created By: Me</SelectItem>
+                  {projectCreatorIds.map((creatorId) => {
+                    const creator = database.users.find((user) => user.id === creatorId);
+                    if (!creator) return null;
+                    return (
+                      <SelectItem key={creator.id} value={creator.id}>
+                        Created By: {creator.firstName} {creator.lastName}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={projectPriorityFilter}
+                onValueChange={setProjectPriorityFilter}
+              >
+                <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                  <SelectValue placeholder="Priority" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Priority: All</SelectItem>
+                  <SelectItem value="1">Priority 1</SelectItem>
+                  <SelectItem value="2">Priority 2</SelectItem>
+                  <SelectItem value="3">Priority 3</SelectItem>
+                  <SelectItem value="4">Priority 4</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={projectStatusFilter}
+                onValueChange={(value) =>
+                  setProjectStatusFilter(value as typeof projectStatusFilter)
+                }
+              >
+                <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Status: Active</SelectItem>
+                  <SelectItem value="completed">Status: Completed</SelectItem>
+                  <SelectItem value="all">Status: All</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           {/* Add Section divider at the top */}
           <AddSectionDivider
             onClick={() => openAddSection(projectId, undefined, 0)}
           />
 
           {/* Sections */}
-          {projectSections.map((section, index) => (
-            <div key={section.id}>
+          {visibleProjectSections.map((section, index) => (
+            <div key={section.id} className="group/section">
               <SectionView
                 section={section}
-                tasks={projectTasks}
+                tasks={visibleProjectTasks}
                 allTasks={database.tasks}
                 database={database}
                 priorityColor={userPriorityColor}
@@ -2848,36 +3433,52 @@ export default function ViewPage() {
                 completedAccordionKey={`project-${projectId}`}
                 revealActionsOnHover={true}
                 dueDateLayout={dueDateLayout}
+                bulkSelectMode={bulkSelectMode}
+                selectedTaskIds={selectedTaskIds}
+                loadingTaskIds={loadingTaskIds}
+                animatingOutTaskIds={animatingOutTaskIds}
+                optimisticCompletedIds={optimisticCompletedIds}
                 enableDueDateQuickEdit={true}
                 onTaskUpdate={handleProjectTaskUpdate}
                 onTaskToggle={handleTaskToggle}
                 onTaskEdit={handleTaskEdit}
                 onTaskDelete={handleTaskDelete}
+                onTaskSelect={handleProjectTaskSelect}
                 onSectionEdit={handleSectionEdit}
                 onSectionDelete={handleSectionDelete}
+                onAddTask={(section) =>
+                  openAddTask(section.projectId, section.id)
+                }
                 onAddSection={(parentId) => openAddSection(projectId, parentId)}
+                onAddSectionAfter={(section) =>
+                  openAddSection(projectId, undefined, (section.order || 0) + 1)
+                }
                 onTaskDrop={handleTaskDropToSection}
                 onSectionReorder={handleSectionReorder}
                 userId={currentUserId}
-              />
-
-              {/* Add Section divider between sections */}
-              <AddSectionDivider
-                onClick={() =>
-                  openAddSection(projectId, undefined, (section.order || 0) + 1)
-                }
               />
             </div>
           ))}
 
           {/* Unassigned tasks */}
-          {unassignedTasks.length > 0 && (
+          {visibleUnassignedTasks.length > 0 && (
             <div className="mt-6">
-              <h3 className="text-lg font-medium text-zinc-400 mb-3">
-                Unassigned Tasks
-              </h3>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-lg font-medium text-zinc-400">
+                  Unassigned Tasks
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowAutoSectionConfirm(true)}
+                  disabled={autoSectioning}
+                  className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="AI organize unassigned tasks"
+                >
+                  <Bot className={`h-4 w-4 ${autoSectioning ? "animate-pulse" : ""}`} />
+                </button>
+              </div>
               <TaskList
-                tasks={unassignedTasks}
+                tasks={visibleUnassignedTasks}
                 allTasks={database.tasks}
                 projects={database.projects}
                 currentUserId={currentUserId}
@@ -2887,20 +3488,27 @@ export default function ViewPage() {
                 revealActionsOnHover={true}
                 dueDateLayout={dueDateLayout}
                 uniformDueBadgeWidth={dueDateLayout === "inline"}
+                bulkSelectMode={bulkSelectMode}
+                selectedTaskIds={selectedTaskIds}
+                loadingTaskIds={loadingTaskIds}
+                animatingOutTaskIds={animatingOutTaskIds}
+                optimisticCompletedIds={optimisticCompletedIds}
                 enableDueDateQuickEdit={true}
                 onTaskUpdate={handleProjectTaskUpdate}
                 onTaskToggle={handleTaskToggle}
                 onTaskEdit={handleTaskEdit}
                 onTaskDelete={handleTaskDelete}
+                onTaskSelect={handleProjectTaskSelect}
               />
             </div>
           )}
 
           {/* Add Section divider at the bottom if there are unassigned tasks */}
-          {unassignedTasks.length === 0 && projectSections.length === 0 && (
+          {visibleUnassignedTasks.length === 0 &&
+            visibleProjectSections.length === 0 && (
             <div className="text-center py-8 text-zinc-500">
               <p className="mb-4">
-                No sections yet. Add a section to organize your tasks.
+                No matching tasks or sections for the current filters.
               </p>
             </div>
           )}
@@ -2914,6 +3522,18 @@ export default function ViewPage() {
             onSaveDescription={async (description) => {
               await handleProjectUpdate(projectId, { description });
             }}
+          />
+
+          <ConfirmModal
+            isOpen={showAutoSectionConfirm}
+            onClose={() => setShowAutoSectionConfirm(false)}
+            onConfirm={() => {
+              void handleAutoOrganizeUnassignedTasks(projectId);
+            }}
+            title="AI Organizer"
+            description="Would you like AI to automatically move Unassigned Tasks into Existing and New Sections?"
+            confirmText="Yes"
+            cancelText="No"
           />
         </div>
       );
@@ -2931,7 +3551,7 @@ export default function ViewPage() {
     <div className="h-screen bg-zinc-950 flex">
       <Sidebar
         data={database}
-        onAddTask={() => setShowAddTask(true)}
+        onAddTask={() => openAddTask()}
         currentView={view}
         onViewChange={handleViewChange}
         onProjectUpdate={handleProjectUpdate}
@@ -2984,13 +3604,18 @@ export default function ViewPage() {
 
       <AddTaskModal
         isOpen={showAddTask}
-        onClose={() => setShowAddTask(false)}
+        onClose={() => {
+          setShowAddTask(false);
+          setAddTaskDefaults({});
+        }}
         data={database}
         onAddTask={handleAddTask}
         onDataRefresh={fetchData}
         defaultProjectId={
-          view.startsWith("project-") ? view.replace("project-", "") : undefined
+          addTaskDefaults.projectId ||
+          (view.startsWith("project-") ? view.replace("project-", "") : undefined)
         }
+        defaultSectionId={addTaskDefaults.sectionId}
       />
 
       {view.startsWith("project-") && projectViewData?.project && (

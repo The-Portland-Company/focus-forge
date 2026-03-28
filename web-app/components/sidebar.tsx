@@ -286,11 +286,11 @@ export function Sidebar({
     <div
       className={`${isCollapsed ? "w-[60px]" : "w-[clamp(240px,22vw,320px)]"} h-full shrink-0 overflow-hidden bg-zinc-900 border-r border-zinc-800 flex flex-col transition-all duration-300`}
     >
-      <div className={`${isCollapsed ? "p-2" : "p-4"}`}>
-        <div className="flex items-center justify-between mb-6">
+      <div className={`${isCollapsed ? "p-2" : "p-3"}`}>
+        <div className="flex items-center justify-between mb-3">
           {!isCollapsed ? (
             <>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
                 <UserAvatar
                   name={
                     data.users?.[0]?.name ||
@@ -299,10 +299,10 @@ export function Sidebar({
                   }
                   profileColor={data.users?.[0]?.profileColor}
                   memoji={data.users?.[0]?.profileMemoji}
-                  size={56}
-                  className="flex-shrink-0 text-sm"
+                  size={24}
+                  className="flex-shrink-0 text-xs"
                 />
-                <div className="text-white font-medium">
+                <div className="text-sm text-white font-medium leading-none">
                   {data.users?.[0]?.firstName || "User"}
                 </div>
               </div>
@@ -414,7 +414,7 @@ export function Sidebar({
       </div>
 
       <nav
-        className={`flex-1 ${isCollapsed ? "px-1" : "px-2"} overflow-y-auto`}
+        className={`flex-1 ${isCollapsed ? "px-1" : "px-1.5"} overflow-y-auto`}
       >
         {isCollapsed ? (
           <Tooltip content="Search">

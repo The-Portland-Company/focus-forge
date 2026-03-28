@@ -80,6 +80,11 @@ struct MobileTaskDTO: Decodable, Identifiable {
     let priority: Int
     let project_id: String?
     let section_id: String?
+    let parent_id: String?
+    let start_date: String?
+    let start_time: String?
+    let end_date: String?
+    let end_time: String?
     let completed: Bool
 
     init(
@@ -91,6 +96,11 @@ struct MobileTaskDTO: Decodable, Identifiable {
         priority: Int,
         project_id: String?,
         section_id: String?,
+        parent_id: String? = nil,
+        start_date: String? = nil,
+        start_time: String? = nil,
+        end_date: String? = nil,
+        end_time: String? = nil,
         completed: Bool
     ) {
         self.id = id
@@ -101,6 +111,11 @@ struct MobileTaskDTO: Decodable, Identifiable {
         self.priority = priority
         self.project_id = project_id
         self.section_id = section_id
+        self.parent_id = parent_id
+        self.start_date = start_date
+        self.start_time = start_time
+        self.end_date = end_date
+        self.end_time = end_time
         self.completed = completed
     }
 
@@ -117,6 +132,16 @@ struct MobileTaskDTO: Decodable, Identifiable {
         case projectId
         case section_id
         case sectionId
+        case parent_id
+        case parentId
+        case start_date
+        case startDate
+        case start_time
+        case startTime
+        case end_date
+        case endDate
+        case end_time
+        case endTime
         case completed
     }
 
@@ -155,6 +180,16 @@ struct MobileTaskDTO: Decodable, Identifiable {
             ?? container.decodeIfPresent(String.self, forKey: .projectId)
         section_id = try container.decodeIfPresent(String.self, forKey: .section_id)
             ?? container.decodeIfPresent(String.self, forKey: .sectionId)
+        parent_id = try container.decodeIfPresent(String.self, forKey: .parent_id)
+            ?? container.decodeIfPresent(String.self, forKey: .parentId)
+        start_date = try container.decodeIfPresent(String.self, forKey: .start_date)
+            ?? container.decodeIfPresent(String.self, forKey: .startDate)
+        start_time = try container.decodeIfPresent(String.self, forKey: .start_time)
+            ?? container.decodeIfPresent(String.self, forKey: .startTime)
+        end_date = try container.decodeIfPresent(String.self, forKey: .end_date)
+            ?? container.decodeIfPresent(String.self, forKey: .endDate)
+        end_time = try container.decodeIfPresent(String.self, forKey: .end_time)
+            ?? container.decodeIfPresent(String.self, forKey: .endTime)
 
         if let completedBool = try? container.decode(Bool.self, forKey: .completed) {
             completed = completedBool
@@ -217,6 +252,13 @@ struct CreateTaskRequest: Encodable {
     let due_time: String?
     let priority: Int
     let project_id: String?
+    let section_id: String?
+    let parent_id: String?
+    let completed: Bool?
+    let start_date: String?
+    let start_time: String?
+    let end_date: String?
+    let end_time: String?
 }
 
 struct PatchTaskRequest: Encodable {
@@ -227,6 +269,11 @@ struct PatchTaskRequest: Encodable {
     let priority: Int?
     let completed: Bool?
     let section_id: String?
+    let parent_id: String?
+    let start_date: String?
+    let start_time: String?
+    let end_date: String?
+    let end_time: String?
 
     init(
         name: String? = nil,
@@ -235,7 +282,12 @@ struct PatchTaskRequest: Encodable {
         due_time: String? = nil,
         priority: Int? = nil,
         completed: Bool? = nil,
-        section_id: String? = nil
+        section_id: String? = nil,
+        parent_id: String? = nil,
+        start_date: String? = nil,
+        start_time: String? = nil,
+        end_date: String? = nil,
+        end_time: String? = nil
     ) {
         self.name = name
         self.description = description
@@ -244,7 +296,23 @@ struct PatchTaskRequest: Encodable {
         self.priority = priority
         self.completed = completed
         self.section_id = section_id
+        self.parent_id = parent_id
+        self.start_date = start_date
+        self.start_time = start_time
+        self.end_date = end_date
+        self.end_time = end_time
     }
+}
+
+struct CreateOrganizationRequest: Encodable {
+    let name: String
+    let color: String
+}
+
+struct CreateProjectRequest: Encodable {
+    let name: String
+    let color: String
+    let organization_id: String
 }
 
 struct LoginRequest: Encodable {

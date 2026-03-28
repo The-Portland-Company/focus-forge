@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
 import { requireProjectAdmin } from '@/lib/api/authz'
 import { normalizeRichText } from '@/lib/rich-text-sanitize'
+import { normalizeProjectContentFields } from '@/lib/devnotes-meta'
 
 export async function PUT(
   request: NextRequest,
@@ -23,8 +24,23 @@ export async function PUT(
     }
 
     const updates = await request.json()
-    if (updates?.description !== undefined) {
-      updates.description = normalizeRichText(updates.description)
+    if (updates?.description !== undefined || updates?.devnotesMeta !== undefined || updates?.devnotes_meta !== undefined) {
+      const normalizedContent = normalizeProjectContentFields({
+        description:
+          updates?.description !== undefined
+            ? normalizeRichText(updates.description)
+            : undefined,
+        devnotesMeta: updates?.devnotesMeta,
+        devnotes_meta: updates?.devnotes_meta,
+      })
+
+      if (updates?.description !== undefined) {
+        updates.description = normalizedContent.description
+      }
+
+      if (updates?.devnotesMeta !== undefined || updates?.devnotes_meta !== undefined || normalizedContent.devnotesMeta) {
+        updates.devnotes_meta = normalizedContent.devnotesMeta
+      }
     }
     const adapter = new SupabaseAdapter(supabase, session.user.id)
     const updatedProject = await adapter.updateProject(params.id, updates)

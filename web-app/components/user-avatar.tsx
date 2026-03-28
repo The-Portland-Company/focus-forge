@@ -84,12 +84,16 @@ export function UserAvatar({
 
   const wrapperStyle = {
     width: `${size}px`,
-    height: `${size}px`
+    height: `${size}px`,
+    minWidth: `${size}px`,
+    minHeight: `${size}px`,
+    maxWidth: `${size}px`,
+    maxHeight: `${size}px`
   }
 
   return (
     <span
-      className={`rounded-full overflow-hidden inline-flex items-center justify-center ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full leading-none ${className}`}
       style={wrapperStyle}
       role="img"
       aria-label={ariaLabel || name || 'User avatar'}

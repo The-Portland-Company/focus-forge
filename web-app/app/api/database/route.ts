@@ -148,6 +148,29 @@ export async function GET(request: NextRequest) {
             sectionId: row.section_id,
             createdAt: row.created_at,
           }))
+
+          const existingLinks = new Set(
+            taskSections.map((row: any) => `${row.taskId}:${row.sectionId}`),
+          )
+
+          const inferredTaskSections = tasks
+            .map((task: any) => {
+              const sectionId = task.sectionId || task.section_id
+              if (!task.id || !sectionId) return null
+
+              const key = `${task.id}:${sectionId}`
+              if (existingLinks.has(key)) return null
+
+              return {
+                id: `inferred-${task.id}-${sectionId}`,
+                taskId: task.id,
+                sectionId,
+                createdAt: task.updatedAt || task.updated_at || task.createdAt || task.created_at,
+              }
+            })
+            .filter(Boolean)
+
+          taskSections = [...taskSections, ...inferredTaskSections]
         }
       }
     } catch (error) {
@@ -286,6 +309,7 @@ export async function GET(request: NextRequest) {
       })),
       projects: projects.map((project: any) => ({
         ...project,
+        devnotesMeta: project.devnotes_meta || null,
         memberIds: projectMemberMap.get(project.id) || [],
         ownerId: projectOwnerMap.get(project.id) || project.owner_id || null,
       })),

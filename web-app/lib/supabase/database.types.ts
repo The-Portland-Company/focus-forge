@@ -433,6 +433,7 @@ export type Database = {
           created_at: string | null
           deadline: string | null
           description: string | null
+          devnotes_meta: string | null
           id: string
           is_favorite: boolean | null
           last_todoist_sync: string | null
@@ -459,6 +460,7 @@ export type Database = {
           created_at?: string | null
           deadline?: string | null
           description?: string | null
+          devnotes_meta?: string | null
           id?: string
           is_favorite?: boolean | null
           last_todoist_sync?: string | null
@@ -485,6 +487,7 @@ export type Database = {
           created_at?: string | null
           deadline?: string | null
           description?: string | null
+          devnotes_meta?: string | null
           id?: string
           is_favorite?: boolean | null
           last_todoist_sync?: string | null

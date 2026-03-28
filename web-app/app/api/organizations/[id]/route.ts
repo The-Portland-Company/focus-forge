@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
+import { requireOrgAdmin } from '@/lib/api/authz'
 
 export async function PUT(
   request: Request,
@@ -13,6 +14,11 @@ export async function PUT(
 
     if (authError || !session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const authz = await requireOrgAdmin(supabase, session.user.id, params.id)
+    if (!authz.authorized) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const body = await request.json()

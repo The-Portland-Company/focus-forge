@@ -101,6 +101,7 @@ export function EditProjectModal({
 }: EditProjectModalProps) {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
+  const [devnotesMeta, setDevnotesMeta] = useState("")
   const [color, setColor] = useState("#ef4444")
   const [budget, setBudget] = useState("")
   const [deadline, setDeadline] = useState("")
@@ -129,6 +130,7 @@ export function EditProjectModal({
 
     setName(project.name)
     setDescription(project.description || "")
+    setDevnotesMeta(project.devnotesMeta || (project as any).devnotes_meta || "")
     setColor(project.color)
     setBudget(((project as any).budget ?? project.budget)?.toString() || "")
     const projectDeadline = (project as any).deadline || project.deadline
@@ -192,6 +194,7 @@ export function EditProjectModal({
       await onUpdate({
         name: name.trim(),
         description: hasRichTextContent(description) ? description : undefined,
+        devnotesMeta: devnotesMeta.trim() || undefined,
         color,
         budget: budget ? parseFloat(budget) : undefined,
         deadline: deadline || undefined,
@@ -379,6 +382,17 @@ export function EditProjectModal({
                   placeholder="Optional description"
                   className="bg-zinc-800 border-zinc-700"
                   minHeightClassName="min-h-[140px]"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="project-devnotes-meta">DevNotes Meta</Label>
+                <textarea
+                  id="project-devnotes-meta"
+                  value={devnotesMeta}
+                  onChange={(e) => setDevnotesMeta(e.target.value)}
+                  placeholder="[DEVNOTES_META:...]"
+                  className="min-h-[96px] w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
                 />
               </div>
 

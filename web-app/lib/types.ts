@@ -45,6 +45,7 @@ export interface Project {
   id: string;
   name: string;
   description?: string;
+  devnotesMeta?: string;
   color: string;
   organizationId: string;
   ownerId?: string; // User who owns this project

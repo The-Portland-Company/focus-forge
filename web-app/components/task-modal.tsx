@@ -86,6 +86,7 @@ interface TaskModalProps {
   onDelete?: (taskId: string) => void;
   onDataRefresh?: () => void;
   defaultProjectId?: string;
+  defaultSectionId?: string;
   onTaskSelect?: (task: Task) => void;
   onRequestNewDependencyTask?: (seedName?: string) => Promise<Task | null>;
   onRequestNewProject?: (
@@ -108,6 +109,7 @@ export function TaskModal({
   onDelete,
   onDataRefresh,
   defaultProjectId,
+  defaultSectionId,
   onTaskSelect,
   onRequestNewDependencyTask,
   onRequestNewProject,
@@ -462,6 +464,7 @@ export function TaskModal({
       reminders,
       dependsOn: dependencies.length > 0 ? dependencies : undefined,
       recurringPattern: serializeRecurringConfig(recurringConfig),
+      sectionId: defaultSectionId || undefined,
       timeEstimate:
         timeEstimate !== "" ? parseInt(timeEstimate, 10) : undefined,
       startDate: startDate || undefined,

@@ -49,6 +49,7 @@ export function AddProjectModal({
 }: AddProjectModalProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [devnotesMeta, setDevnotesMeta] = useState('')
   const [budget, setBudget] = useState('')
   const [deadline, setDeadline] = useState('')
   const [selectedColor, setSelectedColor] = useState(projectColors[Math.floor(Math.random() * projectColors.length)])
@@ -61,6 +62,7 @@ export function AddProjectModal({
     onAddProject({
       name: name.trim(),
       description: hasRichTextContent(description) ? description : undefined,
+      devnotesMeta: devnotesMeta.trim() || undefined,
       color: selectedColor,
       organizationId,
       isFavorite: false,
@@ -71,6 +73,7 @@ export function AddProjectModal({
     // Reset form
     setName('')
     setDescription('')
+    setDevnotesMeta('')
     setBudget('')
     setDeadline('')
     setSelectedColor(projectColors[Math.floor(Math.random() * projectColors.length)])
@@ -119,6 +122,17 @@ export function AddProjectModal({
               placeholder="Optional project description"
               className="mt-1"
               minHeightClassName="min-h-[120px]"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="devnotes-meta" className="text-sm text-zinc-400">DevNotes Meta</Label>
+            <textarea
+              id="devnotes-meta"
+              value={devnotesMeta}
+              onChange={(e) => setDevnotesMeta(e.target.value)}
+              placeholder="[DEVNOTES_META:...]"
+              className="mt-1 min-h-[88px] w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500"
             />
           </div>
 

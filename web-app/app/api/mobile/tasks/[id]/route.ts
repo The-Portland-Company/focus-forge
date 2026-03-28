@@ -4,7 +4,7 @@ import {
   mobileFailure,
   mobileSuccess,
   normalizeTaskInput,
-  verifyMobileAccessToken,
+  verifyMobileAccessTokenOrPat,
 } from '@/lib/mobile/api'
 
 export async function PATCH(
@@ -12,7 +12,7 @@ export async function PATCH(
   props: { params: Promise<{ id: string }> },
 ) {
   try {
-    const auth = await verifyMobileAccessToken(
+    const auth = await verifyMobileAccessTokenOrPat(
       request.headers.get('authorization'),
     )
 
@@ -44,7 +44,7 @@ export async function DELETE(
   props: { params: Promise<{ id: string }> },
 ) {
   try {
-    const auth = await verifyMobileAccessToken(
+    const auth = await verifyMobileAccessTokenOrPat(
       request.headers.get('authorization'),
     )
 

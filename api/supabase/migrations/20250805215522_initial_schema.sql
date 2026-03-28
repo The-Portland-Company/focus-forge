@@ -44,6 +44,7 @@ CREATE TABLE projects (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   description TEXT,
+  devnotes_meta TEXT,
   color TEXT NOT NULL DEFAULT '#EA580C',
   organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
   is_favorite BOOLEAN DEFAULT false,
