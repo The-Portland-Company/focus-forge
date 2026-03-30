@@ -34,6 +34,8 @@ import {
 } from "@/lib/email-inbox/shared";
 import {
   applyMailboxProviderPreset,
+  createEmptyMailboxForm,
+  createMailboxFormFromMailbox,
   MAILBOX_PROVIDER_PRESETS,
 } from "@/lib/email-inbox/provider-presets";
 
@@ -68,27 +70,6 @@ function parseJsonValue<T>(input: string, fallback: T): T {
   }
 }
 
-function createEmptyMailboxForm() {
-  return applyMailboxProviderPreset(
-    {
-      provider: "gmail" as Mailbox["provider"],
-      name: "",
-      displayName: "",
-      emailAddress: "",
-      loginUsername: "",
-      password: "",
-      imapHost: "",
-      imapPort: "993",
-      smtpHost: "",
-      smtpPort: "465",
-      syncFolder: "INBOX",
-      isShared: false,
-      organizationId: "none",
-    },
-    "gmail",
-  );
-}
-
 export function EmailInboxView({
   view,
   data,
@@ -100,6 +81,7 @@ export function EmailInboxView({
   const [selectedThread, setSelectedThread] = useState<any | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
   const [showMailboxForm, setShowMailboxForm] = useState(false);
+  const [editingMailboxId, setEditingMailboxId] = useState<string | null>(null);
   const [mailboxForm, setMailboxForm] = useState(createEmptyMailboxForm);
   const [replyContent, setReplyContent] = useState("");
   const [replyMode, setReplyMode] = useState<"reply_all" | "internal_note">(
@@ -152,6 +134,15 @@ export function EmailInboxView({
     () => getVisibleMailboxSyncError(data.mailboxes, selectedMailboxId),
     [data.mailboxes, selectedMailboxId],
   );
+  const selectedMailbox = useMemo(
+    () =>
+      selectedMailboxId === "all"
+        ? null
+        : data.mailboxes.find((mailbox) => mailbox.id === selectedMailboxId) ||
+          null,
+    [data.mailboxes, selectedMailboxId],
+  );
+  const isEditingMailbox = editingMailboxId !== null;
 
   useEffect(() => {
     if (!isEmailInboxView(view)) return;
@@ -206,6 +197,38 @@ export function EmailInboxView({
   };
 
   const mailboxPreset = MAILBOX_PROVIDER_PRESETS[mailboxForm.provider];
+
+  const openMailboxCreateForm = () => {
+    setEditingMailboxId(null);
+    setMailboxForm(createEmptyMailboxForm());
+    setShowMailboxForm(true);
+  };
+
+  const openMailboxEditForm = (mailbox: Mailbox) => {
+    setEditingMailboxId(mailbox.id);
+    setMailboxForm(createMailboxFormFromMailbox(mailbox));
+    setShowMailboxForm(true);
+  };
+
+  const closeMailboxForm = () => {
+    setShowMailboxForm(false);
+    setEditingMailboxId(null);
+    setMailboxForm(createEmptyMailboxForm());
+  };
+
+  const handleMailboxFormToggle = () => {
+    if (showMailboxForm) {
+      closeMailboxForm();
+      return;
+    }
+
+    if (selectedMailbox) {
+      openMailboxEditForm(selectedMailbox);
+      return;
+    }
+
+    openMailboxCreateForm();
+  };
 
   const handleSync = async () => {
     if (busyState || data.mailboxes.length === 0) return;
@@ -280,6 +303,7 @@ export function EmailInboxView({
 
   const handleMailboxCreate = async () => {
     setBusyState("mailbox");
+    const wasEditingMailbox = isEditingMailbox;
     let createdMailboxId: string | null = null;
     try {
       const response = await fetch("/api/email/mailboxes", {
@@ -312,8 +336,7 @@ export function EmailInboxView({
 
       createdMailboxId = payload.id;
       setSelectedMailboxId(payload.id);
-      setShowMailboxForm(false);
-      setMailboxForm(createEmptyMailboxForm());
+      closeMailboxForm();
       await onRefresh();
 
       const syncedMessageCount = await syncMailboxAfterCreate(
@@ -323,7 +346,9 @@ export function EmailInboxView({
 
       await onRefresh();
       updateStatus(
-        `Mailbox ${payload.name} connected and synced ${syncedMessageCount} messages.`,
+        wasEditingMailbox
+          ? `Mailbox ${payload.name} updated and synced ${syncedMessageCount} messages.`
+          : `Mailbox ${payload.name} connected and synced ${syncedMessageCount} messages.`,
       );
     } catch (error) {
       if (createdMailboxId) {
@@ -942,10 +967,14 @@ export function EmailInboxView({
           </Select>
           <button
             type="button"
-            onClick={() => setShowMailboxForm((prev) => !prev)}
+            onClick={handleMailboxFormToggle}
             className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
           >
-            Connect Mailbox
+            {showMailboxForm
+              ? "Close Mailbox"
+              : selectedMailbox
+                ? "Edit Mailbox"
+                : "Connect Mailbox"}
           </button>
           <button
             type="button"
@@ -971,6 +1000,25 @@ export function EmailInboxView({
 
       {showMailboxForm ? (
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div>
+              <div className="text-lg font-semibold text-white">
+                {isEditingMailbox ? "Update Mailbox" : "Connect Mailbox"}
+              </div>
+              <div className="mt-1 text-sm text-zinc-500">
+                {isEditingMailbox
+                  ? "Replace the mailbox password with a new App Password, then save to reconnect."
+                  : "Add a new mailbox connection for Fluid to sync and process."}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={closeMailboxForm}
+              className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+            >
+              Cancel
+            </button>
+          </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <Select
               value={mailboxForm.provider}
@@ -1054,7 +1102,11 @@ export function EmailInboxView({
                   password: event.target.value,
                 }))
               }
-              placeholder="Mailbox password"
+              placeholder={
+                isEditingMailbox
+                  ? "New mailbox password / App Password"
+                  : "Mailbox password"
+              }
               className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
             />
             <input
@@ -1152,7 +1204,14 @@ export function EmailInboxView({
               {mailboxPreset.description}
             </div>
           </div>
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={closeMailboxForm}
+              className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+            >
+              Cancel
+            </button>
             <button
               type="button"
               onClick={handleMailboxCreate}
@@ -1163,7 +1222,13 @@ export function EmailInboxView({
               }
               className="rounded-lg bg-[rgb(var(--theme-primary-rgb))] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {busyState === "mailbox" ? "Connecting…" : "Save Mailbox"}
+              {busyState === "mailbox"
+                ? isEditingMailbox
+                  ? "Updating…"
+                  : "Connecting…"
+                : isEditingMailbox
+                  ? "Update Mailbox"
+                  : "Save Mailbox"}
             </button>
           </div>
         </div>

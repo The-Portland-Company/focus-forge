@@ -12,6 +12,22 @@ export type MailboxProviderPreset = {
   syncFolder: string;
 };
 
+export type MailboxFormValues = {
+  provider: MailboxProvider;
+  name: string;
+  displayName: string;
+  emailAddress: string;
+  loginUsername: string;
+  password: string;
+  imapHost: string;
+  imapPort: string;
+  smtpHost: string;
+  smtpPort: string;
+  syncFolder: string;
+  isShared: boolean;
+  organizationId: string;
+};
+
 export const MAILBOX_PROVIDER_PRESETS: Record<
   MailboxProvider,
   MailboxProviderPreset
@@ -76,5 +92,48 @@ export function applyMailboxProviderPreset<
     smtpHost: preset.smtpHost,
     smtpPort: preset.smtpPort,
     syncFolder: preset.syncFolder,
+  };
+}
+
+export function createEmptyMailboxForm(): MailboxFormValues {
+  return applyMailboxProviderPreset(
+    {
+      provider: "gmail",
+      name: "",
+      displayName: "",
+      emailAddress: "",
+      loginUsername: "",
+      password: "",
+      imapHost: "",
+      imapPort: "993",
+      smtpHost: "",
+      smtpPort: "465",
+      syncFolder: "INBOX",
+      isShared: false,
+      organizationId: "none",
+    },
+    "gmail",
+  );
+}
+
+export function createMailboxFormFromMailbox(
+  mailbox: Mailbox,
+): MailboxFormValues {
+  const preset = MAILBOX_PROVIDER_PRESETS[mailbox.provider];
+
+  return {
+    provider: mailbox.provider,
+    name: mailbox.name,
+    displayName: mailbox.displayName ?? "",
+    emailAddress: mailbox.emailAddress,
+    loginUsername: mailbox.loginUsername || mailbox.emailAddress,
+    password: "",
+    imapHost: mailbox.imapHost || preset.imapHost,
+    imapPort: String(mailbox.imapPort ?? preset.imapPort),
+    smtpHost: mailbox.smtpHost || preset.smtpHost,
+    smtpPort: String(mailbox.smtpPort ?? preset.smtpPort),
+    syncFolder: mailbox.syncFolder || preset.syncFolder,
+    isShared: mailbox.isShared,
+    organizationId: mailbox.organizationId ?? "none",
   };
 }

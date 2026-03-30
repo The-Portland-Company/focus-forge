@@ -231,6 +231,11 @@ export interface Mailbox {
   displayName?: string | null;
   emailAddress: string;
   provider: "imap_smtp" | "gmail" | "microsoft";
+  loginUsername?: string | null;
+  imapHost?: string | null;
+  imapPort?: number | null;
+  smtpHost?: string | null;
+  smtpPort?: number | null;
   isShared: boolean;
   autoSyncEnabled: boolean;
   syncFrequencyMinutes: number;
