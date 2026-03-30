@@ -55,6 +55,15 @@ type ProjectOption = {
   organization_id: string | null;
 };
 
+function isUniqueViolation(error: any) {
+  return (
+    error?.code === "23505" ||
+    /duplicate key value violates unique constraint/i.test(
+      String(error?.message || ""),
+    )
+  );
+}
+
 async function getVisibleScope(userId: string): Promise<VisibleScope> {
   const admin = getAdminClient();
   const [{ data: memberships }, { data: profile }] = await Promise.all([
@@ -300,7 +309,7 @@ async function upsertContact(
     return existing;
   }
 
-  const { data: contact } = await admin
+  const { data: contact, error: insertError } = await admin
     .from("contacts")
     .insert({
       organization_id: mailbox.organization_id ?? null,
@@ -314,6 +323,28 @@ async function upsertContact(
     })
     .select()
     .single();
+
+  if (insertError && isUniqueViolation(insertError)) {
+    const retryQuery = mailbox.organization_id
+      ? admin
+          .from("contacts")
+          .select("*")
+          .eq("organization_id", mailbox.organization_id)
+          .eq("email", normalizedEmail)
+          .limit(1)
+      : admin
+          .from("contacts")
+          .select("*")
+          .is("organization_id", null)
+          .eq("email", normalizedEmail)
+          .limit(1);
+
+    const { data: retriedContacts } = await retryQuery;
+    return retriedContacts?.[0] ?? null;
+  }
+  if (insertError) {
+    throw new Error(insertError.message || "Failed to store contact");
+  }
 
   return contact;
 }
@@ -355,31 +386,50 @@ async function findThreadForMessage(mailbox: any, message: any) {
     return existing.id;
   }
 
-  const { data: created } = await admin
+  const threadPayload = {
+    mailbox_id: mailbox.id,
+    project_id: null,
+    summary_profile_id: mailbox.summary_profile_id ?? null,
+    owner_user_id: mailbox.owner_user_id,
+    provider_thread_id: null,
+    thread_key: threadKey,
+    status: "active",
+    classification: "unknown",
+    resolution_state: "open",
+    action_title: message.subject || "Untitled email",
+    subject: message.subject || "Untitled email",
+    normalized_subject: normalizeSubject(message.subject),
+    preview_text: extractPlainTextPreview(message.bodyText, 240),
+    latest_message_at:
+      message.receivedAt || message.sentAt || new Date().toISOString(),
+    latest_inbound_at:
+      message.receivedAt || message.sentAt || new Date().toISOString(),
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: created, error: createError } = await admin
     .from("email_threads")
-    .insert({
-      mailbox_id: mailbox.id,
-      project_id: null,
-      summary_profile_id: mailbox.summary_profile_id ?? null,
-      owner_user_id: mailbox.owner_user_id,
-      provider_thread_id: null,
-      thread_key: threadKey,
-      status: "active",
-      classification: "unknown",
-      resolution_state: "open",
-      action_title: message.subject || "Untitled email",
-      subject: message.subject || "Untitled email",
-      normalized_subject: normalizeSubject(message.subject),
-      preview_text: extractPlainTextPreview(message.bodyText, 240),
-      latest_message_at:
-        message.receivedAt || message.sentAt || new Date().toISOString(),
-      latest_inbound_at:
-        message.receivedAt || message.sentAt || new Date().toISOString(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
+    .insert(threadPayload)
     .select()
     .single();
+
+  if (createError && isUniqueViolation(createError)) {
+    const { data: retriedExisting, error: retryError } = await admin
+      .from("email_threads")
+      .select("id")
+      .eq("mailbox_id", mailbox.id)
+      .eq("thread_key", threadKey)
+      .maybeSingle();
+
+    if (retriedExisting?.id) {
+      return retriedExisting.id;
+    }
+    throw new Error(retryError?.message || createError.message);
+  }
+  if (createError || !created?.id) {
+    throw new Error(createError?.message || "Failed to create email thread");
+  }
 
   return created?.id;
 }
@@ -443,36 +493,59 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
         .maybeSingle()
     : { data: null };
 
-  const { data: inserted } = await admin
+  const messagePayload = {
+    thread_id: threadId,
+    mailbox_id: mailbox.id,
+    contact_id: senderContact?.id ?? null,
+    profile_id: senderProfile?.id ?? null,
+    direction: "inbound",
+    provider_message_id: message.providerMessageId,
+    internet_message_id: message.internetMessageId ?? null,
+    in_reply_to_message_id: message.inReplyTo ?? null,
+    subject: message.subject || null,
+    body_text: message.bodyText || "",
+    body_html: message.bodyHtml || null,
+    sent_at: message.sentAt ?? null,
+    received_at: message.receivedAt ?? null,
+    raw_headers: message.rawHeaders || {},
+    metadata_json: {
+      from: message.from,
+      to: message.to,
+      cc: message.cc,
+      bcc: message.bcc,
+      replyTo: message.replyTo,
+    },
+  };
+
+  const { data: inserted, error: insertError } = await admin
     .from("email_messages")
-    .insert({
-      thread_id: threadId,
-      mailbox_id: mailbox.id,
-      contact_id: senderContact?.id ?? null,
-      profile_id: senderProfile?.id ?? null,
-      direction: "inbound",
-      provider_message_id: message.providerMessageId,
-      internet_message_id: message.internetMessageId ?? null,
-      in_reply_to_message_id: message.inReplyTo ?? null,
-      subject: message.subject || null,
-      body_text: message.bodyText || "",
-      body_html: message.bodyHtml || null,
-      sent_at: message.sentAt ?? null,
-      received_at: message.receivedAt ?? null,
-      raw_headers: message.rawHeaders || {},
-      metadata_json: {
-        from: message.from,
-        to: message.to,
-        cc: message.cc,
-        bcc: message.bcc,
-        replyTo: message.replyTo,
-      },
-    })
+    .insert(messagePayload)
     .select()
     .single();
 
-  if (!inserted) {
-    throw new Error("Failed to store inbound email message");
+  if (insertError && isUniqueViolation(insertError)) {
+    const { data: existingAfterConflict, error: retryError } = await admin
+      .from("email_messages")
+      .select("id,thread_id")
+      .eq("mailbox_id", mailbox.id)
+      .eq("provider_message_id", message.providerMessageId)
+      .maybeSingle();
+
+    if (existingAfterConflict?.id) {
+      return {
+        threadId: existingAfterConflict.thread_id as string,
+        messageId: existingAfterConflict.id as string,
+        inserted: false,
+      };
+    }
+
+    throw new Error(retryError?.message || insertError.message);
+  }
+
+  if (insertError || !inserted) {
+    throw new Error(
+      insertError?.message || "Failed to store inbound email message",
+    );
   }
 
   await persistParticipants(threadId, inserted.id, mailbox, {
