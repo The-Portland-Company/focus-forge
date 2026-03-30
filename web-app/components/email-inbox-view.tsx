@@ -197,29 +197,53 @@ export function EmailInboxView({
     window.setTimeout(() => setStatusMessage(null), 2400);
   };
 
-  const selectedMailbox = data.mailboxes.find(
-    (mailbox) => mailbox.id === selectedMailboxId,
-  );
   const mailboxPreset = MAILBOX_PROVIDER_PRESETS[mailboxForm.provider];
 
   const handleSync = async () => {
-    if (!selectedMailbox || busyState) return;
+    if (busyState || data.mailboxes.length === 0) return;
     setBusyState("sync");
     try {
-      const response = await fetch(
-        `/api/email/mailboxes/${selectedMailbox.id}/sync`,
-        {
-          method: "POST",
-          credentials: "include",
-        },
-      );
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to sync mailbox");
+      const mailboxesToSync =
+        selectedMailboxId === "all"
+          ? data.mailboxes
+          : data.mailboxes.filter(
+              (mailbox) => mailbox.id === selectedMailboxId,
+            );
+
+      if (mailboxesToSync.length === 0) {
+        throw new Error("Choose a mailbox before syncing.");
       }
+
+      const results = await Promise.all(
+        mailboxesToSync.map(async (mailbox) => {
+          const response = await fetch(
+            `/api/email/mailboxes/${mailbox.id}/sync`,
+            {
+              method: "POST",
+              credentials: "include",
+            },
+          );
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || `Failed to sync ${mailbox.name}`);
+          }
+          return {
+            mailbox,
+            syncedMessageCount: Number(payload.syncedMessageCount || 0),
+          };
+        }),
+      );
+
       await onRefresh();
+
+      const totalMessages = results.reduce(
+        (sum, result) => sum + result.syncedMessageCount,
+        0,
+      );
       updateStatus(
-        `Synced ${payload.syncedMessageCount || 0} messages from ${selectedMailbox.name}.`,
+        mailboxesToSync.length === 1
+          ? `Synced ${totalMessages} messages from ${mailboxesToSync[0].name}.`
+          : `Synced ${totalMessages} messages across ${mailboxesToSync.length} mailboxes.`,
       );
     } catch (error) {
       updateStatus(
@@ -228,6 +252,21 @@ export function EmailInboxView({
     } finally {
       setBusyState(null);
     }
+  };
+
+  const syncMailboxAfterCreate = async (
+    mailboxId: string,
+    mailboxName: string,
+  ) => {
+    const response = await fetch(`/api/email/mailboxes/${mailboxId}/sync`, {
+      method: "POST",
+      credentials: "include",
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || `Failed to sync ${mailboxName}`);
+    }
+    return Number(payload.syncedMessageCount || 0);
   };
 
   const handleMailboxCreate = async () => {
@@ -260,10 +299,19 @@ export function EmailInboxView({
       if (!response.ok) {
         throw new Error(payload.error || "Failed to create mailbox");
       }
+
+      const syncedMessageCount = await syncMailboxAfterCreate(
+        payload.id,
+        payload.name,
+      );
+
+      setSelectedMailboxId(payload.id);
       setShowMailboxForm(false);
       setMailboxForm(createEmptyMailboxForm());
       await onRefresh();
-      updateStatus(`Mailbox ${payload.name} connected.`);
+      updateStatus(
+        `Mailbox ${payload.name} connected and synced ${syncedMessageCount} messages.`,
+      );
     } catch (error) {
       updateStatus(
         error instanceof Error ? error.message : "Failed to create mailbox",
@@ -886,7 +934,7 @@ export function EmailInboxView({
           <button
             type="button"
             onClick={handleSync}
-            disabled={!selectedMailbox || busyState === "sync"}
+            disabled={data.mailboxes.length === 0 || busyState === "sync"}
             className="inline-flex items-center gap-2 rounded-lg bg-[rgb(var(--theme-primary-rgb))] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {busyState === "sync" ? (
@@ -894,7 +942,7 @@ export function EmailInboxView({
             ) : (
               <RefreshCw className="h-4 w-4" />
             )}
-            Sync
+            {selectedMailboxId === "all" ? "Sync All" : "Sync"}
           </button>
         </div>
       </div>
