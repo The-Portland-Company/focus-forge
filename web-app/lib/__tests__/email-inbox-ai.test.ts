@@ -1,0 +1,38 @@
+/* eslint-env node */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { buildHeuristicAnalysis } from "../email-inbox/ai";
+
+test("buildHeuristicAnalysis quarantines obvious spam", () => {
+  const result = buildHeuristicAnalysis({
+    subject: "Limited time offer",
+    bodyText: "Buy now and unsubscribe later",
+    senderEmail: "promo@offers.example",
+    mailboxEmail: "ops@example.com",
+    projectOptions: [],
+  });
+
+  assert.equal(result.status, "quarantine");
+  assert.equal(result.classification, "spam");
+  assert.equal(result.taskSuggestions.length, 0);
+});
+
+test("buildHeuristicAnalysis routes actionable email to a matching project", () => {
+  const result = buildHeuristicAnalysis({
+    subject: "Acme website proposal",
+    bodyText: "Please review the Acme website proposal and reply today.",
+    senderEmail: "client@acme.com",
+    mailboxEmail: "team@example.com",
+    projectOptions: [
+      {
+        id: "project-1",
+        name: "Acme Website",
+        description: "Website redesign for Acme",
+      },
+    ],
+  });
+
+  assert.equal(result.status, "active");
+  assert.equal(result.projectId, "project-1");
+  assert.equal(result.taskSuggestions.length > 0, true);
+});

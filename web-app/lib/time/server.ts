@@ -1,5 +1,6 @@
 import { getAdminClient } from "@/lib/supabase/admin";
 import { generateApiKeySecret, extractPrefixFromSecret, hashApiKeySecret } from "@/lib/api/keys/utils";
+import { getTimePostgresClient } from "./postgres";
 import type {
   TimeScope,
   TimeTokenShareMode,
@@ -94,6 +95,83 @@ type ValidationTaskRow = {
     organization_id?: string | null;
   } | null;
 };
+
+const TIME_ENTRY_SELECT_SQL = `
+  SELECT
+    e.id,
+    e.organization_id,
+    e.user_id,
+    e.project_id,
+    e.section_id,
+    e.title,
+    e.description,
+    e.timezone,
+    e.started_at,
+    e.ended_at,
+    e.created_at,
+    e.updated_at,
+    e.source,
+    e.source_metadata,
+    CASE
+      WHEN o.id IS NULL THEN NULL
+      ELSE jsonb_build_object('id', o.id, 'name', o.name)
+    END AS organizations,
+    CASE
+      WHEN p.id IS NULL THEN NULL
+      ELSE jsonb_build_object(
+        'id', p.id,
+        'email', p.email,
+        'first_name', p.first_name,
+        'last_name', p.last_name,
+        'role', p.role
+      )
+    END AS profiles,
+    CASE
+      WHEN pr.id IS NULL THEN NULL
+      ELSE jsonb_build_object(
+        'id', pr.id,
+        'name', pr.name,
+        'organization_id', pr.organization_id
+      )
+    END AS projects,
+    CASE
+      WHEN s.id IS NULL THEN NULL
+      ELSE jsonb_build_object(
+        'id', s.id,
+        'name', s.name,
+        'project_id', s.project_id
+      )
+    END AS sections,
+    COALESCE(
+      (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'task_id', et.task_id,
+            'tasks',
+            CASE
+              WHEN t.id IS NULL THEN NULL
+              ELSE jsonb_build_object(
+                'id', t.id,
+                'name', t.name,
+                'project_id', t.project_id,
+                'section_id', t.section_id
+              )
+            END
+          )
+          ORDER BY et.created_at, et.task_id
+        )
+        FROM time_tracking.entry_tasks et
+        LEFT JOIN public.tasks t ON t.id = et.task_id
+        WHERE et.entry_id = e.id
+      ),
+      '[]'::jsonb
+    ) AS entry_tasks
+  FROM time_tracking.entries e
+  JOIN public.organizations o ON o.id = e.organization_id
+  JOIN public.profiles p ON p.id = e.user_id
+  LEFT JOIN public.projects pr ON pr.id = e.project_id
+  LEFT JOIN public.sections s ON s.id = e.section_id
+`;
 
 export async function ensureOrgTimeAdmin(userId: string, organizationId: string) {
   const admin = getAdminClient();
@@ -329,52 +407,61 @@ export async function listTimeEntries(
     | { kind: "org_token"; organizationId: string; userId?: never },
   filters: EntryFilters,
 ): Promise<TimeTrackingEntry[]> {
-  const admin = getAdminClient();
-  const query = admin
-    .schema("time_tracking")
-    .from("entries")
-    .select(
-      "id,organization_id,user_id,project_id,section_id,title,description,timezone,started_at,ended_at,created_at,updated_at,source,source_metadata,organizations(id,name),profiles(id,email,first_name,last_name,role),projects(id,name,organization_id),sections(id,name,project_id),entry_tasks(task_id,tasks(id,name,project_id,section_id))",
-    )
-    .order("started_at", { ascending: false });
+  const db = getTimePostgresClient();
+  let organizationId: string | null = null;
+  let userIds: string[] | null = null;
 
   if (principal.kind === "org_token") {
-    query.eq("organization_id", principal.organizationId);
+    organizationId = principal.organizationId;
+    userIds = filters.userIds && filters.userIds.length > 0 ? filters.userIds : null;
+  } else if (filters.organizationId) {
+    const isAdmin = await ensureOrgTimeAdmin(principal.userId, filters.organizationId);
+    organizationId = filters.organizationId;
+    userIds = isAdmin
+      ? filters.userIds && filters.userIds.length > 0
+        ? filters.userIds
+        : null
+      : [principal.userId];
   } else {
-    if (filters.organizationId) {
-      const isAdmin = await ensureOrgTimeAdmin(principal.userId, filters.organizationId);
-      if (isAdmin) {
-        query.eq("organization_id", filters.organizationId);
-      } else {
-        query.eq("organization_id", filters.organizationId).eq("user_id", principal.userId);
-      }
-    } else {
-      query.eq("user_id", principal.userId);
-    }
+    userIds = [principal.userId];
   }
 
+  const conditions = ["1=1"];
+  const params: Array<string | string[] | null> = [];
+  const bind = (value: string | string[] | null) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+
+  if (organizationId) {
+    conditions.push(`e.organization_id = ${bind(organizationId)}::uuid`);
+  }
+  if (userIds && userIds.length > 0) {
+    conditions.push(`e.user_id = ANY(${bind(userIds)}::uuid[])`);
+  }
   if (filters.projectId) {
-    query.eq("project_id", filters.projectId);
+    conditions.push(`e.project_id = ${bind(filters.projectId)}::uuid`);
   }
   if (filters.sectionId) {
-    query.eq("section_id", filters.sectionId);
-  }
-  if (filters.userIds && filters.userIds.length > 0) {
-    query.in("user_id", filters.userIds);
+    conditions.push(`e.section_id = ${bind(filters.sectionId)}::uuid`);
   }
   if (filters.startedAfter) {
-    query.gte("started_at", filters.startedAfter);
+    conditions.push(`e.started_at >= ${bind(filters.startedAfter)}::timestamptz`);
   }
   if (filters.endedBefore) {
-    query.lte("started_at", filters.endedBefore);
+    conditions.push(`COALESCE(e.ended_at, e.started_at) <= ${bind(filters.endedBefore)}::timestamptz`);
   }
 
-  const { data, error } = await query;
-  if (error) {
-    throw error;
-  }
+  const rows = await db.unsafe(
+    `
+      ${TIME_ENTRY_SELECT_SQL}
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY e.started_at DESC
+    `,
+    params,
+  );
 
-  let entries = (data || []).map(mapTimeEntry);
+  let entries = rows.map(mapTimeEntry);
 
   if (filters.taskIds && filters.taskIds.length > 0) {
     const taskIdSet = new Set(filters.taskIds);
@@ -443,7 +530,7 @@ export async function createTimeEntry(input: {
   source?: string;
   sourceMetadata?: Record<string, unknown>;
 }) {
-  const admin = getAdminClient();
+  const db = getTimePostgresClient();
   const {
     taskIds = [],
     organizationId,
@@ -466,61 +553,89 @@ export async function createTimeEntry(input: {
     taskIds,
   });
 
-  const { data: inserted, error } = await admin
-    .schema("time_tracking")
-    .from("entries")
-    .insert({
-      organization_id: organizationId,
-      user_id: userId,
-      project_id: projectId,
-      section_id: sectionId,
-      title,
-      description,
-      timezone: normalizeTimeZone(timezone),
-      started_at: startedAt,
-      ended_at: endedAt,
-      source,
-      source_metadata: sourceMetadata,
-    })
-    .select(
-      "id,organization_id,user_id,project_id,section_id,title,description,timezone,started_at,ended_at,created_at,updated_at,source,source_metadata,organizations(id,name),profiles(id,email,first_name,last_name,role),projects(id,name,organization_id),sections(id,name,project_id)",
-    )
-    .single();
+  const inserted = await db.begin(async (tx) => {
+    const rows = await tx.unsafe<{ id: string }[]>(
+      `
+        INSERT INTO time_tracking.entries (
+          organization_id,
+          user_id,
+          project_id,
+          section_id,
+          title,
+          description,
+          timezone,
+          started_at,
+          ended_at,
+          source,
+          source_metadata
+        )
+        VALUES (
+          $1::uuid,
+          $2::uuid,
+          $3::uuid,
+          $4::uuid,
+          $5,
+          $6,
+          $7,
+          $8::timestamptz,
+          $9::timestamptz,
+          $10,
+          $11::jsonb
+        )
+        RETURNING id
+      `,
+      [
+        organizationId,
+        userId,
+        projectId,
+        sectionId,
+        title,
+        description,
+        normalizeTimeZone(timezone),
+        startedAt,
+        endedAt,
+        source,
+        JSON.stringify(sourceMetadata),
+      ],
+    );
 
-  if (error) {
-    throw error;
-  }
-
-  if (taskIds.length > 0) {
-    const { error: taskError } = await admin
-      .schema("time_tracking")
-      .from("entry_tasks")
-      .insert(taskIds.map((taskId) => ({ entry_id: inserted.id, task_id: taskId })));
-
-    if (taskError) {
-      throw taskError;
+    const entryId = rows[0]?.id;
+    if (!entryId) {
+      throw new Error("Failed to create time entry.");
     }
-  }
 
-  return getTimeEntryById(String(inserted.id));
+    if (taskIds.length > 0) {
+      await tx.unsafe(
+        `
+          INSERT INTO time_tracking.entry_tasks (entry_id, task_id)
+          SELECT $1::uuid, task_id
+          FROM unnest($2::uuid[]) AS task_id
+        `,
+        [entryId, taskIds],
+      );
+    }
+
+    return entryId;
+  });
+
+  return getTimeEntryById(String(inserted));
 }
 
 export async function getTimeEntryById(id: string) {
-  const admin = getAdminClient();
-  const { data, error } = await admin
-    .schema("time_tracking")
-    .from("entries")
-    .select(
-      "id,organization_id,user_id,project_id,section_id,title,description,timezone,started_at,ended_at,created_at,updated_at,source,source_metadata,organizations(id,name),profiles(id,email,first_name,last_name,role),projects(id,name,organization_id),sections(id,name,project_id),entry_tasks(task_id,tasks(id,name,project_id,section_id))",
-    )
-    .eq("id", id)
-    .single();
+  const db = getTimePostgresClient();
+  const rows = await db.unsafe(
+    `
+      ${TIME_ENTRY_SELECT_SQL}
+      WHERE e.id = $1::uuid
+      LIMIT 1
+    `,
+    [id],
+  );
 
-  if (error) {
-    throw error;
+  if (!rows[0]) {
+    throw new Error("Time entry not found.");
   }
-
-  return mapTimeEntry(data);
+  return mapTimeEntry(rows[0]);
 }
 
 export async function updateTimeEntry(
@@ -539,8 +654,7 @@ export async function updateTimeEntry(
     sourceMetadata?: Record<string, unknown>;
   },
 ) {
-  const admin = getAdminClient();
-  const payload: Record<string, unknown> = {};
+  const db = getTimePostgresClient();
   const current = await getTimeEntryById(id);
   const nextOrganizationId = updates.organizationId || current.organizationId;
   const nextProjectId =
@@ -556,61 +670,65 @@ export async function updateTimeEntry(
     taskIds: nextTaskIds,
   });
 
-  if (updates.organizationId) payload.organization_id = updates.organizationId;
-  if (updates.userId) payload.user_id = updates.userId;
-  if (updates.projectId !== undefined) payload.project_id = updates.projectId;
-  if (updates.sectionId !== undefined) payload.section_id = updates.sectionId;
-  if (updates.title !== undefined) payload.title = updates.title;
-  if (updates.description !== undefined) payload.description = updates.description;
-  if (updates.timezone !== undefined) payload.timezone = normalizeTimeZone(updates.timezone);
-  if (updates.startedAt !== undefined) payload.started_at = updates.startedAt;
-  if (updates.endedAt !== undefined) payload.ended_at = updates.endedAt;
-  if (updates.sourceMetadata !== undefined) payload.source_metadata = updates.sourceMetadata;
+  await db.begin(async (tx) => {
+    await tx.unsafe(
+      `
+        UPDATE time_tracking.entries
+        SET
+          organization_id = $2::uuid,
+          user_id = $3::uuid,
+          project_id = $4::uuid,
+          section_id = $5::uuid,
+          title = $6,
+          description = $7,
+          timezone = $8,
+          started_at = $9::timestamptz,
+          ended_at = $10::timestamptz,
+          source_metadata = $11::jsonb
+        WHERE id = $1::uuid
+      `,
+      [
+        id,
+        nextOrganizationId,
+        updates.userId ?? current.userId,
+        nextProjectId,
+        nextSectionId,
+        updates.title ?? current.title,
+        updates.description !== undefined ? updates.description : current.description,
+        normalizeTimeZone(updates.timezone ?? current.timezone),
+        updates.startedAt ?? current.startedAt,
+        updates.endedAt !== undefined ? updates.endedAt : current.endedAt,
+        JSON.stringify(
+          updates.sourceMetadata !== undefined
+            ? updates.sourceMetadata
+            : current.sourceMetadata,
+        ),
+      ],
+    );
 
-  if (Object.keys(payload).length > 0) {
-    const { error } = await admin
-      .schema("time_tracking")
-      .from("entries")
-      .update(payload)
-      .eq("id", id);
+    await tx.unsafe(
+      `DELETE FROM time_tracking.entry_tasks WHERE entry_id = $1::uuid`,
+      [id],
+    );
 
-    if (error) {
-      throw error;
+    if (nextTaskIds.length > 0) {
+      await tx.unsafe(
+        `
+          INSERT INTO time_tracking.entry_tasks (entry_id, task_id)
+          SELECT $1::uuid, task_id
+          FROM unnest($2::uuid[]) AS task_id
+        `,
+        [id, nextTaskIds],
+      );
     }
-  }
-
-  if (updates.taskIds) {
-    const { error: removeError } = await admin
-      .schema("time_tracking")
-      .from("entry_tasks")
-      .delete()
-      .eq("entry_id", id);
-
-    if (removeError) {
-      throw removeError;
-    }
-
-    if (updates.taskIds.length > 0) {
-      const { error: addError } = await admin
-        .schema("time_tracking")
-        .from("entry_tasks")
-        .insert(updates.taskIds.map((taskId) => ({ entry_id: id, task_id: taskId })));
-
-      if (addError) {
-        throw addError;
-      }
-    }
-  }
+  });
 
   return getTimeEntryById(id);
 }
 
 export async function deleteTimeEntry(id: string) {
-  const admin = getAdminClient();
-  const { error } = await admin.schema("time_tracking").from("entries").delete().eq("id", id);
-  if (error) {
-    throw error;
-  }
+  const db = getTimePostgresClient();
+  await db.unsafe(`DELETE FROM time_tracking.entries WHERE id = $1::uuid`, [id]);
 }
 
 export async function createTimeToken(input: {

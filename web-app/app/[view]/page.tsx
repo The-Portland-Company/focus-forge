@@ -47,6 +47,8 @@ import { AddSectionModal } from "@/components/add-section-modal";
 import { AddSectionDivider } from "@/components/add-section-divider";
 import { ProjectNotesModal } from "@/components/project-notes-modal";
 import { AiPlannerFloatingChat } from "@/components/ai-planner-floating-chat";
+import { EmailInboxView } from "@/components/email-inbox-view";
+import { EmailWorkList } from "@/components/email-work-list";
 import { format } from "date-fns";
 import {
   getLocalDateString,
@@ -80,6 +82,7 @@ import {
   getBulkSelectionState,
   setBulkSelectionForTaskIds,
 } from "@/lib/project-bulk-selection";
+import { shouldShowInboxItemInToday } from "@/lib/email-inbox/shared";
 
 export default function ViewPage() {
   const params = useParams();
@@ -131,6 +134,7 @@ export default function ViewPage() {
   >("all");
   const [showBlockedTasks, setShowBlockedTasks] = useState(false);
   const [todaySections, setTodaySections] = useState({
+    email: true,
     overdue: true,
     today: true,
     tomorrow: true,
@@ -228,6 +232,12 @@ export default function ViewPage() {
           organizations: [],
           projects: [],
           tasks: [],
+          mailboxes: [],
+          inboxItems: [],
+          emailRules: [],
+          summaryProfiles: [],
+          ruleStats: { active: 0, quarantine: 0, alwaysDelete: 0 },
+          quarantineCount: 0,
           tags: [],
           sections: [],
           taskSections: [],
@@ -258,6 +268,12 @@ export default function ViewPage() {
           organizations: [],
           projects: [],
           tasks: [],
+          mailboxes: [],
+          inboxItems: [],
+          emailRules: [],
+          summaryProfiles: [],
+          ruleStats: { active: 0, quarantine: 0, alwaysDelete: 0 },
+          quarantineCount: 0,
           tags: [],
           sections: [],
           taskSections: [],
@@ -275,6 +291,12 @@ export default function ViewPage() {
         organizations: [],
         projects: [],
         tasks: [],
+        mailboxes: [],
+        inboxItems: [],
+        emailRules: [],
+        summaryProfiles: [],
+        ruleStats: { active: 0, quarantine: 0, alwaysDelete: 0 },
+        quarantineCount: 0,
         tags: [],
         sections: [],
         taskSections: [],
@@ -502,7 +524,9 @@ export default function ViewPage() {
           return {
             ...prev,
             tasks: prev.tasks.filter((t) => t.id !== tempId),
-            taskSections: prev.taskSections.filter((ts) => ts.taskId !== tempId),
+            taskSections: prev.taskSections.filter(
+              (ts) => ts.taskId !== tempId,
+            ),
           };
         });
       }
@@ -1505,7 +1529,10 @@ export default function ViewPage() {
 
       if (!taskSectionResponse.ok) {
         const taskSectionError = await taskSectionResponse.text();
-        console.error("Failed to upsert task-section association:", taskSectionError);
+        console.error(
+          "Failed to upsert task-section association:",
+          taskSectionError,
+        );
       }
 
       await fetchData();
@@ -1571,7 +1598,10 @@ export default function ViewPage() {
           `${data.movedTasks} task(s) moved${data.createdSections ? `, ${data.createdSections} section(s) created` : ""}.`,
         );
       } else {
-        showInfo("AI organizer", data.summary || "No unassigned tasks to organize.");
+        showInfo(
+          "AI organizer",
+          data.summary || "No unassigned tasks to organize.",
+        );
       }
     } catch (error: any) {
       showError("AI organizer failed", error?.message || "Unknown error");
@@ -1596,7 +1626,11 @@ export default function ViewPage() {
     const unassignedTasks = projectTasks.filter((task) => {
       const taskSections =
         database.taskSections?.filter((ts) => ts.taskId === task.id) || [];
-      return taskSections.length === 0 && !task.sectionId && !(task as any).section_id;
+      return (
+        taskSections.length === 0 &&
+        !task.sectionId &&
+        !(task as any).section_id
+      );
     });
 
     return {
@@ -1619,7 +1653,8 @@ export default function ViewPage() {
     return projectViewData.projectTasks
       .filter((task) => {
         if (projectStatusFilter === "active" && task.completed) return false;
-        if (projectStatusFilter === "completed" && !task.completed) return false;
+        if (projectStatusFilter === "completed" && !task.completed)
+          return false;
 
         if (
           projectAssigneeFilter === "assigned" &&
@@ -1636,7 +1671,8 @@ export default function ViewPage() {
         }
         if (
           !["all", "assigned", "unassigned"].includes(projectAssigneeFilter) &&
-          (task.assignedTo || (task as any).assigned_to) !== projectAssigneeFilter
+          (task.assignedTo || (task as any).assigned_to) !==
+            projectAssigneeFilter
         ) {
           return false;
         }
@@ -1645,7 +1681,10 @@ export default function ViewPage() {
           ((task as any).created_by as string | undefined) ||
           task.createdBy ||
           null;
-        if (projectCreatorFilter === "me" && creatorId !== currentProjectUserId) {
+        if (
+          projectCreatorFilter === "me" &&
+          creatorId !== currentProjectUserId
+        ) {
           return false;
         }
         if (
@@ -1678,7 +1717,10 @@ export default function ViewPage() {
           .join(" ")
           .toLowerCase();
 
-        if (projectSearchValue && !taskSearchText.includes(projectSearchValue)) {
+        if (
+          projectSearchValue &&
+          !taskSearchText.includes(projectSearchValue)
+        ) {
           return false;
         }
 
@@ -1834,6 +1876,22 @@ export default function ViewPage() {
       .toLowerCase();
 
   const renderContent = () => {
+    if (
+      view === "email-inbox" ||
+      view === "email-quarantine" ||
+      view === "email-rules" ||
+      view === "email-ai-lab"
+    ) {
+      return (
+        <EmailInboxView
+          view={view}
+          data={database}
+          onRefresh={fetchData}
+          currentUserId={currentUserId}
+        />
+      );
+    }
+
     if (view === "today") {
       // Get all tasks with due dates up to end of week
       let allWeekTasks = database.tasks.filter((task) => {
@@ -1899,6 +1957,22 @@ export default function ViewPage() {
       // Group tasks by section
       const completedWeekTasks = allWeekTasks.filter((task) => task.completed);
       const activeWeekTasks = allWeekTasks.filter((task) => !task.completed);
+      const todayEmailItems = database.inboxItems.filter((item) => {
+        if (!shouldShowInboxItemInToday(item)) return false;
+
+        if (!taskSearchQuery.trim()) {
+          return true;
+        }
+
+        const query = taskSearchQuery.toLowerCase();
+        return (
+          item.actionTitle.toLowerCase().includes(query) ||
+          item.subject.toLowerCase().includes(query) ||
+          (item.summaryText || item.previewText || "")
+            .toLowerCase()
+            .includes(query)
+        );
+      });
 
       // Helper: ensure parent tasks appear in sections with their children,
       // and children appear alongside their parents
@@ -2319,6 +2393,27 @@ export default function ViewPage() {
           {/* Task List with dark container - Grouped by time period */}
           <div className="w-full pb-8 pt-6">
             <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 space-y-2 mx-4">
+              {todayEmailItems.length > 0 && (
+                <div>
+                  <SectionHeader
+                    title="Email Work"
+                    count={todayEmailItems.length}
+                    section="email"
+                    isOpen={todaySections.email}
+                  />
+                  {todaySections.email && (
+                    <div className="mt-2">
+                      <EmailWorkList
+                        items={todayEmailItems}
+                        mailboxes={database.mailboxes}
+                        projects={database.projects}
+                        emptyLabel="No email work is waiting in Today."
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Overdue Section */}
               {overdueTasks.length > 0 && (
                 <div>
@@ -3017,28 +3112,45 @@ export default function ViewPage() {
     }
 
     if (view.startsWith("project-")) {
-      const projectId = projectViewData?.projectId || view.replace("project-", "");
+      const projectId =
+        projectViewData?.projectId || view.replace("project-", "");
       const project = projectViewData?.project;
       const projectTasks = projectViewData?.projectTasks || [];
       const projectSections = projectViewData?.projectSections || [];
       const unassignedTasks = projectViewData?.unassignedTasks || [];
+      const projectInboxItems = database.inboxItems.filter(
+        (item) =>
+          item.projectId === projectId &&
+          item.status !== "resolved" &&
+          item.status !== "archived" &&
+          item.status !== "deleted",
+      );
       const projectSearchValue = projectTaskSearchQuery.trim().toLowerCase();
 
       const currentUserId = database.users[0]?.id || "";
 
       const visibleProjectTasks = projectTasks.filter((task) => {
         if (projectStatusFilter === "active" && task.completed) return false;
-        if (projectStatusFilter === "completed" && !task.completed) return false;
+        if (projectStatusFilter === "completed" && !task.completed)
+          return false;
 
-        if (projectAssigneeFilter === "assigned" && !task.assignedTo && !(task as any).assigned_to) {
+        if (
+          projectAssigneeFilter === "assigned" &&
+          !task.assignedTo &&
+          !(task as any).assigned_to
+        ) {
           return false;
         }
-        if (projectAssigneeFilter === "unassigned" && (task.assignedTo || (task as any).assigned_to)) {
+        if (
+          projectAssigneeFilter === "unassigned" &&
+          (task.assignedTo || (task as any).assigned_to)
+        ) {
           return false;
         }
         if (
           !["all", "assigned", "unassigned"].includes(projectAssigneeFilter) &&
-          (task.assignedTo || (task as any).assigned_to) !== projectAssigneeFilter
+          (task.assignedTo || (task as any).assigned_to) !==
+            projectAssigneeFilter
         ) {
           return false;
         }
@@ -3055,7 +3167,10 @@ export default function ViewPage() {
           return false;
         }
 
-        if (projectPriorityFilter !== "all" && String(task.priority) !== projectPriorityFilter) {
+        if (
+          projectPriorityFilter !== "all" &&
+          String(task.priority) !== projectPriorityFilter
+        ) {
           return false;
         }
 
@@ -3067,20 +3182,24 @@ export default function ViewPage() {
           return false;
         }
 
-        if (projectSearchValue && !getTaskProjectSearchText(task).includes(projectSearchValue)) {
+        if (
+          projectSearchValue &&
+          !getTaskProjectSearchText(task).includes(projectSearchValue)
+        ) {
           return false;
         }
 
         return true;
       });
 
-      const visibleProjectTaskIds = new Set(visibleProjectTasks.map((task) => task.id));
-      const visibleProjectTaskIdList = visibleProjectTasks.map((task) => task.id);
-      const {
-        visibleSelectedCount,
-        hasVisibleSelection,
-        allVisibleSelected,
-      } = getBulkSelectionState(visibleProjectTaskIdList, selectedTaskIds);
+      const visibleProjectTaskIds = new Set(
+        visibleProjectTasks.map((task) => task.id),
+      );
+      const visibleProjectTaskIdList = visibleProjectTasks.map(
+        (task) => task.id,
+      );
+      const { visibleSelectedCount, hasVisibleSelection, allVisibleSelected } =
+        getBulkSelectionState(visibleProjectTaskIdList, selectedTaskIds);
       const visibleUnassignedTasks = unassignedTasks.filter((task) =>
         visibleProjectTaskIds.has(task.id),
       );
@@ -3105,7 +3224,9 @@ export default function ViewPage() {
         if (hasOwnVisibleTasks) return true;
 
         const childSections = sectionChildrenByParent.get(sectionId) || [];
-        return childSections.some((childSection) => sectionHasVisibleTasks(childSection.id));
+        return childSections.some((childSection) =>
+          sectionHasVisibleTasks(childSection.id),
+        );
       };
 
       const visibleProjectSections = projectSections.filter((section) =>
@@ -3147,7 +3268,8 @@ export default function ViewPage() {
         event?: React.MouseEvent,
       ) => {
         if (event?.shiftKey && lastSelectedTaskId) {
-          const lastIndex = visibleProjectTaskIdList.indexOf(lastSelectedTaskId);
+          const lastIndex =
+            visibleProjectTaskIdList.indexOf(lastSelectedTaskId);
           const currentIndex = visibleProjectTaskIdList.indexOf(taskId);
           if (lastIndex !== -1 && currentIndex !== -1) {
             const start = Math.min(lastIndex, currentIndex);
@@ -3232,7 +3354,8 @@ export default function ViewPage() {
               Description
             </div>
             <div className="text-sm text-zinc-300">
-              {project?.description && richTextToPlainText(project.description).trim()
+              {project?.description &&
+              richTextToPlainText(project.description).trim()
                 ? getRichTextPreview(project.description, 240)
                 : "Add project description and notes..."}
             </div>
@@ -3251,6 +3374,20 @@ export default function ViewPage() {
                 : "Add DevNotes metadata in Edit Project..."}
             </div>
           </button>
+
+          {projectInboxItems.length > 0 && (
+            <div className="mb-5 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+              <div className="mb-3 text-[11px] uppercase tracking-wide text-zinc-500">
+                Email Work
+              </div>
+              <EmailWorkList
+                items={projectInboxItems}
+                mailboxes={database.mailboxes}
+                projects={database.projects}
+                emptyLabel="No email work linked to this project."
+              />
+            </div>
+          )}
 
           <div className="mb-5 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -3354,8 +3491,12 @@ export default function ViewPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Assigned To: All</SelectItem>
-                  <SelectItem value="assigned">Assigned To: Assigned</SelectItem>
-                  <SelectItem value="unassigned">Assigned To: Unassigned</SelectItem>
+                  <SelectItem value="assigned">
+                    Assigned To: Assigned
+                  </SelectItem>
+                  <SelectItem value="unassigned">
+                    Assigned To: Unassigned
+                  </SelectItem>
                   {database.users.map((user) => (
                     <SelectItem key={user.id} value={user.id}>
                       Assigned To: {user.firstName} {user.lastName}
@@ -3375,7 +3516,9 @@ export default function ViewPage() {
                   <SelectItem value="all">Created By: All</SelectItem>
                   <SelectItem value="me">Created By: Me</SelectItem>
                   {projectCreatorIds.map((creatorId) => {
-                    const creator = database.users.find((user) => user.id === creatorId);
+                    const creator = database.users.find(
+                      (user) => user.id === creatorId,
+                    );
                     if (!creator) return null;
                     return (
                       <SelectItem key={creator.id} value={creator.id}>
@@ -3479,7 +3622,9 @@ export default function ViewPage() {
                   className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                   title="AI organize unassigned tasks"
                 >
-                  <Bot className={`h-4 w-4 ${autoSectioning ? "animate-pulse" : ""}`} />
+                  <Bot
+                    className={`h-4 w-4 ${autoSectioning ? "animate-pulse" : ""}`}
+                  />
                 </button>
               </div>
               <TaskList
@@ -3511,12 +3656,12 @@ export default function ViewPage() {
           {/* Add Section divider at the bottom if there are unassigned tasks */}
           {visibleUnassignedTasks.length === 0 &&
             visibleProjectSections.length === 0 && (
-            <div className="text-center py-8 text-zinc-500">
-              <p className="mb-4">
-                No matching tasks or sections for the current filters.
-              </p>
-            </div>
-          )}
+              <div className="text-center py-8 text-zinc-500">
+                <p className="mb-4">
+                  No matching tasks or sections for the current filters.
+                </p>
+              </div>
+            )}
 
           <ProjectNotesModal
             isOpen={showProjectNotesModal}
@@ -3580,9 +3725,11 @@ export default function ViewPage() {
               ? "p-8"
               : view === "today"
                 ? "p-0"
-                : view === "time"
-                  ? "p-6"
-                : "max-w-4xl mx-auto p-8"
+                : view.startsWith("email-")
+                  ? "max-w-7xl mx-auto p-6"
+                  : view === "time"
+                    ? "p-6"
+                    : "max-w-4xl mx-auto p-8"
           }
         >
           {renderContent()}
@@ -3620,7 +3767,9 @@ export default function ViewPage() {
         onDataRefresh={fetchData}
         defaultProjectId={
           addTaskDefaults.projectId ||
-          (view.startsWith("project-") ? view.replace("project-", "") : undefined)
+          (view.startsWith("project-")
+            ? view.replace("project-", "")
+            : undefined)
         }
         defaultSectionId={addTaskDefaults.sectionId}
       />
@@ -3725,16 +3874,21 @@ export default function ViewPage() {
             const memberIds = Array.from(
               new Set([...(organization.memberIds || []), userId]),
             );
-            const response = await fetch(`/api/organizations/${organizationId}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({ memberIds }),
-            });
+            const response = await fetch(
+              `/api/organizations/${organizationId}`,
+              {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ memberIds }),
+              },
+            );
 
             if (!response.ok) {
               const result = await response.json().catch(() => null);
-              throw new Error(result?.error || "Failed to add user to organization.");
+              throw new Error(
+                result?.error || "Failed to add user to organization.",
+              );
             }
 
             await fetchData();
@@ -3748,16 +3902,21 @@ export default function ViewPage() {
             const memberIds = (organization.memberIds || []).filter(
               (memberId) => memberId !== userId,
             );
-            const response = await fetch(`/api/organizations/${organizationId}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({ memberIds }),
-            });
+            const response = await fetch(
+              `/api/organizations/${organizationId}`,
+              {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ memberIds }),
+              },
+            );
 
             if (!response.ok) {
               const result = await response.json().catch(() => null);
-              throw new Error(result?.error || "Failed to remove user from organization.");
+              throw new Error(
+                result?.error || "Failed to remove user from organization.",
+              );
             }
 
             await fetchData();

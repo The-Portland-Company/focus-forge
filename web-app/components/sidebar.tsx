@@ -98,7 +98,9 @@ export function Sidebar({
   const [showCalendarPopover, setShowCalendarPopover] = useState(false);
   const [calendarCopied, setCalendarCopied] = useState(false);
   const calendarPopoverRef = useRef<HTMLDivElement>(null);
-  const [currentTimerStartedAt, setCurrentTimerStartedAt] = useState<string | null>(null);
+  const [currentTimerStartedAt, setCurrentTimerStartedAt] = useState<
+    string | null
+  >(null);
   const [currentTimerLabel, setCurrentTimerLabel] = useState("Focus: Time");
   const [currentTimerElapsed, setCurrentTimerElapsed] = useState("00:00:00");
 
@@ -509,6 +511,95 @@ export function Sidebar({
             <Calendar className="w-4 h-4" />
             Today
           </Link>
+        )}
+
+        {isCollapsed ? (
+          <Tooltip
+            content={
+              data.quarantineCount > 0
+                ? `Email Inbox (${data.quarantineCount} quarantined)`
+                : "Email Inbox"
+            }
+          >
+            <Link
+              href="/email-inbox"
+              className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
+                currentView.startsWith("email-")
+                  ? "bg-zinc-800 text-white"
+                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+              }`}
+            >
+              <Mail className="w-4 h-4" />
+            </Link>
+          </Tooltip>
+        ) : (
+          <div className="mb-1">
+            <Link
+              href="/email-inbox"
+              className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                currentView.startsWith("email-")
+                  ? "bg-zinc-800 text-white"
+                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+              }`}
+            >
+              <span className="flex items-center gap-3">
+                <Mail className="w-4 h-4" />
+                Email Inbox
+              </span>
+              {data.quarantineCount > 0 ? (
+                <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                  {data.quarantineCount}
+                </span>
+              ) : null}
+            </Link>
+            <div className="ml-7 mt-1 space-y-1 border-l border-zinc-800 pl-3">
+              <Link
+                href="/email-inbox"
+                className={`block rounded-md px-2 py-1.5 text-sm transition-colors ${
+                  currentView === "email-inbox"
+                    ? "bg-zinc-800 text-white"
+                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                }`}
+              >
+                Inbox
+              </Link>
+              <Link
+                href="/email-quarantine"
+                className={`flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
+                  currentView === "email-quarantine"
+                    ? "bg-zinc-800 text-white"
+                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                }`}
+              >
+                <span>Quarantine</span>
+                {data.quarantineCount > 0 ? (
+                  <span className="text-[10px] text-zinc-400">
+                    {data.quarantineCount}
+                  </span>
+                ) : null}
+              </Link>
+              <Link
+                href="/email-rules"
+                className={`block rounded-md px-2 py-1.5 text-sm transition-colors ${
+                  currentView === "email-rules"
+                    ? "bg-zinc-800 text-white"
+                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                }`}
+              >
+                Rules
+              </Link>
+              <Link
+                href="/email-ai-lab"
+                className={`block rounded-md px-2 py-1.5 text-sm transition-colors ${
+                  currentView === "email-ai-lab"
+                    ? "bg-zinc-800 text-white"
+                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                }`}
+              >
+                AI Lab
+              </Link>
+            </div>
+          </div>
         )}
 
         {isCollapsed ? (

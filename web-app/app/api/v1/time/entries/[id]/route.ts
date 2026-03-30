@@ -7,20 +7,19 @@ import {
   getTimeEntryById,
   updateTimeEntry,
 } from "@/lib/time/server";
-import { getAdminClient } from "@/lib/supabase/admin";
 import { normalizeTimeZone } from "@/lib/time/utils";
 
 async function getEntryRecord(id: string) {
-  const admin = getAdminClient();
-  const { data, error } = await admin
-    .schema("time_tracking")
-    .from("entries")
-    .select("id,organization_id,user_id")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (error) throw error;
-  return data;
+  try {
+    const entry = await getTimeEntryById(id);
+    return {
+      id: entry.id,
+      organization_id: entry.organizationId,
+      user_id: entry.userId,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function GET(

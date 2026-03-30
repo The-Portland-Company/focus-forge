@@ -216,11 +216,187 @@ export interface TimeBlockTask {
   createdAt: string;
 }
 
+export interface MailboxMember {
+  userId: string;
+  role: "viewer" | "triage" | "reply" | "manager";
+  name?: string;
+  email?: string;
+}
+
+export interface Mailbox {
+  id: string;
+  organizationId?: string | null;
+  ownerUserId: string;
+  name: string;
+  displayName?: string | null;
+  emailAddress: string;
+  provider: "imap_smtp" | "gmail" | "microsoft";
+  isShared: boolean;
+  autoSyncEnabled: boolean;
+  syncFrequencyMinutes: number;
+  syncFolder: string;
+  quarantineFolder?: string | null;
+  summaryProfileId?: string | null;
+  lastSyncedAt?: string | null;
+  lastSyncError?: string | null;
+  members?: MailboxMember[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InboxParticipant {
+  id: string;
+  emailAddress: string;
+  displayName?: string | null;
+  participantRole: "from" | "to" | "cc" | "bcc" | "reply_to";
+  profileId?: string | null;
+  contactId?: string | null;
+}
+
+export interface ConversationEntry {
+  id: string;
+  type: "email" | "internal_note";
+  direction: "inbound" | "outbound" | "internal";
+  authorName?: string | null;
+  authorEmail?: string | null;
+  subject?: string | null;
+  content: string;
+  contentHtml?: string | null;
+  createdAt: string;
+  participants?: InboxParticipant[];
+}
+
+export interface InboxTaskSuggestion {
+  name: string;
+  description?: string;
+  priority?: 1 | 2 | 3 | 4;
+  dueDate?: string | null;
+}
+
+export interface InboxItem {
+  id: string;
+  mailboxId: string;
+  mailboxName?: string;
+  mailboxEmailAddress?: string;
+  projectId?: string | null;
+  ownerUserId?: string | null;
+  summaryProfileId?: string | null;
+  status:
+    | "active"
+    | "quarantine"
+    | "needs_project"
+    | "archived"
+    | "spam"
+    | "deleted"
+    | "resolved";
+  classification:
+    | "unknown"
+    | "actionable"
+    | "newsletter"
+    | "spam"
+    | "waiting"
+    | "reference";
+  resolutionState: "open" | "taskified" | "resolved";
+  actionTitle: string;
+  subject: string;
+  normalizedSubject?: string | null;
+  summaryText?: string | null;
+  previewText?: string | null;
+  actionConfidence?: number | null;
+  actionReason?: string | null;
+  latestMessageAt?: string | null;
+  latestInboundAt?: string | null;
+  latestOutboundAt?: string | null;
+  workDueDate?: string | null;
+  workDueTime?: string | null;
+  needsProject: boolean;
+  alwaysDelete: boolean;
+  derivedTaskCount: number;
+  participants?: InboxParticipant[];
+  conversation?: ConversationEntry[];
+  taskSuggestions?: InboxTaskSuggestion[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EmailRuleCondition {
+  field:
+    | "sender_email"
+    | "sender_domain"
+    | "subject"
+    | "body"
+    | "mailbox"
+    | "participant";
+  operator: "contains" | "equals" | "ends_with" | "starts_with";
+  value: string;
+}
+
+export interface EmailRuleAction {
+  type:
+    | "quarantine"
+    | "always_delete"
+    | "mark_read"
+    | "archive"
+    | "spam"
+    | "assign_mailbox_owner"
+    | "require_project"
+    | "generate_tasks";
+  value?: string | boolean | number | null;
+}
+
+export interface EmailRule {
+  id: string;
+  organizationId?: string | null;
+  mailboxId?: string | null;
+  userId?: string | null;
+  name: string;
+  description?: string | null;
+  source: "user" | "system" | "ai_training";
+  isActive: boolean;
+  priority: number;
+  matchMode: "all" | "any";
+  conditions: EmailRuleCondition[];
+  actions: EmailRuleAction[];
+  stopProcessing: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SummaryProfile {
+  id: string;
+  organizationId?: string | null;
+  mailboxId?: string | null;
+  userId?: string | null;
+  name: string;
+  summaryStyle: string;
+  instructionText: string;
+  settings: Record<string, unknown>;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RuleStats {
+  active: number;
+  quarantine: number;
+  alwaysDelete: number;
+}
+
+export type WorkItem =
+  | (Task & { kind?: "task" })
+  | (InboxItem & { kind: "inbox" });
+
 export interface Database {
   users: User[];
   organizations: Organization[];
   projects: Project[];
   tasks: Task[];
+  mailboxes: Mailbox[];
+  inboxItems: InboxItem[];
+  emailRules: EmailRule[];
+  summaryProfiles: SummaryProfile[];
+  ruleStats: RuleStats;
+  quarantineCount: number;
   tags: Tag[];
   sections: Section[];
   taskSections: TaskSection[];
