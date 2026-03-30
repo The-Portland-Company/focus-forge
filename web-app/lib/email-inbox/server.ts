@@ -25,12 +25,14 @@ import {
   sendMailboxReply,
   type MailboxTransportRow,
 } from "@/lib/email-inbox/provider";
+import { MAILBOX_PROVIDER_PRESETS } from "@/lib/email-inbox/provider-presets";
 import type {
   ConversationEntry,
   EmailRule,
   InboxItem,
   InboxParticipant,
   InboxTaskSuggestion,
+  Mailbox as MailboxType,
   Mailbox,
   SummaryProfile,
 } from "@/lib/types";
@@ -1039,6 +1041,7 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
 export async function createMailbox(
   userId: string,
   input: {
+    provider?: MailboxType["provider"];
     organizationId?: string | null;
     name: string;
     displayName?: string | null;
@@ -1059,11 +1062,30 @@ export async function createMailbox(
   },
 ) {
   const admin = getAdminClient();
+  const provider = input.provider ?? "imap_smtp";
+  const providerPreset = MAILBOX_PROVIDER_PRESETS[provider];
+  const emailAddress = input.emailAddress.trim().toLowerCase();
+  const loginUsername = (input.loginUsername || emailAddress).trim();
+  const imapHost = (input.imapHost || providerPreset.imapHost).trim();
+  const smtpHost = (input.smtpHost || providerPreset.smtpHost).trim();
+  const syncFolder = (input.syncFolder || providerPreset.syncFolder).trim();
+  const imapPort = Number(input.imapPort || providerPreset.imapPort || 993);
+  const smtpPort = Number(input.smtpPort || providerPreset.smtpPort || 465);
+
   if (input.organizationId) {
     await ensureOrganizationAccess(userId, input.organizationId);
   }
   if (input.isShared && !input.organizationId) {
     throw new Error("Shared mailboxes must belong to an organization.");
+  }
+  if (!loginUsername) {
+    throw new Error("Login username is required.");
+  }
+  if (!imapHost || !smtpHost) {
+    throw new Error("IMAP and SMTP hosts are required.");
+  }
+  if (!Number.isFinite(imapPort) || !Number.isFinite(smtpPort)) {
+    throw new Error("IMAP and SMTP ports must be valid numbers.");
   }
 
   const encrypted = encryptMailboxCredentials({
@@ -1077,18 +1099,18 @@ export async function createMailbox(
       owner_user_id: userId,
       name: input.name,
       display_name: input.displayName ?? null,
-      email_address: input.emailAddress.trim().toLowerCase(),
-      provider: "imap_smtp",
+      email_address: emailAddress,
+      provider,
       is_shared: Boolean(input.isShared),
-      login_username: input.loginUsername,
+      login_username: loginUsername,
       credentials_encrypted: encrypted,
-      imap_host: input.imapHost,
-      imap_port: input.imapPort ?? 993,
+      imap_host: imapHost,
+      imap_port: imapPort,
       imap_secure: input.imapSecure ?? true,
-      smtp_host: input.smtpHost,
-      smtp_port: input.smtpPort ?? 465,
+      smtp_host: smtpHost,
+      smtp_port: smtpPort,
       smtp_secure: input.smtpSecure ?? true,
-      sync_folder: input.syncFolder || "INBOX",
+      sync_folder: syncFolder || "INBOX",
       quarantine_folder: input.quarantineFolder ?? null,
       auto_sync_enabled: input.autoSyncEnabled ?? true,
       sync_frequency_minutes: input.syncFrequencyMinutes ?? 5,

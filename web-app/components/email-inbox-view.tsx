@@ -25,9 +25,14 @@ import type {
   Database,
   EmailRule,
   InboxItem,
+  Mailbox,
   SummaryProfile,
 } from "@/lib/types";
 import { isEmailInboxView } from "@/lib/email-inbox/shared";
+import {
+  applyMailboxProviderPreset,
+  MAILBOX_PROVIDER_PRESETS,
+} from "@/lib/email-inbox/provider-presets";
 
 type EmailInboxViewProps = {
   view: string;
@@ -60,6 +65,27 @@ function parseJsonValue<T>(input: string, fallback: T): T {
   }
 }
 
+function createEmptyMailboxForm() {
+  return applyMailboxProviderPreset(
+    {
+      provider: "gmail" as Mailbox["provider"],
+      name: "",
+      displayName: "",
+      emailAddress: "",
+      loginUsername: "",
+      password: "",
+      imapHost: "",
+      imapPort: "993",
+      smtpHost: "",
+      smtpPort: "465",
+      syncFolder: "INBOX",
+      isShared: false,
+      organizationId: "none",
+    },
+    "gmail",
+  );
+}
+
 export function EmailInboxView({
   view,
   data,
@@ -71,20 +97,7 @@ export function EmailInboxView({
   const [selectedThread, setSelectedThread] = useState<any | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
   const [showMailboxForm, setShowMailboxForm] = useState(false);
-  const [mailboxForm, setMailboxForm] = useState({
-    name: "",
-    displayName: "",
-    emailAddress: "",
-    loginUsername: "",
-    password: "",
-    imapHost: "",
-    imapPort: "993",
-    smtpHost: "",
-    smtpPort: "465",
-    syncFolder: "INBOX",
-    isShared: false,
-    organizationId: "none",
-  });
+  const [mailboxForm, setMailboxForm] = useState(createEmptyMailboxForm);
   const [replyContent, setReplyContent] = useState("");
   const [replyMode, setReplyMode] = useState<"reply_all" | "internal_note">(
     "reply_all",
@@ -187,6 +200,7 @@ export function EmailInboxView({
   const selectedMailbox = data.mailboxes.find(
     (mailbox) => mailbox.id === selectedMailboxId,
   );
+  const mailboxPreset = MAILBOX_PROVIDER_PRESETS[mailboxForm.provider];
 
   const handleSync = async () => {
     if (!selectedMailbox || busyState) return;
@@ -224,10 +238,11 @@ export function EmailInboxView({
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
+          provider: mailboxForm.provider,
           name: mailboxForm.name,
           displayName: mailboxForm.displayName || null,
           emailAddress: mailboxForm.emailAddress,
-          loginUsername: mailboxForm.loginUsername,
+          loginUsername: mailboxForm.loginUsername || mailboxForm.emailAddress,
           password: mailboxForm.password,
           imapHost: mailboxForm.imapHost,
           imapPort: Number(mailboxForm.imapPort || 993),
@@ -246,20 +261,7 @@ export function EmailInboxView({
         throw new Error(payload.error || "Failed to create mailbox");
       }
       setShowMailboxForm(false);
-      setMailboxForm({
-        name: "",
-        displayName: "",
-        emailAddress: "",
-        loginUsername: "",
-        password: "",
-        imapHost: "",
-        imapPort: "993",
-        smtpHost: "",
-        smtpPort: "465",
-        syncFolder: "INBOX",
-        isShared: false,
-        organizationId: "none",
-      });
+      setMailboxForm(createEmptyMailboxForm());
       await onRefresh();
       updateStatus(`Mailbox ${payload.name} connected.`);
     } catch (error) {
@@ -900,6 +902,30 @@ export function EmailInboxView({
       {showMailboxForm ? (
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Select
+              value={mailboxForm.provider}
+              onValueChange={(value) =>
+                setMailboxForm((prev) =>
+                  applyMailboxProviderPreset(
+                    prev,
+                    value as Mailbox["provider"],
+                  ),
+                )
+              }
+            >
+              <SelectTrigger className="border-zinc-700 bg-zinc-800 text-white">
+                <SelectValue placeholder="Provider" />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(MAILBOX_PROVIDER_PRESETS).map(
+                  ([provider, preset]) => (
+                    <SelectItem key={provider} value={provider}>
+                      {preset.label}
+                    </SelectItem>
+                  ),
+                )}
+              </SelectContent>
+            </Select>
             <input
               value={mailboxForm.name}
               onChange={(event) =>
@@ -928,6 +954,11 @@ export function EmailInboxView({
                 setMailboxForm((prev) => ({
                   ...prev,
                   emailAddress: event.target.value,
+                  loginUsername:
+                    !prev.loginUsername ||
+                    prev.loginUsername === prev.emailAddress
+                      ? event.target.value
+                      : prev.loginUsername,
                 }))
               }
               placeholder="Mailbox email"
@@ -1042,6 +1073,14 @@ export function EmailInboxView({
               />
               Shared mailbox
             </label>
+          </div>
+          <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+            <div className="text-sm font-medium text-zinc-200">
+              {mailboxPreset.label}
+            </div>
+            <div className="mt-1 text-xs text-zinc-500">
+              {mailboxPreset.description}
+            </div>
           </div>
           <div className="mt-4 flex justify-end">
             <button
