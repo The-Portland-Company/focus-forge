@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Clock3,
   Filter,
@@ -12,6 +12,13 @@ import {
   RefreshCw,
   ExternalLink,
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type {
   TimeTrackingBootstrap,
   TimeTrackingEntry,
@@ -46,6 +53,8 @@ const toLocalDateTimeValue = (value: Date) => {
   const adjusted = new Date(value.getTime() - value.getTimezoneOffset() * 60000);
   return adjusted.toISOString().slice(0, 16);
 };
+
+const OPTIONAL_SELECT_VALUE = "__none__";
 
 export function TimeTrackingView() {
   const [bootstrap, setBootstrap] = useState<TimeTrackingBootstrap | null>(null);
@@ -87,6 +96,15 @@ export function TimeTrackingView() {
           !filters.organizationId || project.organizationId === filters.organizationId,
       ),
     [bootstrap?.projects, filters.organizationId],
+  );
+
+  const availableProjects = useMemo(
+    () =>
+      (bootstrap?.projects || []).filter(
+        (project) =>
+          !draft.organizationId || project.organizationId === draft.organizationId,
+      ),
+    [bootstrap?.projects, draft.organizationId],
   );
 
   const availableSections = useMemo(
@@ -132,6 +150,16 @@ export function TimeTrackingView() {
       }),
     [bootstrap?.tasks, filters.projectId, filters.sectionId],
   );
+
+  const syncDraftSessionDetails = useCallback((entry: TimeTrackingEntry) => {
+    setDraft((current) => ({
+      ...current,
+      organizationId: entry.organizationId,
+      projectId: entry.projectId ?? "",
+      sectionId: entry.sectionId ?? "",
+      taskIds: entry.taskIds,
+    }));
+  }, []);
 
   const loadBootstrap = async () => {
     const response = await fetch("/api/v1/time/bootstrap", { credentials: "include" });
@@ -226,12 +254,69 @@ export function TimeTrackingView() {
     return () => window.clearInterval(interval);
   }, [currentEntry?.endedAt, currentEntry?.startedAt]);
 
+  useEffect(() => {
+    if (!currentEntry) {
+      return;
+    }
+
+    syncDraftSessionDetails(currentEntry);
+  }, [currentEntry, syncDraftSessionDetails]);
+
   const refreshAll = async () => {
     setError(null);
     try {
       await Promise.all([loadBootstrap(), loadEntries(), loadCurrent()]);
     } catch (refreshError: any) {
       setError(refreshError?.message || "Failed to refresh Focus: Time.");
+    }
+  };
+
+  const updateCurrentSessionDetails = async (
+    updates: Partial<Pick<DraftEntryState, "organizationId" | "projectId" | "sectionId" | "taskIds">>,
+  ) => {
+    const nextDraft = { ...draft, ...updates };
+
+    setDraft((current) => ({
+      ...current,
+      ...updates,
+    }));
+
+    if (!currentEntry) {
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/v1/time/entries/${currentEntry.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organizationId: nextDraft.organizationId,
+          projectId: nextDraft.projectId || null,
+          sectionId: nextDraft.sectionId || null,
+          taskIds: nextDraft.taskIds,
+        }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error?.message || "Failed to update time entry.");
+      }
+
+      await Promise.all([loadEntries(), loadCurrent()]);
+    } catch (updateError: any) {
+      setError(updateError?.message || "Failed to update time entry.");
+
+      if (currentEntry) {
+        syncDraftSessionDetails(currentEntry);
+      }
+
+      await Promise.all([loadEntries(), loadCurrent()]).catch(() => undefined);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -408,68 +493,74 @@ export function TimeTrackingView() {
               Session Details
             </div>
             <div className="mt-4 grid gap-3">
-              <select
+              <Select
                 value={draft.organizationId}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    organizationId: event.target.value,
+                onValueChange={(organizationId) =>
+                  void updateCurrentSessionDetails({
+                    organizationId,
                     projectId: "",
                     sectionId: "",
                     taskIds: [],
-                  }))
+                  })
                 }
-                className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+                disabled={saving || (bootstrap?.organizations || []).length === 0}
               >
-                <option value="">Select organization</option>
-                {(bootstrap?.organizations || []).map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={draft.projectId}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    projectId: event.target.value,
+                <SelectTrigger className="h-12 rounded-2xl border-zinc-700 bg-zinc-950 px-4 text-sm text-zinc-100">
+                  <SelectValue placeholder="Select organization" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(bootstrap?.organizations || []).map((organization) => (
+                    <SelectItem key={organization.id} value={organization.id}>
+                      {organization.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={draft.projectId || OPTIONAL_SELECT_VALUE}
+                onValueChange={(projectId) =>
+                  void updateCurrentSessionDetails({
+                    projectId: projectId === OPTIONAL_SELECT_VALUE ? "" : projectId,
                     sectionId: "",
                     taskIds: [],
-                  }))
+                  })
                 }
-                className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+                disabled={saving || availableProjects.length === 0}
               >
-                <option value="">Optional project</option>
-                {(bootstrap?.projects || [])
-                  .filter(
-                    (project) =>
-                      !draft.organizationId || project.organizationId === draft.organizationId,
-                  )
-                  .map((project) => (
-                    <option key={project.id} value={project.id}>
+                <SelectTrigger className="h-12 rounded-2xl border-zinc-700 bg-zinc-950 px-4 text-sm text-zinc-100">
+                  <SelectValue placeholder="Optional project" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={OPTIONAL_SELECT_VALUE}>Optional project</SelectItem>
+                  {availableProjects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
                       {project.name}
-                    </option>
+                    </SelectItem>
                   ))}
-              </select>
-              <select
-                value={draft.sectionId}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    sectionId: event.target.value,
+                </SelectContent>
+              </Select>
+              <Select
+                value={draft.sectionId || OPTIONAL_SELECT_VALUE}
+                onValueChange={(sectionId) =>
+                  void updateCurrentSessionDetails({
+                    sectionId: sectionId === OPTIONAL_SELECT_VALUE ? "" : sectionId,
                     taskIds: [],
-                  }))
+                  })
                 }
-                className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+                disabled={saving || availableSections.length === 0}
               >
-                <option value="">Optional task list</option>
-                {availableSections.map((section) => (
-                  <option key={section.id} value={section.id}>
-                    {section.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="h-12 rounded-2xl border-zinc-700 bg-zinc-950 px-4 text-sm text-zinc-100">
+                  <SelectValue placeholder="Optional task list" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={OPTIONAL_SELECT_VALUE}>Optional task list</SelectItem>
+                  {availableSections.map((section) => (
+                    <SelectItem key={section.id} value={section.id}>
+                      {section.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </div>
