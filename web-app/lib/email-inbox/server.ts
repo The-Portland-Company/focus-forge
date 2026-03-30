@@ -223,6 +223,34 @@ async function ensureThreadAccess(userId: string, threadId: string) {
   return thread;
 }
 
+function getMailboxSyncErrorMessage(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return "Mailbox sync failed";
+  }
+
+  const responseText =
+    "responseText" in error && typeof error.responseText === "string"
+      ? error.responseText.trim()
+      : null;
+  if (responseText) {
+    return responseText;
+  }
+
+  const response =
+    "response" in error && typeof error.response === "string"
+      ? error.response.trim()
+      : null;
+  if (response) {
+    return response;
+  }
+
+  if ("message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+
+  return "Mailbox sync failed";
+}
+
 async function upsertContact(
   mailbox: any,
   address: { email: string; name?: string | null },
@@ -1231,8 +1259,7 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       changedThreadCount: changedThreadIds.size,
     };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Mailbox sync failed";
+    const message = getMailboxSyncErrorMessage(error);
     await admin
       .from("mailboxes")
       .update({
