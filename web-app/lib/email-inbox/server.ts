@@ -16,6 +16,8 @@ import {
   coerceSummaryProfile,
   extractMailboxErrorMessage,
   extractPlainTextPreview,
+  getMailboxPasswordValidationError,
+  normalizeMailboxPassword,
   normalizeSubject,
   sortInboxItems,
 } from "@/lib/email-inbox/shared";
@@ -1109,6 +1111,7 @@ export async function createMailbox(
   const providerPreset = MAILBOX_PROVIDER_PRESETS[provider];
   const emailAddress = input.emailAddress.trim().toLowerCase();
   const loginUsername = (input.loginUsername || emailAddress).trim();
+  const normalizedPassword = normalizeMailboxPassword(provider, input.password);
   const imapHost = (input.imapHost || providerPreset.imapHost).trim();
   const smtpHost = (input.smtpHost || providerPreset.smtpHost).trim();
   const syncFolder = (input.syncFolder || providerPreset.syncFolder).trim();
@@ -1130,9 +1133,16 @@ export async function createMailbox(
   if (!Number.isFinite(imapPort) || !Number.isFinite(smtpPort)) {
     throw new Error("IMAP and SMTP ports must be valid numbers.");
   }
+  const passwordValidationError = getMailboxPasswordValidationError(
+    provider,
+    normalizedPassword,
+  );
+  if (passwordValidationError) {
+    throw new Error(passwordValidationError);
+  }
 
   const encrypted = encryptMailboxCredentials({
-    password: input.password,
+    password: normalizedPassword,
   });
 
   const { data: existingMailbox } = await admin

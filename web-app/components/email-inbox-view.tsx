@@ -29,8 +29,10 @@ import type {
   SummaryProfile,
 } from "@/lib/types";
 import {
+  getMailboxPasswordValidationError,
   getVisibleMailboxSyncError,
   isEmailInboxView,
+  normalizeMailboxPassword,
 } from "@/lib/email-inbox/shared";
 import {
   applyMailboxProviderPreset,
@@ -205,6 +207,10 @@ export function EmailInboxView({
   };
 
   const mailboxPreset = MAILBOX_PROVIDER_PRESETS[mailboxForm.provider];
+  const mailboxPasswordError = getMailboxPasswordValidationError(
+    mailboxForm.provider,
+    mailboxForm.password,
+  );
 
   const refreshInboxState = async () => {
     const [mailboxesResponse, inboxResponse] = await Promise.all([
@@ -341,9 +347,18 @@ export function EmailInboxView({
   };
 
   const handleMailboxCreate = async () => {
+    if (mailboxPasswordError) {
+      updateStatus(mailboxPasswordError);
+      return;
+    }
+
     setBusyState("mailbox");
     const wasEditingMailbox = isEditingMailbox;
     let createdMailboxId: string | null = null;
+    const normalizedPassword = normalizeMailboxPassword(
+      mailboxForm.provider,
+      mailboxForm.password,
+    );
     try {
       const response = await fetch("/api/email/mailboxes", {
         method: "POST",
@@ -355,7 +370,7 @@ export function EmailInboxView({
           displayName: mailboxForm.displayName || null,
           emailAddress: mailboxForm.emailAddress,
           loginUsername: mailboxForm.loginUsername || mailboxForm.emailAddress,
-          password: mailboxForm.password,
+          password: normalizedPassword,
           imapHost: mailboxForm.imapHost,
           imapPort: Number(mailboxForm.imapPort || 993),
           smtpHost: mailboxForm.smtpHost,
@@ -1149,11 +1164,17 @@ export function EmailInboxView({
                 }))
               }
               placeholder={
-                isEditingMailbox
-                  ? "New mailbox password / App Password"
-                  : "Mailbox password"
+                mailboxForm.provider === "gmail"
+                  ? "16-character Google App Password"
+                  : isEditingMailbox
+                    ? "New mailbox password / App Password"
+                    : "Mailbox password"
               }
-              className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
+              className={`rounded-lg border bg-zinc-800 px-3 py-2 text-sm text-white ${
+                mailboxPasswordError
+                  ? "border-red-500/70"
+                  : "border-zinc-700"
+              }`}
             />
             <input
               value={mailboxForm.imapHost}
@@ -1249,6 +1270,17 @@ export function EmailInboxView({
             <div className="mt-1 text-xs text-zinc-500">
               {mailboxPreset.description}
             </div>
+            {mailboxForm.provider === "gmail" ? (
+              <div className="mt-2 text-xs text-amber-300">
+                Paste the 16-character Google App Password. Forge strips the
+                display spaces automatically.
+              </div>
+            ) : null}
+            {mailboxPasswordError ? (
+              <div className="mt-2 text-xs text-red-300">
+                {mailboxPasswordError}
+              </div>
+            ) : null}
           </div>
           <div className="mt-4 flex justify-end gap-3">
             <button
@@ -1264,7 +1296,8 @@ export function EmailInboxView({
               disabled={
                 busyState === "mailbox" ||
                 !mailboxForm.name ||
-                !mailboxForm.password
+                !mailboxForm.password ||
+                Boolean(mailboxPasswordError)
               }
               className="rounded-lg bg-[rgb(var(--theme-primary-rgb))] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >

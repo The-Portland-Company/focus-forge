@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import {
   buildThreadKey,
   extractMailboxErrorMessage,
+  getMailboxPasswordValidationError,
   getVisibleMailboxSyncError,
+  normalizeMailboxPassword,
   normalizeSubject,
   shouldShowInboxItemInToday,
 } from "../email-inbox/shared";
@@ -80,6 +82,28 @@ test("extractMailboxErrorMessage prefers provider response text", () => {
   );
 });
 
+test("normalizeMailboxPassword strips Gmail display spaces", () => {
+  assert.equal(
+    normalizeMailboxPassword("gmail", "abcd efgh ijkl mnop"),
+    "abcdefghijklmnop",
+  );
+  assert.equal(
+    normalizeMailboxPassword("microsoft", "  keep spaces inside  "),
+    "keep spaces inside",
+  );
+});
+
+test("getMailboxPasswordValidationError requires a Gmail app password", () => {
+  assert.equal(
+    getMailboxPasswordValidationError("gmail", "abcd efgh ijkl mnop"),
+    null,
+  );
+  assert.equal(
+    getMailboxPasswordValidationError("gmail", "my-normal-password123"),
+    "Gmail requires a 16-character Google App Password. Paste the app password, not your normal Google password.",
+  );
+});
+
 test("getVisibleMailboxSyncError surfaces mailbox-specific issues", () => {
   const mailboxes = [
     {
@@ -100,10 +124,10 @@ test("getVisibleMailboxSyncError surfaces mailbox-specific issues", () => {
 
   assert.equal(
     getVisibleMailboxSyncError(mailboxes, "all"),
-    "The Portland Company: Application-specific password required",
+    "The Portland Company: Gmail requires a 16-character Google App Password. Click Edit Mailbox, paste the app password, save, then sync again.",
   );
   assert.equal(
     getVisibleMailboxSyncError(mailboxes, "mailbox-1"),
-    "Application-specific password required",
+    "Gmail requires a 16-character Google App Password. Click Edit Mailbox, paste the app password, save, then sync again.",
   );
 });

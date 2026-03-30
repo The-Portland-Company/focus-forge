@@ -26,6 +26,36 @@ export function normalizeSubject(subject?: string | null) {
   return normalized.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+export function normalizeMailboxPassword(
+  provider: Mailbox["provider"],
+  password: string,
+) {
+  const trimmed = password.trim();
+
+  if (provider === "gmail") {
+    return trimmed.replace(/\s+/g, "");
+  }
+
+  return trimmed;
+}
+
+export function getMailboxPasswordValidationError(
+  provider: Mailbox["provider"],
+  password: string,
+) {
+  const normalized = normalizeMailboxPassword(provider, password);
+
+  if (!normalized) {
+    return "Mailbox password is required.";
+  }
+
+  if (provider === "gmail" && !/^[A-Za-z0-9]{16}$/.test(normalized)) {
+    return "Gmail requires a 16-character Google App Password. Paste the app password, not your normal Google password.";
+  }
+
+  return null;
+}
+
 export function buildThreadKey(input: {
   mailboxId: string;
   subject?: string | null;
@@ -87,6 +117,21 @@ export function extractMailboxErrorMessage(error: unknown) {
   return "Mailbox sync failed";
 }
 
+function formatMailboxSyncError(mailbox: Mailbox) {
+  const message = mailbox.lastSyncError?.trim();
+  if (!message) return null;
+
+  if (
+    mailbox.provider === "gmail" &&
+    (/application-specific password required/i.test(message) ||
+      /invalid credentials/i.test(message))
+  ) {
+    return "Gmail requires a 16-character Google App Password. Click Edit Mailbox, paste the app password, save, then sync again.";
+  }
+
+  return message;
+}
+
 export function participantLabel(participant: InboxParticipant) {
   return participant.displayName?.trim() || participant.emailAddress;
 }
@@ -133,19 +178,16 @@ export function getVisibleMailboxSyncError(
   selectedMailboxId: string,
 ) {
   if (selectedMailboxId !== "all") {
-    return (
-      mailboxes.find((mailbox) => mailbox.id === selectedMailboxId)
-        ?.lastSyncError ?? null
-    );
+    const mailbox = mailboxes.find((entry) => entry.id === selectedMailboxId);
+    return mailbox ? formatMailboxSyncError(mailbox) : null;
   }
 
   const failedMailboxes = mailboxes.filter((mailbox) => mailbox.lastSyncError);
   if (failedMailboxes.length === 0) return null;
   if (failedMailboxes.length === 1) {
     const mailbox = failedMailboxes[0];
-    return mailbox.lastSyncError
-      ? `${mailbox.name}: ${mailbox.lastSyncError}`
-      : null;
+    const formatted = formatMailboxSyncError(mailbox);
+    return formatted ? `${mailbox.name}: ${formatted}` : null;
   }
 
   return `${failedMailboxes.length} mailboxes need attention. Choose a mailbox to inspect the sync error.`;
