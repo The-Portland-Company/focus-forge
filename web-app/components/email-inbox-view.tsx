@@ -79,6 +79,9 @@ export function EmailInboxView({
   const [selectedMailboxId, setSelectedMailboxId] = useState<string>("all");
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [selectedThread, setSelectedThread] = useState<any | null>(null);
+  const [mailboxes, setMailboxes] = useState(data.mailboxes);
+  const [inboxItems, setInboxItems] = useState(data.inboxItems);
+  const [quarantineCount, setQuarantineCount] = useState(data.quarantineCount);
   const [loadingThread, setLoadingThread] = useState(false);
   const [showMailboxForm, setShowMailboxForm] = useState(false);
   const [editingMailboxId, setEditingMailboxId] = useState<string | null>(null);
@@ -115,7 +118,7 @@ export function EmailInboxView({
   });
 
   const filteredItems = useMemo(() => {
-    const base = data.inboxItems.filter((item) => {
+    const base = inboxItems.filter((item) => {
       if (selectedMailboxId !== "all" && item.mailboxId !== selectedMailboxId) {
         return false;
       }
@@ -128,21 +131,26 @@ export function EmailInboxView({
     });
 
     return base;
-  }, [data.inboxItems, selectedMailboxId, view]);
+  }, [inboxItems, selectedMailboxId, view]);
 
   const visibleSyncError = useMemo(
-    () => getVisibleMailboxSyncError(data.mailboxes, selectedMailboxId),
-    [data.mailboxes, selectedMailboxId],
+    () => getVisibleMailboxSyncError(mailboxes, selectedMailboxId),
+    [mailboxes, selectedMailboxId],
   );
   const selectedMailbox = useMemo(
     () =>
       selectedMailboxId === "all"
         ? null
-        : data.mailboxes.find((mailbox) => mailbox.id === selectedMailboxId) ||
-          null,
-    [data.mailboxes, selectedMailboxId],
+        : mailboxes.find((mailbox) => mailbox.id === selectedMailboxId) || null,
+    [mailboxes, selectedMailboxId],
   );
   const isEditingMailbox = editingMailboxId !== null;
+
+  useEffect(() => {
+    setMailboxes(data.mailboxes);
+    setInboxItems(data.inboxItems);
+    setQuarantineCount(data.quarantineCount);
+  }, [data.inboxItems, data.mailboxes, data.quarantineCount]);
 
   useEffect(() => {
     if (!isEmailInboxView(view)) return;
@@ -198,6 +206,35 @@ export function EmailInboxView({
 
   const mailboxPreset = MAILBOX_PROVIDER_PRESETS[mailboxForm.provider];
 
+  const refreshInboxState = async () => {
+    const [mailboxesResponse, inboxResponse] = await Promise.all([
+      fetch("/api/email/mailboxes", {
+        credentials: "include",
+      }),
+      fetch("/api/email/inbox", {
+        credentials: "include",
+      }),
+    ]);
+
+    const mailboxesPayload = await mailboxesResponse.json();
+    const inboxPayload = await inboxResponse.json();
+
+    if (!mailboxesResponse.ok) {
+      throw new Error(mailboxesPayload.error || "Failed to load mailboxes");
+    }
+    if (!inboxResponse.ok) {
+      throw new Error(inboxPayload.error || "Failed to load inbox");
+    }
+
+    setMailboxes(Array.isArray(mailboxesPayload) ? mailboxesPayload : []);
+    setInboxItems(Array.isArray(inboxPayload) ? inboxPayload : []);
+    setQuarantineCount(
+      Array.isArray(inboxPayload)
+        ? inboxPayload.filter((item) => item.status === "quarantine").length
+        : 0,
+    );
+  };
+
   const openMailboxCreateForm = () => {
     setEditingMailboxId(null);
     setMailboxForm(createEmptyMailboxForm());
@@ -231,15 +268,13 @@ export function EmailInboxView({
   };
 
   const handleSync = async () => {
-    if (busyState || data.mailboxes.length === 0) return;
+    if (busyState || mailboxes.length === 0) return;
     setBusyState("sync");
     try {
       const mailboxesToSync =
         selectedMailboxId === "all"
-          ? data.mailboxes
-          : data.mailboxes.filter(
-              (mailbox) => mailbox.id === selectedMailboxId,
-            );
+          ? mailboxes
+          : mailboxes.filter((mailbox) => mailbox.id === selectedMailboxId);
 
       if (mailboxesToSync.length === 0) {
         throw new Error("Choose a mailbox before syncing.");
@@ -265,7 +300,7 @@ export function EmailInboxView({
         }),
       );
 
-      await onRefresh();
+      await refreshInboxState();
 
       const totalMessages = results.reduce(
         (sum, result) => sum + result.syncedMessageCount,
@@ -277,7 +312,11 @@ export function EmailInboxView({
           : `Synced ${totalMessages} messages across ${mailboxesToSync.length} mailboxes.`,
       );
     } catch (error) {
-      await onRefresh();
+      try {
+        await refreshInboxState();
+      } catch {
+        // Keep the primary sync error visible when lightweight refresh also fails.
+      }
       updateStatus(
         error instanceof Error ? error.message : "Failed to sync mailbox",
       );
@@ -337,14 +376,17 @@ export function EmailInboxView({
       createdMailboxId = payload.id;
       setSelectedMailboxId(payload.id);
       closeMailboxForm();
-      await onRefresh();
+      setMailboxes((prev) => {
+        const remaining = prev.filter((mailbox) => mailbox.id !== payload.id);
+        return [...remaining, payload];
+      });
 
       const syncedMessageCount = await syncMailboxAfterCreate(
         payload.id,
         payload.name,
       );
 
-      await onRefresh();
+      await refreshInboxState();
       updateStatus(
         wasEditingMailbox
           ? `Mailbox ${payload.name} updated and synced ${syncedMessageCount} messages.`
@@ -352,7 +394,11 @@ export function EmailInboxView({
       );
     } catch (error) {
       if (createdMailboxId) {
-        await onRefresh();
+        try {
+          await refreshInboxState();
+        } catch {
+          // Keep the mailbox update error visible when lightweight refresh fails.
+        }
       }
       updateStatus(
         error instanceof Error ? error.message : "Failed to create mailbox",
@@ -379,7 +425,7 @@ export function EmailInboxView({
       if (!response.ok) {
         throw new Error(payload.error || "Failed to apply thread action");
       }
-      await onRefresh();
+      await refreshInboxState();
       setSelectedThread(payload.id ? payload : selectedThread);
       updateStatus(`Applied ${action.replace(/_/g, " ")}.`);
     } catch (error) {
@@ -408,7 +454,7 @@ export function EmailInboxView({
       if (!response.ok) {
         throw new Error(payload.error || "Failed to assign project");
       }
-      await onRefresh();
+      await refreshInboxState();
       setSelectedThread(payload);
       updateStatus("Project assigned.");
     } catch (error) {
@@ -440,7 +486,7 @@ export function EmailInboxView({
       if (!response.ok) {
         throw new Error(payload.error || "Failed to generate tasks");
       }
-      await onRefresh();
+      await refreshInboxState();
       updateStatus(
         `Generated ${payload.length || 0} task${payload.length === 1 ? "" : "s"}.`,
       );
@@ -474,7 +520,7 @@ export function EmailInboxView({
         throw new Error(payload.error || "Failed to send reply");
       }
       setReplyContent("");
-      await onRefresh();
+      await refreshInboxState();
       if (selectedThreadId) {
         const detailResponse = await fetch(
           `/api/email/threads/${selectedThreadId}`,
@@ -714,7 +760,7 @@ export function EmailInboxView({
                     <SelectItem value="all">
                       All accessible mailboxes
                     </SelectItem>
-                    {data.mailboxes.map((mailbox) => (
+                    {mailboxes.map((mailbox) => (
                       <SelectItem key={mailbox.id} value={mailbox.id}>
                         {mailbox.name}
                       </SelectItem>
@@ -862,7 +908,7 @@ export function EmailInboxView({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">User-wide</SelectItem>
-                  {data.mailboxes.map((mailbox) => (
+                  {mailboxes.map((mailbox) => (
                     <SelectItem key={mailbox.id} value={mailbox.id}>
                       {mailbox.name}
                     </SelectItem>
@@ -958,7 +1004,7 @@ export function EmailInboxView({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All mailboxes</SelectItem>
-              {data.mailboxes.map((mailbox) => (
+              {mailboxes.map((mailbox) => (
                 <SelectItem key={mailbox.id} value={mailbox.id}>
                   {mailbox.name}
                 </SelectItem>
@@ -979,7 +1025,7 @@ export function EmailInboxView({
           <button
             type="button"
             onClick={handleSync}
-            disabled={data.mailboxes.length === 0 || busyState === "sync"}
+            disabled={mailboxes.length === 0 || busyState === "sync"}
             className="inline-flex items-center gap-2 rounded-lg bg-[rgb(var(--theme-primary-rgb))] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {busyState === "sync" ? (
@@ -1249,13 +1295,13 @@ export function EmailInboxView({
               </div>
               {view === "email-quarantine" ? (
                 <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                  {data.quarantineCount} quarantined
+                  {quarantineCount} quarantined
                 </div>
               ) : null}
             </div>
             <EmailWorkList
               items={filteredItems}
-              mailboxes={data.mailboxes}
+              mailboxes={mailboxes}
               projects={data.projects}
               selectedId={selectedThreadId}
               onSelect={(item) => setSelectedThreadId(item.id)}

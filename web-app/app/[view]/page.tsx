@@ -197,6 +197,26 @@ export default function ViewPage() {
   const [showAutoSectionConfirm, setShowAutoSectionConfirm] = useState(false);
   const [autoSectioning, setAutoSectioning] = useState(false);
 
+  const createEmptyDatabase = (): Database => ({
+    users: [],
+    organizations: [],
+    projects: [],
+    tasks: [],
+    mailboxes: [],
+    inboxItems: [],
+    emailRules: [],
+    summaryProfiles: [],
+    ruleStats: { active: 0, quarantine: 0, alwaysDelete: 0 },
+    quarantineCount: 0,
+    tags: [],
+    sections: [],
+    taskSections: [],
+    userSectionPreferences: [],
+    timeBlocks: [],
+    timeBlockTasks: [],
+    settings: { showCompletedTasks: true },
+  });
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -226,26 +246,7 @@ export default function ViewPage() {
       // Check if the response has an error
       if (data.error) {
         console.error("Database API error:", data.error);
-        // Set a valid empty database structure to prevent runtime errors
-        setDatabase({
-          users: [],
-          organizations: [],
-          projects: [],
-          tasks: [],
-          mailboxes: [],
-          inboxItems: [],
-          emailRules: [],
-          summaryProfiles: [],
-          ruleStats: { active: 0, quarantine: 0, alwaysDelete: 0 },
-          quarantineCount: 0,
-          tags: [],
-          sections: [],
-          taskSections: [],
-          userSectionPreferences: [],
-          timeBlocks: [],
-          timeBlockTasks: [],
-          settings: { showCompletedTasks: true },
-        });
+        setDatabase((prev) => prev ?? createEmptyDatabase());
         return;
       }
 
@@ -262,49 +263,11 @@ export default function ViewPage() {
         }
       } else {
         console.error("Invalid database structure:", data);
-        // Set a valid empty database structure
-        setDatabase({
-          users: [],
-          organizations: [],
-          projects: [],
-          tasks: [],
-          mailboxes: [],
-          inboxItems: [],
-          emailRules: [],
-          summaryProfiles: [],
-          ruleStats: { active: 0, quarantine: 0, alwaysDelete: 0 },
-          quarantineCount: 0,
-          tags: [],
-          sections: [],
-          taskSections: [],
-          userSectionPreferences: [],
-          timeBlocks: [],
-          timeBlockTasks: [],
-          settings: { showCompletedTasks: true },
-        });
+        setDatabase((prev) => prev ?? createEmptyDatabase());
       }
     } catch (error) {
       console.error("Error fetching database:", error);
-      // Set a valid empty database structure on error
-      setDatabase({
-        users: [],
-        organizations: [],
-        projects: [],
-        tasks: [],
-        mailboxes: [],
-        inboxItems: [],
-        emailRules: [],
-        summaryProfiles: [],
-        ruleStats: { active: 0, quarantine: 0, alwaysDelete: 0 },
-        quarantineCount: 0,
-        tags: [],
-        sections: [],
-        taskSections: [],
-        userSectionPreferences: [],
-        timeBlocks: [],
-        timeBlockTasks: [],
-        settings: { showCompletedTasks: true },
-      });
+      setDatabase((prev) => prev ?? createEmptyDatabase());
     }
   };
 
