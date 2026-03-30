@@ -172,7 +172,7 @@ name: Deploy to Railway
 
 on:
   push:
-    branches: [main]
+    branches: [production]
 
 jobs:
   deploy:
@@ -284,7 +284,7 @@ curl https://loud-and-clear-production.up.railway.app/api/health
 ```bash
 git add .
 git commit -m "Deploy with monitoring"
-git push origin main
+git push origin production
 # GitHub Actions will handle deployment and monitoring
 ```
 

@@ -2,14 +2,14 @@ name: Deploy to Railway
 
 on:
   push:
-    branches: ["main"]
+    branches: ["production"]
     paths:
       - "web-app/**"
       - ".github/workflows/railway-deploy.yml"
   workflow_dispatch: {}
 
 concurrency:
-  group: railway-web-deploy-main
+  group: railway-web-deploy-production
   cancel-in-progress: true
 
 jobs:

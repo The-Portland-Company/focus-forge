@@ -7,7 +7,7 @@ cd "${ROOT_DIR}"
 mkdir -p logs
 
 WORKFLOW_FILE=".github/workflows/railway-deploy.yml"
-REF="main"
+REF="production"
 RETRIES="0"
 
 while [[ $# -gt 0 ]]; do
@@ -110,4 +110,3 @@ while true; do
 
   echo "Retrying..."
 done
-

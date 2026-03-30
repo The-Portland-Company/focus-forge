@@ -2,14 +2,14 @@ name: Deploy API to Railway
 
 on:
   push:
-    branches: ["main"]
+    branches: ["production"]
     paths:
       - "api/**"
       - ".github/workflows/api-deploy.yml"
   workflow_dispatch: {}
 
 concurrency:
-  group: railway-api-deploy-main
+  group: railway-api-deploy-production
   cancel-in-progress: true
 
 jobs:

@@ -107,7 +107,7 @@ trigger_deploy() {
       railway redeploy >/dev/null
       ;;
     push)
-      git push origin HEAD:main >/dev/null
+      git push origin HEAD:production >/dev/null
       ;;
     *)
       echo "Invalid --trigger: ${TRIGGER} (expected none|redeploy|push)" >&2
