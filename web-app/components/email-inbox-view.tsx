@@ -28,7 +28,10 @@ import type {
   Mailbox,
   SummaryProfile,
 } from "@/lib/types";
-import { isEmailInboxView } from "@/lib/email-inbox/shared";
+import {
+  getVisibleMailboxSyncError,
+  isEmailInboxView,
+} from "@/lib/email-inbox/shared";
 import {
   applyMailboxProviderPreset,
   MAILBOX_PROVIDER_PRESETS,
@@ -145,6 +148,11 @@ export function EmailInboxView({
     return base;
   }, [data.inboxItems, selectedMailboxId, view]);
 
+  const visibleSyncError = useMemo(
+    () => getVisibleMailboxSyncError(data.mailboxes, selectedMailboxId),
+    [data.mailboxes, selectedMailboxId],
+  );
+
   useEffect(() => {
     if (!isEmailInboxView(view)) return;
     if (filteredItems.length === 0) {
@@ -246,6 +254,7 @@ export function EmailInboxView({
           : `Synced ${totalMessages} messages across ${mailboxesToSync.length} mailboxes.`,
       );
     } catch (error) {
+      await onRefresh();
       updateStatus(
         error instanceof Error ? error.message : "Failed to sync mailbox",
       );
@@ -271,6 +280,7 @@ export function EmailInboxView({
 
   const handleMailboxCreate = async () => {
     setBusyState("mailbox");
+    let createdMailboxId: string | null = null;
     try {
       const response = await fetch("/api/email/mailboxes", {
         method: "POST",
@@ -300,19 +310,25 @@ export function EmailInboxView({
         throw new Error(payload.error || "Failed to create mailbox");
       }
 
+      createdMailboxId = payload.id;
+      setSelectedMailboxId(payload.id);
+      setShowMailboxForm(false);
+      setMailboxForm(createEmptyMailboxForm());
+      await onRefresh();
+
       const syncedMessageCount = await syncMailboxAfterCreate(
         payload.id,
         payload.name,
       );
 
-      setSelectedMailboxId(payload.id);
-      setShowMailboxForm(false);
-      setMailboxForm(createEmptyMailboxForm());
       await onRefresh();
       updateStatus(
         `Mailbox ${payload.name} connected and synced ${syncedMessageCount} messages.`,
       );
     } catch (error) {
+      if (createdMailboxId) {
+        await onRefresh();
+      }
       updateStatus(
         error instanceof Error ? error.message : "Failed to create mailbox",
       );
@@ -946,6 +962,12 @@ export function EmailInboxView({
           </button>
         </div>
       </div>
+
+      {visibleSyncError ? (
+        <div className="rounded-xl border border-amber-900/70 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
+          {visibleSyncError}
+        </div>
+      ) : null}
 
       {showMailboxForm ? (
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">

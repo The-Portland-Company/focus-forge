@@ -59,6 +59,34 @@ export function extractPlainTextPreview(
   return `${plain.slice(0, maxLength - 1).trim()}…`;
 }
 
+export function extractMailboxErrorMessage(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return "Mailbox sync failed";
+  }
+
+  const responseText =
+    "responseText" in error && typeof error.responseText === "string"
+      ? error.responseText.trim()
+      : null;
+  if (responseText) {
+    return responseText;
+  }
+
+  const response =
+    "response" in error && typeof error.response === "string"
+      ? error.response.trim()
+      : null;
+  if (response) {
+    return response;
+  }
+
+  if ("message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+
+  return "Mailbox sync failed";
+}
+
 export function participantLabel(participant: InboxParticipant) {
   return participant.displayName?.trim() || participant.emailAddress;
 }
@@ -98,6 +126,29 @@ export function shouldShowInboxItemInToday(item: InboxItem) {
     item.status !== "spam" &&
     !item.workDueDate
   );
+}
+
+export function getVisibleMailboxSyncError(
+  mailboxes: Mailbox[],
+  selectedMailboxId: string,
+) {
+  if (selectedMailboxId !== "all") {
+    return (
+      mailboxes.find((mailbox) => mailbox.id === selectedMailboxId)
+        ?.lastSyncError ?? null
+    );
+  }
+
+  const failedMailboxes = mailboxes.filter((mailbox) => mailbox.lastSyncError);
+  if (failedMailboxes.length === 0) return null;
+  if (failedMailboxes.length === 1) {
+    const mailbox = failedMailboxes[0];
+    return mailbox.lastSyncError
+      ? `${mailbox.name}: ${mailbox.lastSyncError}`
+      : null;
+  }
+
+  return `${failedMailboxes.length} mailboxes need attention. Choose a mailbox to inspect the sync error.`;
 }
 
 export function createDefaultSummaryProfile(userId: string): SummaryProfile {

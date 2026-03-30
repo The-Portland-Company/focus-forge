@@ -3,6 +3,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildThreadKey,
+  extractMailboxErrorMessage,
+  getVisibleMailboxSyncError,
   normalizeSubject,
   shouldShowInboxItemInToday,
 } from "../email-inbox/shared";
@@ -59,5 +61,49 @@ test("shouldShowInboxItemInToday keeps undated inbox work visible", () => {
       updatedAt: "2026-03-29T10:00:00.000Z",
     }),
     false,
+  );
+});
+
+test("extractMailboxErrorMessage prefers provider response text", () => {
+  assert.equal(
+    extractMailboxErrorMessage({
+      responseText:
+        "Application-specific password required: https://support.google.com/accounts/answer/185833 (Failure)",
+      message: "Command failed",
+    }),
+    "Application-specific password required: https://support.google.com/accounts/answer/185833 (Failure)",
+  );
+
+  assert.equal(
+    extractMailboxErrorMessage(new Error("Command failed")),
+    "Command failed",
+  );
+});
+
+test("getVisibleMailboxSyncError surfaces mailbox-specific issues", () => {
+  const mailboxes = [
+    {
+      id: "mailbox-1",
+      ownerUserId: "user-1",
+      name: "The Portland Company",
+      emailAddress: "spencerhill@theportlandcompany.com",
+      provider: "gmail" as const,
+      isShared: false,
+      autoSyncEnabled: true,
+      syncFrequencyMinutes: 5,
+      syncFolder: "INBOX",
+      lastSyncError: "Application-specific password required",
+      createdAt: "2026-03-29T10:00:00.000Z",
+      updatedAt: "2026-03-29T10:00:00.000Z",
+    },
+  ];
+
+  assert.equal(
+    getVisibleMailboxSyncError(mailboxes, "all"),
+    "The Portland Company: Application-specific password required",
+  );
+  assert.equal(
+    getVisibleMailboxSyncError(mailboxes, "mailbox-1"),
+    "Application-specific password required",
   );
 });

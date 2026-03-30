@@ -14,6 +14,7 @@ import {
   coerceMailbox,
   coerceRule,
   coerceSummaryProfile,
+  extractMailboxErrorMessage,
   extractPlainTextPreview,
   normalizeSubject,
   sortInboxItems,
@@ -223,32 +224,46 @@ async function ensureThreadAccess(userId: string, threadId: string) {
   return thread;
 }
 
-function getMailboxSyncErrorMessage(error: unknown) {
-  if (!error || typeof error !== "object") {
-    return "Mailbox sync failed";
+async function ensureMailboxSummaryProfile(params: {
+  userId: string;
+  mailboxId: string;
+  organizationId?: string | null;
+  mailboxName: string;
+  existingSummaryProfileId?: string | null;
+}) {
+  if (params.existingSummaryProfileId) {
+    return params.existingSummaryProfileId;
   }
 
-  const responseText =
-    "responseText" in error && typeof error.responseText === "string"
-      ? error.responseText.trim()
-      : null;
-  if (responseText) {
-    return responseText;
-  }
+  const admin = getAdminClient();
+  const { data: profile } = await admin
+    .from("email_ai_profiles")
+    .insert({
+      organization_id: params.organizationId ?? null,
+      mailbox_id: params.mailboxId,
+      user_id: params.userId,
+      name: `${params.mailboxName} Default`,
+      summary_style: "action_first",
+      instruction_text:
+        "Summarize email in an action-first format, identify tone, and propose concrete tasks.",
+      settings_json: {
+        toneDetection: true,
+        routeToProjects: true,
+        generateTasks: true,
+      },
+      is_default: true,
+    })
+    .select()
+    .single();
 
-  const response =
-    "response" in error && typeof error.response === "string"
-      ? error.response.trim()
-      : null;
-  if (response) {
-    return response;
-  }
+  if (!profile?.id) return null;
 
-  if ("message" in error && typeof error.message === "string") {
-    return error.message;
-  }
+  await admin
+    .from("mailboxes")
+    .update({ summary_profile_id: profile.id })
+    .eq("id", params.mailboxId);
 
-  return "Mailbox sync failed";
+  return profile.id;
 }
 
 async function upsertContact(
@@ -1120,31 +1135,82 @@ export async function createMailbox(
     password: input.password,
   });
 
-  const { data: mailbox } = await admin
+  const { data: existingMailbox } = await admin
     .from("mailboxes")
-    .insert({
-      organization_id: input.organizationId ?? null,
-      owner_user_id: userId,
-      name: input.name,
-      display_name: input.displayName ?? null,
-      email_address: emailAddress,
-      provider,
-      is_shared: Boolean(input.isShared),
-      login_username: loginUsername,
-      credentials_encrypted: encrypted,
-      imap_host: imapHost,
-      imap_port: imapPort,
-      imap_secure: input.imapSecure ?? true,
-      smtp_host: smtpHost,
-      smtp_port: smtpPort,
-      smtp_secure: input.smtpSecure ?? true,
-      sync_folder: syncFolder || "INBOX",
-      quarantine_folder: input.quarantineFolder ?? null,
-      auto_sync_enabled: input.autoSyncEnabled ?? true,
-      sync_frequency_minutes: input.syncFrequencyMinutes ?? 5,
-    })
-    .select()
-    .single();
+    .select("*")
+    .eq("email_address", emailAddress)
+    .maybeSingle();
+
+  let mailbox: any = null;
+
+  if (existingMailbox?.id) {
+    const accessibleMailboxes = await getAccessibleMailboxRows(userId);
+    const existingAccessibleMailbox = accessibleMailboxes.find(
+      (row: any) => String(row.id) === String(existingMailbox.id),
+    );
+    if (!existingAccessibleMailbox) {
+      throw new Error("A mailbox with that email address already exists.");
+    }
+
+    const manageableMailbox = await ensureMailboxManage(
+      userId,
+      String(existingMailbox.id),
+    );
+
+    const { data: updatedMailbox } = await admin
+      .from("mailboxes")
+      .update({
+        name: input.name,
+        display_name: input.displayName ?? null,
+        provider,
+        login_username: loginUsername,
+        credentials_encrypted: encrypted,
+        imap_host: imapHost,
+        imap_port: imapPort,
+        imap_secure: input.imapSecure ?? true,
+        smtp_host: smtpHost,
+        smtp_port: smtpPort,
+        smtp_secure: input.smtpSecure ?? true,
+        sync_folder: syncFolder || "INBOX",
+        quarantine_folder:
+          input.quarantineFolder ?? manageableMailbox.quarantine_folder ?? null,
+        last_sync_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existingMailbox.id)
+      .select()
+      .single();
+
+    mailbox = updatedMailbox;
+  } else {
+    const { data: createdMailbox } = await admin
+      .from("mailboxes")
+      .insert({
+        organization_id: input.organizationId ?? null,
+        owner_user_id: userId,
+        name: input.name,
+        display_name: input.displayName ?? null,
+        email_address: emailAddress,
+        provider,
+        is_shared: Boolean(input.isShared),
+        login_username: loginUsername,
+        credentials_encrypted: encrypted,
+        imap_host: imapHost,
+        imap_port: imapPort,
+        imap_secure: input.imapSecure ?? true,
+        smtp_host: smtpHost,
+        smtp_port: smtpPort,
+        smtp_secure: input.smtpSecure ?? true,
+        sync_folder: syncFolder || "INBOX",
+        quarantine_folder: input.quarantineFolder ?? null,
+        auto_sync_enabled: input.autoSyncEnabled ?? true,
+        sync_frequency_minutes: input.syncFrequencyMinutes ?? 5,
+      })
+      .select()
+      .single();
+
+    mailbox = createdMailbox;
+  }
 
   if (!mailbox) {
     throw new Error("Failed to create mailbox");
@@ -1156,33 +1222,14 @@ export async function createMailbox(
     role: "manager",
   });
 
-  const { data: profile } = await admin
-    .from("email_ai_profiles")
-    .insert({
-      organization_id: input.organizationId ?? null,
-      mailbox_id: mailbox.id,
-      user_id: userId,
-      name: `${input.name} Default`,
-      summary_style: "action_first",
-      instruction_text:
-        "Summarize email in an action-first format, identify tone, and propose concrete tasks.",
-      settings_json: {
-        toneDetection: true,
-        routeToProjects: true,
-        generateTasks: true,
-      },
-      is_default: true,
-    })
-    .select()
-    .single();
-
-  if (profile?.id) {
-    await admin
-      .from("mailboxes")
-      .update({ summary_profile_id: profile.id })
-      .eq("id", mailbox.id);
-    mailbox.summary_profile_id = profile.id;
-  }
+  const summaryProfileId = await ensureMailboxSummaryProfile({
+    userId,
+    mailboxId: mailbox.id,
+    organizationId: mailbox.organization_id ?? input.organizationId ?? null,
+    mailboxName: input.name,
+    existingSummaryProfileId: mailbox.summary_profile_id ?? null,
+  });
+  if (summaryProfileId) mailbox.summary_profile_id = summaryProfileId;
 
   await admin.from("email_sync_state").upsert({
     mailbox_id: mailbox.id,
@@ -1259,7 +1306,7 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       changedThreadCount: changedThreadIds.size,
     };
   } catch (error) {
-    const message = getMailboxSyncErrorMessage(error);
+    const message = extractMailboxErrorMessage(error);
     await admin
       .from("mailboxes")
       .update({
@@ -1275,7 +1322,7 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       updated_at: new Date().toISOString(),
     });
 
-    throw error;
+    throw new Error(message);
   }
 }
 
