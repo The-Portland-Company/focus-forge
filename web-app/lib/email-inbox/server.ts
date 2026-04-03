@@ -711,6 +711,11 @@ function mapThreadToInboxItem(params: {
     needsProject: Boolean(params.row.needs_project),
     alwaysDelete: Boolean(params.row.always_delete),
     derivedTaskCount: params.taskCount,
+    matchedRuleIds: Array.isArray(params.row.analysis_json?.matchedRuleIds)
+      ? params.row.analysis_json.matchedRuleIds
+          .map((value: unknown) => String(value || "").trim())
+          .filter(Boolean)
+      : [],
     participants: params.participants,
     taskSuggestions: Array.isArray(params.row.task_suggestions_json)
       ? params.row.task_suggestions_json
@@ -1210,35 +1215,28 @@ export async function listSenderHistoryForUser(
     return [];
   }
 
-  const [
-    { data: threads },
-    { data: participantRows },
-    { data: messageRows },
-  ] = await Promise.all([
-    admin
-      .from("email_threads")
-      .select("*")
-      .in("id", threadIds)
-      .order("latest_message_at", { ascending: false }),
-    admin.from("email_participants").select("*").in("thread_id", threadIds),
-    admin
-      .from("email_messages")
-      .select("*")
-      .in("thread_id", threadIds)
-      .order("received_at", { ascending: true })
-      .order("sent_at", { ascending: true }),
-  ]);
+  const [{ data: threads }, { data: participantRows }, { data: messageRows }] =
+    await Promise.all([
+      admin
+        .from("email_threads")
+        .select("*")
+        .in("id", threadIds)
+        .order("latest_message_at", { ascending: false }),
+      admin.from("email_participants").select("*").in("thread_id", threadIds),
+      admin
+        .from("email_messages")
+        .select("*")
+        .in("thread_id", threadIds)
+        .order("received_at", { ascending: true })
+        .order("sent_at", { ascending: true }),
+    ]);
 
   const participantsByThread = new Map<string, InboxParticipant[]>();
   const participantsByMessage = new Map<string, InboxParticipant[]>();
 
   (participantRows || []).forEach((row: any) => {
     const participant = mapParticipantRow(row);
-    appendParticipant(
-      participantsByThread,
-      String(row.thread_id),
-      participant,
-    );
+    appendParticipant(participantsByThread, String(row.thread_id), participant);
     if (row.message_id) {
       appendParticipant(
         participantsByMessage,

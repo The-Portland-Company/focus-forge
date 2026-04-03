@@ -18,9 +18,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  buildExistingSpamReviewRuleGroups,
   buildSpamReviewSessionItems,
   removeCreatedSpamReviewRule,
   shouldConfirmSpamRuleUndo,
+  summarizeEmailRuleActions,
   summarizeEmailRuleConditions,
   type CreatedSpamReviewRule,
   upsertCreatedSpamReviewRule,
@@ -86,7 +88,9 @@ export function EmailSpamReviewModal({
     null,
   );
   const [activeTab, setActiveTab] = useState<SpamReviewTab>("created");
-  const [expandedRuleThreadId, setExpandedRuleThreadId] = useState<
+  const [expandedCreatedRuleThreadId, setExpandedCreatedRuleThreadId] =
+    useState<string | null>(null);
+  const [expandedExistingRuleId, setExpandedExistingRuleId] = useState<
     string | null
   >(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -103,7 +107,8 @@ export function EmailSpamReviewModal({
       setStatusMessage(null);
       setBusyThreadId(null);
       setConfirmingThreadId(null);
-      setExpandedRuleThreadId(null);
+      setExpandedCreatedRuleThreadId(null);
+      setExpandedExistingRuleId(null);
       wasOpenRef.current = false;
       previousMailboxFilterIdRef.current = mailboxFilterId;
       return;
@@ -124,7 +129,8 @@ export function EmailSpamReviewModal({
       setCreatedRules([]);
       setBusyThreadId(null);
       setConfirmingThreadId(null);
-      setExpandedRuleThreadId(null);
+      setExpandedCreatedRuleThreadId(null);
+      setExpandedExistingRuleId(null);
       setStatusMessage(null);
       setActiveTab("created");
     }
@@ -179,7 +185,7 @@ export function EmailSpamReviewModal({
       );
       setConfirmingThreadId(null);
       setActiveTab("created");
-      setExpandedRuleThreadId(thread.id);
+      setExpandedCreatedRuleThreadId(thread.id);
       await onRefresh?.();
       updateStatus("Spam exception saved.");
     } catch (error) {
@@ -213,7 +219,7 @@ export function EmailSpamReviewModal({
       setKeepSpamByThreadId((prev) => ({ ...prev, [thread.id]: true }));
       setCreatedRules((prev) => removeCreatedSpamReviewRule(prev, thread.id));
       setConfirmingThreadId(null);
-      setExpandedRuleThreadId((current) =>
+      setExpandedCreatedRuleThreadId((current) =>
         current === thread.id ? null : current,
       );
       await onRefresh?.();
@@ -252,6 +258,22 @@ export function EmailSpamReviewModal({
 
     setKeepSpamByThreadId((prev) => ({ ...prev, [thread.id]: true }));
   };
+
+  const { ruleGroups: existingRuleGroups, unmatchedItems } = useMemo(
+    () =>
+      buildExistingSpamReviewRuleGroups({
+        items: sessionItems,
+        rules,
+        keepSpamByThreadId,
+      }),
+    [keepSpamByThreadId, rules, sessionItems],
+  );
+
+  const keptSpamCount = useMemo(
+    () =>
+      sessionItems.filter((item) => keepSpamByThreadId[item.id] ?? true).length,
+    [keepSpamByThreadId, sessionItems],
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -462,79 +484,234 @@ export function EmailSpamReviewModal({
 
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-4">
               {activeTab === "created" ? (
-                createdRules.length === 0 ? (
-                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-6 text-sm text-zinc-500">
-                    AI-created spam exception rules will appear here as you turn
-                    spam items off.
-                  </div>
-                ) : (
+                <div className="space-y-5">
                   <div className="space-y-3">
-                    {createdRules.map((entry) => {
-                      const isExpanded =
-                        expandedRuleThreadId === entry.threadId;
-                      const isCurrent =
-                        keepSpamByThreadId[entry.threadId] === false;
-
-                      return (
-                        <div
-                          key={`${entry.threadId}-${entry.rule.id}`}
-                          className={cn(
-                            "rounded-2xl border px-4 py-4",
-                            isCurrent
-                              ? "border-emerald-500/35 bg-emerald-500/10"
-                              : "border-zinc-800 bg-zinc-900/50",
-                          )}
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className="inline-flex items-center gap-2 text-sm font-medium text-white">
-                                <Bot className="h-4 w-4 text-[rgb(var(--theme-primary-rgb))]" />
-                                {entry.rule.name}
-                              </div>
-                              <div className="mt-2 text-sm text-zinc-400">
-                                {entry.rule.description || "No description"}
-                              </div>
-                              <div className="mt-3 text-xs text-zinc-500">
-                                {summarizeEmailRuleConditions(entry.rule)}
-                              </div>
-                            </div>
-                            {isCurrent ? (
-                              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
-                                Active
-                              </span>
-                            ) : null}
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setExpandedRuleThreadId((current) =>
-                                current === entry.threadId
-                                  ? null
-                                  : entry.threadId,
-                              )
-                            }
-                            className="mt-4 inline-flex items-center gap-2 text-sm text-zinc-300 transition-colors hover:text-white"
-                          >
-                            <ChevronDown
-                              className={cn(
-                                "h-4 w-4 transition-transform",
-                                isExpanded ? "rotate-180" : "",
-                              )}
-                            />
-                            Why this rule was created
-                          </button>
-
-                          {isExpanded ? (
-                            <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 text-sm text-zinc-400">
-                              {entry.rationale}
-                            </div>
-                          ) : null}
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-medium text-white">
+                          Rules Keeping These Threads In Spam
                         </div>
-                      );
-                    })}
+                        <div className="mt-1 text-xs text-zinc-500">
+                          Expand a rule to see every kept-as-spam thread linked
+                          to it in this review.
+                        </div>
+                      </div>
+                      <div className="rounded-full border border-zinc-800 bg-zinc-900/80 px-2.5 py-1 text-[10px] uppercase tracking-wide text-zinc-400">
+                        {keptSpamCount} kept as spam
+                      </div>
+                    </div>
+
+                    {existingRuleGroups.length === 0 ? (
+                      unmatchedItems.length === 0 ? (
+                        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-6 text-sm text-zinc-500">
+                          No saved spam rules match the threads you are keeping
+                          in spam right now.
+                        </div>
+                      ) : null
+                    ) : (
+                      <div className="space-y-3">
+                        {existingRuleGroups.map((group) => {
+                          const isExpanded =
+                            expandedExistingRuleId === group.rule.id;
+
+                          return (
+                            <div
+                              key={group.rule.id}
+                              className="rounded-2xl border border-amber-500/25 bg-amber-500/5 px-4 py-4"
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="min-w-0">
+                                  <div className="inline-flex items-center gap-2 text-sm font-medium text-white">
+                                    <ShieldAlert className="h-4 w-4 text-amber-400" />
+                                    {group.rule.name}
+                                  </div>
+                                  <div className="mt-2 text-sm text-zinc-400">
+                                    {group.rule.description || "No description"}
+                                  </div>
+                                  <div className="mt-3 text-xs text-zinc-500">
+                                    {summarizeEmailRuleConditions(group.rule)}
+                                  </div>
+                                  <div className="mt-2 text-xs text-zinc-500">
+                                    {summarizeEmailRuleActions(group.rule)}
+                                  </div>
+                                </div>
+                                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
+                                  {group.threads.length} linked thread
+                                  {group.threads.length === 1 ? "" : "s"}
+                                </span>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedExistingRuleId((current) =>
+                                    current === group.rule.id
+                                      ? null
+                                      : group.rule.id,
+                                  )
+                                }
+                                className="mt-4 inline-flex items-center gap-2 text-sm text-zinc-300 transition-colors hover:text-white"
+                              >
+                                <ChevronDown
+                                  className={cn(
+                                    "h-4 w-4 transition-transform",
+                                    isExpanded ? "rotate-180" : "",
+                                  )}
+                                />
+                                {isExpanded
+                                  ? "Hide linked threads"
+                                  : "Show linked threads"}
+                              </button>
+
+                              {isExpanded ? (
+                                <div className="mt-3 space-y-2">
+                                  {group.threads.map((thread) => {
+                                    const fromLine = formatParticipantLine(
+                                      thread.participants,
+                                      "from",
+                                    );
+
+                                    return (
+                                      <div
+                                        key={`${group.rule.id}-${thread.id}`}
+                                        className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3"
+                                      >
+                                        <div className="text-sm font-medium text-white">
+                                          {thread.actionTitle}
+                                        </div>
+                                        <div className="mt-1 text-xs text-zinc-500">
+                                          {formatEmailSubject(thread.subject)}
+                                        </div>
+                                        {fromLine ? (
+                                          <div className="mt-1 text-xs text-zinc-500">
+                                            {fromLine}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {unmatchedItems.length > 0 ? (
+                      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-4">
+                        <div className="inline-flex items-center gap-2 text-sm font-medium text-white">
+                          <Bot className="h-4 w-4 text-[rgb(var(--theme-primary-rgb))]" />
+                          AI-Classified Spam Without a Saved Rule
+                        </div>
+                        <div className="mt-2 text-sm text-zinc-400">
+                          These threads are still being kept as spam, but there
+                          is no saved rule attached to them yet.
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {unmatchedItems.map((thread) => (
+                            <div
+                              key={`unmatched-${thread.id}`}
+                              className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3"
+                            >
+                              <div className="text-sm font-medium text-white">
+                                {thread.actionTitle}
+                              </div>
+                              <div className="mt-1 text-xs text-zinc-500">
+                                {formatEmailSubject(thread.subject)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                )
+
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-sm font-medium text-white">
+                        Rules Created This Review
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        Exception rules appear here as you turn spam items off.
+                      </div>
+                    </div>
+
+                    {createdRules.length === 0 ? (
+                      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-6 text-sm text-zinc-500">
+                        AI-created spam exception rules will appear here as you
+                        turn spam items off.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {createdRules.map((entry) => {
+                          const isExpanded =
+                            expandedCreatedRuleThreadId === entry.threadId;
+                          const isCurrent =
+                            keepSpamByThreadId[entry.threadId] === false;
+
+                          return (
+                            <div
+                              key={`${entry.threadId}-${entry.rule.id}`}
+                              className={cn(
+                                "rounded-2xl border px-4 py-4",
+                                isCurrent
+                                  ? "border-emerald-500/35 bg-emerald-500/10"
+                                  : "border-zinc-800 bg-zinc-900/50",
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="min-w-0">
+                                  <div className="inline-flex items-center gap-2 text-sm font-medium text-white">
+                                    <Bot className="h-4 w-4 text-[rgb(var(--theme-primary-rgb))]" />
+                                    {entry.rule.name}
+                                  </div>
+                                  <div className="mt-2 text-sm text-zinc-400">
+                                    {entry.rule.description || "No description"}
+                                  </div>
+                                  <div className="mt-3 text-xs text-zinc-500">
+                                    {summarizeEmailRuleConditions(entry.rule)}
+                                  </div>
+                                </div>
+                                {isCurrent ? (
+                                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
+                                    Active
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedCreatedRuleThreadId((current) =>
+                                    current === entry.threadId
+                                      ? null
+                                      : entry.threadId,
+                                  )
+                                }
+                                className="mt-4 inline-flex items-center gap-2 text-sm text-zinc-300 transition-colors hover:text-white"
+                              >
+                                <ChevronDown
+                                  className={cn(
+                                    "h-4 w-4 transition-transform",
+                                    isExpanded ? "rotate-180" : "",
+                                  )}
+                                />
+                                Why this rule was created
+                              </button>
+
+                              {isExpanded ? (
+                                <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 text-sm text-zinc-400">
+                                  {entry.rationale}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
               ) : (
                 <EmailRulesPanel
                   rules={rules}

@@ -2,9 +2,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildExistingSpamReviewRuleGroups,
   buildSpamReviewSessionItems,
   listDetectedSpamItems,
   shouldConfirmSpamRuleUndo,
+  summarizeEmailRuleActions,
   summarizeEmailRuleConditions,
   upsertCreatedSpamReviewRule,
 } from "../email-inbox/spam-review";
@@ -124,5 +126,78 @@ test("summarizeEmailRuleConditions renders readable condition text", () => {
       ],
     } as any),
     'Sender email equals "trusted@example.com"',
+  );
+});
+
+test("summarizeEmailRuleActions renders readable action text", () => {
+  assert.equal(
+    summarizeEmailRuleActions({
+      actions: [{ type: "quarantine" }, { type: "always_delete" }],
+    } as any),
+    "Quarantine, Always delete",
+  );
+});
+
+test("buildExistingSpamReviewRuleGroups groups kept spam threads by matched rule", () => {
+  const rule = {
+    id: "rule-1",
+    name: "Quarantine sales outreach",
+    description: "Keep repeated sales pitches in spam review.",
+    source: "user",
+    isActive: true,
+    priority: 5,
+    matchMode: "all",
+    conditions: [
+      {
+        field: "sender_domain",
+        operator: "contains",
+        value: "example.com",
+      },
+    ],
+    actions: [{ type: "quarantine" }],
+    stopProcessing: true,
+    createdAt: "",
+    updatedAt: "",
+  } as any;
+
+  const result = buildExistingSpamReviewRuleGroups({
+    items: [
+      {
+        ...spamItem,
+        id: "thread-2",
+        matchedRuleIds: ["rule-1"],
+        createdAt: "2026-04-04T00:00:00.000Z",
+        updatedAt: "2026-04-04T00:00:00.000Z",
+      },
+      {
+        ...spamItem,
+        id: "thread-1",
+        matchedRuleIds: ["rule-1"],
+      },
+      {
+        ...spamItem,
+        id: "thread-3",
+        matchedRuleIds: [],
+        createdAt: "2026-04-05T00:00:00.000Z",
+        updatedAt: "2026-04-05T00:00:00.000Z",
+      },
+    ],
+    rules: [rule],
+    keepSpamByThreadId: {
+      "thread-1": true,
+      "thread-2": true,
+      "thread-3": true,
+    },
+  });
+
+  assert.equal(result.ruleGroups.length, 1);
+  assert.equal(result.ruleGroups[0]?.rule.id, "rule-1");
+  assert.deepEqual(
+    result.ruleGroups[0]?.threads.map((thread) => thread.id),
+    ["thread-2", "thread-1"],
+  );
+  assert.deepEqual(
+    result.unmatchedItems.map((thread) => thread.id),
+    ["thread-3"],
   );
 });

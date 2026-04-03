@@ -318,6 +318,7 @@ export interface InboxItem {
   needsProject: boolean;
   alwaysDelete: boolean;
   derivedTaskCount: number;
+  matchedRuleIds?: string[];
   participants?: InboxParticipant[];
   conversation?: ConversationEntry[];
   taskSuggestions?: InboxTaskSuggestion[];
