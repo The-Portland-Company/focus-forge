@@ -84,7 +84,9 @@ export function formatParticipantName(participant: InboxParticipant | null) {
   const displayName = participant.displayName?.trim();
   const emailAddress = participant.emailAddress.trim();
 
-  return displayName && displayName !== emailAddress ? displayName : emailAddress;
+  return displayName && displayName !== emailAddress
+    ? displayName
+    : emailAddress;
 }
 
 export function formatParticipantLine(
@@ -143,12 +145,19 @@ export function getEmailWorkItemClassName(params: {
   isUnread?: boolean;
 }) {
   return cn(
-    "w-full rounded-xl border px-4 py-3 text-left transition-colors",
+    "w-full min-w-0 rounded-xl border px-4 py-3 text-left transition-colors",
     params.isSelected
       ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/10"
       : params.isUnread
         ? "border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/[0.08] hover:border-[rgb(var(--theme-primary-rgb))]/55 hover:bg-[rgb(var(--theme-primary-rgb))]/[0.12]"
         : "border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900/70",
+  );
+}
+
+export function getEmailWorkPreviewClassName(isUnread?: boolean) {
+  return cn(
+    "mt-3 break-words whitespace-normal text-sm",
+    isUnread ? "text-zinc-200" : "text-zinc-400",
   );
 }
 
@@ -199,8 +208,8 @@ export function EmailWorkList({
               isUnread: item.isUnread,
             })}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-300">
                   {statusIcon(item.status)}
                   {item.isUnread ? (
@@ -209,7 +218,7 @@ export function EmailWorkList({
                       className="h-2.5 w-2.5 rounded-full bg-[rgb(var(--theme-primary-rgb))]"
                     />
                   ) : null}
-                  <span className="font-medium text-white">
+                  <span className="break-words font-medium text-white">
                     {item.actionTitle}
                   </span>
                   <span className="break-words text-xs text-zinc-500">
@@ -229,7 +238,7 @@ export function EmailWorkList({
                               email: sender.emailAddress,
                             });
                           }}
-                          className="cursor-pointer text-xs text-zinc-400 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-200"
+                          className="max-w-[220px] truncate cursor-pointer text-xs text-zinc-400 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-200 sm:max-w-[280px]"
                         >
                           {senderName}
                         </button>
@@ -247,7 +256,7 @@ export function EmailWorkList({
                   ) : null}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 {item.isUnread ? (
                   <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
                     Unread
@@ -261,33 +270,28 @@ export function EmailWorkList({
               </div>
             </div>
 
-            <div
-              className={cn(
-                "mt-3 truncate text-sm",
-                item.isUnread ? "text-zinc-200" : "text-zinc-400",
-              )}
-            >
+            <div className={getEmailWorkPreviewClassName(item.isUnread)}>
               {formatInboxPreviewText(item.previewText || item.summaryText)}
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
-              <span className="inline-flex items-center gap-1">
+            <div className="mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500">
+              <span className="inline-flex items-center gap-1 break-words">
                 <Mail className="h-3.5 w-3.5" />
                 {mailbox?.name || item.mailboxName || "Mailbox"}
               </span>
               {project ? (
-                <span className="inline-flex items-center gap-1">
+                <span className="inline-flex items-center gap-1 break-words">
                   <FolderSearch className="h-3.5 w-3.5" />
                   {project.name}
                 </span>
               ) : null}
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1 break-words">
                 <MessageSquare className="h-3.5 w-3.5" />
                 {item.derivedTaskCount} linked task
                 {item.derivedTaskCount === 1 ? "" : "s"}
               </span>
               {item.actionConfidence ? (
-                <span className="inline-flex items-center gap-1">
+                <span className="inline-flex items-center gap-1 break-words">
                   <Sparkles className="h-3.5 w-3.5" />
                   {Math.round(item.actionConfidence * 100)}% confidence
                 </span>

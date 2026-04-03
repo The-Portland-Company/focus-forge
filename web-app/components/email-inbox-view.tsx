@@ -96,6 +96,10 @@ function parseJsonValue<T>(input: string, fallback: T): T {
   }
 }
 
+export function getEmailInboxSplitClassName() {
+  return "grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] 2xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]";
+}
+
 export function EmailInboxView({
   view,
   data,
@@ -1165,8 +1169,8 @@ export function EmailInboxView({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="min-w-0 space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">
             {view === "email-quarantine" ? "Quarantine" : "Email Inbox"}
@@ -1177,7 +1181,7 @@ export function EmailInboxView({
               : "Email threads are pre-processed and rendered as work items."}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             onClick={handleBrowserNotificationTest}
@@ -1204,7 +1208,7 @@ export function EmailInboxView({
             value={selectedMailboxId}
             onValueChange={setSelectedMailboxId}
           >
-            <SelectTrigger className="w-[220px] border-zinc-700 bg-zinc-900 text-white">
+            <SelectTrigger className="w-[220px] max-w-full border-zinc-700 bg-zinc-900 text-white">
               <SelectValue placeholder="Mailbox" />
             </SelectTrigger>
             <SelectContent>
@@ -1501,9 +1505,9 @@ export function EmailInboxView({
         </div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_1.2fr]">
-        <div className="space-y-3">
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <div className={getEmailInboxSplitClassName()}>
+        <div className="min-w-0 space-y-3">
+          <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="inline-flex items-center gap-2 text-sm text-zinc-400">
                 {view === "email-quarantine" ? (
@@ -1560,13 +1564,13 @@ export function EmailInboxView({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+        <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           {loadingThread ? (
             <div className="flex min-h-[420px] items-center justify-center text-zinc-500">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
           ) : selectedThread ? (
-            <div className="space-y-5">
+            <div className="min-w-0 space-y-5">
               <div className="border-b border-zinc-800 pb-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 space-y-2">
@@ -1579,13 +1583,13 @@ export function EmailInboxView({
                         </span>
                       ) : null}
                     </div>
-                    <h2 className="text-xl font-semibold text-white">
+                    <h2 className="break-words text-xl font-semibold text-white">
                       {selectedThread.actionTitle}
                     </h2>
-                    <div className="text-sm text-zinc-500">
+                    <div className="break-words text-sm text-zinc-500">
                       {selectedThread.subject}
                     </div>
-                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-sm text-zinc-300">
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-sm text-zinc-300 break-words">
                       <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
                         <Sparkles className="h-3.5 w-3.5" />
                         <span>AI Says:</span>
@@ -1597,7 +1601,7 @@ export function EmailInboxView({
                       </div>
                     </div>
                     {selectedThread.actionReason ? (
-                      <div className="text-xs text-zinc-500">
+                      <div className="break-words text-xs text-zinc-500">
                         {selectedThread.actionReason}
                       </div>
                     ) : null}
@@ -1748,15 +1752,13 @@ export function EmailInboxView({
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {view === "email-quarantine" ? (
-                  renderThreadActionButton("approve", {
-                    label: "Approve",
-                  })
-                ) : (
-                  renderThreadActionButton("quarantine", {
-                    icon: <ShieldAlert className="h-4 w-4" />,
-                  })
-                )}
+                {view === "email-quarantine"
+                  ? renderThreadActionButton("approve", {
+                      label: "Approve",
+                    })
+                  : renderThreadActionButton("quarantine", {
+                      icon: <ShieldAlert className="h-4 w-4" />,
+                    })}
                 {renderThreadActionButton("archive", {
                   icon: <Archive className="h-4 w-4" />,
                 })}
@@ -1869,7 +1871,7 @@ export function EmailInboxView({
                           {new Date(entry.createdAt).toLocaleString()}
                         </div>
                       </div>
-                      <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">
+                      <div className="mt-2 break-words whitespace-pre-wrap text-sm text-zinc-300">
                         {entry.content}
                       </div>
                     </div>

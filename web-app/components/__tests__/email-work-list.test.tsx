@@ -9,6 +9,7 @@ import {
   formatParticipantValue,
   getPrimarySenderParticipant,
   getEmailWorkItemClassName,
+  getEmailWorkPreviewClassName,
   shouldShowStatusBadge,
 } from "../email-work-list";
 
@@ -110,7 +111,9 @@ test("formatParticipantName prefers display names and falls back to email", () =
 
 test("formatInboxPreviewText strips html, markdown, and line breaks", () => {
   assert.equal(
-    formatInboxPreviewText("<p>Hello Jon,</p>\n\nThis is **bla** [link](https://example.com)"),
+    formatInboxPreviewText(
+      "<p>Hello Jon,</p>\n\nThis is **bla** [link](https://example.com)",
+    ),
     "Hello Jon, This is bla link",
   );
 });
@@ -145,4 +148,12 @@ test("getEmailWorkItemClassName highlights unread threads when they are not sele
     readClasses,
     /border-\[rgb\(var\(--theme-primary-rgb\)\)\]\/35/,
   );
+});
+
+test("getEmailWorkPreviewClassName keeps previews wrapping inside the list pane", () => {
+  const previewClasses = getEmailWorkPreviewClassName(true);
+
+  assert.match(previewClasses, /break-words/);
+  assert.match(previewClasses, /whitespace-normal/);
+  assert.doesNotMatch(previewClasses, /truncate/);
 });

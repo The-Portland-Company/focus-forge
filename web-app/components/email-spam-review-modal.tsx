@@ -255,7 +255,7 @@ export function EmailSpamReviewModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] w-[80vw] max-w-[80vw] overflow-hidden border-zinc-800 bg-zinc-950 p-0 text-white">
+      <DialogContent className="max-h-[92vh] w-[min(96vw,1440px)] max-w-[96vw] overflow-hidden border-zinc-800 bg-zinc-950 p-0 text-white">
         <div className="border-b border-zinc-800 px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -274,8 +274,8 @@ export function EmailSpamReviewModal({
           </div>
         </div>
 
-        <div className="grid h-[calc(88vh-110px)] gap-0 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="flex min-h-0 flex-col border-r border-zinc-800">
+        <div className="grid h-[calc(92vh-112px)] min-h-0 grid-rows-[minmax(0,1.2fr)_minmax(0,0.8fr)] gap-0 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)] xl:grid-rows-1">
+          <div className="flex min-h-0 min-w-0 flex-col border-b border-zinc-800 xl:border-b-0 xl:border-r">
             <div className="border-b border-zinc-800 px-6 py-4">
               <div className="inline-flex items-center gap-2 text-sm text-zinc-300">
                 <ShieldAlert className="h-4 w-4 text-amber-400" />
@@ -287,7 +287,7 @@ export function EmailSpamReviewModal({
               </p>
             </div>
 
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
+            <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
               {sessionItems.length === 0 ? (
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-6 text-sm text-zinc-500">
                   No detected spam matches this view.
@@ -430,14 +430,14 @@ export function EmailSpamReviewModal({
             </div>
           </div>
 
-          <div className="flex min-h-0 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-col">
             <div className="border-b border-zinc-800 px-6 py-4">
-              <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-900/70 p-1">
+              <div className="grid w-full max-w-md grid-cols-2 rounded-xl border border-zinc-800 bg-zinc-900/70 p-1">
                 <button
                   type="button"
                   onClick={() => setActiveTab("created")}
                   className={cn(
-                    "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    "rounded-lg px-3 py-2 text-center text-sm font-medium leading-tight transition-colors",
                     activeTab === "created"
                       ? "bg-[rgb(var(--theme-primary-rgb))]/15 text-white"
                       : "text-zinc-400 hover:text-white",
@@ -449,7 +449,7 @@ export function EmailSpamReviewModal({
                   type="button"
                   onClick={() => setActiveTab("existing")}
                   className={cn(
-                    "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    "rounded-lg px-3 py-2 text-center text-sm font-medium leading-tight transition-colors",
                     activeTab === "existing"
                       ? "bg-[rgb(var(--theme-primary-rgb))]/15 text-white"
                       : "text-zinc-400 hover:text-white",
@@ -460,7 +460,7 @@ export function EmailSpamReviewModal({
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-4">
               {activeTab === "created" ? (
                 createdRules.length === 0 ? (
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-6 text-sm text-zinc-500">
@@ -540,7 +540,9 @@ export function EmailSpamReviewModal({
                   rules={rules}
                   mailboxes={mailboxes}
                   onRefresh={onRefresh}
+                  compact
                   showHeader={false}
+                  className="min-w-0"
                 />
               )}
             </div>
