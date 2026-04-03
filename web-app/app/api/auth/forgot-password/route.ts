@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { sendPasswordResetEmail } from '@/lib/email'
+import { getResetPasswordUrl } from '@/lib/auth/urls'
+import { getAdminClient } from '@/lib/supabase/admin'
 
 export async function POST(request: Request) {
   try {
@@ -12,17 +14,34 @@ export async function POST(request: Request) {
       )
     }
     
-    const supabase = await createClient()
-    
-    // Send password reset email
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3244'}/auth/reset-password`,
+    const admin = getAdminClient()
+    const redirectTo = getResetPasswordUrl({ requestUrl: request.url })
+
+    const { data, error } = await admin.auth.admin.generateLink({
+      type: 'recovery',
+      email,
+      options: { redirectTo },
     })
-    
-    if (error) {
-      console.error('Password reset error:', error)
-      // Don't expose whether the email exists or not for security
-      // Always return success to prevent email enumeration
+
+    if (!error && data?.properties?.action_link) {
+      const { data: profile } = await admin
+        .from('profiles')
+        .select('first_name')
+        .eq('email', email)
+        .maybeSingle()
+
+      try {
+        await sendPasswordResetEmail({
+          to: email,
+          firstName: profile?.first_name || '',
+          resetUrl: data.properties.action_link,
+        })
+      } catch (emailError) {
+        console.error('Password reset email send error:', { email, redirectTo, emailError })
+      }
+    } else if (error) {
+      console.error('Password reset link generation error:', { email, redirectTo, error })
+      // Don't expose whether the email exists or not for security.
     }
     
     // Always return success for security (prevents email enumeration)

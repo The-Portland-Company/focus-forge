@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
+import { getResetPasswordUrl } from "@/lib/auth/urls";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { requireAdminSessionOrPatAdminScope } from "@/lib/api/keys/auth";
@@ -201,8 +202,7 @@ export async function POST(request: NextRequest) {
 
     let passwordResetEmailSent = false;
     if (sendPasswordReset) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3244";
-      const redirectTo = `${appUrl}/auth/reset-password`;
+      const redirectTo = getResetPasswordUrl();
 
       const { data: recoveryData, error: recoveryError } =
         await admin.auth.admin.generateLink({

@@ -7,6 +7,7 @@ const publicRoutes = [
   "/auth/login",
   "/auth/register",
   "/auth/forgot-password",
+  "/auth/reset-password",
   "/auth/accept-invite",
   "/docs/focus-time-agent",
   "/docs/focus-time-openapi",
