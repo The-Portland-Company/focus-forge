@@ -3729,7 +3729,7 @@ export default function ViewPage() {
               : view === "today"
                 ? "p-0"
                 : view.startsWith("email-")
-                  ? "max-w-7xl mx-auto p-6"
+                  ? "px-3 pr-6 py-6"
                   : view === "time"
                     ? "p-6"
                     : "max-w-4xl mx-auto p-8"

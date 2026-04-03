@@ -1178,6 +1178,117 @@ export async function listInboxItemsForUser(
   );
 }
 
+export async function listSenderHistoryForUser(
+  userId: string,
+  senderEmail: string,
+) {
+  const normalizedEmail = senderEmail.trim().toLowerCase();
+  if (!normalizedEmail) {
+    return [];
+  }
+
+  const admin = getAdminClient();
+  const mailboxes = await listMailboxesForUser(userId);
+  const mailboxIds = mailboxes.map((mailbox) => mailbox.id);
+
+  if (mailboxIds.length === 0) {
+    return [];
+  }
+
+  const { data: senderRows } = await admin
+    .from("email_participants")
+    .select("thread_id")
+    .in("mailbox_id", mailboxIds)
+    .eq("participant_role", "from")
+    .ilike("email_address", normalizedEmail);
+
+  const threadIds = Array.from(
+    new Set((senderRows || []).map((row: any) => String(row.thread_id))),
+  );
+
+  if (threadIds.length === 0) {
+    return [];
+  }
+
+  const [
+    { data: threads },
+    { data: participantRows },
+    { data: messageRows },
+  ] = await Promise.all([
+    admin
+      .from("email_threads")
+      .select("*")
+      .in("id", threadIds)
+      .order("latest_message_at", { ascending: false }),
+    admin.from("email_participants").select("*").in("thread_id", threadIds),
+    admin
+      .from("email_messages")
+      .select("*")
+      .in("thread_id", threadIds)
+      .order("received_at", { ascending: true })
+      .order("sent_at", { ascending: true }),
+  ]);
+
+  const participantsByThread = new Map<string, InboxParticipant[]>();
+  const participantsByMessage = new Map<string, InboxParticipant[]>();
+
+  (participantRows || []).forEach((row: any) => {
+    const participant = mapParticipantRow(row);
+    appendParticipant(
+      participantsByThread,
+      String(row.thread_id),
+      participant,
+    );
+    if (row.message_id) {
+      appendParticipant(
+        participantsByMessage,
+        String(row.message_id),
+        participant,
+      );
+    }
+  });
+
+  const mailboxMap = new Map(mailboxes.map((mailbox) => [mailbox.id, mailbox]));
+  const messagesByThread = ((messageRows || []) as any[]).reduce(
+    (map: Map<string, any[]>, row: any) => {
+      const key = String(row.thread_id);
+      const current = map.get(key) || [];
+      current.push(row);
+      map.set(key, current);
+      return map;
+    },
+    new Map<string, any[]>(),
+  );
+
+  return sortInboxItems(
+    ((threads || []) as any[]).map((row: any) => {
+      const item = mapThreadToInboxItem({
+        row,
+        mailbox: mailboxMap.get(String(row.mailbox_id)),
+        participants: participantsByThread.get(String(row.id)) || [],
+        taskCount: 0,
+      });
+
+      const conversation = (messagesByThread.get(String(row.id)) || []).map(
+        (messageRow: any) => ({
+          ...coerceConversationEntry({
+            ...messageRow,
+            author_name: messageRow.metadata_json?.from?.[0]?.name ?? null,
+            author_email: messageRow.metadata_json?.from?.[0]?.email ?? null,
+            type: "email",
+          }),
+          participants: participantsByMessage.get(String(messageRow.id)) || [],
+        }),
+      );
+
+      return {
+        ...item,
+        conversation,
+      };
+    }),
+  );
+}
+
 async function chooseSummaryProfile(
   mailbox: any,
   userId: string,

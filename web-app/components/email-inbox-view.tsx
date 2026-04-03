@@ -21,7 +21,9 @@ import {
 import { EmailWorkList } from "@/components/email-work-list";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
 import { EmailSpamReviewModal } from "@/components/email-spam-review-modal";
+import { SenderHistoryModal } from "@/components/sender-history-modal";
 import { Tooltip } from "@/components/tooltip";
+import { FloatingFieldLabel } from "@/components/ui/floating-field-label";
 import {
   Select,
   SelectContent,
@@ -68,7 +70,7 @@ const DEFAULT_PROFILE_SETTINGS = JSON.stringify(
   null,
   2,
 );
-const BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 60 * 1000;
+const BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 30 * 1000;
 
 function getBrowserNotificationPermission():
   | NotificationPermission
@@ -118,8 +120,16 @@ export function EmailInboxView({
     null,
   );
   const [isSpamReviewOpen, setIsSpamReviewOpen] = useState(false);
+  const [readFilter, setReadFilter] = useState<"all" | "unread" | "read">(
+    "all",
+  );
+  const [senderHistory, setSenderHistory] = useState<{
+    name: string;
+    email: string;
+  } | null>(null);
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
   const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
+  const mailboxesRef = useRef<Mailbox[]>(data.mailboxes);
   const refreshInboxStateRef = useRef<
     | ((options?: { allowBrowserNotifications?: boolean }) => Promise<void>)
     | null
@@ -147,8 +157,16 @@ export function EmailInboxView({
       return item.status !== "quarantine" && item.status !== "deleted";
     });
 
+    if (readFilter === "unread") {
+      return base.filter((item) => item.isUnread);
+    }
+
+    if (readFilter === "read") {
+      return base.filter((item) => !item.isUnread);
+    }
+
     return base;
-  }, [inboxItems, selectedMailboxId, view]);
+  }, [inboxItems, readFilter, selectedMailboxId, view]);
 
   const visibleSyncError = useMemo(
     () => getVisibleMailboxSyncError(mailboxes, selectedMailboxId),
@@ -225,6 +243,7 @@ export function EmailInboxView({
     }
 
     inboxSnapshotRef.current = params.nextItems;
+    mailboxesRef.current = params.nextMailboxes;
     setMailboxes(params.nextMailboxes);
     setInboxItems(params.nextItems);
     setQuarantineCount(
@@ -234,6 +253,7 @@ export function EmailInboxView({
 
   useEffect(() => {
     inboxSnapshotRef.current = data.inboxItems;
+    mailboxesRef.current = data.mailboxes;
     setMailboxes(data.mailboxes);
     setInboxItems(data.inboxItems);
     setQuarantineCount(
@@ -353,17 +373,58 @@ export function EmailInboxView({
     });
   };
 
+  const syncDueMailboxes = async (targetMailboxes: Mailbox[]) => {
+    const now = Date.now();
+    const dueMailboxes = targetMailboxes.filter((mailbox) => {
+      if (!mailbox.autoSyncEnabled) return false;
+
+      const lastSyncedAt = mailbox.lastSyncedAt
+        ? new Date(mailbox.lastSyncedAt).getTime()
+        : 0;
+      return now - lastSyncedAt >= mailbox.syncFrequencyMinutes * 60 * 1000;
+    });
+
+    await Promise.all(
+      dueMailboxes.map(async (mailbox) => {
+        try {
+          await fetch(`/api/email/mailboxes/${mailbox.id}/sync`, {
+            method: "POST",
+            credentials: "include",
+          });
+        } catch {
+          return;
+        }
+      }),
+    );
+  };
+
   refreshInboxStateRef.current = refreshInboxState;
 
   useEffect(() => {
     if (!isEmailInboxView(view)) return;
 
-    const interval = window.setInterval(() => {
-      void refreshInboxStateRef
-        .current?.({ allowBrowserNotifications: true })
-        .catch(() => {
-          // Keep polling silent while the user is working in the inbox.
+    void (async () => {
+      try {
+        await syncDueMailboxes(mailboxesRef.current);
+        await refreshInboxStateRef.current?.({
+          allowBrowserNotifications: true,
         });
+      } catch {
+        // Keep automatic refresh silent while the user is working in the inbox.
+      }
+    })();
+
+    const interval = window.setInterval(() => {
+      void (async () => {
+        try {
+          await syncDueMailboxes(mailboxesRef.current);
+          await refreshInboxStateRef.current?.({
+            allowBrowserNotifications: true,
+          });
+        } catch {
+          // Keep polling silent while the user is working in the inbox.
+        }
+      })();
     }, BROWSER_NOTIFICATION_POLL_INTERVAL_MS);
 
     return () => {
@@ -1041,7 +1102,7 @@ export function EmailInboxView({
             type="button"
             onClick={handleSync}
             disabled={mailboxes.length === 0 || busyState === "sync"}
-            className="inline-flex items-center gap-2 rounded-lg bg-[rgb(var(--theme-primary-rgb))] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg bg-theme-gradient px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {busyState === "sync" ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -1330,12 +1391,37 @@ export function EmailInboxView({
                 </div>
               ) : null}
             </div>
+            {view !== "email-quarantine" ? (
+              <div className="mb-3 inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
+                {[
+                  { id: "all", label: "All" },
+                  { id: "unread", label: "Unread" },
+                  { id: "read", label: "Read" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() =>
+                      setReadFilter(tab.id as "all" | "unread" | "read")
+                    }
+                    className={
+                      readFilter === tab.id
+                        ? "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
+                        : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
+                    }
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <EmailWorkList
               items={filteredItems}
               mailboxes={mailboxes}
               projects={data.projects}
               selectedId={selectedThreadId}
               onSelect={(item) => setSelectedThreadId(item.id)}
+              onSenderClick={(sender) => setSenderHistory(sender)}
               emptyLabel={
                 view === "email-quarantine"
                   ? "No suspicious email is waiting for review."
@@ -1371,9 +1457,15 @@ export function EmailInboxView({
                       {selectedThread.subject}
                     </div>
                     <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-sm text-zinc-300">
-                      {selectedThread.summaryText ||
-                        selectedThread.previewText ||
-                        "No summary yet."}
+                      <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                        <Sparkles className="h-3.5 w-3.5" />
+                        <span>AI Says:</span>
+                      </div>
+                      <div>
+                        {selectedThread.summaryText ||
+                          selectedThread.previewText ||
+                          "No summary yet."}
+                      </div>
                     </div>
                     {selectedThread.actionReason ? (
                       <div className="text-xs text-zinc-500">
@@ -1407,7 +1499,8 @@ export function EmailInboxView({
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                <div ref={projectPickerRef} className="relative">
+                <div ref={projectPickerRef} className="relative pt-2">
+                  <FloatingFieldLabel label="Project" />
                   {isProjectPickerOpen ? (
                     <>
                       <div className="relative">
@@ -1540,8 +1633,9 @@ export function EmailInboxView({
                     type="button"
                     onClick={() => void handleThreadAction("quarantine")}
                     disabled={Boolean(busyState)}
-                    className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
                   >
+                    <ShieldAlert className="h-4 w-4" />
                     Quarantine
                   </button>
                 )}
@@ -1600,22 +1694,25 @@ export function EmailInboxView({
                     <Reply className="h-4 w-4" />
                     Reply
                   </div>
-                  <Select
-                    value={replyMode}
-                    onValueChange={(value) =>
-                      setReplyMode(value as "reply_all" | "internal_note")
-                    }
-                  >
-                    <SelectTrigger className="h-9 w-[180px] border-zinc-700 bg-zinc-900 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="reply_all">Reply All</SelectItem>
-                      <SelectItem value="internal_note">
-                        Internal Note
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className="relative pt-2">
+                    <FloatingFieldLabel label="Reply Mode" />
+                    <Select
+                      value={replyMode}
+                      onValueChange={(value) =>
+                        setReplyMode(value as "reply_all" | "internal_note")
+                      }
+                    >
+                      <SelectTrigger className="h-9 w-[180px] border-zinc-700 bg-zinc-900 text-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="reply_all">Reply All</SelectItem>
+                        <SelectItem value="internal_note">
+                          Internal Note
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <textarea
                   value={replyContent}
@@ -1633,7 +1730,7 @@ export function EmailInboxView({
                     type="button"
                     onClick={handleReply}
                     disabled={busyState === "reply" || !replyContent.trim()}
-                    className="rounded-lg bg-[rgb(var(--theme-primary-rgb))] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    className="rounded-lg bg-theme-gradient px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                   >
                     {busyState === "reply" ? "Sending…" : "Send"}
                   </button>
@@ -1688,6 +1785,17 @@ export function EmailInboxView({
         rules={data.emailRules}
         mailboxFilterId={selectedMailboxId}
         onRefresh={onRefresh}
+      />
+
+      <SenderHistoryModal
+        open={Boolean(senderHistory)}
+        senderName={senderHistory?.name || null}
+        senderEmail={senderHistory?.email || null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSenderHistory(null);
+          }
+        }}
       />
     </div>
   );
