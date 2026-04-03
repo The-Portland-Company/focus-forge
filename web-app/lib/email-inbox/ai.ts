@@ -10,6 +10,7 @@ export type EmailThreadAIInput = {
   senderEmail: string;
   senderName?: string | null;
   mailboxEmail: string;
+  preventSpamClassification?: boolean;
   profile?: SummaryProfile | null;
   projectOptions: Array<{
     id: string;
@@ -115,7 +116,10 @@ export function buildHeuristicAnalysis(
   const subject = input.subject.trim() || "Untitled email";
   const bodyText = input.bodyText.trim();
 
-  if (detectSpam(subject, bodyText, input.senderEmail)) {
+  if (
+    !input.preventSpamClassification &&
+    detectSpam(subject, bodyText, input.senderEmail)
+  ) {
     return {
       classification: "spam",
       status: "quarantine",
@@ -165,6 +169,26 @@ export function buildHeuristicAnalysis(
     projectId,
     taskSuggestions,
   };
+}
+
+export function normalizePreventedSpamResult(
+  result: EmailThreadAIOutput,
+  fallback: EmailThreadAIOutput,
+  preventSpamClassification?: boolean,
+) {
+  if (!preventSpamClassification) {
+    return result;
+  }
+
+  if (
+    result.classification === "spam" ||
+    result.status === "spam" ||
+    result.status === "quarantine"
+  ) {
+    return fallback;
+  }
+
+  return result;
 }
 
 function getResponseSchema() {
@@ -258,7 +282,12 @@ Return concise, task-oriented JSON only.
 Prefer an existing project ID only when evidence is strong.
 Use the user's summary instructions when present.
 If the email is spam or low-value, quarantine it.
-If actionable but you cannot confidently route it, set needsProject=true and status=needs_project.`,
+If actionable but you cannot confidently route it, set needsProject=true and status=needs_project.
+${
+  input.preventSpamClassification
+    ? "A user rule already decided this sender must not be treated as spam. Do not return spam or quarantine."
+    : ""
+}`,
         },
         {
           role: "user",
@@ -299,28 +328,36 @@ If actionable but you cannot confidently route it, set needsProject=true and sta
 
   try {
     const parsed = JSON.parse(content);
-    return {
-      classification: parsed.classification,
-      status: parsed.status,
-      actionTitle: parsed.actionTitle,
-      summary: parsed.summary,
-      reason: parsed.reason,
-      confidence: Number(parsed.confidence ?? fallback.confidence),
-      needsProject: Boolean(parsed.needsProject),
-      projectId:
-        parsed.projectId &&
-        input.projectOptions.some((project) => project.id === parsed.projectId)
-          ? parsed.projectId
-          : null,
-      taskSuggestions: Array.isArray(parsed.taskSuggestions)
-        ? parsed.taskSuggestions.map((task: any) => ({
-            name: String(task.name || "").slice(0, 140),
-            description: String(task.description || ""),
-            priority: [1, 2, 3, 4].includes(task.priority) ? task.priority : 3,
-            dueDate: task.dueDate || null,
-          }))
-        : fallback.taskSuggestions,
-    };
+    return normalizePreventedSpamResult(
+      {
+        classification: parsed.classification,
+        status: parsed.status,
+        actionTitle: parsed.actionTitle,
+        summary: parsed.summary,
+        reason: parsed.reason,
+        confidence: Number(parsed.confidence ?? fallback.confidence),
+        needsProject: Boolean(parsed.needsProject),
+        projectId:
+          parsed.projectId &&
+          input.projectOptions.some(
+            (project) => project.id === parsed.projectId,
+          )
+            ? parsed.projectId
+            : null,
+        taskSuggestions: Array.isArray(parsed.taskSuggestions)
+          ? parsed.taskSuggestions.map((task: any) => ({
+              name: String(task.name || "").slice(0, 140),
+              description: String(task.description || ""),
+              priority: [1, 2, 3, 4].includes(task.priority)
+                ? task.priority
+                : 3,
+              dueDate: task.dueDate || null,
+            }))
+          : fallback.taskSuggestions,
+      },
+      fallback,
+      input.preventSpamClassification,
+    );
   } catch {
     return fallback;
   }

@@ -1,19 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
+  BellRing,
   Bot,
+  Check,
+  ChevronDown,
   FolderSearch,
   Loader2,
   Mail,
+  MailCheck,
   RefreshCw,
   Reply,
+  Search,
   ShieldAlert,
   Sparkles,
   Trash2,
 } from "lucide-react";
 import { EmailWorkList } from "@/components/email-work-list";
+import { EmailRulesPanel } from "@/components/email-rules-panel";
+import { EmailSpamReviewModal } from "@/components/email-spam-review-modal";
+import { Tooltip } from "@/components/tooltip";
 import {
   Select,
   SelectContent,
@@ -21,13 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type {
-  Database,
-  EmailRule,
-  InboxItem,
-  Mailbox,
-  SummaryProfile,
-} from "@/lib/types";
+import type { Database, InboxItem, Mailbox, SummaryProfile } from "@/lib/types";
 import {
   getMailboxPasswordValidationError,
   getVisibleMailboxSyncError,
@@ -40,6 +42,15 @@ import {
   createMailboxFormFromMailbox,
   MAILBOX_PROVIDER_PRESETS,
 } from "@/lib/email-inbox/provider-presets";
+import {
+  filterInboxProjects,
+  getThreadProjectId,
+  sortInboxProjects,
+} from "@/lib/email-thread-projects";
+import {
+  buildInboxBrowserNotificationContent,
+  listNewInboxItemsForNotification,
+} from "@/lib/push/email";
 
 type EmailInboxViewProps = {
   view: string;
@@ -48,12 +59,6 @@ type EmailInboxViewProps = {
   currentUserId?: string;
 };
 
-const DEFAULT_RULE_CONDITIONS = JSON.stringify(
-  [{ field: "sender_domain", operator: "contains", value: "example.com" }],
-  null,
-  2,
-);
-const DEFAULT_RULE_ACTIONS = JSON.stringify([{ type: "quarantine" }], null, 2);
 const DEFAULT_PROFILE_SETTINGS = JSON.stringify(
   {
     toneDetection: true,
@@ -63,6 +68,17 @@ const DEFAULT_PROFILE_SETTINGS = JSON.stringify(
   null,
   2,
 );
+const BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 60 * 1000;
+
+function getBrowserNotificationPermission():
+  | NotificationPermission
+  | "unsupported" {
+  if (typeof window === "undefined" || !("Notification" in window)) {
+    return "unsupported";
+  }
+
+  return window.Notification.permission;
+}
 
 function parseJsonValue<T>(input: string, fallback: T): T {
   try {
@@ -84,31 +100,30 @@ export function EmailInboxView({
   const [mailboxes, setMailboxes] = useState(data.mailboxes);
   const [inboxItems, setInboxItems] = useState(data.inboxItems);
   const [quarantineCount, setQuarantineCount] = useState(data.quarantineCount);
+  const [browserNotificationPermission, setBrowserNotificationPermission] =
+    useState<NotificationPermission | "unsupported">("unsupported");
   const [loadingThread, setLoadingThread] = useState(false);
   const [showMailboxForm, setShowMailboxForm] = useState(false);
   const [editingMailboxId, setEditingMailboxId] = useState<string | null>(null);
   const [mailboxForm, setMailboxForm] = useState(createEmptyMailboxForm);
+  const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
+  const [projectSearchQuery, setProjectSearchQuery] = useState("");
   const [replyContent, setReplyContent] = useState("");
   const [replyMode, setReplyMode] = useState<"reply_all" | "internal_note">(
     "reply_all",
   );
   const [busyState, setBusyState] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [editingRule, setEditingRule] = useState<EmailRule | null>(null);
-  const [ruleForm, setRuleForm] = useState({
-    name: "",
-    description: "",
-    mailboxId: "all",
-    priority: "100",
-    matchMode: "all",
-    stopProcessing: true,
-    isActive: true,
-    conditionsJson: DEFAULT_RULE_CONDITIONS,
-    actionsJson: DEFAULT_RULE_ACTIONS,
-  });
   const [editingProfile, setEditingProfile] = useState<SummaryProfile | null>(
     null,
   );
+  const [isSpamReviewOpen, setIsSpamReviewOpen] = useState(false);
+  const projectPickerRef = useRef<HTMLDivElement | null>(null);
+  const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
+  const refreshInboxStateRef = useRef<
+    | ((options?: { allowBrowserNotifications?: boolean }) => Promise<void>)
+    | null
+  >(null);
   const [profileForm, setProfileForm] = useState({
     name: "",
     mailboxId: "all",
@@ -146,13 +161,85 @@ export function EmailInboxView({
         : mailboxes.find((mailbox) => mailbox.id === selectedMailboxId) || null,
     [mailboxes, selectedMailboxId],
   );
+  const sortedInboxProjects = useMemo(
+    () => sortInboxProjects(data.projects),
+    [data.projects],
+  );
+  const filteredInboxProjects = useMemo(
+    () => filterInboxProjects(sortedInboxProjects, projectSearchQuery),
+    [projectSearchQuery, sortedInboxProjects],
+  );
+  const selectedProjectId = getThreadProjectId(selectedThread);
+  const selectedProject = useMemo(
+    () =>
+      sortedInboxProjects.find((project) => project.id === selectedProjectId) ||
+      null,
+    [selectedProjectId, sortedInboxProjects],
+  );
   const isEditingMailbox = editingMailboxId !== null;
 
   useEffect(() => {
+    setBrowserNotificationPermission(getBrowserNotificationPermission());
+  }, []);
+
+  const dispatchBrowserNotification = (item: InboxItem) => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      return false;
+    }
+
+    if (window.Notification.permission !== "granted") {
+      return false;
+    }
+
+    const alert = buildInboxBrowserNotificationContent(item);
+    const notification = new window.Notification(alert.title, {
+      body: alert.body,
+      tag: `email-thread-${item.id}`,
+    });
+
+    notification.onclick = () => {
+      window.focus();
+      setSelectedMailboxId(item.mailboxId || "all");
+      setSelectedThreadId(item.id);
+      notification.close();
+    };
+
+    return true;
+  };
+
+  const applyInboxSnapshot = (params: {
+    nextMailboxes: Mailbox[];
+    nextItems: InboxItem[];
+    allowBrowserNotifications?: boolean;
+  }) => {
+    if (
+      params.allowBrowserNotifications &&
+      browserNotificationPermission === "granted"
+    ) {
+      listNewInboxItemsForNotification({
+        previousItems: inboxSnapshotRef.current,
+        nextItems: params.nextItems,
+      }).forEach((item) => {
+        dispatchBrowserNotification(item);
+      });
+    }
+
+    inboxSnapshotRef.current = params.nextItems;
+    setMailboxes(params.nextMailboxes);
+    setInboxItems(params.nextItems);
+    setQuarantineCount(
+      params.nextItems.filter((item) => item.status === "quarantine").length,
+    );
+  };
+
+  useEffect(() => {
+    inboxSnapshotRef.current = data.inboxItems;
     setMailboxes(data.mailboxes);
     setInboxItems(data.inboxItems);
-    setQuarantineCount(data.quarantineCount);
-  }, [data.inboxItems, data.mailboxes, data.quarantineCount]);
+    setQuarantineCount(
+      data.inboxItems.filter((item) => item.status === "quarantine").length,
+    );
+  }, [data.inboxItems, data.mailboxes]);
 
   useEffect(() => {
     if (!isEmailInboxView(view)) return;
@@ -201,6 +288,31 @@ export function EmailInboxView({
     };
   }, [selectedThreadId, view]);
 
+  useEffect(() => {
+    setIsProjectPickerOpen(false);
+    setProjectSearchQuery("");
+  }, [selectedThreadId]);
+
+  useEffect(() => {
+    if (!isProjectPickerOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        projectPickerRef.current &&
+        !projectPickerRef.current.contains(event.target as Node)
+      ) {
+        setIsProjectPickerOpen(false);
+        setProjectSearchQuery("");
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [isProjectPickerOpen]);
+
   const updateStatus = (message: string) => {
     setStatusMessage(message);
     window.setTimeout(() => setStatusMessage(null), 2400);
@@ -212,7 +324,9 @@ export function EmailInboxView({
     mailboxForm.password,
   );
 
-  const refreshInboxState = async () => {
+  const refreshInboxState = async (options?: {
+    allowBrowserNotifications?: boolean;
+  }) => {
     const [mailboxesResponse, inboxResponse] = await Promise.all([
       fetch("/api/email/mailboxes", {
         credentials: "include",
@@ -232,13 +346,69 @@ export function EmailInboxView({
       throw new Error(inboxPayload.error || "Failed to load inbox");
     }
 
-    setMailboxes(Array.isArray(mailboxesPayload) ? mailboxesPayload : []);
-    setInboxItems(Array.isArray(inboxPayload) ? inboxPayload : []);
-    setQuarantineCount(
-      Array.isArray(inboxPayload)
-        ? inboxPayload.filter((item) => item.status === "quarantine").length
-        : 0,
-    );
+    applyInboxSnapshot({
+      nextMailboxes: Array.isArray(mailboxesPayload) ? mailboxesPayload : [],
+      nextItems: Array.isArray(inboxPayload) ? inboxPayload : [],
+      allowBrowserNotifications: options?.allowBrowserNotifications,
+    });
+  };
+
+  refreshInboxStateRef.current = refreshInboxState;
+
+  useEffect(() => {
+    if (!isEmailInboxView(view)) return;
+
+    const interval = window.setInterval(() => {
+      void refreshInboxStateRef
+        .current?.({ allowBrowserNotifications: true })
+        .catch(() => {
+          // Keep polling silent while the user is working in the inbox.
+        });
+    }, BROWSER_NOTIFICATION_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [view]);
+
+  const handleBrowserNotificationTest = async () => {
+    const currentPermission = getBrowserNotificationPermission();
+    if (currentPermission === "unsupported") {
+      updateStatus("Browser notifications are not supported here.");
+      return;
+    }
+
+    let nextPermission = currentPermission;
+
+    if (nextPermission === "default") {
+      nextPermission = await window.Notification.requestPermission();
+      setBrowserNotificationPermission(nextPermission);
+    } else {
+      setBrowserNotificationPermission(nextPermission);
+    }
+
+    if (nextPermission === "denied") {
+      updateStatus("Browser notifications are blocked in this browser.");
+      return;
+    }
+
+    if (nextPermission !== "granted") {
+      updateStatus("Browser notifications were not enabled.");
+      return;
+    }
+
+    const testItem = filteredItems[0] || inboxItems[0] || null;
+
+    if (testItem) {
+      dispatchBrowserNotification(testItem);
+    } else {
+      new window.Notification("Email Inbox", {
+        body: "Browser notifications are enabled for Focus Forge.",
+        tag: "email-inbox-browser-test",
+      });
+    }
+
+    updateStatus("Browser notification sent.");
   };
 
   const openMailboxCreateForm = () => {
@@ -306,7 +476,7 @@ export function EmailInboxView({
         }),
       );
 
-      await refreshInboxState();
+      await refreshInboxState({ allowBrowserNotifications: true });
 
       const totalMessages = results.reduce(
         (sum, result) => sum + result.syncedMessageCount,
@@ -441,7 +611,23 @@ export function EmailInboxView({
         throw new Error(payload.error || "Failed to apply thread action");
       }
       await refreshInboxState();
-      setSelectedThread(payload.id ? payload : selectedThread);
+      if (action === "mark_read") {
+        const detailResponse = await fetch(
+          `/api/email/threads/${selectedThreadId}`,
+          {
+            credentials: "include",
+          },
+        );
+        const detailPayload = await detailResponse.json();
+
+        if (!detailResponse.ok) {
+          throw new Error(detailPayload.error || "Failed to load thread");
+        }
+
+        setSelectedThread(detailPayload);
+      } else {
+        setSelectedThread(payload.id ? payload : selectedThread);
+      }
       updateStatus(`Applied ${action.replace(/_/g, " ")}.`);
     } catch (error) {
       updateStatus(
@@ -478,6 +664,18 @@ export function EmailInboxView({
       );
     } finally {
       setBusyState(null);
+    }
+  };
+
+  const closeProjectPicker = () => {
+    setIsProjectPickerOpen(false);
+    setProjectSearchQuery("");
+  };
+
+  const handleProjectPickerSelect = (projectId: string) => {
+    closeProjectPicker();
+    if (projectId !== selectedProjectId) {
+      void handleProjectAssign(projectId);
     }
   };
 
@@ -560,55 +758,6 @@ export function EmailInboxView({
     }
   };
 
-  const handleSaveRule = async () => {
-    setBusyState("rule");
-    try {
-      const response = await fetch(
-        editingRule ? `/api/email/rules/${editingRule.id}` : "/api/email/rules",
-        {
-          method: editingRule ? "PUT" : "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            name: ruleForm.name,
-            description: ruleForm.description || null,
-            mailboxId: ruleForm.mailboxId !== "all" ? ruleForm.mailboxId : null,
-            priority: Number(ruleForm.priority || 100),
-            matchMode: ruleForm.matchMode,
-            stopProcessing: ruleForm.stopProcessing,
-            isActive: ruleForm.isActive,
-            conditions: parseJsonValue(ruleForm.conditionsJson, []),
-            actions: parseJsonValue(ruleForm.actionsJson, []),
-          }),
-        },
-      );
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to save rule");
-      }
-      setEditingRule(null);
-      setRuleForm({
-        name: "",
-        description: "",
-        mailboxId: "all",
-        priority: "100",
-        matchMode: "all",
-        stopProcessing: true,
-        isActive: true,
-        conditionsJson: DEFAULT_RULE_CONDITIONS,
-        actionsJson: DEFAULT_RULE_ACTIONS,
-      });
-      await onRefresh();
-      updateStatus("Rule saved.");
-    } catch (error) {
-      updateStatus(
-        error instanceof Error ? error.message : "Failed to save rule",
-      );
-    } finally {
-      setBusyState(null);
-    }
-  };
-
   const handleSaveProfile = async () => {
     setBusyState("profile");
     try {
@@ -656,21 +805,6 @@ export function EmailInboxView({
     }
   };
 
-  const startEditingRule = (rule: EmailRule) => {
-    setEditingRule(rule);
-    setRuleForm({
-      name: rule.name,
-      description: rule.description || "",
-      mailboxId: rule.mailboxId || "all",
-      priority: String(rule.priority),
-      matchMode: rule.matchMode,
-      stopProcessing: rule.stopProcessing,
-      isActive: rule.isActive,
-      conditionsJson: JSON.stringify(rule.conditions, null, 2),
-      actionsJson: JSON.stringify(rule.actions, null, 2),
-    });
-  };
-
   const startEditingProfile = (profile: SummaryProfile) => {
     setEditingProfile(profile);
     setProfileForm({
@@ -685,167 +819,11 @@ export function EmailInboxView({
 
   if (view === "email-rules") {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold">Email Rules</h1>
-            <p className="mt-1 text-sm text-zinc-500">
-              Deterministic triage runs before AI classification.
-            </p>
-          </div>
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-sm text-zinc-400">
-            {data.ruleStats.active} active · {data.ruleStats.quarantine}{" "}
-            quarantine · {data.ruleStats.alwaysDelete} always delete
-          </div>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="space-y-3">
-            {data.emailRules.length === 0 ? (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 px-4 py-6 text-sm text-zinc-500">
-                No rules yet.
-              </div>
-            ) : (
-              data.emailRules.map((rule) => (
-                <button
-                  key={rule.id}
-                  type="button"
-                  onClick={() => startEditingRule(rule)}
-                  className="w-full rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-900/80"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium text-zinc-200">
-                      {rule.name}
-                    </div>
-                    <div className="text-xs text-zinc-500">
-                      Priority {rule.priority}
-                    </div>
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-400">
-                    {rule.description || "No description"}
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                    <span>{rule.matchMode.toUpperCase()}</span>
-                    <span>·</span>
-                    <span>
-                      {rule.actions.map((action) => action.type).join(", ")}
-                    </span>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-            <h2 className="text-lg font-semibold text-white">
-              {editingRule ? "Edit Rule" : "New Rule"}
-            </h2>
-            <div className="mt-4 space-y-3">
-              <input
-                value={ruleForm.name}
-                onChange={(event) =>
-                  setRuleForm((prev) => ({ ...prev, name: event.target.value }))
-                }
-                placeholder="Rule name"
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
-              />
-              <textarea
-                value={ruleForm.description}
-                onChange={(event) =>
-                  setRuleForm((prev) => ({
-                    ...prev,
-                    description: event.target.value,
-                  }))
-                }
-                placeholder="Description"
-                rows={3}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
-              />
-              <div className="grid gap-3 md:grid-cols-2">
-                <Select
-                  value={ruleForm.mailboxId}
-                  onValueChange={(value) =>
-                    setRuleForm((prev) => ({ ...prev, mailboxId: value }))
-                  }
-                >
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
-                    <SelectValue placeholder="Mailbox scope" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">
-                      All accessible mailboxes
-                    </SelectItem>
-                    {mailboxes.map((mailbox) => (
-                      <SelectItem key={mailbox.id} value={mailbox.id}>
-                        {mailbox.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <input
-                  value={ruleForm.priority}
-                  onChange={(event) =>
-                    setRuleForm((prev) => ({
-                      ...prev,
-                      priority: event.target.value,
-                    }))
-                  }
-                  placeholder="Priority"
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
-                />
-              </div>
-              <textarea
-                value={ruleForm.conditionsJson}
-                onChange={(event) =>
-                  setRuleForm((prev) => ({
-                    ...prev,
-                    conditionsJson: event.target.value,
-                  }))
-                }
-                rows={8}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs text-zinc-300"
-              />
-              <textarea
-                value={ruleForm.actionsJson}
-                onChange={(event) =>
-                  setRuleForm((prev) => ({
-                    ...prev,
-                    actionsJson: event.target.value,
-                  }))
-                }
-                rows={6}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs text-zinc-300"
-              />
-              <div className="flex items-center justify-between gap-3">
-                <label className="inline-flex items-center gap-2 text-sm text-zinc-400">
-                  <input
-                    type="checkbox"
-                    checked={ruleForm.stopProcessing}
-                    onChange={(event) =>
-                      setRuleForm((prev) => ({
-                        ...prev,
-                        stopProcessing: event.target.checked,
-                      }))
-                    }
-                  />
-                  Stop processing after match
-                </label>
-                <button
-                  type="button"
-                  onClick={handleSaveRule}
-                  disabled={busyState === "rule" || !ruleForm.name.trim()}
-                  className="rounded-lg bg-[rgb(var(--theme-primary-rgb))] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  {busyState === "rule" ? "Saving…" : "Save Rule"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-        {statusMessage ? (
-          <div className="text-sm text-zinc-400">{statusMessage}</div>
-        ) : null}
-      </div>
+      <EmailRulesPanel
+        rules={data.emailRules}
+        mailboxes={mailboxes}
+        onRefresh={onRefresh}
+      />
     );
   }
 
@@ -1010,6 +988,28 @@ export function EmailInboxView({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleBrowserNotificationTest}
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+          >
+            <BellRing className="h-4 w-4" />
+            {browserNotificationPermission === "granted"
+              ? "Send Test Alert"
+              : browserNotificationPermission === "denied"
+                ? "Alerts Blocked"
+                : "Enable Alerts"}
+          </button>
+          <Tooltip content="AI + Spam" className="w-auto">
+            <button
+              type="button"
+              onClick={() => setIsSpamReviewOpen(true)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+              aria-label="AI + Spam"
+            >
+              <Bot className="h-4 w-4" />
+            </button>
+          </Tooltip>
           <Select
             value={selectedMailboxId}
             onValueChange={setSelectedMailboxId}
@@ -1171,9 +1171,7 @@ export function EmailInboxView({
                     : "Mailbox password"
               }
               className={`rounded-lg border bg-zinc-800 px-3 py-2 text-sm text-white ${
-                mailboxPasswordError
-                  ? "border-red-500/70"
-                  : "border-zinc-700"
+                mailboxPasswordError ? "border-red-500/70" : "border-zinc-700"
               }`}
             />
             <input
@@ -1354,48 +1352,168 @@ export function EmailInboxView({
             </div>
           ) : selectedThread ? (
             <div className="space-y-5">
-              <div className="space-y-2 border-b border-zinc-800 pb-4">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {selectedThread.status}
-                </div>
-                <h2 className="text-xl font-semibold text-white">
-                  {selectedThread.actionTitle}
-                </h2>
-                <div className="text-sm text-zinc-500">
-                  {selectedThread.subject}
-                </div>
-                <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-sm text-zinc-300">
-                  {selectedThread.summaryText ||
-                    selectedThread.previewText ||
-                    "No summary yet."}
-                </div>
-                {selectedThread.actionReason ? (
-                  <div className="text-xs text-zinc-500">
-                    {selectedThread.actionReason}
+              <div className="border-b border-zinc-800 pb-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {selectedThread.status}
+                      {selectedThread.isUnread ? (
+                        <span className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                          Unread
+                        </span>
+                      ) : null}
+                    </div>
+                    <h2 className="text-xl font-semibold text-white">
+                      {selectedThread.actionTitle}
+                    </h2>
+                    <div className="text-sm text-zinc-500">
+                      {selectedThread.subject}
+                    </div>
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-sm text-zinc-300">
+                      {selectedThread.summaryText ||
+                        selectedThread.previewText ||
+                        "No summary yet."}
+                    </div>
+                    {selectedThread.actionReason ? (
+                      <div className="text-xs text-zinc-500">
+                        {selectedThread.actionReason}
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void handleThreadAction("mark_read")}
+                    disabled={Boolean(busyState) || !selectedThread.isUnread}
+                    title={
+                      selectedThread.isUnread
+                        ? "Mark thread as read"
+                        : "Thread already read"
+                    }
+                    aria-label={
+                      selectedThread.isUnread
+                        ? "Mark thread as read"
+                        : "Thread already read"
+                    }
+                    className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    {busyState === "mark_read" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <MailCheck className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                <Select
-                  value={selectedThread.projectId || "none"}
-                  onValueChange={(value) => {
-                    if (value !== "none") void handleProjectAssign(value);
-                  }}
-                >
-                  <SelectTrigger className="border-zinc-700 bg-zinc-800 text-white">
-                    <SelectValue placeholder="Assign project" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Select a project</SelectItem>
-                    {data.projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div ref={projectPickerRef} className="relative">
+                  {isProjectPickerOpen ? (
+                    <>
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                        <input
+                          type="text"
+                          value={projectSearchQuery}
+                          onChange={(event) =>
+                            setProjectSearchQuery(event.target.value)
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                              event.preventDefault();
+                              closeProjectPicker();
+                              return;
+                            }
+
+                            if (
+                              event.key === "Enter" &&
+                              filteredInboxProjects.length > 0
+                            ) {
+                              event.preventDefault();
+                              handleProjectPickerSelect(
+                                filteredInboxProjects[0].id,
+                              );
+                            }
+                          }}
+                          placeholder="Search projects..."
+                          autoFocus
+                          disabled={busyState === "project"}
+                          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2.5 pl-10 pr-10 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
+                        />
+                        <button
+                          type="button"
+                          onClick={closeProjectPicker}
+                          className="absolute inset-y-0 right-3 inline-flex items-center text-zinc-500 transition-colors hover:text-zinc-300"
+                          aria-label="Close project search"
+                        >
+                          <ChevronDown className="h-4 w-4 rotate-180" />
+                        </button>
+                      </div>
+                      <div className="absolute top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
+                        {filteredInboxProjects.length > 0 ? (
+                          filteredInboxProjects.map((project) => {
+                            const isSelected = project.id === selectedProjectId;
+                            return (
+                              <button
+                                key={project.id}
+                                type="button"
+                                onClick={() =>
+                                  handleProjectPickerSelect(project.id)
+                                }
+                                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                  isSelected
+                                    ? "bg-[rgb(var(--theme-primary-rgb))]/15 text-white"
+                                    : "text-zinc-300 hover:bg-zinc-700 hover:text-white"
+                                }`}
+                              >
+                                <div
+                                  className="h-3 w-3 flex-shrink-0 rounded-full"
+                                  style={{ backgroundColor: project.color }}
+                                />
+                                <span className="flex-1 truncate">
+                                  {project.name}
+                                </span>
+                                {isSelected ? (
+                                  <Check className="h-4 w-4 text-[rgb(var(--theme-primary-rgb))]" />
+                                ) : null}
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="px-3 py-2 text-sm text-zinc-500">
+                            No matching projects
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setIsProjectPickerOpen(true)}
+                      disabled={busyState === "project"}
+                      className="flex w-full items-center justify-between rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-white transition-colors hover:border-zinc-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {selectedProject ? (
+                        <div className="flex min-w-0 items-center gap-2">
+                          <div
+                            className="h-3 w-3 flex-shrink-0 rounded-full"
+                            style={{ backgroundColor: selectedProject.color }}
+                          />
+                          <span className="truncate">
+                            {selectedProject.name}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-zinc-400">Select a project</span>
+                      )}
+                      {busyState === "project" ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-zinc-400" />
+                      )}
+                    </button>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={handleGenerateTasks}
@@ -1561,6 +1679,16 @@ export function EmailInboxView({
       {statusMessage ? (
         <div className="text-sm text-zinc-400">{statusMessage}</div>
       ) : null}
+
+      <EmailSpamReviewModal
+        open={isSpamReviewOpen}
+        onOpenChange={setIsSpamReviewOpen}
+        items={inboxItems}
+        mailboxes={mailboxes}
+        rules={data.emailRules}
+        mailboxFilterId={selectedMailboxId}
+        onRefresh={onRefresh}
+      />
     </div>
   );
 }

@@ -7,6 +7,12 @@ import {
   applyEmailRules,
   type EmailRuleContext,
 } from "@/lib/email-inbox/rules";
+import { resolveRuleDrivenThreadState } from "@/lib/email-inbox/reprocess";
+import {
+  buildSpamExceptionRevertPayload,
+  buildSpamExceptionRulePayload,
+  generateSpamExceptionRuleDraft,
+} from "@/lib/email-inbox/spam-exception";
 import {
   buildParticipantSummary,
   buildThreadKey,
@@ -24,14 +30,25 @@ import {
 import { encryptMailboxCredentials } from "@/lib/email-inbox/crypto";
 import {
   applyMailboxThreadAction,
+  fetchMailboxMessageReadStates,
   fetchMailboxMessages,
   sendMailboxReply,
   type MailboxTransportRow,
 } from "@/lib/email-inbox/provider";
 import { MAILBOX_PROVIDER_PRESETS } from "@/lib/email-inbox/provider-presets";
+import {
+  hasApnsConfiguration,
+  isApnsPermanentFailure,
+  sendApnsNotification,
+} from "@/lib/push/apns";
+import {
+  buildEmailPushNotificationContent,
+  shouldSendEmailPushNotification,
+} from "@/lib/push/email";
 import type {
   ConversationEntry,
   EmailRule,
+  EmailSpamExceptionResult,
   InboxItem,
   InboxParticipant,
   InboxTaskSuggestion,
@@ -235,6 +252,65 @@ async function ensureThreadAccess(userId: string, threadId: string) {
   return thread;
 }
 
+async function getLatestThreadMessage(threadId: string) {
+  const admin = getAdminClient();
+  const { data: latestMessage } = await admin
+    .from("email_messages")
+    .select("*")
+    .eq("thread_id", threadId)
+    .order("received_at", { ascending: false })
+    .order("sent_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return latestMessage;
+}
+
+function serializeRuleConditions(rule: Pick<EmailRule, "conditions">) {
+  return JSON.stringify(
+    [...rule.conditions]
+      .map((condition) => ({
+        field: condition.field,
+        operator: condition.operator,
+        value: condition.value.trim().toLowerCase(),
+      }))
+      .sort((a, b) =>
+        `${a.field}:${a.operator}:${a.value}`.localeCompare(
+          `${b.field}:${b.operator}:${b.value}`,
+        ),
+      ),
+  );
+}
+
+async function findMatchingNeverSpamRule(params: {
+  userId: string;
+  mailboxId: string | null;
+  conditions: EmailRule["conditions"];
+}) {
+  const rules = await listRulesForUser(params.userId);
+  const targetConditions = serializeRuleConditions({
+    conditions: params.conditions,
+  });
+
+  return (
+    rules.find((rule) => {
+      if (Boolean(rule.mailboxId) !== Boolean(params.mailboxId)) {
+        return false;
+      }
+
+      if ((rule.mailboxId || null) !== (params.mailboxId || null)) {
+        return false;
+      }
+
+      if (!rule.actions.some((action) => action.type === "never_spam")) {
+        return false;
+      }
+
+      return serializeRuleConditions(rule) === targetConditions;
+    }) || null
+  );
+}
+
 async function ensureMailboxSummaryProfile(params: {
   userId: string;
   mailboxId: string;
@@ -400,6 +476,7 @@ async function findThreadForMessage(mailbox: any, message: any) {
     subject: message.subject || "Untitled email",
     normalized_subject: normalizeSubject(message.subject),
     preview_text: extractPlainTextPreview(message.bodyText, 240),
+    is_unread: message.isUnread,
     latest_message_at:
       message.receivedAt || message.sentAt || new Date().toISOString(),
     latest_inbound_at:
@@ -514,6 +591,7 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
       cc: message.cc,
       bcc: message.bcc,
       replyTo: message.replyTo,
+      isUnread: message.isUnread,
     },
   };
 
@@ -562,6 +640,7 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
       subject: message.subject || "Untitled email",
       normalized_subject: normalizeSubject(message.subject),
       preview_text: extractPlainTextPreview(message.bodyText, 240),
+      is_unread: message.isUnread,
       latest_message_at:
         message.receivedAt || message.sentAt || new Date().toISOString(),
       latest_inbound_at:
@@ -626,6 +705,7 @@ function mapThreadToInboxItem(params: {
     latestMessageAt: params.row.latest_message_at ?? null,
     latestInboundAt: params.row.latest_inbound_at ?? null,
     latestOutboundAt: params.row.latest_outbound_at ?? null,
+    isUnread: Boolean(params.row.is_unread),
     workDueDate: params.row.work_due_date ?? null,
     workDueTime: params.row.work_due_time ?? null,
     needsProject: Boolean(params.row.needs_project),
@@ -669,6 +749,217 @@ function appendParticipant(
     current.push(participant);
     map.set(key, current);
   }
+}
+
+async function listMailboxPushRecipientIds(mailbox: any) {
+  const admin = getAdminClient();
+  const recipientIds = new Set<string>();
+
+  if (mailbox.owner_user_id) {
+    recipientIds.add(String(mailbox.owner_user_id));
+  }
+
+  const [{ data: memberRows }, { data: orgRows }] = await Promise.all([
+    admin
+      .from("mailbox_members")
+      .select("user_id")
+      .eq("mailbox_id", mailbox.id),
+    mailbox.is_shared && mailbox.organization_id
+      ? admin
+          .from("user_organizations")
+          .select("user_id")
+          .eq("organization_id", mailbox.organization_id)
+      : Promise.resolve({ data: [] as any[] }),
+  ]);
+
+  [...(memberRows || []), ...(orgRows || [])].forEach((row: any) => {
+    if (row?.user_id) {
+      recipientIds.add(String(row.user_id));
+    }
+  });
+
+  return Array.from(recipientIds);
+}
+
+async function syncMailboxThreadReadStates(params: {
+  mailboxId: string;
+  mailbox: MailboxTransportRow;
+}) {
+  const admin = getAdminClient();
+  const { data: messageRows } = await admin
+    .from("email_messages")
+    .select("thread_id,provider_message_id")
+    .eq("mailbox_id", params.mailboxId)
+    .not("provider_message_id", "is", null);
+
+  if (!messageRows || messageRows.length === 0) {
+    await admin
+      .from("email_threads")
+      .update({ is_unread: false })
+      .eq("mailbox_id", params.mailboxId);
+    return;
+  }
+
+  const threadIdByProviderMessageId = new Map<string, string>();
+  const unreadByThreadId = new Map<string, boolean>();
+
+  (messageRows as any[]).forEach((row) => {
+    const threadId = String(row.thread_id || "");
+    const providerMessageId = String(row.provider_message_id || "");
+
+    if (!threadId || !providerMessageId) {
+      return;
+    }
+
+    threadIdByProviderMessageId.set(providerMessageId, threadId);
+    unreadByThreadId.set(threadId, false);
+  });
+
+  const readStates = await fetchMailboxMessageReadStates(
+    params.mailbox,
+    Array.from(threadIdByProviderMessageId.keys()),
+  );
+
+  readStates.forEach((state) => {
+    const threadId = threadIdByProviderMessageId.get(state.providerMessageId);
+
+    if (threadId && state.isUnread) {
+      unreadByThreadId.set(threadId, true);
+    }
+  });
+
+  await Promise.all(
+    Array.from(unreadByThreadId.entries()).map(([threadId, isUnread]) =>
+      admin
+        .from("email_threads")
+        .update({ is_unread: isUnread })
+        .eq("id", threadId),
+    ),
+  );
+}
+
+async function sendNewEmailPushNotifications(params: {
+  mailbox: any;
+  thread: any;
+  message: any;
+  messageId: string;
+  hadPreviousSync: boolean;
+}) {
+  if (!params.thread?.id) {
+    return { attempted: 0, delivered: 0 };
+  }
+
+  if (
+    !shouldSendEmailPushNotification({
+      hadPreviousSync: params.hadPreviousSync,
+      status: params.thread?.status ?? null,
+      classification: params.thread?.classification ?? null,
+      alwaysDelete: params.thread?.always_delete ?? false,
+    })
+  ) {
+    return { attempted: 0, delivered: 0 };
+  }
+
+  if (!hasApnsConfiguration()) {
+    return { attempted: 0, delivered: 0 };
+  }
+
+  const recipientIds = await listMailboxPushRecipientIds(params.mailbox);
+  if (recipientIds.length === 0) {
+    return { attempted: 0, delivered: 0 };
+  }
+
+  const admin = getAdminClient();
+  const { data: devices } = await admin
+    .from("mobile_push_devices")
+    .select("*")
+    .in("user_id", recipientIds)
+    .eq("platform", "ios")
+    .eq("is_active", true);
+
+  if (!devices || devices.length === 0) {
+    return { attempted: 0, delivered: 0 };
+  }
+
+  const sender = params.message.from?.[0] || null;
+  const alert = buildEmailPushNotificationContent({
+    mailboxName:
+      params.mailbox.display_name ||
+      params.mailbox.name ||
+      params.mailbox.email_address,
+    mailboxEmailAddress: params.mailbox.email_address,
+    senderName: sender?.name ?? null,
+    senderEmail: sender?.email ?? null,
+    subject: params.message.subject ?? params.thread?.subject ?? null,
+  });
+
+  let delivered = 0;
+  const now = new Date().toISOString();
+
+  for (const device of devices as any[]) {
+    const pushToken = String(device.push_token || "").trim();
+    const topic = String(device.bundle_id || "").trim();
+    if (!pushToken || !topic) {
+      continue;
+    }
+
+    const result = await sendApnsNotification({
+      deviceToken: pushToken,
+      topic,
+      environment: device.environment === "sandbox" ? "sandbox" : "production",
+      collapseId: String(params.thread.id),
+      payload: {
+        aps: {
+          alert,
+          sound: "default",
+          "thread-id": String(params.thread.id),
+        },
+        type: "email_message_received",
+        threadId: String(params.thread.id),
+        mailboxId: String(params.mailbox.id),
+        messageId: params.messageId,
+        subject: params.message.subject ?? null,
+        senderEmail: sender?.email ?? null,
+      },
+    });
+
+    if (result.ok) {
+      delivered += 1;
+      await admin
+        .from("mobile_push_devices")
+        .update({
+          last_notified_at: now,
+          last_error_at: null,
+          last_error_message: null,
+        })
+        .eq("id", device.id);
+      continue;
+    }
+
+    if (result.status === 0) {
+      return { attempted: 0, delivered: 0 };
+    }
+
+    const nextState: Record<string, unknown> = {
+      last_error_at: now,
+      last_error_message:
+        result.reason || result.responseText || "Push delivery failed.",
+    };
+
+    if (isApnsPermanentFailure(result)) {
+      nextState.is_active = false;
+    }
+
+    await admin
+      .from("mobile_push_devices")
+      .update(nextState)
+      .eq("id", device.id);
+  }
+
+  return {
+    attempted: devices.length,
+    delivered,
+  };
 }
 
 export async function listMailboxesForUser(userId: string): Promise<Mailbox[]> {
@@ -1000,14 +1291,7 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
     actorUserId || thread.owner_user_id,
     String(thread.mailbox_id),
   );
-  const { data: latestMessage } = await admin
-    .from("email_messages")
-    .select("*")
-    .eq("thread_id", thread.id)
-    .order("received_at", { ascending: false })
-    .order("sent_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const latestMessage = await getLatestThreadMessage(String(thread.id));
 
   if (!latestMessage) {
     return thread;
@@ -1040,6 +1324,8 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
     );
   }
 
+  const preventSpamClassification = appliedRules.actions.includes("never_spam");
+
   const profile = await chooseSummaryProfile(mailbox, mailbox.owner_user_id);
   const projectOptions = await getVisibleProjectsForUser(
     mailbox.owner_user_id,
@@ -1050,6 +1336,7 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
     bodyText: latestMessage.body_text || "",
     senderEmail: buildRuleContext(mailbox, latestMessage).senderEmail,
     mailboxEmail: mailbox.email_address,
+    preventSpamClassification,
     profile,
     projectOptions: projectOptions.map((project) => ({
       id: project.id,
@@ -1059,28 +1346,11 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
   });
 
   const ruleActions = new Set(appliedRules.actions);
-  let status: InboxItem["status"] = aiResult.status;
-  let classification: InboxItem["classification"] = aiResult.classification;
-  let needsProject = aiResult.needsProject;
-  let alwaysDelete = false;
-
-  if (ruleActions.has("always_delete")) {
-    status = "deleted";
-    classification = "spam";
-    alwaysDelete = true;
-  } else if (ruleActions.has("spam")) {
-    status = "quarantine";
-    classification = "spam";
-  } else if (ruleActions.has("quarantine")) {
-    status = "quarantine";
-  } else if (ruleActions.has("archive")) {
-    status = "archived";
-  }
-
-  if (ruleActions.has("require_project")) {
-    needsProject = true;
-    status = "needs_project";
-  }
+  let { status, classification, needsProject, alwaysDelete } =
+    resolveRuleDrivenThreadState({
+      aiResult,
+      ruleActions,
+    });
 
   const projectId =
     thread.project_id ||
@@ -1351,19 +1621,55 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       syncState?.last_seen_message_at ?? mailbox.last_synced_at ?? null,
     );
     const changedThreadIds = new Set<string>();
+    const notificationCandidates: Array<{
+      message: any;
+      messageId: string;
+      threadId: string;
+    }> = [];
     let newestTimestamp = syncState?.last_seen_message_at ?? null;
+    const hadPreviousSync = Boolean(
+      syncState?.last_seen_message_at || mailbox.last_synced_at,
+    );
 
     for (const message of messages) {
       const result = await ingestMailboxMessage(mailbox, message);
       changedThreadIds.add(result.threadId);
+      if (result.inserted) {
+        notificationCandidates.push({
+          message,
+          messageId: result.messageId,
+          threadId: result.threadId,
+        });
+      }
       const candidate = message.receivedAt || message.sentAt || null;
       if (candidate && (!newestTimestamp || candidate > newestTimestamp)) {
         newestTimestamp = candidate;
       }
     }
 
+    const processedThreads = new Map<string, any>();
     for (const threadId of changedThreadIds) {
-      await reprocessThread(threadId, mailbox.owner_user_id);
+      const thread = await reprocessThread(threadId, mailbox.owner_user_id);
+      if (thread?.id) {
+        processedThreads.set(String(thread.id), thread);
+      }
+    }
+
+    await syncMailboxThreadReadStates({
+      mailboxId,
+      mailbox: transportMailbox,
+    });
+
+    let pushNotificationCount = 0;
+    for (const candidate of notificationCandidates) {
+      const result = await sendNewEmailPushNotifications({
+        mailbox,
+        thread: processedThreads.get(candidate.threadId),
+        message: candidate.message,
+        messageId: candidate.messageId,
+        hadPreviousSync,
+      });
+      pushNotificationCount += result.delivered;
     }
 
     await admin
@@ -1387,6 +1693,7 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
     return {
       syncedMessageCount: messages.length,
       changedThreadCount: changedThreadIds.size,
+      pushNotificationCount,
     };
   } catch (error) {
     const message = extractMailboxErrorMessage(error);
@@ -1698,6 +2005,7 @@ export async function replyToThread(params: {
     .update({
       latest_outbound_at: new Date().toISOString(),
       latest_message_at: new Date().toISOString(),
+      is_unread: false,
       updated_at: new Date().toISOString(),
     })
     .eq("id", params.threadId);
@@ -1778,6 +2086,7 @@ export async function applyThreadAction(params: {
         status: "deleted",
         classification: "spam",
         always_delete: true,
+        is_unread: false,
         updated_at: new Date().toISOString(),
       })
       .eq("id", params.threadId);
@@ -1797,6 +2106,13 @@ export async function applyThreadAction(params: {
       providerMessageIds,
       action: "mark_read",
     });
+    await admin
+      .from("email_threads")
+      .update({
+        is_unread: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", params.threadId);
     return { success: true };
   }
 
@@ -1810,11 +2126,142 @@ export async function applyThreadAction(params: {
     .from("email_threads")
     .update({
       status: statusUpdates[params.action],
+      is_unread: false,
       updated_at: new Date().toISOString(),
     })
     .eq("id", params.threadId);
 
   return { success: true };
+}
+
+export async function createSpamExceptionRuleForThread(
+  userId: string,
+  threadId: string,
+): Promise<EmailSpamExceptionResult> {
+  const thread = await ensureThreadAccess(userId, threadId);
+  const mailbox = (await ensureMailboxManage(
+    userId,
+    String(thread.mailbox_id),
+  )) as MailboxTransportRow;
+  const latestMessage = await getLatestThreadMessage(threadId);
+
+  if (!latestMessage) {
+    throw new Error("Email thread has no messages");
+  }
+
+  const metadata = latestMessage.metadata_json || {};
+  const ruleContext = buildRuleContext(mailbox, latestMessage);
+  const draft = await generateSpamExceptionRuleDraft({
+    senderEmail: ruleContext.senderEmail,
+    senderName:
+      String(
+        metadata.from?.[0]?.name ||
+          latestMessage.author_name ||
+          latestMessage.display_name ||
+          "",
+      ) || null,
+    subject: String(latestMessage.subject || thread.subject || ""),
+    bodyText: String(latestMessage.body_text || ""),
+    mailboxId: mailbox.id,
+    mailboxEmail: mailbox.email_address,
+    mailboxName: mailbox.display_name || mailbox.email_address,
+    participantEmails: ruleContext.participants,
+    summaryText: thread.summary_text ?? null,
+    reason: thread.action_reason ?? null,
+  });
+  const payload = buildSpamExceptionRulePayload({
+    userId,
+    draft,
+    mailboxId: mailbox.id,
+  });
+  const existingRule = await findMatchingNeverSpamRule({
+    userId,
+    mailboxId: payload.mailboxId,
+    conditions: payload.conditions,
+  });
+
+  let rule: EmailRule;
+
+  if (existingRule) {
+    if (
+      !existingRule.isActive ||
+      existingRule.name !== payload.name ||
+      existingRule.description !== payload.description
+    ) {
+      rule = await updateRule(userId, existingRule.id, {
+        name: payload.name,
+        description: payload.description,
+        isActive: true,
+        priority: payload.priority,
+        matchMode: payload.matchMode,
+        conditions: payload.conditions,
+        actions: payload.actions,
+        stopProcessing: payload.stopProcessing,
+      });
+    } else {
+      rule = existingRule;
+    }
+  } else {
+    rule = await createRule(userId, payload);
+  }
+
+  await reprocessThread(threadId, userId);
+
+  return {
+    threadId,
+    rule,
+    rationale: draft.rationale,
+  };
+}
+
+export async function revertSpamExceptionRule(params: {
+  userId: string;
+  ruleId: string;
+  threadId: string;
+}): Promise<EmailSpamExceptionResult> {
+  const admin = getAdminClient();
+  await ensureThreadAccess(params.userId, params.threadId);
+
+  const { data: existingRuleRow } = await admin
+    .from("email_rules")
+    .select("*")
+    .eq("id", params.ruleId)
+    .maybeSingle();
+
+  if (!existingRuleRow) {
+    throw new Error("Rule not found");
+  }
+
+  const existingRule = coerceRule(existingRuleRow);
+
+  if (!existingRule.actions.some((action) => action.type === "never_spam")) {
+    throw new Error("Rule is not a spam exception");
+  }
+
+  if (existingRule.mailboxId) {
+    await ensureMailboxManage(params.userId, existingRule.mailboxId);
+  } else if (existingRule.userId && existingRule.userId !== params.userId) {
+    throw new Error("Rule not found");
+  }
+
+  const revertPayload = buildSpamExceptionRevertPayload();
+  const { data: updatedRuleRow } = await admin
+    .from("email_rules")
+    .update({
+      is_active: revertPayload.isActive,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.ruleId)
+    .select()
+    .single();
+
+  await reprocessThread(params.threadId, params.userId);
+
+  return {
+    threadId: params.threadId,
+    rule: coerceRule(updatedRuleRow),
+    rationale: "",
+  };
 }
 
 export async function createRule(userId: string, payload: any) {

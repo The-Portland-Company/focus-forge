@@ -1,7 +1,10 @@
 /* eslint-env node */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildHeuristicAnalysis } from "../email-inbox/ai";
+import {
+  buildHeuristicAnalysis,
+  normalizePreventedSpamResult,
+} from "../email-inbox/ai";
 
 test("buildHeuristicAnalysis quarantines obvious spam", () => {
   const result = buildHeuristicAnalysis({
@@ -35,4 +38,41 @@ test("buildHeuristicAnalysis routes actionable email to a matching project", () 
   assert.equal(result.status, "active");
   assert.equal(result.projectId, "project-1");
   assert.equal(result.taskSuggestions.length > 0, true);
+});
+
+test("buildHeuristicAnalysis skips spam classification when prevented by rule", () => {
+  const result = buildHeuristicAnalysis({
+    subject: "Limited time offer",
+    bodyText: "Buy now and unsubscribe later",
+    senderEmail: "promo@offers.example",
+    mailboxEmail: "ops@example.com",
+    preventSpamClassification: true,
+    projectOptions: [],
+  });
+
+  assert.notEqual(result.classification, "spam");
+  assert.notEqual(result.status, "quarantine");
+});
+
+test("normalizePreventedSpamResult falls back to the non-spam result", () => {
+  const fallback = buildHeuristicAnalysis({
+    subject: "Client follow-up",
+    bodyText: "Please review the proposal and reply today.",
+    senderEmail: "client@example.com",
+    mailboxEmail: "ops@example.com",
+    preventSpamClassification: true,
+    projectOptions: [],
+  });
+
+  const normalized = normalizePreventedSpamResult(
+    {
+      ...fallback,
+      classification: "spam",
+      status: "quarantine",
+    },
+    fallback,
+    true,
+  );
+
+  assert.deepEqual(normalized, fallback);
 });

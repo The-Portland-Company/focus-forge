@@ -1,44 +1,50 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from "react";
 
 interface TooltipProps {
-  children: React.ReactNode
-  content: string
-  delay?: number
+  children: React.ReactNode;
+  content: string;
+  delay?: number;
+  className?: string;
 }
 
-export function Tooltip({ children, content, delay = 0 }: TooltipProps) {
-  const [isVisible, setIsVisible] = useState(false)
-  const [position, setPosition] = useState({ top: 0, left: 0 })
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const triggerRef = useRef<HTMLDivElement>(null)
+export function Tooltip({
+  children,
+  content,
+  delay = 0,
+  className = "w-full",
+}: TooltipProps) {
+  const [isVisible, setIsVisible] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
 
   const showTooltip = () => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
-      setIsVisible(true)
+      setIsVisible(true);
       if (triggerRef.current) {
-        const rect = triggerRef.current.getBoundingClientRect()
+        const rect = triggerRef.current.getBoundingClientRect();
         setPosition({
           top: rect.top + rect.height / 2,
-          left: rect.right + 10
-        })
+          left: rect.right + 10,
+        });
       }
-    }, delay)
-  }
+    }, delay);
+  };
 
   const hideTooltip = () => {
     if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-      timeoutRef.current = null
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
     }
-    setIsVisible(false)
-  }
+    setIsVisible(false);
+  };
 
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    }
-  }, [])
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   return (
     <>
@@ -46,7 +52,7 @@ export function Tooltip({ children, content, delay = 0 }: TooltipProps) {
         ref={triggerRef}
         onMouseEnter={showTooltip}
         onMouseLeave={hideTooltip}
-        className="w-full"
+        className={className}
       >
         {children}
       </div>
@@ -56,20 +62,20 @@ export function Tooltip({ children, content, delay = 0 }: TooltipProps) {
           style={{
             top: `${position.top}px`,
             left: `${position.left}px`,
-            transform: 'translateY(-50%)'
+            transform: "translateY(-50%)",
           }}
         >
           {content}
           <div
             className="absolute w-0 h-0 border-t-4 border-b-4 border-r-4 border-t-transparent border-b-transparent border-r-zinc-800"
             style={{
-              left: '-4px',
-              top: '50%',
-              transform: 'translateY(-50%)'
+              left: "-4px",
+              top: "50%",
+              transform: "translateY(-50%)",
             }}
           />
         </div>
       )}
     </>
-  )
+  );
 }

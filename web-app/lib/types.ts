@@ -312,6 +312,7 @@ export interface InboxItem {
   latestMessageAt?: string | null;
   latestInboundAt?: string | null;
   latestOutboundAt?: string | null;
+  isUnread?: boolean;
   workDueDate?: string | null;
   workDueTime?: string | null;
   needsProject: boolean;
@@ -343,6 +344,7 @@ export interface EmailRuleAction {
     | "mark_read"
     | "archive"
     | "spam"
+    | "never_spam"
     | "assign_mailbox_owner"
     | "require_project"
     | "generate_tasks";
@@ -365,6 +367,12 @@ export interface EmailRule {
   stopProcessing: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface EmailSpamExceptionResult {
+  threadId: string;
+  rule: EmailRule;
+  rationale: string;
 }
 
 export interface SummaryProfile {

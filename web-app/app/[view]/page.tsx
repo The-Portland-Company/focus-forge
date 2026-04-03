@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -48,7 +48,10 @@ import { AddSectionDivider } from "@/components/add-section-divider";
 import { ProjectNotesModal } from "@/components/project-notes-modal";
 import { AiPlannerFloatingChat } from "@/components/ai-planner-floating-chat";
 import { EmailInboxView } from "@/components/email-inbox-view";
+import { EmailSpamReviewModal } from "@/components/email-spam-review-modal";
+import { EmailThreadModal } from "@/components/email-thread-modal";
 import { EmailWorkList } from "@/components/email-work-list";
+import { Tooltip } from "@/components/tooltip";
 import { format } from "date-fns";
 import {
   getLocalDateString,
@@ -140,6 +143,7 @@ export default function ViewPage() {
     tomorrow: true,
     restOfWeek: true,
   });
+  const [showTodaySpamReview, setShowTodaySpamReview] = useState(false);
   const [showAddSection, setShowAddSection] = useState(false);
   const [sectionParentId, setSectionParentId] = useState<string | undefined>(
     undefined,
@@ -196,6 +200,9 @@ export default function ViewPage() {
   const [showProjectNotesModal, setShowProjectNotesModal] = useState(false);
   const [showAutoSectionConfirm, setShowAutoSectionConfirm] = useState(false);
   const [autoSectioning, setAutoSectioning] = useState(false);
+  const [selectedTodayEmailId, setSelectedTodayEmailId] = useState<
+    string | null
+  >(null);
 
   const createEmptyDatabase = (): Database => ({
     users: [],
@@ -225,7 +232,21 @@ export default function ViewPage() {
     setBulkSelectMode(false);
     setSelectedTaskIds(new Set());
     setLastSelectedTaskId(null);
+    setSelectedTodayEmailId(null);
   }, [view]);
+
+  useEffect(() => {
+    if (!database || !selectedTodayEmailId) return;
+
+    const isStillVisible = database.inboxItems.some(
+      (item) =>
+        item.id === selectedTodayEmailId && shouldShowInboxItemInToday(item),
+    );
+
+    if (!isStillVisible) {
+      setSelectedTodayEmailId(null);
+    }
+  }, [database, selectedTodayEmailId]);
 
   // Theme is now handled by AuthContext
 
@@ -2011,26 +2032,31 @@ export default function ViewPage() {
         count,
         section,
         isOpen,
+        actions,
       }: {
         title: string;
         count: number;
         section: keyof typeof todaySections;
         isOpen: boolean;
+        actions?: ReactNode;
       }) => (
-        <button
-          onClick={() => toggleSection(section)}
-          className="w-full flex items-center justify-between py-2 px-1 border-b border-zinc-700 group"
-        >
-          <span className="text-sm font-medium text-zinc-500 group-hover:text-zinc-400 transition-colors">
-            {title}{" "}
-            {count > 0 && <span className="text-zinc-600">({count})</span>}
-          </span>
-          {isOpen ? (
-            <ChevronDown className="w-4 h-4 text-zinc-600 group-hover:text-zinc-500 transition-colors" />
-          ) : (
-            <ChevronUp className="w-4 h-4 text-zinc-600 group-hover:text-zinc-500 transition-colors" />
-          )}
-        </button>
+        <div className="flex items-center gap-3 border-b border-zinc-700 py-2 px-1">
+          <button
+            onClick={() => toggleSection(section)}
+            className="group flex flex-1 items-center justify-between"
+          >
+            <span className="text-sm font-medium text-zinc-500 transition-colors group-hover:text-zinc-400">
+              {title}{" "}
+              {count > 0 && <span className="text-zinc-600">({count})</span>}
+            </span>
+            {isOpen ? (
+              <ChevronDown className="h-4 w-4 text-zinc-600 transition-colors group-hover:text-zinc-500" />
+            ) : (
+              <ChevronUp className="h-4 w-4 text-zinc-600 transition-colors group-hover:text-zinc-500" />
+            )}
+          </button>
+          {actions ? <div className="flex items-center">{actions}</div> : null}
+        </div>
       );
 
       const handleTaskUpdate = async (
@@ -2363,6 +2389,18 @@ export default function ViewPage() {
                     count={todayEmailItems.length}
                     section="email"
                     isOpen={todaySections.email}
+                    actions={
+                      <Tooltip content="AI + Spam" className="w-auto">
+                        <button
+                          type="button"
+                          onClick={() => setShowTodaySpamReview(true)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                          aria-label="AI + Spam"
+                        >
+                          <Bot className="h-4 w-4" />
+                        </button>
+                      </Tooltip>
+                    }
                   />
                   {todaySections.email && (
                     <div className="mt-2">
@@ -2370,6 +2408,8 @@ export default function ViewPage() {
                         items={todayEmailItems}
                         mailboxes={database.mailboxes}
                         projects={database.projects}
+                        selectedId={selectedTodayEmailId}
+                        onSelect={(item) => setSelectedTodayEmailId(item.id)}
                         emptyLabel="No email work is waiting in Today."
                       />
                     </div>
@@ -3698,6 +3738,27 @@ export default function ViewPage() {
           {renderContent()}
         </div>
       </main>
+
+      <EmailThreadModal
+        open={selectedTodayEmailId !== null}
+        threadId={selectedTodayEmailId}
+        projects={database.projects}
+        onRefresh={fetchData}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setSelectedTodayEmailId(null);
+          }
+        }}
+      />
+
+      <EmailSpamReviewModal
+        open={showTodaySpamReview}
+        onOpenChange={setShowTodaySpamReview}
+        items={database.inboxItems}
+        mailboxes={database.mailboxes}
+        rules={database.emailRules}
+        onRefresh={fetchData}
+      />
 
       {undoCompletion && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
