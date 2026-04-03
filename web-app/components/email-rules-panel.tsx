@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Bot, Plus, Sparkles, Wand2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -9,6 +10,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { EmailRule, Mailbox } from "@/lib/types";
+import {
+  EMAIL_RULE_ACTION_OPTIONS,
+  EMAIL_RULE_FIELD_OPTIONS,
+} from "@/lib/email-inbox/rule-assistant";
 import { cn } from "@/lib/utils";
 
 type EmailRulesPanelProps = {
@@ -17,6 +22,7 @@ type EmailRulesPanelProps = {
   onRefresh?: () => Promise<void> | void;
   onRuleSaved?: (rule: EmailRule) => void;
   showHeader?: boolean;
+  compact?: boolean;
   className?: string;
 };
 
@@ -65,12 +71,17 @@ function computeRuleStats(rules: EmailRule[]) {
   };
 }
 
+function extractSampleLabel(value: string) {
+  return `${value.slice(0, 44).trimEnd()}${value.length > 44 ? "..." : ""}`;
+}
+
 export function EmailRulesPanel({
   rules,
   mailboxes,
   onRefresh,
   onRuleSaved,
   showHeader = true,
+  compact = false,
   className,
 }: EmailRulesPanelProps) {
   const [editingRule, setEditingRule] = useState<EmailRule | null>(null);
@@ -78,6 +89,15 @@ export function EmailRulesPanel({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [localRules, setLocalRules] = useState(sortRulesByPriority(rules));
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [assistantPrompt, setAssistantPrompt] = useState("");
+  const [assistantResponse, setAssistantResponse] = useState<string | null>(
+    null,
+  );
+  const [assistantRationale, setAssistantRationale] = useState<string | null>(
+    null,
+  );
+  const [isGeneratingRule, setIsGeneratingRule] = useState(false);
 
   useEffect(() => {
     setLocalRules(sortRulesByPriority(rules));
@@ -95,7 +115,37 @@ export function EmailRulesPanel({
     setRuleForm(createEmptyRuleForm());
   };
 
+  const hydrateRuleFormFromDraft = (draft: {
+    name: string;
+    description: string;
+    mailboxScope: "mailbox" | "user";
+    priority: number;
+    matchMode: "all" | "any";
+    stopProcessing: boolean;
+    conditions: unknown;
+    actions: unknown;
+  }) => {
+    setEditingRule(null);
+    setRuleForm((prev) => ({
+      name: draft.name,
+      description: draft.description,
+      mailboxId:
+        draft.mailboxScope === "mailbox" &&
+        prev.mailboxId !== "all" &&
+        mailboxes.some((mailbox) => mailbox.id === prev.mailboxId)
+          ? prev.mailboxId
+          : "all",
+      priority: String(draft.priority),
+      matchMode: draft.matchMode,
+      stopProcessing: draft.stopProcessing,
+      isActive: true,
+      conditionsJson: JSON.stringify(draft.conditions, null, 2),
+      actionsJson: JSON.stringify(draft.actions, null, 2),
+    }));
+  };
+
   const startEditingRule = (rule: EmailRule) => {
+    setIsAssistantOpen(false);
     setEditingRule(rule);
     setRuleForm({
       name: rule.name,
@@ -108,6 +158,55 @@ export function EmailRulesPanel({
       conditionsJson: JSON.stringify(rule.conditions, null, 2),
       actionsJson: JSON.stringify(rule.actions, null, 2),
     });
+  };
+
+  const handleOpenAssistant = () => {
+    resetRuleForm();
+    setAssistantPrompt("");
+    setAssistantResponse(
+      "What should this rule do? Describe it in plain English and I will draft the rule JSON for you.",
+    );
+    setAssistantRationale(null);
+    setIsAssistantOpen(true);
+  };
+
+  const handleGenerateRuleDraft = async () => {
+    if (!assistantPrompt.trim()) {
+      updateStatus("Enter what you want the rule to do.");
+      return;
+    }
+
+    setIsGeneratingRule(true);
+
+    try {
+      const response = await fetch("/api/email/rules/assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          prompt: assistantPrompt,
+          mailboxId: ruleForm.mailboxId !== "all" ? ruleForm.mailboxId : null,
+        }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to generate rule draft");
+      }
+
+      hydrateRuleFormFromDraft(payload);
+      setAssistantResponse(payload.assistantMessage || "Rule draft generated.");
+      setAssistantRationale(payload.rationale || null);
+      updateStatus("AI rule draft generated.");
+    } catch (error) {
+      updateStatus(
+        error instanceof Error
+          ? error.message
+          : "Failed to generate rule draft",
+      );
+    } finally {
+      setIsGeneratingRule(false);
+    }
   };
 
   const handleSaveRule = async () => {
@@ -159,7 +258,7 @@ export function EmailRulesPanel({
   };
 
   return (
-    <div className={cn("space-y-6", className)}>
+    <div className={cn("min-w-0 space-y-6", className)}>
       {showHeader ? (
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -168,15 +267,155 @@ export function EmailRulesPanel({
               Deterministic triage runs before AI classification.
             </p>
           </div>
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-sm text-zinc-400">
-            {ruleStats.active} active · {ruleStats.quarantine} quarantine ·{" "}
-            {ruleStats.alwaysDelete} always delete
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-sm text-zinc-400">
+              {ruleStats.active} active · {ruleStats.quarantine} quarantine ·{" "}
+              {ruleStats.alwaysDelete} always delete
+            </div>
+            <button
+              type="button"
+              onClick={handleOpenAssistant}
+              className="inline-flex items-center gap-2 rounded-lg bg-theme-gradient px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            >
+              <Bot className="h-4 w-4" />
+              Create a Rule
+            </button>
           </div>
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="space-y-3">
+      <div
+        className={cn(
+          "grid gap-6",
+          compact ? "grid-cols-1" : "lg:grid-cols-[1.1fr_0.9fr]",
+        )}
+      >
+        <div className="min-w-0 space-y-3">
+          {isAssistantOpen ? (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-2 text-sm font-medium text-white">
+                    <Sparkles className="h-4 w-4 text-[rgb(var(--theme-primary-rgb))]" />
+                    AI Rule Composer
+                  </div>
+                  <div className="mt-1 text-sm text-zinc-500">
+                    Describe the rule in plain English. The editable rule draft
+                    appears on the right.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAssistantOpen(false)}
+                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                >
+                  Close
+                </button>
+              </div>
+
+              {assistantResponse ? (
+                <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 text-sm text-zinc-200">
+                  <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                    <Bot className="h-3.5 w-3.5" />
+                    AI Says
+                  </div>
+                  <div>{assistantResponse}</div>
+                  {assistantRationale ? (
+                    <div className="mt-3 text-xs text-zinc-500">
+                      Why this draft: {assistantRationale}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="mt-4 space-y-3">
+                <textarea
+                  value={assistantPrompt}
+                  onChange={(event) => setAssistantPrompt(event.target.value)}
+                  placeholder='Ex. When receipts from Stripe come in, archive them and mark them as read. Ex. Never send payroll emails to spam.'
+                  rows={5}
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  {[
+                    "When receipts from Stripe come in, archive them and mark them as read.",
+                    "If a sender domain contains example.com and the subject mentions proposal, require a project.",
+                    "Never send emails from my accountant to spam.",
+                  ].map((samplePrompt) => (
+                    <button
+                      key={samplePrompt}
+                      type="button"
+                      onClick={() => setAssistantPrompt(samplePrompt)}
+                      className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                    >
+                      {extractSampleLabel(samplePrompt)}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs text-zinc-500">
+                    Unsupported actions like moving to an arbitrary mailbox
+                    folder are called out instead of being faked.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleGenerateRuleDraft}
+                    disabled={isGeneratingRule || !assistantPrompt.trim()}
+                    className="inline-flex items-center gap-2 rounded-lg bg-theme-gradient px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    <Wand2 className="h-4 w-4" />
+                    {isGeneratingRule ? "Generating…" : "Generate Rule"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3">
+                  <div className="mb-3 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                    <Plus className="h-3.5 w-3.5" />
+                    Variables
+                  </div>
+                  <div className="space-y-2">
+                    {EMAIL_RULE_FIELD_OPTIONS.map((option) => (
+                      <div
+                        key={option.field}
+                        className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2"
+                      >
+                        <div className="text-sm font-medium text-zinc-200">
+                          {option.label}
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          `{option.field}` · {option.description}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3">
+                  <div className="mb-3 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                    <Plus className="h-3.5 w-3.5" />
+                    Actions
+                  </div>
+                  <div className="space-y-2">
+                    {EMAIL_RULE_ACTION_OPTIONS.map((option) => (
+                      <div
+                        key={option.action}
+                        className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2"
+                      >
+                        <div className="text-sm font-medium text-zinc-200">
+                          {option.label}
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          `{option.action}` · {option.description}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {localRules.length === 0 ? (
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 px-4 py-6 text-sm text-zinc-500">
               No rules yet.
@@ -212,10 +451,14 @@ export function EmailRulesPanel({
           )}
         </div>
 
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+        <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-white">
-              {editingRule ? "Edit Rule" : "New Rule"}
+              {editingRule
+                ? "Edit Rule"
+                : isAssistantOpen
+                  ? "Rule Draft"
+                  : "New Rule"}
             </h2>
             {editingRule ? (
               <button

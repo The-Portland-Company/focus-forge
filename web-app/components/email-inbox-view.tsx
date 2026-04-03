@@ -1511,7 +1511,7 @@ export function EmailInboxView({
                 ) : (
                   <Mail className="h-4 w-4" />
                 )}
-                {filteredItems.length} thread
+                {filteredItems.length} Message
                 {filteredItems.length === 1 ? "" : "s"}
               </div>
               {view === "email-quarantine" ? (
