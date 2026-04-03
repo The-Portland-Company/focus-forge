@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   BellRing,
@@ -53,6 +53,12 @@ import {
   buildInboxBrowserNotificationContent,
   listNewInboxItemsForNotification,
 } from "@/lib/push/email";
+import {
+  getQueuedThreadActionMessage,
+  getThreadActionLabel,
+  requiresThreadActionConfirmation,
+  type ThreadAction,
+} from "@/lib/email-inbox/thread-actions";
 
 type EmailInboxViewProps = {
   view: string;
@@ -116,6 +122,9 @@ export function EmailInboxView({
   );
   const [busyState, setBusyState] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [pendingConfirmAction, setPendingConfirmAction] =
+    useState<ThreadAction | null>(null);
+  const [queuedAction, setQueuedAction] = useState<ThreadAction | null>(null);
   const [editingProfile, setEditingProfile] = useState<SummaryProfile | null>(
     null,
   );
@@ -128,6 +137,7 @@ export function EmailInboxView({
     email: string;
   } | null>(null);
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
+  const queuedActionTimeoutRef = useRef<number | null>(null);
   const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
   const mailboxesRef = useRef<Mailbox[]>(data.mailboxes);
   const refreshInboxStateRef = useRef<
@@ -252,6 +262,14 @@ export function EmailInboxView({
   };
 
   useEffect(() => {
+    return () => {
+      if (queuedActionTimeoutRef.current !== null) {
+        window.clearTimeout(queuedActionTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     inboxSnapshotRef.current = data.inboxItems;
     mailboxesRef.current = data.mailboxes;
     setMailboxes(data.mailboxes);
@@ -260,6 +278,11 @@ export function EmailInboxView({
       data.inboxItems.filter((item) => item.status === "quarantine").length,
     );
   }, [data.inboxItems, data.mailboxes]);
+
+  useEffect(() => {
+    setPendingConfirmAction(null);
+    clearQueuedAction();
+  }, [selectedThreadId]);
 
   useEffect(() => {
     if (!isEmailInboxView(view)) return;
@@ -654,7 +677,7 @@ export function EmailInboxView({
     }
   };
 
-  const handleThreadAction = async (action: string) => {
+  const handleThreadAction = async (action: ThreadAction) => {
     if (!selectedThreadId) return;
     setBusyState(action);
     try {
@@ -697,6 +720,112 @@ export function EmailInboxView({
     } finally {
       setBusyState(null);
     }
+  };
+
+  const clearQueuedAction = () => {
+    if (queuedActionTimeoutRef.current !== null) {
+      window.clearTimeout(queuedActionTimeoutRef.current);
+      queuedActionTimeoutRef.current = null;
+    }
+    setQueuedAction(null);
+  };
+
+  const executeThreadAction = async (action: ThreadAction) => {
+    await handleThreadAction(action);
+  };
+
+  const queueThreadAction = (action: ThreadAction) => {
+    clearQueuedAction();
+    setPendingConfirmAction(null);
+    setQueuedAction(action);
+    setStatusMessage(getQueuedThreadActionMessage(action));
+    queuedActionTimeoutRef.current = window.setTimeout(() => {
+      queuedActionTimeoutRef.current = null;
+      setQueuedAction(null);
+      void executeThreadAction(action);
+    }, 5000);
+  };
+
+  const handleUndoQueuedAction = () => {
+    const action = queuedAction;
+    clearQueuedAction();
+    setPendingConfirmAction(null);
+    if (action) {
+      updateStatus(`${getThreadActionLabel(action)} canceled.`);
+    }
+  };
+
+  const handleActionButtonClick = (action: ThreadAction) => {
+    if (queuedAction) {
+      return;
+    }
+
+    if (requiresThreadActionConfirmation(action)) {
+      setPendingConfirmAction((current) =>
+        current === action ? null : action,
+      );
+      return;
+    }
+
+    void executeThreadAction(action);
+  };
+
+  const renderThreadActionButton = (
+    action: ThreadAction,
+    options: {
+      icon?: ReactNode;
+      label?: string;
+      destructive?: boolean;
+    },
+  ) => {
+    const isPendingConfirm = pendingConfirmAction === action;
+    const isQueued = queuedAction === action;
+    const isBusy = busyState === action;
+    const label = options.label ?? getThreadActionLabel(action);
+    const baseClassName = options.destructive
+      ? "inline-flex items-center gap-2 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
+      : "inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50";
+
+    if (isPendingConfirm) {
+      return (
+        <div key={action} className="inline-flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => queueThreadAction(action)}
+            disabled={Boolean(busyState) || Boolean(queuedAction)}
+            className="inline-flex items-center gap-2 rounded-lg border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/15 px-3 py-2 text-sm text-white transition-colors hover:border-[rgb(var(--theme-primary-rgb))]/70 disabled:opacity-50"
+          >
+            <Check className="h-4 w-4" />
+            Confirm
+          </button>
+          <button
+            type="button"
+            onClick={() => setPendingConfirmAction(null)}
+            disabled={Boolean(busyState) || Boolean(queuedAction)}
+            className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+          >
+            Undo
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <button
+        key={action}
+        type="button"
+        onClick={() => handleActionButtonClick(action)}
+        disabled={Boolean(busyState) || Boolean(queuedAction)}
+        className={baseClassName}
+      >
+        {isBusy ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : options.icon ? (
+          options.icon
+        ) : null}
+        {isQueued ? `${label} queued` : label}
+      </button>
+    );
   };
 
   const handleProjectAssign = async (projectId: string) => {
@@ -1620,55 +1749,38 @@ export function EmailInboxView({
 
               <div className="flex flex-wrap gap-2">
                 {view === "email-quarantine" ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleThreadAction("approve")}
-                    disabled={Boolean(busyState)}
-                    className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                  >
-                    Approve
-                  </button>
+                  renderThreadActionButton("approve", {
+                    label: "Approve",
+                  })
                 ) : (
+                  renderThreadActionButton("quarantine", {
+                    icon: <ShieldAlert className="h-4 w-4" />,
+                  })
+                )}
+                {renderThreadActionButton("archive", {
+                  icon: <Archive className="h-4 w-4" />,
+                })}
+                {renderThreadActionButton("spam", {
+                  icon: <ShieldAlert className="h-4 w-4" />,
+                })}
+                {renderThreadActionButton("always_delete_sender", {
+                  icon: <Trash2 className="h-4 w-4" />,
+                  destructive: true,
+                })}
+              </div>
+
+              {queuedAction ? (
+                <div className="flex items-center gap-3 rounded-xl border border-[rgb(var(--theme-primary-rgb))]/30 bg-[rgb(var(--theme-primary-rgb))]/10 px-3 py-2 text-sm text-zinc-200">
+                  <span>{getQueuedThreadActionMessage(queuedAction)}</span>
                   <button
                     type="button"
-                    onClick={() => void handleThreadAction("quarantine")}
-                    disabled={Boolean(busyState)}
-                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                    onClick={handleUndoQueuedAction}
+                    className="rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:border-zinc-600"
                   >
-                    <ShieldAlert className="h-4 w-4" />
-                    Quarantine
+                    Undo
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void handleThreadAction("archive")}
-                  disabled={Boolean(busyState)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                >
-                  <Archive className="h-4 w-4" />
-                  Archive
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleThreadAction("spam")}
-                  disabled={Boolean(busyState)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                >
-                  <ShieldAlert className="h-4 w-4" />
-                  Spam
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void handleThreadAction("always_delete_sender")
-                  }
-                  disabled={Boolean(busyState)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Always Delete Sender
-                </button>
-              </div>
+                </div>
+              ) : null}
 
               {selectedThread.linkedTasks?.length > 0 ? (
                 <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
