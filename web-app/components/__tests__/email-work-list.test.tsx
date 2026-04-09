@@ -154,12 +154,14 @@ test("getEmailWorkItemClassName highlights unread threads when they are not sele
 
   assert.match(
     unreadClasses,
-    /border-\[rgb\(var\(--theme-primary-rgb\)\)\]\/35/,
+    /border-transparent/,
   );
+  assert.match(unreadClasses, /bg-zinc-800\/60/);
   assert.doesNotMatch(
     readClasses,
-    /border-\[rgb\(var\(--theme-primary-rgb\)\)\]\/35/,
+    /border-transparent/,
   );
+  assert.doesNotMatch(readClasses, /bg-zinc-800\/60/);
 });
 
 test("getEmailWorkPreviewClassName keeps previews wrapping inside the list pane", () => {

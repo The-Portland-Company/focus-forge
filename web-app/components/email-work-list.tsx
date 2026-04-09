@@ -164,7 +164,7 @@ export function getEmailWorkItemClassName(params: {
     params.isSelected
       ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/10"
       : params.isUnread
-        ? "border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/[0.08] hover:border-[rgb(var(--theme-primary-rgb))]/55 hover:bg-[rgb(var(--theme-primary-rgb))]/[0.12]"
+        ? "border-transparent bg-zinc-800/60 hover:bg-zinc-800/70"
         : "border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900/70",
   );
 }
@@ -268,11 +268,21 @@ export function EmailWorkList({
                     </span>
                   ) : null}
                 </div>
-                <div className="mt-2 break-words font-medium text-white">
+                <div
+                  className={cn(
+                    "mt-2 break-words text-white",
+                    item.isUnread ? "font-semibold" : "font-medium",
+                  )}
+                >
                   {formatEmailSubject(item.subject)}
                 </div>
                 {showSecondaryActionTitle ? (
-                  <div className="mt-1 break-words text-sm text-zinc-400">
+                  <div
+                    className={cn(
+                      "mt-1 break-words text-sm",
+                      item.isUnread ? "font-semibold text-white" : "text-zinc-400",
+                    )}
+                  >
                     {item.actionTitle}
                   </div>
                 ) : null}
