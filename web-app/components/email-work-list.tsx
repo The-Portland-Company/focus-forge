@@ -163,8 +163,8 @@ export function getEmailWorkItemClassName(params: {
     "w-full min-w-0 rounded-xl px-4 py-3 text-left transition-colors",
     params.isUnread
       ? params.isSelected
-        ? "border-0 bg-zinc-800/70"
-        : "border-0 bg-zinc-800/60 hover:bg-zinc-800/70"
+        ? "border-0 bg-zinc-800/85 ring-0 shadow-none"
+        : "border-0 bg-zinc-800/75 ring-0 shadow-none hover:bg-zinc-800/85"
       : params.isSelected
         ? "border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/10"
         : "border border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900/70",
@@ -232,7 +232,7 @@ export function EmailWorkList({
             <div
               className={cn(
                 "flex min-w-0 items-start justify-between gap-3 transition-opacity",
-                item.isUnread ? "opacity-100" : "opacity-55 hover:opacity-75",
+                item.isUnread ? "opacity-100" : "opacity-[0.5] hover:opacity-[0.72]",
               )}
             >
               <div className="min-w-0 flex-1">
@@ -311,7 +311,7 @@ export function EmailWorkList({
             <div
               className={cn(
                 getEmailWorkPreviewClassName(item.isUnread),
-                item.isUnread ? "opacity-100" : "opacity-55 hover:opacity-75",
+                item.isUnread ? "opacity-100" : "opacity-[0.5] hover:opacity-[0.72]",
               )}
             >
               {formatInboxPreviewText(item.previewText || item.summaryText)}
@@ -320,7 +320,7 @@ export function EmailWorkList({
             <div
               className={cn(
                 "mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500 transition-opacity",
-                item.isUnread ? "opacity-100" : "opacity-55 hover:opacity-75",
+                item.isUnread ? "opacity-100" : "opacity-[0.5] hover:opacity-[0.72]",
               )}
             >
               <span className="inline-flex items-center gap-1 break-words">
