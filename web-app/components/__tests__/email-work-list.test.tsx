@@ -160,9 +160,9 @@ test("getEmailWorkItemClassName keeps unread threads borderless", () => {
     unreadClasses,
     /border-0/,
   );
-  assert.match(unreadClasses, /bg-zinc-800/);
+  assert.match(unreadClasses, /bg-white\/10/);
   assert.match(selectedUnreadClasses, /border-0/);
-  assert.match(selectedUnreadClasses, /bg-zinc-800/);
+  assert.match(selectedUnreadClasses, /bg-white\/12/);
   assert.doesNotMatch(
     readClasses,
     /border-0/,

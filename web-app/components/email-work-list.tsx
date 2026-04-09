@@ -163,8 +163,8 @@ export function getEmailWorkItemClassName(params: {
     "w-full min-w-0 rounded-xl px-4 py-3 text-left transition-colors",
     params.isUnread
       ? params.isSelected
-        ? "border-0 bg-zinc-800 ring-0 shadow-none"
-        : "border-0 bg-zinc-800 ring-0 shadow-none hover:bg-zinc-800/95"
+        ? "border-0 bg-white/12 ring-0 shadow-none"
+        : "border-0 bg-white/10 ring-0 shadow-none hover:bg-white/12"
       : params.isSelected
         ? "border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/10"
         : "border border-zinc-800/80 bg-zinc-950/30 hover:border-zinc-700 hover:bg-zinc-900/60",
