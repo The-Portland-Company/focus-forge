@@ -1,26 +1,46 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Archive,
+  ArrowUpDown,
   BellRing,
   Bot,
   Check,
   ChevronDown,
+  Expand,
+  ExternalLink,
   FolderSearch,
+  GripVertical,
   Loader2,
   Mail,
   MailCheck,
   RefreshCw,
   Reply,
   Search,
+  Shield,
   ShieldAlert,
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { EmailWorkList } from "@/components/email-work-list";
+import {
+  EmailWorkList,
+  formatEmailSubject,
+  formatParticipantName,
+  getPrimarySenderParticipant,
+  shouldShowSecondaryActionTitle,
+} from "@/components/email-work-list";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
 import { EmailSpamReviewModal } from "@/components/email-spam-review-modal";
+import { EmailThreadModal } from "@/components/email-thread-modal";
 import { SenderHistoryModal } from "@/components/sender-history-modal";
 import { Tooltip } from "@/components/tooltip";
 import { FloatingFieldLabel } from "@/components/ui/floating-field-label";
@@ -77,6 +97,38 @@ const DEFAULT_PROFILE_SETTINGS = JSON.stringify(
   2,
 );
 const BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 30 * 1000;
+const EMAIL_DETAIL_PANEL_DEFAULT_WIDTH = 380;
+const EMAIL_DETAIL_PANEL_MIN_WIDTH = 320;
+const EMAIL_DETAIL_PANEL_MAX_WIDTH = 720;
+const EMAIL_LIST_PANEL_MIN_WIDTH = 520;
+const EMAIL_DETAIL_PANEL_STORAGE_KEY =
+  "focus-forge.email-inbox.detail-panel-width";
+
+export const EMAIL_INBOX_SORT_OPTIONS = [
+  {
+    value: "received_desc",
+    label: "Date received (Newest first)",
+  },
+  {
+    value: "received_asc",
+    label: "Date received (Oldest first)",
+  },
+  {
+    value: "sender_asc",
+    label: "Sender (A-Z)",
+  },
+  {
+    value: "subject_asc",
+    label: "Subject (A-Z)",
+  },
+  {
+    value: "confidence_desc",
+    label: "Confidence (Highest first)",
+  },
+] as const;
+
+export type EmailInboxSortOption =
+  (typeof EMAIL_INBOX_SORT_OPTIONS)[number]["value"];
 
 function getBrowserNotificationPermission():
   | NotificationPermission
@@ -97,7 +149,156 @@ function parseJsonValue<T>(input: string, fallback: T): T {
 }
 
 export function getEmailInboxSplitClassName() {
-  return "grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] 2xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]";
+  return "grid min-w-0 gap-6 xl:gap-0 xl:[grid-template-columns:minmax(0,1fr)_14px_var(--email-detail-width)]";
+}
+
+export function clampEmailDetailPanelWidth(
+  requestedWidth: number,
+  containerWidth: number,
+) {
+  if (!Number.isFinite(requestedWidth)) {
+    return EMAIL_DETAIL_PANEL_DEFAULT_WIDTH;
+  }
+
+  const maxWidth = Math.min(
+    EMAIL_DETAIL_PANEL_MAX_WIDTH,
+    Math.max(
+      EMAIL_DETAIL_PANEL_MIN_WIDTH,
+      containerWidth - EMAIL_LIST_PANEL_MIN_WIDTH,
+    ),
+  );
+
+  return Math.min(
+    Math.max(Math.round(requestedWidth), EMAIL_DETAIL_PANEL_MIN_WIDTH),
+    maxWidth,
+  );
+}
+
+export function buildEmailThreadPopoutUrl(
+  currentUrl: string,
+  threadId: string,
+) {
+  const url = new URL(currentUrl);
+  url.searchParams.set("threadId", threadId);
+  url.searchParams.set("emailPopout", "1");
+  return url.toString();
+}
+
+function getInboxItemReceivedTime(item: InboxItem) {
+  const timestamp =
+    item.latestInboundAt || item.latestMessageAt || item.createdAt;
+  const parsed = Date.parse(timestamp || "");
+
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function getInboxItemSenderSortValue(item: InboxItem) {
+  const sender = getPrimarySenderParticipant(item.participants);
+
+  if (!sender) {
+    return "\uffff";
+  }
+
+  return formatParticipantName(sender).toLocaleLowerCase();
+}
+
+function getInboxItemSubjectSortValue(item: InboxItem) {
+  const subject = item.normalizedSubject || item.subject || "";
+  const normalized = subject.trim().toLocaleLowerCase();
+
+  return normalized || "\uffff";
+}
+
+function compareInboxItemsByReceived(
+  left: InboxItem,
+  right: InboxItem,
+  direction: "asc" | "desc" = "desc",
+) {
+  const difference =
+    getInboxItemReceivedTime(left) - getInboxItemReceivedTime(right);
+
+  if (difference !== 0) {
+    return direction === "asc" ? difference : -difference;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+export function sortInboxItemsForView(
+  items: InboxItem[],
+  sortBy: EmailInboxSortOption,
+) {
+  return [...items].sort((left, right) => {
+    switch (sortBy) {
+      case "received_asc":
+        return compareInboxItemsByReceived(left, right, "asc");
+      case "sender_asc": {
+        const comparison = getInboxItemSenderSortValue(left).localeCompare(
+          getInboxItemSenderSortValue(right),
+        );
+
+        return comparison || compareInboxItemsByReceived(left, right);
+      }
+      case "subject_asc": {
+        const comparison = getInboxItemSubjectSortValue(left).localeCompare(
+          getInboxItemSubjectSortValue(right),
+        );
+
+        return comparison || compareInboxItemsByReceived(left, right);
+      }
+      case "confidence_desc": {
+        const difference =
+          (right.actionConfidence ?? -1) - (left.actionConfidence ?? -1);
+
+        return difference || compareInboxItemsByReceived(left, right);
+      }
+      case "received_desc":
+      default:
+        return compareInboxItemsByReceived(left, right);
+    }
+  });
+}
+
+export function getThreadActionButtonIconName(action: ThreadAction) {
+  switch (action) {
+    case "approve":
+      return "check";
+    case "quarantine":
+      return "shield";
+    case "archive":
+      return "archive";
+    case "spam":
+      return "shield-alert";
+    case "always_delete_sender":
+      return "trash-2";
+    default:
+      return null;
+  }
+}
+
+export function getThreadActionButtonClassName(options?: {
+  destructive?: boolean;
+}) {
+  return options?.destructive
+    ? "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-red-900/50 bg-red-950/40 text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
+    : "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50";
+}
+
+function getThreadActionButtonIcon(action: ThreadAction) {
+  switch (getThreadActionButtonIconName(action)) {
+    case "check":
+      return <Check className="h-4 w-4" />;
+    case "shield":
+      return <Shield className="h-4 w-4" />;
+    case "archive":
+      return <Archive className="h-4 w-4" />;
+    case "shield-alert":
+      return <ShieldAlert className="h-4 w-4" />;
+    case "trash-2":
+      return <Trash2 className="h-4 w-4" />;
+    default:
+      return null;
+  }
 }
 
 export function EmailInboxView({
@@ -136,11 +337,17 @@ export function EmailInboxView({
   const [readFilter, setReadFilter] = useState<"all" | "unread" | "read">(
     "all",
   );
+  const [sortBy, setSortBy] = useState<EmailInboxSortOption>("received_desc");
   const [senderHistory, setSenderHistory] = useState<{
     name: string;
     email: string;
   } | null>(null);
+  const [detailPanelWidth, setDetailPanelWidth] = useState(
+    EMAIL_DETAIL_PANEL_DEFAULT_WIDTH,
+  );
+  const [isThreadModalOpen, setIsThreadModalOpen] = useState(false);
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const queuedActionTimeoutRef = useRef<number | null>(null);
   const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
   const mailboxesRef = useRef<Mailbox[]>(data.mailboxes);
@@ -158,7 +365,7 @@ export function EmailInboxView({
     settingsJson: DEFAULT_PROFILE_SETTINGS,
   });
 
-  const filteredItems = useMemo(() => {
+  const filteredInboxItems = useMemo(() => {
     const base = inboxItems.filter((item) => {
       if (selectedMailboxId !== "all" && item.mailboxId !== selectedMailboxId) {
         return false;
@@ -181,6 +388,10 @@ export function EmailInboxView({
 
     return base;
   }, [inboxItems, readFilter, selectedMailboxId, view]);
+  const visibleInboxItems = useMemo(
+    () => sortInboxItemsForView(filteredInboxItems, sortBy),
+    [filteredInboxItems, sortBy],
+  );
 
   const visibleSyncError = useMemo(
     () => getVisibleMailboxSyncError(mailboxes, selectedMailboxId),
@@ -208,11 +419,51 @@ export function EmailInboxView({
       null,
     [selectedProjectId, sortedInboxProjects],
   );
+  const selectedThreadShowsSecondaryActionTitle =
+    shouldShowSecondaryActionTitle(
+      selectedThread?.actionTitle,
+      selectedThread?.subject || "",
+    );
   const isEditingMailbox = editingMailboxId !== null;
+  const splitLayoutStyle = {
+    "--email-detail-width": `${detailPanelWidth}px`,
+  } as CSSProperties;
 
   useEffect(() => {
     setBrowserNotificationPermission(getBrowserNotificationPermission());
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const storedWidth = window.localStorage.getItem(
+      EMAIL_DETAIL_PANEL_STORAGE_KEY,
+    );
+
+    if (!storedWidth) {
+      return;
+    }
+
+    const parsedWidth = Number.parseInt(storedWidth, 10);
+    const containerWidth = splitContainerRef.current?.clientWidth ?? 1120;
+
+    setDetailPanelWidth(
+      clampEmailDetailPanelWidth(parsedWidth, containerWidth),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      EMAIL_DETAIL_PANEL_STORAGE_KEY,
+      String(detailPanelWidth),
+    );
+  }, [detailPanelWidth]);
 
   const dispatchBrowserNotification = (item: InboxItem) => {
     if (typeof window === "undefined" || !("Notification" in window)) {
@@ -237,6 +488,61 @@ export function EmailInboxView({
     };
 
     return true;
+  };
+
+  const updateDetailPanelWidth = (nextWidth: number) => {
+    const containerWidth = splitContainerRef.current?.clientWidth ?? 1120;
+
+    setDetailPanelWidth(clampEmailDetailPanelWidth(nextWidth, containerWidth));
+  };
+
+  const handleDetailPanelResizeStart = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    if (!splitContainerRef.current) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const handle = event.currentTarget;
+    const pointerId = event.pointerId;
+    handle.setPointerCapture(pointerId);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const containerBounds =
+        splitContainerRef.current?.getBoundingClientRect();
+
+      if (!containerBounds) {
+        return;
+      }
+
+      updateDetailPanelWidth(containerBounds.right - moveEvent.clientX);
+    };
+
+    const handlePointerUp = () => {
+      document.body.classList.remove("cursor-col-resize");
+      if (handle.hasPointerCapture(pointerId)) {
+        handle.releasePointerCapture(pointerId);
+      }
+      window.removeEventListener("pointermove", handlePointerMove);
+    };
+
+    document.body.classList.add("cursor-col-resize");
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+  };
+
+  const handleOpenThreadWindow = () => {
+    if (!selectedThreadId || typeof window === "undefined") {
+      return;
+    }
+
+    window.open(
+      buildEmailThreadPopoutUrl(window.location.href, selectedThreadId),
+      `email-thread-${selectedThreadId}`,
+      "popup=yes,width=1280,height=900,resizable=yes,scrollbars=yes",
+    );
   };
 
   const applyInboxSnapshot = (params: {
@@ -289,19 +595,25 @@ export function EmailInboxView({
   }, [selectedThreadId]);
 
   useEffect(() => {
+    if (!selectedThreadId) {
+      setIsThreadModalOpen(false);
+    }
+  }, [selectedThreadId]);
+
+  useEffect(() => {
     if (!isEmailInboxView(view)) return;
-    if (filteredItems.length === 0) {
+    if (visibleInboxItems.length === 0) {
       setSelectedThreadId(null);
       setSelectedThread(null);
       return;
     }
     if (
       !selectedThreadId ||
-      !filteredItems.some((item) => item.id === selectedThreadId)
+      !visibleInboxItems.some((item) => item.id === selectedThreadId)
     ) {
-      setSelectedThreadId(filteredItems[0].id);
+      setSelectedThreadId(visibleInboxItems[0].id);
     }
-  }, [filteredItems, selectedThreadId, view]);
+  }, [selectedThreadId, view, visibleInboxItems]);
 
   useEffect(() => {
     if (!selectedThreadId || !isEmailInboxView(view)) return;
@@ -485,7 +797,7 @@ export function EmailInboxView({
       return;
     }
 
-    const testItem = filteredItems[0] || inboxItems[0] || null;
+    const testItem = visibleInboxItems[0] || inboxItems[0] || null;
 
     if (testItem) {
       dispatchBrowserNotification(testItem);
@@ -786,9 +1098,9 @@ export function EmailInboxView({
     const isQueued = queuedAction === action;
     const isBusy = busyState === action;
     const label = options.label ?? getThreadActionLabel(action);
-    const baseClassName = options.destructive
-      ? "inline-flex items-center gap-2 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
-      : "inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50";
+    const baseClassName = getThreadActionButtonClassName({
+      destructive: options.destructive,
+    });
 
     if (isPendingConfirm) {
       return (
@@ -815,20 +1127,26 @@ export function EmailInboxView({
     }
 
     return (
-      <button
+      <Tooltip
         key={action}
-        type="button"
-        onClick={() => handleActionButtonClick(action)}
-        disabled={Boolean(busyState) || Boolean(queuedAction)}
-        className={baseClassName}
+        content={isQueued ? `${label} queued` : label}
+        className="w-auto"
       >
-        {isBusy ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : options.icon ? (
-          options.icon
-        ) : null}
-        {isQueued ? `${label} queued` : label}
-      </button>
+        <button
+          type="button"
+          onClick={() => handleActionButtonClick(action)}
+          disabled={Boolean(busyState) || Boolean(queuedAction)}
+          className={baseClassName}
+          aria-label={isQueued ? `${label} queued` : label}
+          title={isQueued ? `${label} queued` : label}
+        >
+          {isBusy ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : options.icon ? (
+            options.icon
+          ) : null}
+        </button>
+      </Tooltip>
     );
   };
 
@@ -1505,7 +1823,11 @@ export function EmailInboxView({
         </div>
       ) : null}
 
-      <div className={getEmailInboxSplitClassName()}>
+      <div
+        ref={splitContainerRef}
+        className={getEmailInboxSplitClassName()}
+        style={splitLayoutStyle}
+      >
         <div className="min-w-0 space-y-3">
           <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -1515,14 +1837,38 @@ export function EmailInboxView({
                 ) : (
                   <Mail className="h-4 w-4" />
                 )}
-                {filteredItems.length} Message
-                {filteredItems.length === 1 ? "" : "s"}
+                {visibleInboxItems.length} Message
+                {visibleInboxItems.length === 1 ? "" : "s"}
               </div>
-              {view === "email-quarantine" ? (
-                <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                  {quarantineCount} quarantined
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                {view === "email-quarantine" ? (
+                  <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                    {quarantineCount} quarantined
+                  </div>
+                ) : null}
+                <div className="relative w-full sm:w-[260px]">
+                  <FloatingFieldLabel label="Sort by" />
+                  <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                  <div className="pointer-events-none absolute left-9 top-1/2 z-10 h-5 w-px -translate-y-1/2 bg-zinc-700" />
+                  <Select
+                    value={sortBy}
+                    onValueChange={(value) =>
+                      setSortBy(value as EmailInboxSortOption)
+                    }
+                  >
+                    <SelectTrigger className="h-11 border-zinc-800 bg-zinc-950/70 pl-12 text-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EMAIL_INBOX_SORT_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              ) : null}
+              </div>
             </div>
             {view !== "email-quarantine" ? (
               <div className="mb-3 inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
@@ -1549,7 +1895,7 @@ export function EmailInboxView({
               </div>
             ) : null}
             <EmailWorkList
-              items={filteredItems}
+              items={visibleInboxItems}
               mailboxes={mailboxes}
               projects={data.projects}
               selectedId={selectedThreadId}
@@ -1562,6 +1908,31 @@ export function EmailInboxView({
               }
             />
           </div>
+        </div>
+
+        <div className="relative hidden xl:flex items-stretch justify-center">
+          <div className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-zinc-800" />
+          <button
+            type="button"
+            onPointerDown={handleDetailPanelResizeStart}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowLeft") {
+                event.preventDefault();
+                updateDetailPanelWidth(detailPanelWidth + 24);
+              } else if (event.key === "ArrowRight") {
+                event.preventDefault();
+                updateDetailPanelWidth(detailPanelWidth - 24);
+              }
+            }}
+            className="group relative z-10 my-16 inline-flex w-3 items-center justify-center rounded-full bg-transparent text-zinc-600 outline-none transition-colors hover:text-zinc-300 focus-visible:text-zinc-200"
+            aria-label="Resize thread details panel"
+            title="Resize thread details panel"
+            role="separator"
+            aria-orientation="vertical"
+          >
+            <span className="absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-zinc-800/80 group-focus-visible:bg-zinc-800/80" />
+            <GripVertical className="relative z-10 h-4 w-4" />
+          </button>
         </div>
 
         <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
@@ -1584,11 +1955,13 @@ export function EmailInboxView({
                       ) : null}
                     </div>
                     <h2 className="break-words text-xl font-semibold text-white">
-                      {selectedThread.actionTitle}
+                      {formatEmailSubject(selectedThread.subject)}
                     </h2>
-                    <div className="break-words text-sm text-zinc-500">
-                      {selectedThread.subject}
-                    </div>
+                    {selectedThreadShowsSecondaryActionTitle ? (
+                      <div className="break-words text-sm text-zinc-400">
+                        {selectedThread.actionTitle}
+                      </div>
+                    ) : null}
                     <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-sm text-zinc-300 break-words">
                       <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
                         <Sparkles className="h-3.5 w-3.5" />
@@ -1606,28 +1979,54 @@ export function EmailInboxView({
                       </div>
                     ) : null}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleThreadAction("mark_read")}
-                    disabled={Boolean(busyState) || !selectedThread.isUnread}
-                    title={
-                      selectedThread.isUnread
-                        ? "Mark thread as read"
-                        : "Thread already read"
-                    }
-                    aria-label={
-                      selectedThread.isUnread
-                        ? "Mark thread as read"
-                        : "Thread already read"
-                    }
-                    className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    {busyState === "mark_read" ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <MailCheck className="h-4 w-4" />
-                    )}
-                  </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Tooltip content="Modal popout" className="w-auto">
+                      <button
+                        type="button"
+                        onClick={() => setIsThreadModalOpen(true)}
+                        disabled={!selectedThreadId}
+                        title="Open thread in modal"
+                        aria-label="Open thread in modal"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        <Expand className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Separate window" className="w-auto">
+                      <button
+                        type="button"
+                        onClick={handleOpenThreadWindow}
+                        disabled={!selectedThreadId}
+                        title="Open thread in separate window"
+                        aria-label="Open thread in separate window"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
+                    <button
+                      type="button"
+                      onClick={() => void handleThreadAction("mark_read")}
+                      disabled={Boolean(busyState) || !selectedThread.isUnread}
+                      title={
+                        selectedThread.isUnread
+                          ? "Mark thread as read"
+                          : "Thread already read"
+                      }
+                      aria-label={
+                        selectedThread.isUnread
+                          ? "Mark thread as read"
+                          : "Thread already read"
+                      }
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      {busyState === "mark_read" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <MailCheck className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1751,22 +2150,23 @@ export function EmailInboxView({
                 </button>
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
                 {view === "email-quarantine"
                   ? renderThreadActionButton("approve", {
                       label: "Approve",
+                      icon: getThreadActionButtonIcon("approve"),
                     })
                   : renderThreadActionButton("quarantine", {
-                      icon: <ShieldAlert className="h-4 w-4" />,
+                      icon: getThreadActionButtonIcon("quarantine"),
                     })}
                 {renderThreadActionButton("archive", {
-                  icon: <Archive className="h-4 w-4" />,
+                  icon: getThreadActionButtonIcon("archive"),
                 })}
                 {renderThreadActionButton("spam", {
-                  icon: <ShieldAlert className="h-4 w-4" />,
+                  icon: getThreadActionButtonIcon("spam"),
                 })}
                 {renderThreadActionButton("always_delete_sender", {
-                  icon: <Trash2 className="h-4 w-4" />,
+                  icon: getThreadActionButtonIcon("always_delete_sender"),
                   destructive: true,
                 })}
               </div>
@@ -1910,6 +2310,14 @@ export function EmailInboxView({
             setSenderHistory(null);
           }
         }}
+      />
+
+      <EmailThreadModal
+        open={isThreadModalOpen && Boolean(selectedThreadId)}
+        threadId={selectedThreadId}
+        projects={data.projects}
+        onRefresh={onRefresh}
+        onOpenChange={setIsThreadModalOpen}
       />
     </div>
   );

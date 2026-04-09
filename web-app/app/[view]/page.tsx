@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Archive,
@@ -90,9 +90,17 @@ import { shouldShowInboxItemInToday } from "@/lib/email-inbox/shared";
 export default function ViewPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const { showError, showSuccess, showInfo } = useToast();
   const view = params.view as string;
+  const popoutThreadId = view.startsWith("email-")
+    ? searchParams.get("threadId")
+    : null;
+  const isEmailThreadPopout =
+    view.startsWith("email-") &&
+    searchParams.get("emailPopout") === "1" &&
+    Boolean(popoutThreadId);
 
   const [database, setDatabase] = useState<Database | null>(null);
   const [showTodoistSync, setShowTodoistSync] = useState(false);
@@ -3699,6 +3707,33 @@ export default function ViewPage() {
       </div>
     );
   };
+
+  const handleCloseEmailThreadPopout = () => {
+    if (typeof window !== "undefined" && window.opener) {
+      window.close();
+      return;
+    }
+
+    router.replace(`/${view}`);
+  };
+
+  if (isEmailThreadPopout && popoutThreadId) {
+    return (
+      <div className="min-h-screen bg-zinc-950">
+        <EmailThreadModal
+          open
+          threadId={popoutThreadId}
+          projects={database.projects}
+          onRefresh={fetchData}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) {
+              handleCloseEmailThreadPopout();
+            }
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen bg-zinc-950 flex">
