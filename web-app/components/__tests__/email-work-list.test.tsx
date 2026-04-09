@@ -142,9 +142,13 @@ test("shouldShowStatusBadge hides the active badge only", () => {
   assert.equal(shouldShowStatusBadge("quarantine"), true);
 });
 
-test("getEmailWorkItemClassName highlights unread threads when they are not selected", () => {
+test("getEmailWorkItemClassName keeps unread threads borderless", () => {
   const unreadClasses = getEmailWorkItemClassName({
     isSelected: false,
+    isUnread: true,
+  });
+  const selectedUnreadClasses = getEmailWorkItemClassName({
+    isSelected: true,
     isUnread: true,
   });
   const readClasses = getEmailWorkItemClassName({
@@ -157,6 +161,8 @@ test("getEmailWorkItemClassName highlights unread threads when they are not sele
     /border-transparent/,
   );
   assert.match(unreadClasses, /bg-zinc-800\/60/);
+  assert.match(selectedUnreadClasses, /border-transparent/);
+  assert.match(selectedUnreadClasses, /bg-zinc-800\/70/);
   assert.doesNotMatch(
     readClasses,
     /border-transparent/,

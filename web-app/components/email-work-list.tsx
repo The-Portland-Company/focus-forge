@@ -161,10 +161,12 @@ export function getEmailWorkItemClassName(params: {
 }) {
   return cn(
     "w-full min-w-0 rounded-xl border px-4 py-3 text-left transition-colors",
-    params.isSelected
-      ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/10"
-      : params.isUnread
-        ? "border-transparent bg-zinc-800/60 hover:bg-zinc-800/70"
+    params.isUnread
+      ? params.isSelected
+        ? "border-transparent bg-zinc-800/70"
+        : "border-transparent bg-zinc-800/60 hover:bg-zinc-800/70"
+      : params.isSelected
+        ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/10"
         : "border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900/70",
   );
 }
