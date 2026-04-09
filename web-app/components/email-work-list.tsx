@@ -53,8 +53,23 @@ function statusLabel(status: InboxItem["status"]) {
 }
 
 export function formatEmailSubject(subject: string) {
-  const normalizedSubject = subject.trim() || "Untitled email";
-  return `Email Subject: ${normalizedSubject}`;
+  return subject.trim() || "Untitled email";
+}
+
+export function shouldShowSecondaryActionTitle(
+  actionTitle: string | null | undefined,
+  subject: string,
+) {
+  const normalizedActionTitle = actionTitle?.trim();
+
+  if (!normalizedActionTitle) {
+    return false;
+  }
+
+  return (
+    normalizedActionTitle.toLocaleLowerCase() !==
+    formatEmailSubject(subject).toLocaleLowerCase()
+  );
 }
 
 export function formatParticipantValue(participant: InboxParticipant) {
@@ -149,7 +164,7 @@ export function getEmailWorkItemClassName(params: {
     params.isSelected
       ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/10"
       : params.isUnread
-        ? "border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/[0.08] hover:border-[rgb(var(--theme-primary-rgb))]/55 hover:bg-[rgb(var(--theme-primary-rgb))]/[0.12]"
+        ? "border-transparent bg-zinc-800/60 hover:border-transparent hover:bg-zinc-800/70"
         : "border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900/70",
   );
 }
@@ -157,7 +172,7 @@ export function getEmailWorkItemClassName(params: {
 export function getEmailWorkPreviewClassName(isUnread?: boolean) {
   return cn(
     "mt-3 break-words whitespace-normal text-sm",
-    isUnread ? "text-zinc-200" : "text-zinc-400",
+    isUnread ? "font-semibold text-white" : "text-zinc-400",
   );
 }
 
@@ -190,6 +205,10 @@ export function EmailWorkList({
         const sender = getPrimarySenderParticipant(item.participants);
         const senderName = formatParticipantName(sender);
         const ccLine = formatParticipantLine(item.participants, "cc");
+        const showSecondaryActionTitle = shouldShowSecondaryActionTitle(
+          item.actionTitle,
+          item.subject,
+        );
 
         return (
           <div
@@ -210,7 +229,7 @@ export function EmailWorkList({
           >
             <div className="flex min-w-0 items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-300">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
                   {statusIcon(item.status)}
                   {item.isUnread ? (
                     <span
@@ -218,12 +237,6 @@ export function EmailWorkList({
                       className="h-2.5 w-2.5 rounded-full bg-[rgb(var(--theme-primary-rgb))]"
                     />
                   ) : null}
-                  <span className="break-words font-medium text-white">
-                    {item.actionTitle}
-                  </span>
-                  <span className="break-words text-xs text-zinc-500">
-                    {formatEmailSubject(item.subject)}
-                  </span>
                   {sender?.emailAddress ? (
                     <span className="inline-flex items-center gap-1 text-xs text-zinc-500">
                       <AtSign className="h-3 w-3" />
@@ -238,23 +251,56 @@ export function EmailWorkList({
                               email: sender.emailAddress,
                             });
                           }}
-                          className="max-w-[220px] truncate cursor-pointer text-xs text-zinc-400 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-200 sm:max-w-[280px]"
+                          className={cn(
+                            "max-w-[220px] truncate cursor-pointer text-xs underline underline-offset-4 transition-colors sm:max-w-[280px]",
+                            item.isUnread
+                              ? "font-semibold text-white decoration-zinc-500 hover:text-white"
+                              : "text-zinc-400 decoration-zinc-700 hover:text-zinc-200",
+                          )}
                         >
                           {senderName}
                         </button>
                       </Tooltip>
                     </span>
                   ) : (
-                    <span className="break-words text-xs text-zinc-500">
+                    <span
+                      className={cn(
+                        "break-words text-xs",
+                        item.isUnread ? "font-semibold text-white" : "text-zinc-500",
+                      )}
+                    >
                       From: Unknown
                     </span>
                   )}
                   {ccLine ? (
-                    <span className="break-words text-xs text-zinc-500">
+                    <span
+                      className={cn(
+                        "break-words text-xs",
+                        item.isUnread ? "font-semibold text-white" : "text-zinc-500",
+                      )}
+                    >
                       {ccLine}
                     </span>
                   ) : null}
                 </div>
+                <div
+                  className={cn(
+                    "mt-2 break-words text-white",
+                    item.isUnread ? "font-semibold" : "font-medium",
+                  )}
+                >
+                  {formatEmailSubject(item.subject)}
+                </div>
+                {showSecondaryActionTitle ? (
+                  <div
+                    className={cn(
+                      "mt-1 break-words text-sm",
+                      item.isUnread ? "font-semibold text-white" : "text-zinc-400",
+                    )}
+                  >
+                    {item.actionTitle}
+                  </div>
+                ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 {item.isUnread ? (
@@ -274,7 +320,12 @@ export function EmailWorkList({
               {formatInboxPreviewText(item.previewText || item.summaryText)}
             </div>
 
-            <div className="mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500">
+            <div
+              className={cn(
+                "mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs",
+                item.isUnread ? "font-semibold text-white" : "text-zinc-500",
+              )}
+            >
               <span className="inline-flex items-center gap-1 break-words">
                 <Mail className="h-3.5 w-3.5" />
                 {mailbox?.name || item.mailboxName || "Mailbox"}

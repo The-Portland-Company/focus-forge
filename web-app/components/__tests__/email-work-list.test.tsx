@@ -10,13 +10,25 @@ import {
   getPrimarySenderParticipant,
   getEmailWorkItemClassName,
   getEmailWorkPreviewClassName,
+  shouldShowSecondaryActionTitle,
   shouldShowStatusBadge,
 } from "../email-work-list";
 
-test("formatEmailSubject prefixes the subject label", () => {
+test("formatEmailSubject returns the normalized subject without a prefix", () => {
+  assert.equal(formatEmailSubject(" Security alert "), "Security alert");
+});
+
+test("shouldShowSecondaryActionTitle hides duplicate AI titles", () => {
   assert.equal(
-    formatEmailSubject(" Security alert "),
-    "Email Subject: Security alert",
+    shouldShowSecondaryActionTitle("Security alert", " Security alert "),
+    false,
+  );
+  assert.equal(
+    shouldShowSecondaryActionTitle(
+      "Review suspicious email: Security alert",
+      "Security alert",
+    ),
+    true,
   );
 });
 
@@ -142,11 +154,12 @@ test("getEmailWorkItemClassName highlights unread threads when they are not sele
 
   assert.match(
     unreadClasses,
-    /border-\[rgb\(var\(--theme-primary-rgb\)\)\]\/35/,
+    /border-transparent/,
   );
+  assert.match(unreadClasses, /bg-zinc-800\/60/);
   assert.doesNotMatch(
     readClasses,
-    /border-\[rgb\(var\(--theme-primary-rgb\)\)\]\/35/,
+    /border-transparent/,
   );
 });
 
@@ -155,5 +168,7 @@ test("getEmailWorkPreviewClassName keeps previews wrapping inside the list pane"
 
   assert.match(previewClasses, /break-words/);
   assert.match(previewClasses, /whitespace-normal/);
+  assert.match(previewClasses, /font-semibold/);
+  assert.match(previewClasses, /text-white/);
   assert.doesNotMatch(previewClasses, /truncate/);
 });
