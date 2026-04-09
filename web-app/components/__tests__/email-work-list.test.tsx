@@ -160,21 +160,25 @@ test("getEmailWorkItemClassName keeps unread threads borderless", () => {
     unreadClasses,
     /border-0/,
   );
-  assert.match(unreadClasses, /bg-zinc-800\/75/);
+  assert.match(unreadClasses, /bg-zinc-800/);
   assert.match(selectedUnreadClasses, /border-0/);
-  assert.match(selectedUnreadClasses, /bg-zinc-800\/85/);
+  assert.match(selectedUnreadClasses, /bg-zinc-800/);
   assert.doesNotMatch(
     readClasses,
     /border-0/,
   );
-  assert.doesNotMatch(readClasses, /bg-zinc-800\/60/);
-  assert.match(readClasses, /border-zinc-800/);
+  assert.match(readClasses, /border-zinc-800\/80/);
+  assert.match(readClasses, /bg-zinc-950\/30/);
 });
 
 test("getEmailWorkPreviewClassName keeps previews wrapping inside the list pane", () => {
-  const previewClasses = getEmailWorkPreviewClassName(true);
+  const unreadPreviewClasses = getEmailWorkPreviewClassName(true);
+  const readPreviewClasses = getEmailWorkPreviewClassName(false);
 
-  assert.match(previewClasses, /break-words/);
-  assert.match(previewClasses, /whitespace-normal/);
-  assert.doesNotMatch(previewClasses, /truncate/);
+  assert.match(unreadPreviewClasses, /break-words/);
+  assert.match(unreadPreviewClasses, /whitespace-normal/);
+  assert.match(unreadPreviewClasses, /font-medium/);
+  assert.match(unreadPreviewClasses, /text-zinc-100/);
+  assert.doesNotMatch(unreadPreviewClasses, /truncate/);
+  assert.match(readPreviewClasses, /text-zinc-400/);
 });

@@ -163,18 +163,18 @@ export function getEmailWorkItemClassName(params: {
     "w-full min-w-0 rounded-xl px-4 py-3 text-left transition-colors",
     params.isUnread
       ? params.isSelected
-        ? "border-0 bg-zinc-800/85 ring-0 shadow-none"
-        : "border-0 bg-zinc-800/75 ring-0 shadow-none hover:bg-zinc-800/85"
+        ? "border-0 bg-zinc-800 ring-0 shadow-none"
+        : "border-0 bg-zinc-800 ring-0 shadow-none hover:bg-zinc-800/95"
       : params.isSelected
         ? "border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/10"
-        : "border border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900/70",
+        : "border border-zinc-800/80 bg-zinc-950/30 hover:border-zinc-700 hover:bg-zinc-900/60",
   );
 }
 
 export function getEmailWorkPreviewClassName(isUnread?: boolean) {
   return cn(
     "mt-3 break-words whitespace-normal text-sm",
-    isUnread ? "text-zinc-200" : "text-zinc-400",
+    isUnread ? "font-medium text-zinc-100" : "text-zinc-400",
   );
 }
 
@@ -232,7 +232,7 @@ export function EmailWorkList({
             <div
               className={cn(
                 "flex min-w-0 items-start justify-between gap-3 transition-opacity",
-                item.isUnread ? "opacity-100" : "opacity-[0.5] hover:opacity-[0.72]",
+                item.isUnread ? "opacity-100" : "opacity-[0.42] hover:opacity-[0.58]",
               )}
             >
               <div className="min-w-0 flex-1">
@@ -245,7 +245,12 @@ export function EmailWorkList({
                     />
                   ) : null}
                   {sender?.emailAddress ? (
-                    <span className="inline-flex items-center gap-1 text-xs text-zinc-500">
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 text-xs",
+                        item.isUnread ? "text-zinc-300" : "text-zinc-500",
+                      )}
+                    >
                       <AtSign className="h-3 w-3" />
                       <span>From:</span>
                       <Tooltip content={sender.emailAddress} className="w-auto">
@@ -265,12 +270,22 @@ export function EmailWorkList({
                       </Tooltip>
                     </span>
                   ) : (
-                    <span className="break-words text-xs text-zinc-500">
+                    <span
+                      className={cn(
+                        "break-words text-xs",
+                        item.isUnread ? "text-zinc-300" : "text-zinc-500",
+                      )}
+                    >
                       From: Unknown
                     </span>
                   )}
                   {ccLine ? (
-                    <span className="break-words text-xs text-zinc-500">
+                    <span
+                      className={cn(
+                        "break-words text-xs",
+                        item.isUnread ? "text-zinc-300" : "text-zinc-500",
+                      )}
+                    >
                       {ccLine}
                     </span>
                   ) : null}
@@ -296,7 +311,7 @@ export function EmailWorkList({
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 {item.isUnread ? (
-                  <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                  <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
                     Unread
                   </div>
                 ) : null}
@@ -311,7 +326,7 @@ export function EmailWorkList({
             <div
               className={cn(
                 getEmailWorkPreviewClassName(item.isUnread),
-                item.isUnread ? "opacity-100" : "opacity-[0.5] hover:opacity-[0.72]",
+                item.isUnread ? "opacity-100" : "opacity-[0.42] hover:opacity-[0.58]",
               )}
             >
               {formatInboxPreviewText(item.previewText || item.summaryText)}
@@ -320,7 +335,7 @@ export function EmailWorkList({
             <div
               className={cn(
                 "mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500 transition-opacity",
-                item.isUnread ? "opacity-100" : "opacity-[0.5] hover:opacity-[0.72]",
+                item.isUnread ? "text-zinc-400 opacity-100" : "opacity-[0.42] hover:opacity-[0.58]",
               )}
             >
               <span className="inline-flex items-center gap-1 break-words">
