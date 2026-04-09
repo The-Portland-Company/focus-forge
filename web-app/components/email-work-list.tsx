@@ -164,7 +164,7 @@ export function getEmailWorkItemClassName(params: {
     params.isSelected
       ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/10"
       : params.isUnread
-        ? "border-transparent bg-zinc-800/60 hover:border-transparent hover:bg-zinc-800/70"
+        ? "border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/[0.08] hover:border-[rgb(var(--theme-primary-rgb))]/55 hover:bg-[rgb(var(--theme-primary-rgb))]/[0.12]"
         : "border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900/70",
   );
 }
@@ -172,7 +172,7 @@ export function getEmailWorkItemClassName(params: {
 export function getEmailWorkPreviewClassName(isUnread?: boolean) {
   return cn(
     "mt-3 break-words whitespace-normal text-sm",
-    isUnread ? "font-semibold text-white" : "text-zinc-400",
+    isUnread ? "text-zinc-200" : "text-zinc-400",
   );
 }
 
@@ -251,53 +251,28 @@ export function EmailWorkList({
                               email: sender.emailAddress,
                             });
                           }}
-                          className={cn(
-                            "max-w-[220px] truncate cursor-pointer text-xs underline underline-offset-4 transition-colors sm:max-w-[280px]",
-                            item.isUnread
-                              ? "font-semibold text-white decoration-zinc-500 hover:text-white"
-                              : "text-zinc-400 decoration-zinc-700 hover:text-zinc-200",
-                          )}
+                          className="max-w-[220px] truncate cursor-pointer text-xs text-zinc-400 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-200 sm:max-w-[280px]"
                         >
                           {senderName}
                         </button>
                       </Tooltip>
                     </span>
                   ) : (
-                    <span
-                      className={cn(
-                        "break-words text-xs",
-                        item.isUnread ? "font-semibold text-white" : "text-zinc-500",
-                      )}
-                    >
+                    <span className="break-words text-xs text-zinc-500">
                       From: Unknown
                     </span>
                   )}
                   {ccLine ? (
-                    <span
-                      className={cn(
-                        "break-words text-xs",
-                        item.isUnread ? "font-semibold text-white" : "text-zinc-500",
-                      )}
-                    >
+                    <span className="break-words text-xs text-zinc-500">
                       {ccLine}
                     </span>
                   ) : null}
                 </div>
-                <div
-                  className={cn(
-                    "mt-2 break-words text-white",
-                    item.isUnread ? "font-semibold" : "font-medium",
-                  )}
-                >
+                <div className="mt-2 break-words font-medium text-white">
                   {formatEmailSubject(item.subject)}
                 </div>
                 {showSecondaryActionTitle ? (
-                  <div
-                    className={cn(
-                      "mt-1 break-words text-sm",
-                      item.isUnread ? "font-semibold text-white" : "text-zinc-400",
-                    )}
-                  >
+                  <div className="mt-1 break-words text-sm text-zinc-400">
                     {item.actionTitle}
                   </div>
                 ) : null}
@@ -320,12 +295,7 @@ export function EmailWorkList({
               {formatInboxPreviewText(item.previewText || item.summaryText)}
             </div>
 
-            <div
-              className={cn(
-                "mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs",
-                item.isUnread ? "font-semibold text-white" : "text-zinc-500",
-              )}
-            >
+            <div className="mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500">
               <span className="inline-flex items-center gap-1 break-words">
                 <Mail className="h-3.5 w-3.5" />
                 {mailbox?.name || item.mailboxName || "Mailbox"}
