@@ -158,16 +158,17 @@ test("getEmailWorkItemClassName keeps unread threads borderless", () => {
 
   assert.match(
     unreadClasses,
-    /border-transparent/,
+    /border-0/,
   );
   assert.match(unreadClasses, /bg-zinc-800\/60/);
-  assert.match(selectedUnreadClasses, /border-transparent/);
+  assert.match(selectedUnreadClasses, /border-0/);
   assert.match(selectedUnreadClasses, /bg-zinc-800\/70/);
   assert.doesNotMatch(
     readClasses,
-    /border-transparent/,
+    /border-0/,
   );
   assert.doesNotMatch(readClasses, /bg-zinc-800\/60/);
+  assert.match(readClasses, /border-zinc-800/);
 });
 
 test("getEmailWorkPreviewClassName keeps previews wrapping inside the list pane", () => {

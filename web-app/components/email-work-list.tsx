@@ -160,14 +160,14 @@ export function getEmailWorkItemClassName(params: {
   isUnread?: boolean;
 }) {
   return cn(
-    "w-full min-w-0 rounded-xl border px-4 py-3 text-left transition-colors",
+    "w-full min-w-0 rounded-xl px-4 py-3 text-left transition-colors",
     params.isUnread
       ? params.isSelected
-        ? "border-transparent bg-zinc-800/70"
-        : "border-transparent bg-zinc-800/60 hover:bg-zinc-800/70"
+        ? "border-0 bg-zinc-800/70"
+        : "border-0 bg-zinc-800/60 hover:bg-zinc-800/70"
       : params.isSelected
-        ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/10"
-        : "border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900/70",
+        ? "border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/10"
+        : "border border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900/70",
   );
 }
 
@@ -229,7 +229,12 @@ export function EmailWorkList({
               isUnread: item.isUnread,
             })}
           >
-            <div className="flex min-w-0 items-start justify-between gap-3">
+            <div
+              className={cn(
+                "flex min-w-0 items-start justify-between gap-3 transition-opacity",
+                item.isUnread ? "opacity-100" : "opacity-55 hover:opacity-75",
+              )}
+            >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
                   {statusIcon(item.status)}
@@ -273,7 +278,7 @@ export function EmailWorkList({
                 <div
                   className={cn(
                     "mt-2 break-words text-white",
-                    item.isUnread ? "font-semibold" : "font-medium",
+                    item.isUnread ? "font-semibold" : "font-normal",
                   )}
                 >
                   {formatEmailSubject(item.subject)}
@@ -282,7 +287,7 @@ export function EmailWorkList({
                   <div
                     className={cn(
                       "mt-1 break-words text-sm",
-                      item.isUnread ? "font-semibold text-white" : "text-zinc-400",
+                      item.isUnread ? "font-semibold text-white" : "font-normal text-zinc-500",
                     )}
                   >
                     {item.actionTitle}
@@ -303,11 +308,21 @@ export function EmailWorkList({
               </div>
             </div>
 
-            <div className={getEmailWorkPreviewClassName(item.isUnread)}>
+            <div
+              className={cn(
+                getEmailWorkPreviewClassName(item.isUnread),
+                item.isUnread ? "opacity-100" : "opacity-55 hover:opacity-75",
+              )}
+            >
               {formatInboxPreviewText(item.previewText || item.summaryText)}
             </div>
 
-            <div className="mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500">
+            <div
+              className={cn(
+                "mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500 transition-opacity",
+                item.isUnread ? "opacity-100" : "opacity-55 hover:opacity-75",
+              )}
+            >
               <span className="inline-flex items-center gap-1 break-words">
                 <Mail className="h-3.5 w-3.5" />
                 {mailbox?.name || item.mailboxName || "Mailbox"}
