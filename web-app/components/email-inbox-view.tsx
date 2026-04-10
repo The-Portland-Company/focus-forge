@@ -1979,54 +1979,6 @@ export function EmailInboxView({
                       </div>
                     ) : null}
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Tooltip content="Modal popout" className="w-auto">
-                      <button
-                        type="button"
-                        onClick={() => setIsThreadModalOpen(true)}
-                        disabled={!selectedThreadId}
-                        title="Open thread in modal"
-                        aria-label="Open thread in modal"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        <Expand className="h-4 w-4" />
-                      </button>
-                    </Tooltip>
-                    <Tooltip content="Separate window" className="w-auto">
-                      <button
-                        type="button"
-                        onClick={handleOpenThreadWindow}
-                        disabled={!selectedThreadId}
-                        title="Open thread in separate window"
-                        aria-label="Open thread in separate window"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </button>
-                    </Tooltip>
-                    <button
-                      type="button"
-                      onClick={() => void handleThreadAction("mark_read")}
-                      disabled={Boolean(busyState) || !selectedThread.isUnread}
-                      title={
-                        selectedThread.isUnread
-                          ? "Mark thread as read"
-                          : "Thread already read"
-                      }
-                      aria-label={
-                        selectedThread.isUnread
-                          ? "Mark thread as read"
-                          : "Thread already read"
-                      }
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      {busyState === "mark_read" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <MailCheck className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
                 </div>
               </div>
 
@@ -2208,24 +2160,74 @@ export function EmailInboxView({
                     <Reply className="h-4 w-4" />
                     Reply
                   </div>
-                  <div className="relative pt-2">
-                    <FloatingFieldLabel label="Reply Mode" />
-                    <Select
-                      value={replyMode}
-                      onValueChange={(value) =>
-                        setReplyMode(value as "reply_all" | "internal_note")
-                      }
-                    >
-                      <SelectTrigger className="h-9 w-[180px] border-zinc-700 bg-zinc-900 text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="reply_all">Reply All</SelectItem>
-                        <SelectItem value="internal_note">
-                          Internal Note
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <div className="flex items-center gap-2">
+                    <Tooltip content="Modal popout" className="w-auto">
+                      <button
+                        type="button"
+                        onClick={() => setIsThreadModalOpen(true)}
+                        disabled={!selectedThreadId}
+                        title="Open thread in modal"
+                        aria-label="Open thread in modal"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        <Expand className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Separate window" className="w-auto">
+                      <button
+                        type="button"
+                        onClick={handleOpenThreadWindow}
+                        disabled={!selectedThreadId}
+                        title="Open thread in separate window"
+                        aria-label="Open thread in separate window"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Mark read" className="w-auto">
+                      <button
+                        type="button"
+                        onClick={() => void handleThreadAction("mark_read")}
+                        disabled={Boolean(busyState) || !selectedThread.isUnread}
+                        title={
+                          selectedThread.isUnread
+                            ? "Mark thread as read"
+                            : "Thread already read"
+                        }
+                        aria-label={
+                          selectedThread.isUnread
+                            ? "Mark thread as read"
+                            : "Thread already read"
+                        }
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        {busyState === "mark_read" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <MailCheck className="h-4 w-4" />
+                        )}
+                      </button>
+                    </Tooltip>
+                    <div className="relative pt-2">
+                      <FloatingFieldLabel label="Reply Mode" />
+                      <Select
+                        value={replyMode}
+                        onValueChange={(value) =>
+                          setReplyMode(value as "reply_all" | "internal_note")
+                        }
+                      >
+                        <SelectTrigger className="h-9 w-[180px] border-zinc-700 bg-zinc-900 text-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="reply_all">Reply All</SelectItem>
+                          <SelectItem value="internal_note">
+                            Internal Note
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </div>
                 <textarea

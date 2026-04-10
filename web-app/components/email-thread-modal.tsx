@@ -5,6 +5,7 @@ import {
   Archive,
   Check,
   ChevronDown,
+  ExternalLink,
   FolderSearch,
   Loader2,
   MailCheck,
@@ -20,6 +21,10 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  formatEmailSubject,
+  shouldShowSecondaryActionTitle,
+} from "@/components/email-work-list";
 import { FloatingFieldLabel } from "@/components/ui/floating-field-label";
 import {
   Select,
@@ -484,11 +489,27 @@ export function EmailThreadModal({
     );
   };
 
+  const handleOpenThreadWindow = () => {
+    if (!threadId || typeof window === "undefined") return;
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("threadId", threadId);
+    url.searchParams.set("emailPopout", "1");
+
+    window.open(
+      url.toString(),
+      `email-thread-${threadId}`,
+      "popup=yes,width=1280,height=900,resizable=yes,scrollbars=yes",
+    );
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(96vw,72rem)] max-w-[72rem] overflow-hidden border-zinc-800 bg-zinc-950 p-0 text-white sm:max-h-[92vh] sm:rounded-2xl">
         <DialogTitle className="sr-only">
-          {thread?.actionTitle || "Email thread"}
+          {thread?.subject
+            ? formatEmailSubject(thread.subject)
+            : "Email thread"}
         </DialogTitle>
         <DialogDescription className="sr-only">
           Review an email thread from Today in a modal.
@@ -514,11 +535,16 @@ export function EmailThreadModal({
                       ) : null}
                     </div>
                     <h2 className="text-xl font-semibold text-white">
-                      {thread.actionTitle}
+                      {formatEmailSubject(thread.subject)}
                     </h2>
-                    <div className="text-sm text-zinc-500">
-                      {thread.subject}
-                    </div>
+                    {shouldShowSecondaryActionTitle(
+                      thread.actionTitle,
+                      thread.subject,
+                    ) ? (
+                      <div className="text-sm text-zinc-400">
+                        {thread.actionTitle}
+                      </div>
+                    ) : null}
                     <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-sm text-zinc-300">
                       <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
                         <Sparkles className="h-3.5 w-3.5" />
@@ -536,30 +562,6 @@ export function EmailThreadModal({
                       </div>
                     ) : null}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleThreadAction("mark_read")}
-                    disabled={
-                      Boolean(busyState) || !canMarkThreadAsRead(thread)
-                    }
-                    title={
-                      canMarkThreadAsRead(thread)
-                        ? "Mark thread as read"
-                        : "Thread already read"
-                    }
-                    aria-label={
-                      canMarkThreadAsRead(thread)
-                        ? "Mark thread as read"
-                        : "Thread already read"
-                    }
-                    className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    {busyState === "mark_read" ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <MailCheck className="h-4 w-4" />
-                    )}
-                  </button>
                 </div>
               </div>
 
@@ -738,24 +740,60 @@ export function EmailThreadModal({
                     <Reply className="h-4 w-4" />
                     Reply
                   </div>
-                  <div className="relative pt-2">
-                    <FloatingFieldLabel label="Reply Mode" />
-                    <Select
-                      value={replyMode}
-                      onValueChange={(value) =>
-                        setReplyMode(value as "reply_all" | "internal_note")
-                      }
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleOpenThreadWindow}
+                      disabled={!threadId}
+                      title="Open thread in separate window"
+                      aria-label="Open thread in separate window"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
                     >
-                      <SelectTrigger className="h-9 w-[180px] border-zinc-700 bg-zinc-900 text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="reply_all">Reply All</SelectItem>
-                        <SelectItem value="internal_note">
-                          Internal Note
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <ExternalLink className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleThreadAction("mark_read")}
+                      disabled={
+                        Boolean(busyState) || !canMarkThreadAsRead(thread)
+                      }
+                      title={
+                        canMarkThreadAsRead(thread)
+                          ? "Mark thread as read"
+                          : "Thread already read"
+                      }
+                      aria-label={
+                        canMarkThreadAsRead(thread)
+                          ? "Mark thread as read"
+                          : "Thread already read"
+                      }
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      {busyState === "mark_read" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <MailCheck className="h-4 w-4" />
+                      )}
+                    </button>
+                    <div className="relative pt-2">
+                      <FloatingFieldLabel label="Reply Mode" />
+                      <Select
+                        value={replyMode}
+                        onValueChange={(value) =>
+                          setReplyMode(value as "reply_all" | "internal_note")
+                        }
+                      >
+                        <SelectTrigger className="h-9 w-[180px] border-zinc-700 bg-zinc-900 text-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="reply_all">Reply All</SelectItem>
+                          <SelectItem value="internal_note">
+                            Internal Note
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </div>
                 <textarea
