@@ -2,7 +2,6 @@
 
 import {
   AlertTriangle,
-  AtSign,
   FolderSearch,
   Mail,
   MessageSquare,
@@ -25,6 +24,7 @@ type EmailWorkListProps = {
   selectedId?: string | null;
   onSelect?: (item: InboxItem) => void;
   onSenderClick?: (sender: { name: string; email: string }) => void;
+  onProjectClick?: (item: InboxItem) => void;
   emptyLabel?: string;
 };
 
@@ -128,7 +128,17 @@ export function formatParticipantLine(
 }
 
 export function shouldShowStatusBadge(status: InboxItem["status"]) {
-  return status !== "active";
+  return status === "quarantine" || status === "spam";
+}
+
+export function getEmailReadStateLabel(isUnread?: boolean) {
+  return isUnread ? "Unread" : "Read";
+}
+
+export function getEmailReadStateBadgeClassName(isUnread?: boolean) {
+  return isUnread
+    ? "rounded-full border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]"
+    : "rounded-full border border-zinc-700 bg-zinc-900/70 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400";
 }
 
 export function formatInboxPreviewText(
@@ -163,10 +173,10 @@ export function getEmailWorkItemClassName(params: {
     "w-full min-w-0 rounded-xl px-4 py-3 text-left transition-colors",
     params.isUnread
       ? params.isSelected
-        ? "border-0 bg-white/12 ring-0 shadow-none"
-        : "border-0 bg-white/10 ring-0 shadow-none hover:bg-white/12"
+        ? "border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/12 shadow-none"
+        : "border border-[rgb(var(--theme-primary-rgb))]/20 bg-[rgb(var(--theme-primary-rgb))]/[0.08] ring-0 shadow-none hover:border-[rgb(var(--theme-primary-rgb))]/35 hover:bg-[rgb(var(--theme-primary-rgb))]/12"
       : params.isSelected
-        ? "border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/10"
+        ? "border border-zinc-700 bg-zinc-900/80"
         : "border border-zinc-800/80 bg-zinc-950/30 hover:border-zinc-700 hover:bg-zinc-900/60",
   );
 }
@@ -185,6 +195,7 @@ export function EmailWorkList({
   selectedId,
   onSelect,
   onSenderClick,
+  onProjectClick,
   emptyLabel = "No email work yet.",
 }: EmailWorkListProps) {
   if (items.length === 0) {
@@ -232,18 +243,12 @@ export function EmailWorkList({
             <div
               className={cn(
                 "flex min-w-0 items-start justify-between gap-3 transition-opacity",
-                item.isUnread ? "opacity-100" : "opacity-[0.42] hover:opacity-[0.58]",
+                item.isUnread ? "opacity-100" : "opacity-100",
               )}
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
                   {statusIcon(item.status)}
-                  {item.isUnread ? (
-                    <span
-                      aria-hidden="true"
-                      className="h-2.5 w-2.5 rounded-full bg-[rgb(var(--theme-primary-rgb))]"
-                    />
-                  ) : null}
                   {sender?.emailAddress ? (
                     <span
                       className={cn(
@@ -251,7 +256,6 @@ export function EmailWorkList({
                         item.isUnread ? "text-zinc-300" : "text-zinc-500",
                       )}
                     >
-                      <AtSign className="h-3 w-3" />
                       <span>From:</span>
                       <Tooltip content={sender.emailAddress} className="w-auto">
                         <button
@@ -310,11 +314,9 @@ export function EmailWorkList({
                 ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                {item.isUnread ? (
-                  <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
-                    Unread
-                  </div>
-                ) : null}
+                <div className={getEmailReadStateBadgeClassName(item.isUnread)}>
+                  {getEmailReadStateLabel(item.isUnread)}
+                </div>
                 {shouldShowStatusBadge(item.status) ? (
                   <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
                     {statusLabel(item.status)}
@@ -326,7 +328,7 @@ export function EmailWorkList({
             <div
               className={cn(
                 getEmailWorkPreviewClassName(item.isUnread),
-                item.isUnread ? "opacity-100" : "opacity-[0.42] hover:opacity-[0.58]",
+                item.isUnread ? "opacity-100" : "opacity-100",
               )}
             >
               {formatInboxPreviewText(item.previewText || item.summaryText)}
@@ -335,19 +337,28 @@ export function EmailWorkList({
             <div
               className={cn(
                 "mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500 transition-opacity",
-                item.isUnread ? "text-zinc-400 opacity-100" : "opacity-[0.42] hover:opacity-[0.58]",
+                item.isUnread ? "text-zinc-400 opacity-100" : "opacity-100",
               )}
             >
               <span className="inline-flex items-center gap-1 break-words">
                 <Mail className="h-3.5 w-3.5" />
                 {mailbox?.name || item.mailboxName || "Mailbox"}
               </span>
-              {project ? (
-                <span className="inline-flex items-center gap-1 break-words">
-                  <FolderSearch className="h-3.5 w-3.5" />
-                  {project.name}
-                </span>
-              ) : null}
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onProjectClick?.(item);
+                }}
+                className="inline-flex items-center gap-1 break-words rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/70 hover:text-white"
+              >
+                <FolderSearch className="h-3.5 w-3.5" />
+                {project ? (
+                  project.name
+                ) : (
+                  <span className="text-zinc-500">No Project</span>
+                )}
+              </button>
               <span className="inline-flex items-center gap-1 break-words">
                 <MessageSquare className="h-3.5 w-3.5" />
                 {item.derivedTaskCount} linked task

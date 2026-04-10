@@ -7,6 +7,8 @@ import {
   formatParticipantName,
   formatParticipantLine,
   formatParticipantValue,
+  getEmailReadStateBadgeClassName,
+  getEmailReadStateLabel,
   getPrimarySenderParticipant,
   getEmailWorkItemClassName,
   getEmailWorkPreviewClassName,
@@ -137,12 +139,14 @@ test("formatInboxPreviewText truncates long previews with ellipsis", () => {
   assert.equal(output, "Hello Jon, aaaaaaaaaaaaaa...");
 });
 
-test("shouldShowStatusBadge hides the active badge only", () => {
+test("shouldShowStatusBadge only shows badges for quarantine and spam states", () => {
   assert.equal(shouldShowStatusBadge("active"), false);
+  assert.equal(shouldShowStatusBadge("needs_project"), false);
   assert.equal(shouldShowStatusBadge("quarantine"), true);
+  assert.equal(shouldShowStatusBadge("spam"), true);
 });
 
-test("getEmailWorkItemClassName keeps unread threads borderless", () => {
+test("getEmailWorkItemClassName keeps unread threads brand-accented", () => {
   const unreadClasses = getEmailWorkItemClassName({
     isSelected: false,
     isUnread: true,
@@ -156,19 +160,25 @@ test("getEmailWorkItemClassName keeps unread threads borderless", () => {
     isUnread: false,
   });
 
+  assert.match(unreadClasses, /border-\[rgb\(var\(--theme-primary-rgb\)\)\]\/20/);
+  assert.match(unreadClasses, /bg-\[rgb\(var\(--theme-primary-rgb\)\)\]\/\[0\.08\]/);
   assert.match(
-    unreadClasses,
-    /border-0/,
+    selectedUnreadClasses,
+    /border-\[rgb\(var\(--theme-primary-rgb\)\)\]\/45/,
   );
-  assert.match(unreadClasses, /bg-white\/10/);
-  assert.match(selectedUnreadClasses, /border-0/);
-  assert.match(selectedUnreadClasses, /bg-white\/12/);
-  assert.doesNotMatch(
-    readClasses,
-    /border-0/,
-  );
+  assert.match(selectedUnreadClasses, /bg-\[rgb\(var\(--theme-primary-rgb\)\)\]\/12/);
   assert.match(readClasses, /border-zinc-800\/80/);
   assert.match(readClasses, /bg-zinc-950\/30/);
+});
+
+test("read state badge helpers distinguish unread and read styles", () => {
+  assert.equal(getEmailReadStateLabel(true), "Unread");
+  assert.equal(getEmailReadStateLabel(false), "Read");
+  assert.match(
+    getEmailReadStateBadgeClassName(true),
+    /text-\[rgb\(var\(--theme-primary-rgb\)\)\]/,
+  );
+  assert.match(getEmailReadStateBadgeClassName(false), /text-zinc-400/);
 });
 
 test("getEmailWorkPreviewClassName keeps previews wrapping inside the list pane", () => {

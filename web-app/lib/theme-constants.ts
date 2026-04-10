@@ -1,5 +1,5 @@
 // Theme Types
-export type ThemePreset = 'dark' | 'light' | 'liquid-glass-dark' | 'liquid-glass-light'
+export type ThemePreset = 'system' | 'dark' | 'light' | 'liquid-glass-dark' | 'liquid-glass-light'
 
 export interface Theme {
   id: ThemePreset
@@ -12,6 +12,14 @@ export interface Theme {
 
 // Theme Definitions
 export const THEME_PRESETS: Record<ThemePreset, Theme> = {
+  system: {
+    id: 'system',
+    name: 'System',
+    description: 'Inherit the operating system dark or light appearance',
+    allowsColorCustomization: true,
+    defaultColor: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    cssClass: ''
+  },
   dark: {
     id: 'dark',
     name: 'Dark',

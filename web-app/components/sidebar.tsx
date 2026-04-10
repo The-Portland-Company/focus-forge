@@ -32,11 +32,27 @@ import {
   Check,
   RefreshCw,
   FileCode2,
+  Play,
+  Square,
 } from "lucide-react";
 import { Database, Project } from "@/lib/types";
 import { UserAvatar } from "@/components/user-avatar";
 import { Tooltip } from "./tooltip";
 import { formatElapsed } from "@/lib/time/client";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface SidebarProps {
   data: Database;
@@ -101,8 +117,30 @@ export function Sidebar({
   const [currentTimerStartedAt, setCurrentTimerStartedAt] = useState<
     string | null
   >(null);
+  const [currentTimerEntryId, setCurrentTimerEntryId] = useState<string | null>(
+    null,
+  );
   const [currentTimerLabel, setCurrentTimerLabel] = useState("Focus: Time");
   const [currentTimerElapsed, setCurrentTimerElapsed] = useState("00:00:00");
+  const [currentTimerOrganizationId, setCurrentTimerOrganizationId] = useState<
+    string | null
+  >(null);
+  const [currentTimerProjectId, setCurrentTimerProjectId] = useState<
+    string | null
+  >(null);
+  const [currentTimerDescription, setCurrentTimerDescription] = useState("");
+  const [isTimerModalOpen, setIsTimerModalOpen] = useState(false);
+  const [timerModalMode, setTimerModalMode] = useState<"start" | "stop">(
+    "start",
+  );
+  const [timerForm, setTimerForm] = useState({
+    title: "Focus: Time",
+    organizationId: "",
+    projectId: "",
+    description: "",
+  });
+  const [timerSubmitting, setTimerSubmitting] = useState(false);
+  const [timerError, setTimerError] = useState<string | null>(null);
 
   // Load saved preferences from localStorage
   useEffect(() => {
@@ -175,21 +213,26 @@ export function Sidebar({
     fetchToken();
   }, []);
 
-  useEffect(() => {
-    const loadCurrentTimer = async () => {
-      try {
-        const response = await fetch("/api/v1/time/current", {
-          credentials: "include",
-        });
-        const payload = await response.json();
-        if (!response.ok) return;
-        setCurrentTimerStartedAt(payload.data?.startedAt || null);
-        setCurrentTimerLabel(payload.data?.title || "Focus: Time");
-      } catch (error) {
-        console.error("Failed to load current time entry:", error);
-      }
-    };
+  const loadCurrentTimer = async () => {
+    try {
+      const response = await fetch("/api/v1/time/current", {
+        credentials: "include",
+      });
+      const payload = await response.json();
+      if (!response.ok) return;
 
+      setCurrentTimerStartedAt(payload.data?.startedAt || null);
+      setCurrentTimerEntryId(payload.data?.id || null);
+      setCurrentTimerLabel(payload.data?.title || "Focus: Time");
+      setCurrentTimerOrganizationId(payload.data?.organizationId || null);
+      setCurrentTimerProjectId(payload.data?.projectId || null);
+      setCurrentTimerDescription(payload.data?.description || "");
+    } catch (error) {
+      console.error("Failed to load current time entry:", error);
+    }
+  };
+
+  useEffect(() => {
     void loadCurrentTimer();
     const interval = window.setInterval(() => {
       void loadCurrentTimer();
@@ -211,6 +254,95 @@ export function Sidebar({
 
     return () => window.clearInterval(interval);
   }, [currentTimerStartedAt]);
+
+  const timerProjects = data.projects
+    .filter(
+      (project) =>
+        !project.archived &&
+        (!timerForm.organizationId ||
+          project.organizationId === timerForm.organizationId),
+    )
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  const openTimerModal = (mode: "start" | "stop") => {
+    const defaultOrganizationId =
+      currentTimerOrganizationId || data.organizations[0]?.id || "";
+    setTimerModalMode(mode);
+    setTimerError(null);
+    setTimerForm({
+      title:
+        mode === "stop"
+          ? currentTimerLabel || "Focus: Time"
+          : currentTimerLabel !== "Focus: Time" && !currentTimerStartedAt
+            ? currentTimerLabel
+            : "Focus: Time",
+      organizationId: defaultOrganizationId,
+      projectId: currentTimerProjectId || "",
+      description: currentTimerDescription || "",
+    });
+    setIsTimerModalOpen(true);
+  };
+
+  const handleTimerSubmit = async () => {
+    if (!timerForm.organizationId) {
+      setTimerError("Choose an organization.");
+      return;
+    }
+
+    setTimerSubmitting(true);
+    setTimerError(null);
+
+    try {
+      if (timerModalMode === "start") {
+        const response = await fetch("/api/v1/time/entries", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            organizationId: timerForm.organizationId,
+            projectId: timerForm.projectId || null,
+            taskIds: [],
+            title: timerForm.title.trim() || "Focus: Time",
+            description: timerForm.description.trim() || null,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error?.message || "Failed to start timer.");
+        }
+      } else {
+        if (!currentTimerEntryId) {
+          throw new Error("No running timer to stop.");
+        }
+
+        const response = await fetch(`/api/v1/time/entries/${currentTimerEntryId}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            organizationId: timerForm.organizationId,
+            projectId: timerForm.projectId || null,
+            title: timerForm.title.trim() || "Focus: Time",
+            description: timerForm.description.trim() || null,
+            endedAt: new Date().toISOString(),
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error?.message || "Failed to stop timer.");
+        }
+      }
+
+      await loadCurrentTimer();
+      setIsTimerModalOpen(false);
+    } catch (error) {
+      setTimerError(
+        error instanceof Error ? error.message : "Failed to update timer.",
+      );
+    } finally {
+      setTimerSubmitting(false);
+    }
+  };
 
   // Close calendar popover on outside click
   useEffect(() => {
@@ -460,6 +592,88 @@ export function Sidebar({
         className={`flex-1 ${isCollapsed ? "px-1" : "px-1.5"} overflow-y-auto`}
       >
         {isCollapsed ? (
+          <div className="mt-1 flex flex-col gap-2">
+            <Tooltip
+              content={
+                currentTimerStartedAt
+                  ? `${currentTimerLabel} · ${currentTimerElapsed}`
+                  : "Focus: Time"
+              }
+            >
+              <Link
+                href="/time"
+                className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
+                  currentView === "time"
+                    ? "bg-zinc-800 text-white"
+                    : currentTimerStartedAt
+                      ? "text-emerald-300 hover:bg-zinc-800/50 hover:text-white"
+                      : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                }`}
+              >
+                <Clock className="w-4 h-4" />
+              </Link>
+            </Tooltip>
+            <Tooltip content={currentTimerStartedAt ? "Stop timer" : "Start timer"}>
+              <button
+                type="button"
+                onClick={() =>
+                  openTimerModal(currentTimerStartedAt ? "stop" : "start")
+                }
+                className={`w-full rounded-lg border px-2 py-2 transition-colors ${
+                  currentTimerStartedAt
+                    ? "border-emerald-800/70 bg-emerald-950/40 text-emerald-200 hover:border-emerald-700 hover:text-white"
+                    : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:border-zinc-700 hover:text-white"
+                }`}
+              >
+                {currentTimerStartedAt ? (
+                  <Square className="mx-auto h-4 w-4" />
+                ) : (
+                  <Play className="mx-auto h-4 w-4" />
+                )}
+              </button>
+            </Tooltip>
+          </div>
+        ) : (
+          <div className="mt-1 flex items-center gap-2">
+            <Link
+              href="/time"
+              className={`flex-1 flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                currentView === "time"
+                  ? "bg-zinc-800 text-white"
+                  : currentTimerStartedAt
+                    ? "text-emerald-300 hover:bg-zinc-800/50 hover:text-white"
+                    : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+              }`}
+            >
+              <span className="flex min-w-0 items-center gap-3">
+                <Clock className="w-4 h-4 shrink-0" />
+                <span className="truncate">{currentTimerLabel}</span>
+              </span>
+              <span className="font-mono text-xs">{currentTimerElapsed}</span>
+            </Link>
+            <Tooltip content={currentTimerStartedAt ? "Stop timer" : "Start timer"}>
+              <button
+                type="button"
+                onClick={() =>
+                  openTimerModal(currentTimerStartedAt ? "stop" : "start")
+                }
+                className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                  currentTimerStartedAt
+                    ? "border-emerald-800/70 bg-emerald-950/40 text-emerald-200 hover:border-emerald-700 hover:text-white"
+                    : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:border-zinc-700 hover:text-white"
+                }`}
+              >
+                {currentTimerStartedAt ? (
+                  <Square className="h-4 w-4" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+              </button>
+            </Tooltip>
+          </div>
+        )}
+
+        {isCollapsed ? (
           <Tooltip content="Search">
             <Link
               href="/search"
@@ -552,7 +766,7 @@ export function Sidebar({
                 </span>
               ) : null}
             </Link>
-            <div className="ml-7 mt-1 space-y-1 border-l border-zinc-800 pl-3">
+            <div className="mt-1 space-y-1 border-t border-zinc-800 pt-1">
               <Link
                 href="/email-inbox"
                 className={`block rounded-md px-2 py-1.5 text-sm transition-colors ${
@@ -653,46 +867,6 @@ export function Sidebar({
           >
             <Calendar className="w-4 h-4" />
             Calendar
-          </Link>
-        )}
-
-        {isCollapsed ? (
-          <Tooltip
-            content={
-              currentTimerStartedAt
-                ? `${currentTimerLabel} · ${currentTimerElapsed}`
-                : "Focus: Time"
-            }
-          >
-            <Link
-              href="/time"
-              className={`mt-1 w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
-                currentView === "time"
-                  ? "bg-zinc-800 text-white"
-                  : currentTimerStartedAt
-                    ? "text-emerald-300 hover:bg-zinc-800/50 hover:text-white"
-                    : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
-              }`}
-            >
-              <Clock className="w-4 h-4" />
-            </Link>
-          </Tooltip>
-        ) : (
-          <Link
-            href="/time"
-            className={`mt-1 w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-              currentView === "time"
-                ? "bg-zinc-800 text-white"
-                : currentTimerStartedAt
-                  ? "text-emerald-300 hover:bg-zinc-800/50 hover:text-white"
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
-            }`}
-          >
-            <span className="flex items-center gap-3">
-              <Clock className="w-4 h-4" />
-              <span>{currentTimerLabel}</span>
-            </span>
-            <span className="font-mono text-xs">{currentTimerElapsed}</span>
           </Link>
         )}
 
@@ -1446,6 +1620,163 @@ export function Sidebar({
           </div>
         )}
       </div>
+      <Dialog open={isTimerModalOpen} onOpenChange={setIsTimerModalOpen}>
+        <DialogContent className="border-zinc-800 bg-zinc-950 text-white sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {timerModalMode === "stop" ? "Stop Focus: Time" : "Start Focus: Time"}
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              {timerModalMode === "stop"
+                ? "Review the active session before stopping it."
+                : "Start a new Focus: Time session from the sidebar."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Session Title
+              </label>
+              <input
+                type="text"
+                value={timerForm.title}
+                onChange={(event) =>
+                  setTimerForm((current) => ({
+                    ...current,
+                    title: event.target.value,
+                  }))
+                }
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
+                placeholder="Focus: Time"
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Organization
+                </label>
+                <Select
+                  value={timerForm.organizationId}
+                  onValueChange={(value) =>
+                    setTimerForm((current) => ({
+                      ...current,
+                      organizationId: value,
+                      projectId:
+                        current.projectId &&
+                        data.projects.some(
+                          (project) =>
+                            project.id === current.projectId &&
+                            project.organizationId === value,
+                        )
+                          ? current.projectId
+                          : "",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="border-zinc-700 bg-zinc-900 text-white">
+                    <SelectValue placeholder="Choose organization" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {data.organizations.map((organization) => (
+                      <SelectItem key={organization.id} value={organization.id}>
+                        {organization.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Project
+                </label>
+                <Select
+                  value={timerForm.projectId || "none"}
+                  onValueChange={(value) =>
+                    setTimerForm((current) => ({
+                      ...current,
+                      projectId: value === "none" ? "" : value,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="border-zinc-700 bg-zinc-900 text-white">
+                    <SelectValue placeholder="Optional project" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No project</SelectItem>
+                    {timerProjects.map((project) => (
+                      <SelectItem key={project.id} value={project.id}>
+                        {project.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Notes
+              </label>
+              <textarea
+                value={timerForm.description}
+                onChange={(event) =>
+                  setTimerForm((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+                rows={4}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
+                placeholder="Optional notes for this session"
+              />
+            </div>
+
+            {timerModalMode === "stop" && currentTimerStartedAt ? (
+              <div className="rounded-xl border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 text-sm text-emerald-100">
+                Running for {currentTimerElapsed}
+              </div>
+            ) : null}
+
+            {timerError ? (
+              <div className="rounded-xl border border-red-900/50 bg-red-950/20 px-3 py-2 text-sm text-red-200">
+                {timerError}
+              </div>
+            ) : null}
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setIsTimerModalOpen(false)}
+                className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleTimerSubmit()}
+                disabled={timerSubmitting}
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${
+                  timerModalMode === "stop"
+                    ? "bg-emerald-700 hover:bg-emerald-600"
+                    : "bg-theme-gradient hover:opacity-90"
+                }`}
+              >
+                {timerSubmitting ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : timerModalMode === "stop" ? (
+                  <Square className="h-4 w-4" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+                {timerModalMode === "stop" ? "Stop Timer" : "Start Timer"}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

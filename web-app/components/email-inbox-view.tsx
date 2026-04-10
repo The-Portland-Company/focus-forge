@@ -23,6 +23,7 @@ import {
   Loader2,
   Mail,
   MailCheck,
+  Plus,
   RefreshCw,
   Search,
   SendHorizontal,
@@ -33,9 +34,12 @@ import {
 } from "lucide-react";
 import {
   EmailWorkList,
+  getEmailReadStateBadgeClassName,
+  getEmailReadStateLabel,
   formatEmailSubject,
   formatParticipantName,
   getPrimarySenderParticipant,
+  shouldShowStatusBadge,
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
@@ -346,6 +350,7 @@ export function EmailInboxView({
   const [mailboxForm, setMailboxForm] = useState(createEmptyMailboxForm);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [replyContent, setReplyContent] = useState("");
   const [replyMode, setReplyMode] = useState<"reply_all" | "internal_note">(
     "reply_all",
@@ -373,6 +378,7 @@ export function EmailInboxView({
   const [isDesktopSplitLayout, setIsDesktopSplitLayout] = useState(false);
   const [isThreadModalOpen, setIsThreadModalOpen] = useState(false);
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
+  const projectSearchInputRef = useRef<HTMLInputElement | null>(null);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const queuedActionTimeoutRef = useRef<number | null>(null);
   const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
@@ -422,6 +428,10 @@ export function EmailInboxView({
   const visibleSyncError = useMemo(
     () => getVisibleMailboxSyncError(mailboxes, selectedMailboxId),
     [mailboxes, selectedMailboxId],
+  );
+  const unreadInboxCount = useMemo(
+    () => visibleInboxItems.filter((item) => item.isUnread).length,
+    [visibleInboxItems],
   );
   const selectedMailbox = useMemo(
     () =>
@@ -706,6 +716,11 @@ export function EmailInboxView({
 
   useEffect(() => {
     if (!isProjectPickerOpen) return;
+
+    window.setTimeout(() => {
+      projectSearchInputRef.current?.focus();
+      projectSearchInputRef.current?.select();
+    }, 0);
 
     const handlePointerDown = (event: MouseEvent) => {
       if (
@@ -1243,6 +1258,69 @@ export function EmailInboxView({
     }
   };
 
+  const handleProjectPickerOpenForItem = (item: InboxItem) => {
+    setSelectedThreadId(item.id);
+    setProjectSearchQuery("");
+    setIsProjectPickerOpen(true);
+  };
+
+  const handleCreateProject = async () => {
+    const name = projectSearchQuery.trim();
+    if (!name || isCreatingProject) return;
+
+    const existingProject = sortedInboxProjects.find(
+      (project) => project.name.trim().toLowerCase() === name.toLowerCase(),
+    );
+    if (existingProject) {
+      handleProjectPickerSelect(existingProject.id);
+      return;
+    }
+
+    const mailboxForThread = mailboxes.find(
+      (mailbox) => mailbox.id === selectedThread?.mailboxId,
+    );
+    const organizationId =
+      mailboxForThread?.organizationId ||
+      data.organizations[0]?.id ||
+      null;
+
+    if (!organizationId) {
+      updateStatus("Add an organization before creating a project.");
+      return;
+    }
+
+    setIsCreatingProject(true);
+    try {
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name,
+          color: "#6B7280",
+          organization_id: organizationId,
+          is_favorite: false,
+          archived: false,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to create project");
+      }
+
+      await onRefresh();
+      closeProjectPicker();
+      await handleProjectAssign(payload.id);
+      updateStatus(`Created project "${name}".`);
+    } catch (error) {
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to create project",
+      );
+    } finally {
+      setIsCreatingProject(false);
+    }
+  };
+
   const handleGenerateTasks = async () => {
     if (!selectedThreadId) return;
     setBusyState("tasks");
@@ -1574,22 +1652,6 @@ export function EmailInboxView({
               <Bot className="h-4 w-4" />
             </button>
           </Tooltip>
-          <Select
-            value={selectedMailboxId}
-            onValueChange={setSelectedMailboxId}
-          >
-            <SelectTrigger className="w-[220px] max-w-full border-zinc-700 bg-zinc-900 text-white">
-              <SelectValue placeholder="Mailbox" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All mailboxes</SelectItem>
-              {mailboxes.map((mailbox) => (
-                <SelectItem key={mailbox.id} value={mailbox.id}>
-                  {mailbox.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           <button
             type="button"
             onClick={handleMailboxFormToggle}
@@ -1883,14 +1945,26 @@ export function EmailInboxView({
         <div className="min-w-0 space-y-3">
           <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="inline-flex items-center gap-2 text-sm text-zinc-400">
-                {view === "email-quarantine" ? (
-                  <ShieldAlert className="h-4 w-4 text-amber-400" />
-                ) : (
-                  <Mail className="h-4 w-4" />
-                )}
-                {visibleInboxItems.length} Message
-                {visibleInboxItems.length === 1 ? "" : "s"}
+              <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-400">
+                <div className="inline-flex items-center gap-2">
+                  {view === "email-quarantine" ? (
+                    <ShieldAlert className="h-4 w-4 text-amber-400" />
+                  ) : (
+                    <Mail className="h-4 w-4" />
+                  )}
+                  {visibleInboxItems.length} Message
+                  {visibleInboxItems.length === 1 ? "" : "s"}
+                </div>
+                {view !== "email-quarantine" ? (
+                  <>
+                    <div className="rounded-full border border-zinc-700 bg-zinc-950/70 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                      Total {visibleInboxItems.length}
+                    </div>
+                    <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                      Unread {unreadInboxCount}
+                    </div>
+                  </>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-3">
                 {view === "email-quarantine" ? (
@@ -1898,6 +1972,27 @@ export function EmailInboxView({
                     {quarantineCount} quarantined
                   </div>
                 ) : null}
+                <div className="relative w-full sm:w-[240px]">
+                  <FloatingFieldLabel label="Mailbox" />
+                  <Mail className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                  <div className="pointer-events-none absolute left-9 top-1/2 z-10 h-5 w-px -translate-y-1/2 bg-zinc-700" />
+                  <Select
+                    value={selectedMailboxId}
+                    onValueChange={setSelectedMailboxId}
+                  >
+                    <SelectTrigger className="h-11 border-zinc-800 bg-zinc-950/70 pl-12 text-white">
+                      <SelectValue placeholder="Mailbox" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All mailboxes</SelectItem>
+                      {mailboxes.map((mailbox) => (
+                        <SelectItem key={mailbox.id} value={mailbox.id}>
+                          {mailbox.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="relative w-full sm:w-[260px]">
                   <FloatingFieldLabel label="Sort by" />
                   <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
@@ -1937,7 +2032,11 @@ export function EmailInboxView({
                     }
                     className={
                       readFilter === tab.id
-                        ? "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
+                        ? tab.id === "unread"
+                          ? "rounded-lg border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-3 py-1.5 text-sm font-medium text-[rgb(var(--theme-primary-rgb))]"
+                          : tab.id === "read"
+                            ? "rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-sm font-medium text-zinc-200"
+                            : "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
                         : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
                     }
                   >
@@ -1953,6 +2052,7 @@ export function EmailInboxView({
               selectedId={selectedThreadId}
               onSelect={(item) => setSelectedThreadId(item.id)}
               onSenderClick={(sender) => setSenderHistory(sender)}
+              onProjectClick={handleProjectPickerOpenForItem}
               emptyLabel={
                 view === "email-quarantine"
                   ? "No suspicious email is waiting for review."
@@ -1995,51 +2095,22 @@ export function EmailInboxView({
           ) : selectedThread ? (
             <div className="min-w-0 space-y-5">
               <div className="border-b border-zinc-800 pb-4">
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="min-w-0 flex-1 space-y-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
-                      <Sparkles className="h-3.5 w-3.5" />
-                      {selectedThread.status}
-                      {selectedThread.isUnread ? (
-                        <span className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] tracking-wide text-[rgb(var(--theme-primary-rgb))]">
-                          Unread
-                        </span>
-                      ) : null}
-                    </div>
-                    <h2 className="break-words text-xl font-semibold text-white">
-                      {formatEmailSubject(selectedThread.subject)}
-                    </h2>
-                    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
-                      <div className="mb-3 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
-                        <Sparkles className="h-3.5 w-3.5" />
-                        <span>AI Summary:</span>
-                      </div>
-                      {selectedThreadShowsSecondaryActionTitle &&
-                      selectedThread.actionTitle ? (
-                        <div className="mb-3 break-words text-sm text-zinc-400">
-                          {selectedThread.actionTitle}
-                        </div>
-                      ) : null}
-                      {selectedThreadPrimaryEntry?.contentHtml ? (
-                        <RichTextContent
-                          html={selectedThreadPrimaryEntry.contentHtml}
-                          className="break-words text-sm leading-6 text-zinc-200"
-                        />
-                      ) : selectedThreadPrimaryEntry?.content ? (
-                        <div className="break-words whitespace-pre-wrap text-sm leading-6 text-zinc-200">
-                          {selectedThreadPrimaryEntry.content}
-                        </div>
-                      ) : (
-                        <div className="break-words text-sm text-zinc-400">
-                          {selectedThread.summaryText ||
-                            selectedThread.previewText ||
-                            "No message body available yet."}
-                        </div>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
+                    <div
+                      className={getEmailReadStateBadgeClassName(
+                        selectedThread.isUnread,
                       )}
+                    >
+                      {getEmailReadStateLabel(selectedThread.isUnread)}
                     </div>
+                    {shouldShowStatusBadge(selectedThread.status) ? (
+                      <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                        {selectedThread.status}
+                      </div>
+                    ) : null}
                   </div>
-
-                  <div className="flex shrink-0 flex-wrap items-start justify-end gap-2 xl:max-w-[240px]">
+                  <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
                     {view === "email-quarantine"
                       ? renderThreadActionButton("approve", {
                           label: "Approve",
@@ -2060,6 +2131,43 @@ export function EmailInboxView({
                     })}
                   </div>
                 </div>
+                <div className="mt-4 min-w-0 space-y-3">
+                  <div className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                    <Mail className="h-3.5 w-3.5" />
+                    <span>Subject</span>
+                  </div>
+                  <h2 className="break-words text-xl font-semibold text-white">
+                    {formatEmailSubject(selectedThread.subject)}
+                  </h2>
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
+                    <div className="mb-3 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                      <Sparkles className="h-3.5 w-3.5" />
+                      <span>AI Summary:</span>
+                    </div>
+                    {selectedThreadShowsSecondaryActionTitle &&
+                    selectedThread.actionTitle ? (
+                      <div className="mb-3 break-words text-sm text-zinc-400">
+                        {selectedThread.actionTitle}
+                      </div>
+                    ) : null}
+                    {selectedThreadPrimaryEntry?.contentHtml ? (
+                      <RichTextContent
+                        html={selectedThreadPrimaryEntry.contentHtml}
+                        className="break-words text-sm leading-6 text-zinc-200"
+                      />
+                    ) : selectedThreadPrimaryEntry?.content ? (
+                      <div className="break-words whitespace-pre-wrap text-sm leading-6 text-zinc-200">
+                        {selectedThreadPrimaryEntry.content}
+                      </div>
+                    ) : (
+                      <div className="break-words text-sm text-zinc-400">
+                        {selectedThread.summaryText ||
+                          selectedThread.previewText ||
+                          "No message body available yet."}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
@@ -2068,6 +2176,7 @@ export function EmailInboxView({
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                     <input
+                      ref={projectSearchInputRef}
                       type="text"
                       value={projectSearchQuery}
                       onFocus={() => setIsProjectPickerOpen(true)}
@@ -2097,7 +2206,9 @@ export function EmailInboxView({
                           ? `Search projects… Current: ${selectedProject.name}`
                           : "Search projects..."
                       }
-                      disabled={busyState === "project"}
+                      disabled={
+                        busyState === "project" || isCreatingProject
+                      }
                       className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2.5 pl-10 pr-10 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
                     />
                     <button
@@ -2108,7 +2219,7 @@ export function EmailInboxView({
                       className="absolute inset-y-0 right-3 inline-flex items-center text-zinc-500 transition-colors hover:text-zinc-300"
                       aria-label="Toggle project search"
                     >
-                      {busyState === "project" ? (
+                      {busyState === "project" || isCreatingProject ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <ChevronDown
@@ -2164,6 +2275,23 @@ export function EmailInboxView({
                           No matching projects
                         </div>
                       )}
+                      {projectSearchQuery.trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleCreateProject()}
+                          disabled={isCreatingProject}
+                          className="flex w-full items-center gap-2 border-t border-zinc-700 px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-700 hover:text-white disabled:opacity-50"
+                        >
+                          {isCreatingProject ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Plus className="h-4 w-4" />
+                          )}
+                          <span className="truncate">
+                            Add New Project &quot;{projectSearchQuery.trim()}&quot;
+                          </span>
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
