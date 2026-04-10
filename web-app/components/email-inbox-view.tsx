@@ -174,7 +174,7 @@ function parseJsonValue<T>(input: string, fallback: T): T {
 }
 
 export function getEmailInboxSplitClassName() {
-  return "grid min-w-0 gap-6 xl:gap-0 xl:[grid-template-columns:minmax(0,1fr)_14px_var(--email-detail-width)]";
+  return "grid min-w-0 gap-6 xl:gap-0 xl:[grid-template-columns:minmax(0,1fr)_14px_minmax(320px,var(--email-detail-width))]";
 }
 
 export function clampEmailDetailPanelWidth(
@@ -370,6 +370,7 @@ export function EmailInboxView({
   const [detailPanelWidth, setDetailPanelWidth] = useState(
     EMAIL_DETAIL_PANEL_DEFAULT_WIDTH,
   );
+  const [isDesktopSplitLayout, setIsDesktopSplitLayout] = useState(false);
   const [isThreadModalOpen, setIsThreadModalOpen] = useState(false);
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
@@ -455,10 +456,33 @@ export function EmailInboxView({
   const isEditingMailbox = editingMailboxId !== null;
   const splitLayoutStyle = {
     "--email-detail-width": `${detailPanelWidth}px`,
+    ...(isDesktopSplitLayout
+      ? {
+          gridTemplateColumns: `minmax(0, 1fr) 14px minmax(${EMAIL_DETAIL_PANEL_MIN_WIDTH}px, ${detailPanelWidth}px)`,
+        }
+      : {}),
   } as CSSProperties;
 
   useEffect(() => {
     setBrowserNotificationPermission(getBrowserNotificationPermission());
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(min-width: 1280px)");
+    const syncSplitLayoutMode = (event?: MediaQueryListEvent) => {
+      setIsDesktopSplitLayout(event ? event.matches : mediaQuery.matches);
+    };
+
+    syncSplitLayoutMode();
+    mediaQuery.addEventListener("change", syncSplitLayoutMode);
+
+    return () => {
+      mediaQuery.removeEventListener("change", syncSplitLayoutMode);
+    };
   }, []);
 
   useEffect(() => {
