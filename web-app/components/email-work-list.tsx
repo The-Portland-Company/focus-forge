@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Bot,
   FolderSearch,
   Mail,
   MessageSquare,
@@ -22,6 +23,8 @@ type EmailWorkListProps = {
   mailboxes: Mailbox[];
   projects: Project[];
   selectedId?: string | null;
+  alwaysShowSummary?: boolean;
+  alwaysShowExcerpt?: boolean;
   onSelect?: (item: InboxItem) => void;
   onSenderClick?: (sender: { name: string; email: string }) => void;
   onProjectClick?: (item: InboxItem) => void;
@@ -193,6 +196,8 @@ export function EmailWorkList({
   mailboxes,
   projects,
   selectedId,
+  alwaysShowSummary = false,
+  alwaysShowExcerpt = false,
   onSelect,
   onSenderClick,
   onProjectClick,
@@ -218,6 +223,12 @@ export function EmailWorkList({
         const sender = getPrimarySenderParticipant(item.participants);
         const senderName = formatParticipantName(sender);
         const ccLine = formatParticipantLine(item.participants, "cc");
+        const summaryText = item.summaryText
+          ? formatInboxPreviewText(item.summaryText)
+          : null;
+        const previewText = item.previewText
+          ? formatInboxPreviewText(item.previewText)
+          : summaryText || "No summary available yet.";
         const showSecondaryActionTitle = shouldShowSecondaryActionTitle(
           item.actionTitle,
           item.subject,
@@ -242,10 +253,16 @@ export function EmailWorkList({
           >
             <div
               className={cn(
-                "flex min-w-0 items-start justify-between gap-3 transition-opacity",
+                "group flex min-w-0 flex-col transition-opacity",
                 item.isUnread ? "opacity-100" : "opacity-100",
               )}
             >
+              <div
+                className={cn(
+                  "flex min-w-0 items-start justify-between gap-3",
+                  item.isUnread ? "opacity-100" : "opacity-100",
+                )}
+              >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
                   {statusIcon(item.status)}
@@ -323,53 +340,96 @@ export function EmailWorkList({
                   </div>
                 ) : null}
               </div>
-            </div>
+              </div>
 
-            <div
-              className={cn(
-                getEmailWorkPreviewClassName(item.isUnread),
-                item.isUnread ? "opacity-100" : "opacity-100",
-              )}
-            >
-              {formatInboxPreviewText(item.previewText || item.summaryText)}
-            </div>
-
-            <div
-              className={cn(
-                "mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500 transition-opacity",
-                item.isUnread ? "text-zinc-400 opacity-100" : "opacity-100",
-              )}
-            >
-              <span className="inline-flex items-center gap-1 break-words">
-                <Mail className="h-3.5 w-3.5" />
-                {mailbox?.name || item.mailboxName || "Mailbox"}
-              </span>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onProjectClick?.(item);
-                }}
-                className="inline-flex items-center gap-1 break-words rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/70 hover:text-white"
-              >
-                <FolderSearch className="h-3.5 w-3.5" />
-                {project ? (
-                  project.name
-                ) : (
-                  <span className="text-zinc-500">No Project</span>
-                )}
-              </button>
-              <span className="inline-flex items-center gap-1 break-words">
-                <MessageSquare className="h-3.5 w-3.5" />
-                {item.derivedTaskCount} linked task
-                {item.derivedTaskCount === 1 ? "" : "s"}
-              </span>
-              {item.actionConfidence ? (
-                <span className="inline-flex items-center gap-1 break-words">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {Math.round(item.actionConfidence * 100)}% confidence
-                </span>
+              {summaryText ? (
+                <div
+                  className={cn(
+                    "overflow-hidden transition-all duration-200",
+                    alwaysShowSummary
+                      ? "mt-3 max-h-24 opacity-100"
+                      : "max-h-0 opacity-0 group-hover:mt-3 group-hover:max-h-24 group-hover:opacity-100",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "inline-flex max-w-full items-start gap-2 text-sm italic",
+                      item.isUnread ? "text-zinc-200" : "text-zinc-400",
+                    )}
+                  >
+                    <Bot className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
+                    <span className="min-w-0 break-words">{summaryText}</span>
+                  </div>
+                </div>
               ) : null}
+
+              {item.previewText ? (
+                <div
+                  className={cn(
+                    "overflow-hidden transition-all duration-200",
+                    alwaysShowExcerpt
+                      ? cn(
+                          "max-h-28 opacity-100",
+                          summaryText ? "mt-2" : "mt-3",
+                        )
+                      : cn(
+                          "max-h-0 opacity-0",
+                          summaryText
+                            ? "group-hover:mt-2"
+                            : "group-hover:mt-3",
+                          "group-hover:max-h-28 group-hover:opacity-100",
+                        ),
+                  )}
+                >
+                  <div
+                    className={cn(
+                      getEmailWorkPreviewClassName(item.isUnread),
+                      "mt-0",
+                      item.isUnread ? "opacity-100" : "opacity-100",
+                    )}
+                  >
+                    {previewText}
+                  </div>
+                </div>
+              ) : null}
+
+              <div
+                className={cn(
+                  "mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500 transition-opacity",
+                  item.isUnread ? "text-zinc-400 opacity-100" : "opacity-100",
+                )}
+              >
+                <span className="inline-flex items-center gap-1 break-words">
+                  <Mail className="h-3.5 w-3.5" />
+                  {mailbox?.name || item.mailboxName || "Mailbox"}
+                </span>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onProjectClick?.(item);
+                  }}
+                  className="inline-flex items-center gap-1 break-words rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/70 hover:text-white"
+                >
+                  <FolderSearch className="h-3.5 w-3.5" />
+                  {project ? (
+                    project.name
+                  ) : (
+                    <span className="text-zinc-500">No Project</span>
+                  )}
+                </button>
+                <span className="inline-flex items-center gap-1 break-words">
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  {item.derivedTaskCount} linked task
+                  {item.derivedTaskCount === 1 ? "" : "s"}
+                </span>
+                {item.actionConfidence ? (
+                  <span className="inline-flex items-center gap-1 break-words">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {Math.round(item.actionConfidence * 100)}% confidence
+                  </span>
+                ) : null}
+              </div>
             </div>
           </div>
         );

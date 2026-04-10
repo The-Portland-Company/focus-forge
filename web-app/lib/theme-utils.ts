@@ -6,6 +6,76 @@ import {
 } from "./theme-constants";
 
 let cleanupSystemThemeListener: (() => void) | null = null;
+const THEME_PREFERENCE_STORAGE_KEY = "focus-forge-theme-preference";
+const LEGACY_LIQUID_GLASS_PRESET = "liquid-glass";
+
+function isThemePreset(value: string): value is ThemePreset {
+  return value in THEME_PRESETS;
+}
+
+function getThemePreferenceStorageKey(userId?: string) {
+  return userId
+    ? `${THEME_PREFERENCE_STORAGE_KEY}:${userId}`
+    : THEME_PREFERENCE_STORAGE_KEY;
+}
+
+export function normalizeDatabaseThemePreset(
+  themePreset?: string | null,
+): ThemePreset {
+  if (themePreset === LEGACY_LIQUID_GLASS_PRESET) {
+    return DEFAULT_THEME_PRESET;
+  }
+
+  if (themePreset && isThemePreset(themePreset)) {
+    return themePreset;
+  }
+
+  return DEFAULT_THEME_PRESET;
+}
+
+export function readStoredThemePreference(
+  databaseThemePreset?: string | null,
+  userId?: string,
+): ThemePreset {
+  if (typeof window !== "undefined") {
+    const storedThemePreference = window.localStorage.getItem(
+      getThemePreferenceStorageKey(userId),
+    );
+
+    if (storedThemePreference && isThemePreset(storedThemePreference)) {
+      return storedThemePreference;
+    }
+  }
+
+  return normalizeDatabaseThemePreset(databaseThemePreset);
+}
+
+export function persistThemePreference(themePreset: ThemePreset, userId?: string) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(
+    getThemePreferenceStorageKey(userId),
+    themePreset,
+  );
+}
+
+export function getDatabaseThemePreset(
+  themePreset: ThemePreset,
+  prefersDark: boolean,
+): "dark" | "light" | "liquid-glass" {
+  if (themePreset === "system") {
+    return prefersDark ? "dark" : "light";
+  }
+
+  if (
+    themePreset === "liquid-glass-dark" ||
+    themePreset === "liquid-glass-light"
+  ) {
+    return LEGACY_LIQUID_GLASS_PRESET;
+  }
+
+  return themePreset;
+}
 
 export function resolveThemePreset(
   themePreset: ThemePreset,

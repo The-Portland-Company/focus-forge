@@ -271,6 +271,18 @@ export interface ConversationEntry {
   participants?: InboxParticipant[];
 }
 
+export interface EmailSignature {
+  id: string;
+  userId: string;
+  name: string;
+  content: string;
+  mailboxScope: "all" | "selected";
+  mailboxIds: string[];
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface InboxTaskSuggestion {
   name: string;
   description?: string;

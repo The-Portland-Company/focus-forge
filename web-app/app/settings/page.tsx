@@ -14,18 +14,33 @@ import {
   RefreshCw,
   KeyRound,
   ExternalLink,
+  Mail,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { UserAvatar } from "@/components/user-avatar";
 import { OrganizationSettingsModal } from "@/components/organization-settings-modal";
 import { TodoistIntegration } from "@/components/todoist-integration";
-import { Database, Organization } from "@/lib/types";
+import { Database, EmailSignature, Organization } from "@/lib/types";
 import { useUserProfile } from "@/lib/supabase/hooks";
-import { applyTheme } from "@/lib/theme-utils";
+import {
+  applyTheme,
+  getDatabaseThemePreset,
+  persistThemePreference,
+  readStoredThemePreference,
+} from "@/lib/theme-utils";
 import { ThemePreset, DEFAULT_THEME_PRESET } from "@/lib/theme-constants";
 import { useToast } from "@/contexts/ToastContext";
 import { MEMOJI_OPTIONS } from "@/lib/memoji";
 import { ALLOWED_API_SCOPES, type ApiKeyMeta } from "@/lib/api/keys/types";
+import {
+  createEmptyEmailSignature,
+  deleteEmailSignature,
+  loadEmailSignatures,
+  saveEmailSignatures,
+  upsertEmailSignature,
+} from "@/lib/email-signatures";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +87,18 @@ export default function SettingsPage() {
   const [calendarToken, setCalendarToken] = useState<string | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarCopied, setCalendarCopied] = useState(false);
+  const [emailSignatures, setEmailSignatures] = useState<EmailSignature[]>([]);
+  const [editingSignatureId, setEditingSignatureId] = useState<string | null>(
+    null,
+  );
+  const [signatureMailboxQuery, setSignatureMailboxQuery] = useState("");
+  const [signatureForm, setSignatureForm] = useState({
+    name: "",
+    content: "",
+    mailboxScope: "all" as "all" | "selected",
+    mailboxIds: [] as string[],
+    isDefault: false,
+  });
   const { profile, loading: profileLoading, updateProfile } = useUserProfile();
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -85,9 +112,142 @@ export default function SettingsPage() {
     fetchPersonalAccessTokens();
   }, []);
 
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const loadedSignatures = loadEmailSignatures(profile.id);
+    setEmailSignatures(loadedSignatures);
+
+    if (loadedSignatures[0]) {
+      setEditingSignatureId(loadedSignatures[0].id);
+      setSignatureForm({
+        name: loadedSignatures[0].name,
+        content: loadedSignatures[0].content,
+        mailboxScope: loadedSignatures[0].mailboxScope,
+        mailboxIds: loadedSignatures[0].mailboxIds,
+        isDefault: loadedSignatures[0].isDefault,
+      });
+    } else {
+      setEditingSignatureId(null);
+      setSignatureForm({
+        name: "",
+        content: "",
+        mailboxScope: "all",
+        mailboxIds: [],
+        isDefault: false,
+      });
+    }
+  }, [profile?.id]);
+
   const isSuperOrAdmin = ["admin", "super_admin"].includes(
     String(profile?.role || ""),
   );
+  const filteredSignatureMailboxes = (database?.mailboxes || []).filter(
+    (mailbox) => {
+      const query = signatureMailboxQuery.trim().toLowerCase();
+      if (!query) return true;
+      return (
+        mailbox.name.toLowerCase().includes(query) ||
+        mailbox.emailAddress.toLowerCase().includes(query)
+      );
+    },
+  );
+
+  const beginEditingSignature = (signature: EmailSignature) => {
+    setEditingSignatureId(signature.id);
+    setSignatureForm({
+      name: signature.name,
+      content: signature.content,
+      mailboxScope: signature.mailboxScope,
+      mailboxIds: signature.mailboxIds,
+      isDefault: signature.isDefault,
+    });
+    setSignatureMailboxQuery("");
+  };
+
+  const resetSignatureComposer = () => {
+    setEditingSignatureId(null);
+    setSignatureMailboxQuery("");
+    setSignatureForm({
+      name: "",
+      content: "",
+      mailboxScope: "all",
+      mailboxIds: [],
+      isDefault: emailSignatures.length === 0,
+    });
+  };
+
+  const persistSignatures = (nextSignatures: EmailSignature[]) => {
+    setEmailSignatures(nextSignatures);
+    saveEmailSignatures(profile?.id, nextSignatures);
+  };
+
+  const handleSaveSignature = () => {
+    if (!profile?.id) return;
+    if (!signatureForm.name.trim()) {
+      showError("Missing name", "Signature name is required.");
+      return;
+    }
+    if (!signatureForm.content.trim()) {
+      showError("Missing content", "Signature content is required.");
+      return;
+    }
+    if (
+      signatureForm.mailboxScope === "selected" &&
+      signatureForm.mailboxIds.length === 0
+    ) {
+      showError(
+        "Choose mailboxes",
+        "Select at least one mailbox for a mailbox-specific signature.",
+      );
+      return;
+    }
+
+    const existing = emailSignatures.find(
+      (signature) => signature.id === editingSignatureId,
+    );
+    const nextSignature = createEmptyEmailSignature(profile.id, {
+      id: existing?.id,
+      name: signatureForm.name.trim(),
+      content: signatureForm.content.trim(),
+      mailboxScope: signatureForm.mailboxScope,
+      mailboxIds:
+        signatureForm.mailboxScope === "all" ? [] : signatureForm.mailboxIds,
+      isDefault: signatureForm.isDefault || emailSignatures.length === 0,
+      createdAt: existing?.createdAt,
+      updatedAt: new Date().toISOString(),
+    });
+
+    const nextSignatures = upsertEmailSignature(emailSignatures, nextSignature);
+    persistSignatures(nextSignatures);
+    beginEditingSignature(
+      nextSignatures.find((signature) => signature.id === nextSignature.id) ||
+        nextSignature,
+    );
+    showSuccess(
+      existing ? "Signature updated" : "Signature created",
+      "Reply signatures have been saved.",
+    );
+  };
+
+  const handleDeleteSignature = (signatureId: string) => {
+    const nextSignatures = deleteEmailSignature(emailSignatures, signatureId);
+    persistSignatures(nextSignatures);
+    if (nextSignatures[0]) {
+      beginEditingSignature(nextSignatures[0]);
+    } else {
+      resetSignatureComposer();
+    }
+  };
+
+  const toggleSignatureMailbox = (mailboxId: string) => {
+    setSignatureForm((current) => ({
+      ...current,
+      mailboxIds: current.mailboxIds.includes(mailboxId)
+        ? current.mailboxIds.filter((id) => id !== mailboxId)
+        : [...current.mailboxIds, mailboxId],
+    }));
+  };
 
   const fetchCalendarToken = async () => {
     try {
@@ -314,8 +474,10 @@ export default function SettingsPage() {
         profile.profile_color ||
         "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
       const userAnimations = profile.animations_enabled !== false;
-      const userTheme =
-        (profile.theme_preset as ThemePreset) || DEFAULT_THEME_PRESET;
+      const userTheme = readStoredThemePreference(
+        profile.theme_preset,
+        profile.id,
+      );
       const userMemoji = profile.profile_memoji || null;
       const userPriorityColor = (profile as any).priority_color || "#22c55e"; // Default green
 
@@ -344,8 +506,14 @@ export default function SettingsPage() {
       const currentColor = updates.profileColor ?? profileColor;
       const currentAnimations =
         updates.animationsEnabled ?? animationsEnabled ?? true;
+      const prefersDark =
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function"
+          ? window.matchMedia("(prefers-color-scheme: dark)").matches
+          : false;
 
       applyTheme(currentTheme, currentColor || undefined, currentAnimations);
+      persistThemePreference(currentTheme, profile?.id);
 
       if (updateProfile) {
         // Update profile in Supabase
@@ -363,7 +531,10 @@ export default function SettingsPage() {
           profileUpdates.animations_enabled = updates.animationsEnabled;
         }
         if (updates.themePreset !== undefined) {
-          profileUpdates.theme_preset = updates.themePreset;
+          profileUpdates.theme_preset = getDatabaseThemePreset(
+            updates.themePreset,
+            prefersDark,
+          );
         }
 
         const result = await updateProfile(profileUpdates);
@@ -499,6 +670,257 @@ export default function SettingsPage() {
                           </div>
                         </button>
                       ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <div className="mb-6 flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-medium mb-2 flex items-center gap-2">
+                      <Mail className="w-5 h-5" />
+                      Email Signatures
+                    </h3>
+                    <p className="text-sm text-zinc-400">
+                      Create multiple signatures, choose a default, and limit
+                      each signature to one, some, or all connected mailboxes.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={resetSignatureComposer}
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+                  >
+                    <Plus className="h-4 w-4" />
+                    New Signature
+                  </button>
+                </div>
+                <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
+                  <div className="space-y-3">
+                    {emailSignatures.length > 0 ? (
+                      emailSignatures.map((signature) => (
+                        <button
+                          key={signature.id}
+                          type="button"
+                          onClick={() => beginEditingSignature(signature)}
+                          className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                            editingSignatureId === signature.id
+                              ? "border-theme-primary bg-zinc-800"
+                              : "border-zinc-800 bg-zinc-950/40 hover:border-zinc-700"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium text-white">
+                                {signature.name}
+                              </div>
+                              <div className="mt-1 truncate text-xs text-zinc-500">
+                                {signature.mailboxScope === "all"
+                                  ? "All mailboxes"
+                                  : `${signature.mailboxIds.length} mailbox${signature.mailboxIds.length === 1 ? "" : "es"}`}
+                              </div>
+                            </div>
+                            {signature.isDefault ? (
+                              <span className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                                Default
+                              </span>
+                            ) : null}
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-zinc-800 bg-zinc-950/40 px-4 py-6 text-sm text-zinc-500">
+                        No signatures yet.
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <label className="block">
+                        <span className="mb-2 block text-sm font-medium text-zinc-200">
+                          Signature Name
+                        </span>
+                        <input
+                          type="text"
+                          value={signatureForm.name}
+                          onChange={(event) =>
+                            setSignatureForm((current) => ({
+                              ...current,
+                              name: event.target.value,
+                            }))
+                          }
+                          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme"
+                          placeholder="Customer-facing"
+                        />
+                      </label>
+                      <label className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={signatureForm.isDefault}
+                          onChange={(event) =>
+                            setSignatureForm((current) => ({
+                              ...current,
+                              isDefault: event.target.checked,
+                            }))
+                          }
+                          className="h-5 w-5 rounded border-zinc-600 bg-zinc-800 text-theme-primary focus:ring-theme"
+                        />
+                        <div>
+                          <div className="text-sm font-medium text-white">
+                            Default Signature
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            Used automatically in the reply composer.
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-medium text-zinc-200">
+                        Signature Content
+                      </span>
+                      <textarea
+                        value={signatureForm.content}
+                        onChange={(event) =>
+                          setSignatureForm((current) => ({
+                            ...current,
+                            content: event.target.value,
+                          }))
+                        }
+                        rows={6}
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme"
+                        placeholder={"Best,\nSpencer Hill\nThe Portland Company"}
+                      />
+                    </label>
+
+                    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+                      <div className="mb-3 text-sm font-medium text-white">
+                        Mailbox Availability
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSignatureForm((current) => ({
+                              ...current,
+                              mailboxScope: "all",
+                              mailboxIds: [],
+                            }))
+                          }
+                          className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
+                            signatureForm.mailboxScope === "all"
+                              ? "border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 text-[rgb(var(--theme-primary-rgb))]"
+                              : "border border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-white"
+                          }`}
+                        >
+                          All Mailboxes
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSignatureForm((current) => ({
+                              ...current,
+                              mailboxScope: "selected",
+                            }))
+                          }
+                          className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
+                            signatureForm.mailboxScope === "selected"
+                              ? "border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 text-[rgb(var(--theme-primary-rgb))]"
+                              : "border border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-white"
+                          }`}
+                        >
+                          Specific Mailboxes
+                        </button>
+                      </div>
+
+                      {signatureForm.mailboxScope === "selected" ? (
+                        <div className="mt-4 space-y-3">
+                          <input
+                            type="text"
+                            value={signatureMailboxQuery}
+                            onChange={(event) =>
+                              setSignatureMailboxQuery(event.target.value)
+                            }
+                            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme"
+                            placeholder="Type to search mailboxes..."
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            {signatureForm.mailboxIds.map((mailboxId) => {
+                              const mailbox = database?.mailboxes.find(
+                                (entry) => entry.id === mailboxId,
+                              );
+                              if (!mailbox) return null;
+                              return (
+                                <button
+                                  key={mailboxId}
+                                  type="button"
+                                  onClick={() => toggleSignatureMailbox(mailboxId)}
+                                  className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-3 py-1 text-xs text-[rgb(var(--theme-primary-rgb))]"
+                                >
+                                  {mailbox.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900/60 p-2">
+                            {filteredSignatureMailboxes.map((mailbox) => {
+                              const isSelected = signatureForm.mailboxIds.includes(
+                                mailbox.id,
+                              );
+                              return (
+                                <button
+                                  key={mailbox.id}
+                                  type="button"
+                                  onClick={() => toggleSignatureMailbox(mailbox.id)}
+                                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                                    isSelected
+                                      ? "bg-[rgb(var(--theme-primary-rgb))]/12 text-white"
+                                      : "text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                                  }`}
+                                >
+                                  <div className="min-w-0">
+                                    <div className="truncate">{mailbox.name}</div>
+                                    <div className="truncate text-xs text-zinc-500">
+                                      {mailbox.emailAddress}
+                                    </div>
+                                  </div>
+                                  {isSelected ? (
+                                    <Check className="h-4 w-4 text-[rgb(var(--theme-primary-rgb))]" />
+                                  ) : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs text-zinc-500">
+                        Reply composer will default to this signature when it
+                        matches the current mailbox.
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {editingSignatureId ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSignature(editingSignatureId)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-red-900/60 bg-red-950/30 px-3 py-2 text-sm text-red-200 transition-colors hover:bg-red-950/50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={handleSaveSignature}
+                          className="inline-flex items-center gap-2 rounded-lg bg-[rgb(var(--theme-primary-rgb))] px-4 py-2 text-sm font-medium text-white"
+                        >
+                          <Check className="h-4 w-4" />
+                          Save Signature
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

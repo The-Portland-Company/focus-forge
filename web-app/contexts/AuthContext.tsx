@@ -3,8 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
-import { applyTheme } from '@/lib/theme-utils'
-import { ThemePreset, DEFAULT_THEME_PRESET } from '@/lib/theme-constants'
+import { applyTheme, readStoredThemePreference } from '@/lib/theme-utils'
 
 interface AuthContextType {
   user: User | null
@@ -21,9 +20,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const supabase = createClient()
-
   useEffect(() => {
+    const supabase = createClient()
+
     const initAuth = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession()
@@ -48,7 +47,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .single()
 
           if (profile) {
-            const themePreset = (profile.theme_preset as ThemePreset) || DEFAULT_THEME_PRESET
+            const themePreset = readStoredThemePreference(
+              profile.theme_preset,
+              session.user.id,
+            )
             applyTheme(
               themePreset,
               profile.profile_color || undefined,
@@ -86,7 +88,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .single()
 
           if (profile) {
-            const themePreset = (profile.theme_preset as ThemePreset) || DEFAULT_THEME_PRESET
+            const themePreset = readStoredThemePreference(
+              profile.theme_preset,
+              session.user.id,
+            )
             applyTheme(
               themePreset,
               profile.profile_color || undefined,
@@ -103,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signIn = async (email: string, password: string) => {
+    const supabase = createClient()
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -111,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signUp = async (email: string, password: string) => {
+    const supabase = createClient()
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -119,10 +126,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signOut = async () => {
+    const supabase = createClient()
     await supabase.auth.signOut()
   }
 
   const refreshSession = async () => {
+    const supabase = createClient()
     try {
       const { data: { session }, error } = await supabase.auth.refreshSession()
       if (error) {

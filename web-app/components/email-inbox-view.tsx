@@ -22,7 +22,9 @@ import {
   GripVertical,
   Loader2,
   Mail,
+  MailPlus,
   MailCheck,
+  MailOpen,
   Plus,
   RefreshCw,
   Search,
@@ -56,7 +58,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Database, InboxItem, Mailbox, SummaryProfile } from "@/lib/types";
+import type {
+  Database,
+  EmailSignature,
+  InboxItem,
+  Mailbox,
+  SummaryProfile,
+} from "@/lib/types";
 import {
   getMailboxPasswordValidationError,
   getVisibleMailboxSyncError,
@@ -75,6 +83,11 @@ import {
   sortInboxProjects,
 } from "@/lib/email-thread-projects";
 import {
+  getApplicableEmailSignatures,
+  getDefaultEmailSignature,
+  loadEmailSignatures,
+} from "@/lib/email-signatures";
+import {
   getEmailActorGradient,
   getEmailActorInitials,
   getEmailActorName,
@@ -90,6 +103,7 @@ import {
   requiresThreadActionConfirmation,
   type ThreadAction,
 } from "@/lib/email-inbox/thread-actions";
+import { cn } from "@/lib/utils";
 
 type EmailInboxViewProps = {
   view: string;
@@ -355,6 +369,12 @@ export function EmailInboxView({
   const [replyMode, setReplyMode] = useState<"reply_all" | "internal_note">(
     "reply_all",
   );
+  const [emailSignatures, setEmailSignatures] = useState<EmailSignature[]>([]);
+  const [selectedSignatureId, setSelectedSignatureId] = useState<string | null>(
+    null,
+  );
+  const [signatureSearchQuery, setSignatureSearchQuery] = useState("");
+  const [isSignaturePickerOpen, setIsSignaturePickerOpen] = useState(false);
   const [busyState, setBusyState] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [pendingConfirmAction, setPendingConfirmAction] =
@@ -367,6 +387,8 @@ export function EmailInboxView({
   const [readFilter, setReadFilter] = useState<"all" | "unread" | "read">(
     "all",
   );
+  const [alwaysShowSummary, setAlwaysShowSummary] = useState(false);
+  const [alwaysShowExcerpt, setAlwaysShowExcerpt] = useState(false);
   const [sortBy, setSortBy] = useState<EmailInboxSortOption>("received_desc");
   const [senderHistory, setSenderHistory] = useState<{
     name: string;
@@ -455,11 +477,39 @@ export function EmailInboxView({
       null,
     [selectedProjectId, sortedInboxProjects],
   );
+  const currentUser = useMemo(
+    () =>
+      currentUserId
+        ? data.users.find((user) => user.id === currentUserId) || null
+        : null,
+    [currentUserId, data.users],
+  );
   const selectedThreadShowsSecondaryActionTitle =
     shouldShowSecondaryActionTitle(
       selectedThread?.actionTitle,
       selectedThread?.subject || "",
     );
+  const applicableSignatures = useMemo(
+    () =>
+      getApplicableEmailSignatures(
+        emailSignatures,
+        selectedThread?.mailboxId || selectedThread?.mailbox_id || null,
+      ),
+    [emailSignatures, selectedThread],
+  );
+  const filteredApplicableSignatures = useMemo(() => {
+    const query = signatureSearchQuery.trim().toLowerCase();
+    if (!query) return applicableSignatures;
+
+    return applicableSignatures.filter(
+      (signature) =>
+        signature.name.toLowerCase().includes(query) ||
+        signature.content.toLowerCase().includes(query),
+    );
+  }, [applicableSignatures, signatureSearchQuery]);
+  const selectedSignature =
+    applicableSignatures.find((signature) => signature.id === selectedSignatureId) ||
+    null;
   const selectedThreadPrimaryEntry = getPrimaryThreadRenderEntry(
     selectedThread?.conversation,
   );
@@ -476,6 +526,25 @@ export function EmailInboxView({
   useEffect(() => {
     setBrowserNotificationPermission(getBrowserNotificationPermission());
   }, []);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    setEmailSignatures(loadEmailSignatures(currentUserId));
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (replyMode !== "reply_all") {
+      setIsSignaturePickerOpen(false);
+      return;
+    }
+
+    const defaultSignature = getDefaultEmailSignature(
+      emailSignatures,
+      selectedThread?.mailboxId || selectedThread?.mailbox_id || null,
+    );
+    setSelectedSignatureId(defaultSignature?.id || null);
+    setSignatureSearchQuery(defaultSignature?.name || "");
+  }, [emailSignatures, replyMode, selectedThreadId, selectedThread]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1358,6 +1427,10 @@ export function EmailInboxView({
     if (!selectedThreadId || !replyContent.trim()) return;
     setBusyState("reply");
     try {
+      const composedReply =
+        replyMode === "reply_all" && selectedSignature?.content?.trim()
+          ? `${replyContent.trim()}\n\n${selectedSignature.content.trim()}`
+          : replyContent.trim();
       const response = await fetch(
         `/api/email/threads/${selectedThreadId}/reply`,
         {
@@ -1365,7 +1438,7 @@ export function EmailInboxView({
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({
-            content: replyContent,
+            content: composedReply,
             mode: replyMode,
           }),
         },
@@ -1375,6 +1448,7 @@ export function EmailInboxView({
         throw new Error(payload.error || "Failed to send reply");
       }
       setReplyContent("");
+      setIsSignaturePickerOpen(false);
       await refreshInboxState();
       if (selectedThreadId) {
         const detailResponse = await fetch(
@@ -1630,19 +1704,33 @@ export function EmailInboxView({
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={handleBrowserNotificationTest}
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+          <Tooltip
+            content={
+              browserNotificationPermission === "granted"
+                ? "Send Test Alert"
+                : browserNotificationPermission === "denied"
+                  ? "Alerts Blocked"
+                  : "Enable Alerts"
+            }
+            className="w-auto"
+            side="bottom"
           >
-            <BellRing className="h-4 w-4" />
-            {browserNotificationPermission === "granted"
-              ? "Send Test Alert"
-              : browserNotificationPermission === "denied"
-                ? "Alerts Blocked"
-                : "Enable Alerts"}
-          </button>
-          <Tooltip content="AI + Spam" className="w-auto">
+            <button
+              type="button"
+              onClick={handleBrowserNotificationTest}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+              aria-label={
+                browserNotificationPermission === "granted"
+                  ? "Send Test Alert"
+                  : browserNotificationPermission === "denied"
+                    ? "Alerts Blocked"
+                    : "Enable Alerts"
+              }
+            >
+              <BellRing className="h-4 w-4" />
+            </button>
+          </Tooltip>
+          <Tooltip content="AI + Spam" className="w-auto" side="bottom">
             <button
               type="button"
               onClick={() => setIsSpamReviewOpen(true)}
@@ -1652,30 +1740,51 @@ export function EmailInboxView({
               <Bot className="h-4 w-4" />
             </button>
           </Tooltip>
-          <button
-            type="button"
-            onClick={handleMailboxFormToggle}
-            className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+          <Tooltip
+            content={
+              showMailboxForm
+                ? "Close Mailbox"
+                : selectedMailbox
+                  ? "Edit Mailbox"
+                  : "Connect Mailbox"
+            }
+            className="w-auto"
+            side="bottom"
           >
-            {showMailboxForm
-              ? "Close Mailbox"
-              : selectedMailbox
-                ? "Edit Mailbox"
-                : "Connect Mailbox"}
-          </button>
-          <button
-            type="button"
-            onClick={handleSync}
-            disabled={mailboxes.length === 0 || busyState === "sync"}
-            className="inline-flex items-center gap-2 rounded-lg bg-theme-gradient px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            <button
+              type="button"
+              onClick={handleMailboxFormToggle}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+              aria-label={
+                showMailboxForm
+                  ? "Close Mailbox"
+                  : selectedMailbox
+                    ? "Edit Mailbox"
+                    : "Connect Mailbox"
+              }
+            >
+              <MailPlus className="h-4 w-4" />
+            </button>
+          </Tooltip>
+          <Tooltip
+            content={selectedMailboxId === "all" ? "Sync All" : "Sync"}
+            className="w-auto"
+            side="bottom"
           >
-            {busyState === "sync" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            {selectedMailboxId === "all" ? "Sync All" : "Sync"}
-          </button>
+            <button
+              type="button"
+              onClick={handleSync}
+              disabled={mailboxes.length === 0 || busyState === "sync"}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-theme-gradient text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              aria-label={selectedMailboxId === "all" ? "Sync All" : "Sync"}
+            >
+              {busyState === "sync" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -1956,14 +2065,19 @@ export function EmailInboxView({
                   {visibleInboxItems.length === 1 ? "" : "s"}
                 </div>
                 {view !== "email-quarantine" ? (
-                  <>
-                    <div className="rounded-full border border-zinc-700 bg-zinc-950/70 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                      Total {visibleInboxItems.length}
-                    </div>
-                    <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
-                      Unread {unreadInboxCount}
-                    </div>
-                  </>
+                  <div className="inline-flex items-center gap-1.5 text-xs font-medium">
+                    <Tooltip content="Unread" className="w-auto" side="bottom">
+                      <span className="cursor-default text-[rgb(var(--theme-primary-rgb))]">
+                        {unreadInboxCount}
+                      </span>
+                    </Tooltip>
+                    <span className="text-zinc-600">/</span>
+                    <Tooltip content="Total" className="w-auto" side="bottom">
+                      <span className="cursor-default text-zinc-400">
+                        {visibleInboxItems.length}
+                      </span>
+                    </Tooltip>
+                  </div>
                 ) : null}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-3">
@@ -2018,31 +2132,87 @@ export function EmailInboxView({
               </div>
             </div>
             {view !== "email-quarantine" ? (
-              <div className="mb-3 inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
-                {[
-                  { id: "all", label: "All" },
-                  { id: "unread", label: "Unread" },
-                  { id: "read", label: "Read" },
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() =>
-                      setReadFilter(tab.id as "all" | "unread" | "read")
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
+                  {[
+                    { id: "all", label: "All" },
+                    { id: "unread", label: "Unread" },
+                    { id: "read", label: "Read" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() =>
+                        setReadFilter(tab.id as "all" | "unread" | "read")
+                      }
+                      className={
+                        readFilter === tab.id
+                          ? tab.id === "unread"
+                            ? "rounded-lg border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-3 py-1.5 text-sm font-medium text-[rgb(var(--theme-primary-rgb))]"
+                            : tab.id === "read"
+                              ? "rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-sm font-medium text-zinc-200"
+                              : "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
+                          : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
+                      }
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="inline-flex items-center gap-2">
+                  <Tooltip
+                    content={
+                      alwaysShowSummary
+                        ? "Always show AI summary"
+                        : "Show AI summary on hover"
                     }
-                    className={
-                      readFilter === tab.id
-                        ? tab.id === "unread"
-                          ? "rounded-lg border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-3 py-1.5 text-sm font-medium text-[rgb(var(--theme-primary-rgb))]"
-                          : tab.id === "read"
-                            ? "rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-sm font-medium text-zinc-200"
-                            : "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
-                        : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
-                    }
+                    className="w-auto"
+                    side="bottom"
                   >
-                    {tab.label}
-                  </button>
-                ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAlwaysShowSummary((current) => !current)
+                      }
+                      aria-pressed={alwaysShowSummary}
+                      aria-label="Toggle AI summary visibility"
+                      className={cn(
+                        "inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors",
+                        alwaysShowSummary
+                          ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 text-[rgb(var(--theme-primary-rgb))]"
+                          : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:text-white",
+                      )}
+                    >
+                      <Bot className="h-4 w-4" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip
+                    content={
+                      alwaysShowExcerpt
+                        ? "Always show email excerpt"
+                        : "Show email excerpt on hover"
+                    }
+                    className="w-auto"
+                    side="bottom"
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAlwaysShowExcerpt((current) => !current)
+                      }
+                      aria-pressed={alwaysShowExcerpt}
+                      aria-label="Toggle email excerpt visibility"
+                      className={cn(
+                        "inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors",
+                        alwaysShowExcerpt
+                          ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 text-[rgb(var(--theme-primary-rgb))]"
+                          : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:text-white",
+                      )}
+                    >
+                      <MailOpen className="h-4 w-4" />
+                    </button>
+                  </Tooltip>
+                </div>
               </div>
             ) : null}
             <EmailWorkList
@@ -2050,6 +2220,8 @@ export function EmailInboxView({
               mailboxes={mailboxes}
               projects={data.projects}
               selectedId={selectedThreadId}
+              alwaysShowSummary={alwaysShowSummary}
+              alwaysShowExcerpt={alwaysShowExcerpt}
               onSelect={(item) => setSelectedThreadId(item.id)}
               onSenderClick={(sender) => setSenderHistory(sender)}
               onProjectClick={handleProjectPickerOpenForItem}
@@ -2201,11 +2373,7 @@ export function EmailInboxView({
                           );
                         }
                       }}
-                      placeholder={
-                        selectedProject
-                          ? `Search projects… Current: ${selectedProject.name}`
-                          : "Search projects..."
-                      }
+                      placeholder="Search projects..."
                       disabled={
                         busyState === "project" || isCreatingProject
                       }
@@ -2230,17 +2398,30 @@ export function EmailInboxView({
                       )}
                     </button>
                   </div>
-                  {selectedProject ? (
-                    <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-900/70 px-3 py-1 text-xs text-zinc-300">
-                      <div
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: selectedProject.color }}
-                      />
-                      <span className="truncate">{selectedProject.name}</span>
-                    </div>
-                  ) : null}
                   {isProjectPickerOpen ? (
                     <div className="absolute top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
+                      <div className="border-b border-zinc-700/80 bg-zinc-900/80 px-3 py-2">
+                        <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
+                          Current Project
+                        </div>
+                        <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-950/80 px-3 py-1 text-xs text-zinc-300">
+                          {selectedProject ? (
+                            <>
+                              <div
+                                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                style={{
+                                  backgroundColor: selectedProject.color,
+                                }}
+                              />
+                              <span className="truncate">
+                                {selectedProject.name}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="truncate">No Project</span>
+                          )}
+                        </div>
+                      </div>
                       {filteredInboxProjects.length > 0 ? (
                         filteredInboxProjects.map((project) => {
                           const isSelected = project.id === selectedProjectId;
@@ -2295,15 +2476,17 @@ export function EmailInboxView({
                     </div>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  onClick={handleGenerateTasks}
-                  disabled={busyState === "tasks"}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                >
-                  <FolderSearch className="h-4 w-4" />
-                  Generate Tasks
-                </button>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={handleGenerateTasks}
+                    disabled={busyState === "tasks"}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                  >
+                    <FolderSearch className="h-4 w-4" />
+                    Generate Tasks
+                  </button>
+                </div>
               </div>
 
               {queuedAction ? (
@@ -2339,54 +2522,56 @@ export function EmailInboxView({
 
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
                 <div className="mb-3 flex items-center justify-end gap-2">
-                  <Tooltip content="Modal popout" className="w-auto">
-                    <button
-                      type="button"
-                      onClick={() => setIsThreadModalOpen(true)}
-                      disabled={!selectedThreadId}
-                      title="Open thread in modal"
-                      aria-label="Open thread in modal"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      <Expand className="h-4 w-4" />
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="Separate window" className="w-auto">
-                    <button
-                      type="button"
-                      onClick={handleOpenThreadWindow}
-                      disabled={!selectedThreadId}
-                      title="Open thread in separate window"
-                      aria-label="Open thread in separate window"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="Mark read" className="w-auto">
-                    <button
-                      type="button"
-                      onClick={() => void handleThreadAction("mark_read")}
-                      disabled={Boolean(busyState) || !selectedThread.isUnread}
-                      title={
-                        selectedThread.isUnread
-                          ? "Mark thread as read"
-                          : "Thread already read"
-                      }
-                      aria-label={
-                        selectedThread.isUnread
-                          ? "Mark thread as read"
-                          : "Thread already read"
-                      }
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      {busyState === "mark_read" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <MailCheck className="h-4 w-4" />
-                      )}
-                    </button>
-                  </Tooltip>
+                  <div className="flex items-center gap-2 pt-2">
+                    <Tooltip content="Modal popout" className="w-auto">
+                      <button
+                        type="button"
+                        onClick={() => setIsThreadModalOpen(true)}
+                        disabled={!selectedThreadId}
+                        title="Open thread in modal"
+                        aria-label="Open thread in modal"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        <Expand className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Separate window" className="w-auto">
+                      <button
+                        type="button"
+                        onClick={handleOpenThreadWindow}
+                        disabled={!selectedThreadId}
+                        title="Open thread in separate window"
+                        aria-label="Open thread in separate window"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Mark read" className="w-auto">
+                      <button
+                        type="button"
+                        onClick={() => void handleThreadAction("mark_read")}
+                        disabled={Boolean(busyState) || !selectedThread.isUnread}
+                        title={
+                          selectedThread.isUnread
+                            ? "Mark thread as read"
+                            : "Thread already read"
+                        }
+                        aria-label={
+                          selectedThread.isUnread
+                            ? "Mark thread as read"
+                            : "Thread already read"
+                        }
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        {busyState === "mark_read" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <MailCheck className="h-4 w-4" />
+                        )}
+                      </button>
+                    </Tooltip>
+                  </div>
                   <div className="relative pt-2">
                     <FloatingFieldLabel label="Reply Mode" />
                     <Select
@@ -2407,6 +2592,82 @@ export function EmailInboxView({
                     </Select>
                   </div>
                 </div>
+                {replyMode === "reply_all" ? (
+                  <div className="mb-3">
+                    <div className="relative">
+                      <FloatingFieldLabel label="Signature" />
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                        <input
+                          type="text"
+                          value={signatureSearchQuery}
+                          onFocus={() => setIsSignaturePickerOpen(true)}
+                          onChange={(event) => {
+                            setSignatureSearchQuery(event.target.value);
+                            setIsSignaturePickerOpen(true);
+                          }}
+                          placeholder={
+                            selectedSignature
+                              ? selectedSignature.name
+                              : applicableSignatures.length > 0
+                                ? "Type to search signatures..."
+                                : "Create a signature in Settings"
+                          }
+                          disabled={applicableSignatures.length === 0}
+                          className="w-full rounded-lg border border-zinc-700 bg-zinc-900 py-2.5 pl-10 pr-10 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setIsSignaturePickerOpen((current) => !current)
+                          }
+                          disabled={applicableSignatures.length === 0}
+                          className="absolute inset-y-0 right-3 inline-flex items-center text-zinc-500 transition-colors hover:text-zinc-300 disabled:opacity-50"
+                          aria-label="Toggle signature search"
+                        >
+                          <ChevronDown
+                            className={`h-4 w-4 transition-transform ${
+                              isSignaturePickerOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      {isSignaturePickerOpen && applicableSignatures.length > 0 ? (
+                        <div className="absolute top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
+                          {filteredApplicableSignatures.length > 0 ? (
+                            filteredApplicableSignatures.map((signature) => (
+                              <button
+                                key={signature.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedSignatureId(signature.id);
+                                  setSignatureSearchQuery(signature.name);
+                                  setIsSignaturePickerOpen(false);
+                                }}
+                                className={`w-full px-3 py-2 text-left text-sm transition-colors ${
+                                  selectedSignatureId === signature.id
+                                    ? "bg-[rgb(var(--theme-primary-rgb))]/15 text-white"
+                                    : "text-zinc-300 hover:bg-zinc-700 hover:text-white"
+                                }`}
+                              >
+                                <div className="truncate font-medium">
+                                  {signature.name}
+                                </div>
+                                <div className="truncate text-xs text-zinc-500">
+                                  {signature.content}
+                                </div>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="px-3 py-2 text-sm text-zinc-500">
+                              No matching signatures
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="relative">
                   <textarea
                     value={replyContent}
@@ -2441,50 +2702,124 @@ export function EmailInboxView({
                   Conversation
                 </div>
                 <div className="space-y-3">
-                  {(selectedThread.conversation || []).map((entry: any) => (
-                    <div
-                      key={entry.id}
-                      className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3"
-                    >
-                      <div className="flex items-start gap-3">
-                        <EmailActorAvatar
-                          name={entry.authorName}
-                          email={entry.authorEmail}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-medium text-zinc-100">
-                                {getEmailActorName(
-                                  entry.authorName,
-                                  entry.authorEmail,
-                                )}
-                              </div>
-                              {entry.authorEmail &&
-                              entry.authorEmail !== entry.authorName ? (
-                                <div className="truncate text-xs text-zinc-500">
-                                  {entry.authorEmail}
-                                </div>
-                              ) : null}
-                            </div>
-                            <div className="text-xs text-zinc-500">
-                              {new Date(entry.createdAt).toLocaleString()}
-                            </div>
-                          </div>
-                          {entry.contentHtml ? (
-                            <RichTextContent
-                              html={entry.contentHtml}
-                              className="mt-3 break-words text-sm leading-6 text-zinc-300"
-                            />
-                          ) : (
-                            <div className="mt-3 break-words whitespace-pre-wrap text-sm text-zinc-300">
-                              {entry.content}
-                            </div>
+                  {(selectedThread.conversation || []).map((entry: any) => {
+                    const entryAuthorEmail =
+                      entry.authorEmail?.toLowerCase().trim() || null;
+                    const currentUserEmail =
+                      currentUser?.email?.toLowerCase().trim() || null;
+                    const isCurrentUserEntry = Boolean(
+                      currentUserEmail &&
+                        entryAuthorEmail &&
+                        entryAuthorEmail === currentUserEmail,
+                    );
+
+                    return (
+                      <div
+                        key={entry.id}
+                        className={cn(
+                          "rounded-2xl border p-3",
+                          isCurrentUserEntry
+                            ? "border-zinc-800/80 bg-zinc-900/35"
+                            : "border-zinc-800 bg-zinc-900/60",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "flex items-start gap-3",
+                            isCurrentUserEntry && "justify-end",
                           )}
+                        >
+                          {!isCurrentUserEntry ? (
+                            <EmailActorAvatar
+                              name={entry.authorName}
+                              email={entry.authorEmail}
+                            />
+                          ) : null}
+                          <div
+                            className={cn(
+                              "min-w-0 flex-1",
+                              isCurrentUserEntry && "text-right",
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                "flex flex-wrap gap-3",
+                                isCurrentUserEntry
+                                  ? "justify-end"
+                                  : "items-center justify-between",
+                              )}
+                            >
+                              {isCurrentUserEntry ? (
+                                <>
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-medium text-zinc-100">
+                                      {getEmailActorName(
+                                        entry.authorName,
+                                        entry.authorEmail,
+                                      )}
+                                    </div>
+                                    {entry.authorEmail &&
+                                    entry.authorEmail !== entry.authorName ? (
+                                      <div className="truncate text-xs text-zinc-500">
+                                        {entry.authorEmail}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  <div className="text-xs text-zinc-500">
+                                    {new Date(entry.createdAt).toLocaleString()}
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-medium text-zinc-100">
+                                      {getEmailActorName(
+                                        entry.authorName,
+                                        entry.authorEmail,
+                                      )}
+                                    </div>
+                                    {entry.authorEmail &&
+                                    entry.authorEmail !== entry.authorName ? (
+                                      <div className="truncate text-xs text-zinc-500">
+                                        {entry.authorEmail}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  <div className="text-xs text-zinc-500">
+                                    {new Date(entry.createdAt).toLocaleString()}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                            {entry.contentHtml ? (
+                              <RichTextContent
+                                html={entry.contentHtml}
+                                className={cn(
+                                  "mt-3 break-words text-sm leading-6 text-zinc-300",
+                                  isCurrentUserEntry && "text-right",
+                                )}
+                              />
+                            ) : (
+                              <div
+                                className={cn(
+                                  "mt-3 break-words whitespace-pre-wrap text-sm text-zinc-300",
+                                  isCurrentUserEntry && "text-right",
+                                )}
+                              >
+                                {entry.content}
+                              </div>
+                            )}
+                          </div>
+                          {isCurrentUserEntry ? (
+                            <EmailActorAvatar
+                              name={entry.authorName}
+                              email={entry.authorEmail}
+                            />
+                          ) : null}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>

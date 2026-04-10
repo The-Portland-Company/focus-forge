@@ -5,6 +5,8 @@ interface TooltipProps {
   content: string;
   delay?: number;
   className?: string;
+  side?: "right" | "bottom";
+  align?: "center" | "start" | "end";
 }
 
 export function Tooltip({
@@ -12,6 +14,8 @@ export function Tooltip({
   content,
   delay = 0,
   className = "w-full",
+  side = "right",
+  align = "center",
 }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
@@ -24,10 +28,22 @@ export function Tooltip({
       setIsVisible(true);
       if (triggerRef.current) {
         const rect = triggerRef.current.getBoundingClientRect();
-        setPosition({
-          top: rect.top + rect.height / 2,
-          left: rect.right + 10,
-        });
+        setPosition(
+          side === "bottom"
+            ? {
+                top: rect.bottom + 10,
+                left:
+                  align === "start"
+                    ? rect.left
+                    : align === "end"
+                      ? rect.right
+                      : rect.left + rect.width / 2,
+              }
+            : {
+                top: rect.top + rect.height / 2,
+                left: rect.right + 10,
+              },
+        );
       }
     }, delay);
   };
@@ -62,16 +78,41 @@ export function Tooltip({
           style={{
             top: `${position.top}px`,
             left: `${position.left}px`,
-            transform: "translateY(-50%)",
+            transform:
+              side === "bottom"
+                ? align === "start"
+                  ? "translateX(0)"
+                  : align === "end"
+                    ? "translateX(-100%)"
+                    : "translateX(-50%)"
+                : "translateY(-50%)",
           }}
         >
           {content}
           <div
-            className="absolute w-0 h-0 border-t-4 border-b-4 border-r-4 border-t-transparent border-b-transparent border-r-zinc-800"
+            className={
+              side === "bottom"
+                ? "absolute h-0 w-0 border-b-4 border-l-4 border-r-4 border-b-zinc-800 border-l-transparent border-r-transparent"
+                : "absolute h-0 w-0 border-b-4 border-r-4 border-t-4 border-b-transparent border-r-zinc-800 border-t-transparent"
+            }
             style={{
-              left: "-4px",
-              top: "50%",
-              transform: "translateY(-50%)",
+              ...(side === "bottom"
+                ? {
+                    left:
+                      align === "start"
+                        ? "12px"
+                        : align === "end"
+                          ? "calc(100% - 12px)"
+                          : "50%",
+                    top: "-4px",
+                    transform:
+                      align === "center" ? "translateX(-50%)" : "none",
+                  }
+                : {
+                    left: "-4px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                  }),
             }}
           />
         </div>
