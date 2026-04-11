@@ -2363,8 +2363,6 @@ export function EmailInboxView({
                   ) : (
                     <Mail className="h-4 w-4" />
                   )}
-                  {visibleInboxItems.length} Message
-                  {visibleInboxItems.length === 1 ? "" : "s"}
                 </div>
                 {view !== "email-quarantine" ? (
                   <div className="inline-flex items-center gap-1.5 text-xs font-medium">

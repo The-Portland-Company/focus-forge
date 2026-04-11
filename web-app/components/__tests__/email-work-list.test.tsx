@@ -255,6 +255,16 @@ test("shouldShowAiSummary hides short or duplicate summaries", () => {
     }),
     true,
   );
+  assert.equal(
+    shouldShowAiSummary({
+      summaryText:
+        "Customer is asking for pricing details and a follow-up call next week.",
+      previewText:
+        "Customer is asking for pricing details and a follow-up call next week.",
+      forceShow: true,
+    }),
+    true,
+  );
 });
 
 test("shouldShowStatusBadge only shows badges for quarantine and spam states", () => {

@@ -311,6 +311,7 @@ export function formatInboxPreviewText(
 export function shouldShowAiSummary(params: {
   summaryText: string | null | undefined;
   previewText: string | null | undefined;
+  forceShow?: boolean;
 }) {
   const normalizedSummary = params.summaryText?.trim();
 
@@ -325,6 +326,10 @@ export function shouldShowAiSummary(params: {
     normalizedSummary.length < 28
   ) {
     return false;
+  }
+
+  if (params.forceShow) {
+    return true;
   }
 
   const normalizedPreview = params.previewText?.trim();
@@ -519,6 +524,7 @@ export function EmailWorkList({
           previewText: item.previewText
             ? formatInboxPreviewText(item.previewText)
             : null,
+          forceShow: alwaysShowSummary,
         })
           ? rawSummaryText
           : null;
