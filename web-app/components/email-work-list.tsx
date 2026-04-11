@@ -739,7 +739,9 @@ export function EmailWorkList({
                     )}
                   >
                     <Bot className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
-                    <span className="min-w-0 break-words">{summaryText}</span>
+                    <span className="min-w-0 truncate whitespace-nowrap">
+                      {summaryText}
+                    </span>
                   </div>
                 </div>
               ) : null}

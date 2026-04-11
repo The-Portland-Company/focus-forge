@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildHeuristicAnalysis,
+  finalizeInboxSummary,
   formatAiGeneratedTaskName,
   normalizePreventedSpamResult,
 } from "../email-inbox/ai";
@@ -60,6 +61,23 @@ test("formatAiGeneratedTaskName decorates review/respond task names", () => {
   assert.equal(
     formatAiGeneratedTaskName("Review and respond: The Portland Company"),
     "🤖 👀 Review and 💬 Respond: The Portland Company.",
+  );
+});
+
+test("finalizeInboxSummary replaces excerpt-like summaries with a compact paraphrase", () => {
+  assert.equal(
+    finalizeInboxSummary({
+      summary:
+        "Final Renewal Notice Hello, This is a final notice that one or more of your domains are past expiration.",
+      subject: "Domain Expiration Final Renewal Notification from Cloudflare",
+      bodyText:
+        "Final Renewal Notice Hello, This is a final notice that one or more of your domains are past expiration. If you wou...",
+      classification: "reference",
+      status: "active",
+      actionTitle:
+        "Review context: Domain Expiration Final Renewal Notification from Cloudflare",
+    }),
+    "A domain renewal deadline is approaching and needs attention.",
   );
 });
 

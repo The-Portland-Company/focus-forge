@@ -60,6 +60,108 @@ export function formatAiGeneratedTaskName(name: string) {
   return formatted;
 }
 
+function flattenAiSummaryText(value: string | null | undefined) {
+  if (!value) {
+    return "";
+  }
+
+  return value
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/p>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[`*_>#~=-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function ensureSingleSentence(value: string, maxLength = 160) {
+  const normalized = flattenAiSummaryText(value);
+
+  if (!normalized) {
+    return "";
+  }
+
+  const firstSentence =
+    normalized.match(/(.+?[.!?])(?:\s|$)/)?.[1]?.trim() || normalized;
+  const clipped =
+    firstSentence.length <= maxLength
+      ? firstSentence
+      : `${firstSentence.slice(0, maxLength - 1).trimEnd()}.`;
+
+  return /[.!?]$/.test(clipped) ? clipped : `${clipped}.`;
+}
+
+function buildFallbackInboxSummary(input: {
+  subject: string;
+  bodyText: string;
+  classification: EmailThreadAIOutput["classification"];
+  status: EmailThreadAIOutput["status"];
+  actionTitle: string;
+}) {
+  const subject = normalizeSubject(input.subject).trim() || "this email";
+  const haystack = `${input.subject} ${input.bodyText}`.toLowerCase();
+
+  if (/domain.{0,20}(expir|renew)|renewal notice/.test(haystack)) {
+    return "A domain renewal deadline is approaching and needs attention.";
+  }
+
+  if (/invoice|payment|receipt|charged|billing/.test(haystack)) {
+    return "This email is about a billing or payment update.";
+  }
+
+  if (/security|login|password|verify|verification|access/.test(haystack)) {
+    return "This email concerns an account security or access update.";
+  }
+
+  if (input.classification === "spam" || input.status === "quarantine") {
+    return `This appears to be likely spam related to ${subject}.`;
+  }
+
+  if (input.classification === "newsletter") {
+    return `This is an automated update about ${subject}.`;
+  }
+
+  if (/reply and handle|respond|reply/i.test(input.actionTitle)) {
+    return `The sender needs a response about ${subject}.`;
+  }
+
+  return `This email provides context about ${subject}.`;
+}
+
+export function finalizeInboxSummary(input: {
+  summary: string | null | undefined;
+  subject: string;
+  bodyText: string;
+  classification: EmailThreadAIOutput["classification"];
+  status: EmailThreadAIOutput["status"];
+  actionTitle: string;
+}) {
+  const normalizedSummary = ensureSingleSentence(input.summary || "");
+  const preview = extractPlainTextPreview(input.bodyText, 220);
+  const normalizedPreview = flattenAiSummaryText(preview).toLowerCase();
+  const comparableSummary = flattenAiSummaryText(normalizedSummary).toLowerCase();
+
+  if (
+    comparableSummary &&
+    normalizedPreview &&
+    comparableSummary !== normalizedPreview &&
+    !normalizedPreview.includes(comparableSummary) &&
+    !comparableSummary.includes(normalizedPreview)
+  ) {
+    return normalizedSummary;
+  }
+
+  return ensureSingleSentence(
+    buildFallbackInboxSummary({
+      subject: input.subject,
+      bodyText: input.bodyText,
+      classification: input.classification,
+      status: input.status,
+      actionTitle: input.actionTitle,
+    }),
+  );
+}
+
 function detectSpam(subject: string, body: string, senderEmail: string) {
   const haystack = `${subject} ${body} ${senderEmail}`.toLowerCase();
   const spamSignals = [
@@ -182,12 +284,19 @@ export function buildHeuristicAnalysis(
     (detectSpam(subject, bodyText, input.senderEmail) ||
       detectUnsolicitedServicePitchSpam(subject, bodyText, input.senderEmail))
   ) {
+    const actionTitle = `Review suspicious email: ${subject}`.slice(0, 140);
     return {
       classification: "spam",
       status: "quarantine",
-      actionTitle: `Review suspicious email: ${subject}`.slice(0, 140),
-      summary:
-        extractPlainTextPreview(bodyText, 220) || "Potential spam detected.",
+      actionTitle,
+      summary: finalizeInboxSummary({
+        summary: "Potential spam detected.",
+        subject,
+        bodyText,
+        classification: "spam",
+        status: "quarantine",
+        actionTitle,
+      }),
       reason: "Sender or content matched common spam signals.",
       confidence: 0.87,
       needsProject: false,
@@ -197,11 +306,19 @@ export function buildHeuristicAnalysis(
   }
 
   if (detectNewsletter(subject, input.senderEmail)) {
+    const actionTitle = `Decide whether to archive: ${subject}`.slice(0, 140);
     return {
       classification: "newsletter",
       status: "active",
-      actionTitle: `Decide whether to archive: ${subject}`.slice(0, 140),
-      summary: extractPlainTextPreview(bodyText, 220),
+      actionTitle,
+      summary: finalizeInboxSummary({
+        summary: "",
+        subject,
+        bodyText,
+        classification: "newsletter",
+        status: "active",
+        actionTitle,
+      }),
       reason: "The message looks like a newsletter or automated update.",
       confidence: 0.62,
       needsProject: false,
@@ -215,14 +332,22 @@ export function buildHeuristicAnalysis(
   const responseRequired = /\?|reply|respond|please|need|can you/i.test(
     `${subject} ${bodyText}`,
   );
+  const actionTitle = responseRequired
+    ? `Reply and handle: ${subject}`.slice(0, 140)
+    : `Review context: ${subject}`.slice(0, 140);
 
   return {
     classification: responseRequired ? "actionable" : "reference",
     status: projectId ? "active" : "needs_project",
-    actionTitle: responseRequired
-      ? `Reply and handle: ${subject}`.slice(0, 140)
-      : `Review context: ${subject}`.slice(0, 140),
-    summary: extractPlainTextPreview(bodyText, 260),
+    actionTitle,
+    summary: finalizeInboxSummary({
+      summary: "",
+      subject,
+      bodyText,
+      classification: responseRequired ? "actionable" : "reference",
+      status: projectId ? "active" : "needs_project",
+      actionTitle,
+    }),
     reason: projectId
       ? "The message looks actionable and matched an existing project."
       : "The message looks actionable but project routing was not confident.",
@@ -352,6 +477,7 @@ export async function analyzeThreadWithAI(
           role: "system",
           content: `You triage email into actionable work for Focus: Forge.
 Return concise, task-oriented JSON only.
+The summary must be a single sentence on one line, under 160 characters, and must paraphrase the email instead of copying the body text verbatim.
 Prefer an existing project ID only when evidence is strong.
 Use the user's summary instructions when present.
 If the email is spam or low-value, quarantine it.
@@ -407,7 +533,14 @@ ${
         classification: parsed.classification,
         status: parsed.status,
         actionTitle: parsed.actionTitle,
-        summary: parsed.summary,
+        summary: finalizeInboxSummary({
+          summary: parsed.summary,
+          subject: input.subject,
+          bodyText: input.bodyText,
+          classification: parsed.classification,
+          status: parsed.status,
+          actionTitle: parsed.actionTitle,
+        }),
         reason: parsed.reason,
         confidence: Number(parsed.confidence ?? fallback.confidence),
         needsProject: Boolean(parsed.needsProject),
