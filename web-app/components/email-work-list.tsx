@@ -1,15 +1,27 @@
 "use client";
 
+import { useState, type CSSProperties } from "react";
 import {
-  AlertTriangle,
   Bot,
+  Check,
+  ChevronDown,
   FolderSearch,
+  Loader2,
   Mail,
   MessageSquare,
-  ShieldAlert,
+  Plus,
+  Search,
+  Skull,
   Sparkles,
+  SquareCheckBig,
 } from "lucide-react";
 import { Tooltip } from "@/components/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type {
   InboxItem,
   InboxParticipant,
@@ -17,6 +29,11 @@ import type {
   Project,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+type LinkedTaskSummary = {
+  id: string;
+  name: string;
+};
 
 type EmailWorkListProps = {
   items: InboxItem[];
@@ -28,21 +45,17 @@ type EmailWorkListProps = {
   onSelect?: (item: InboxItem) => void;
   onSenderClick?: (sender: { name: string; email: string }) => void;
   onProjectClick?: (item: InboxItem) => void;
+  activeProjectPickerThreadId?: string | null;
+  projectSearchQuery?: string;
+  filteredProjects?: Project[];
+  isProjectActionBusy?: boolean;
+  isCreatingProject?: boolean;
+  onProjectSearchQueryChange?: (value: string) => void;
+  onProjectPickerSelect?: (item: InboxItem, projectId: string) => void;
+  onProjectCreate?: (item: InboxItem) => void;
+  onProjectPickerClose?: () => void;
   emptyLabel?: string;
 };
-
-function statusIcon(status: InboxItem["status"]) {
-  switch (status) {
-    case "quarantine":
-      return <ShieldAlert className="h-4 w-4 text-amber-400" />;
-    case "needs_project":
-      return <FolderSearch className="h-4 w-4 text-sky-400" />;
-    case "spam":
-      return <AlertTriangle className="h-4 w-4 text-red-400" />;
-    default:
-      return <Mail className="h-4 w-4 text-zinc-400" />;
-  }
-}
 
 function statusLabel(status: InboxItem["status"]) {
   switch (status) {
@@ -69,9 +82,18 @@ export function shouldShowSecondaryActionTitle(
     return false;
   }
 
+  const lowerActionTitle = normalizedActionTitle.toLocaleLowerCase();
+
+  if (
+    lowerActionTitle.startsWith("reply and handle:") ||
+    lowerActionTitle.startsWith("review and handle:") ||
+    lowerActionTitle.startsWith("handle:")
+  ) {
+    return false;
+  }
+
   return (
-    normalizedActionTitle.toLocaleLowerCase() !==
-    formatEmailSubject(subject).toLocaleLowerCase()
+    lowerActionTitle !== formatEmailSubject(subject).toLocaleLowerCase()
   );
 }
 
@@ -130,7 +152,83 @@ export function formatParticipantLine(
   return `${label}: ${participantNames.join(", ")}`;
 }
 
+export function getMailboxDisplayLabel(
+  mailbox: Mailbox | null | undefined,
+  item: Pick<InboxItem, "mailboxName" | "mailboxEmailAddress">,
+) {
+  const label = [
+    mailbox?.displayName,
+    mailbox?.name,
+    item.mailboxName,
+    mailbox?.emailAddress,
+    item.mailboxEmailAddress,
+  ].find((value) => value?.trim());
+
+  return label?.trim() || "Mailbox";
+}
+
+export function getMailboxAccentColor(
+  mailbox: Mailbox | null | undefined,
+  item: Pick<InboxItem, "mailboxId" | "mailboxName" | "mailboxEmailAddress">,
+) {
+  const seed =
+    mailbox?.id ||
+    mailbox?.emailAddress ||
+    item.mailboxId ||
+    item.mailboxEmailAddress ||
+    item.mailboxName ||
+    "mailbox";
+
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
+  }
+
+  const hue = hash % 360;
+  return `hsl(${hue} 72% 64%)`;
+}
+
+export function getMailboxBadgeLabel(label: string) {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+
+  if (words.length === 0) {
+    return "MB";
+  }
+
+  if (words.length === 1) {
+    const [firstWord] = words;
+    const compact = firstWord.replace(/[^a-z0-9]/gi, "");
+    return (compact.slice(0, 2) || "MB").toUpperCase();
+  }
+
+  return words
+    .slice(0, 2)
+    .map((word) => word.replace(/[^a-z0-9]/gi, "").charAt(0).toUpperCase())
+    .join("");
+}
+
+export function getProjectBadgeLabel(project: Pick<Project, "name"> | null) {
+  if (!project?.name?.trim()) {
+    return null;
+  }
+
+  const words = project.name.trim().split(/\s+/).filter(Boolean);
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return words
+    .slice(0, 2)
+    .map((word) => word.charAt(0).toUpperCase())
+    .join("");
+}
+
 export function shouldShowStatusBadge(status: InboxItem["status"]) {
+  return status === "quarantine" || status === "spam";
+}
+
+export function shouldShowSpamIndicator(status: InboxItem["status"]) {
   return status === "quarantine" || status === "spam";
 }
 
@@ -168,26 +266,123 @@ export function formatInboxPreviewText(
   return `${flattened.slice(0, maxLength).trimEnd()}...`;
 }
 
+export function shouldShowAiSummary(params: {
+  summaryText: string | null | undefined;
+  previewText: string | null | undefined;
+}) {
+  const normalizedSummary = params.summaryText?.trim();
+
+  if (!normalizedSummary) {
+    return false;
+  }
+
+  const lowerSummary = normalizedSummary.toLocaleLowerCase();
+
+  if (
+    lowerSummary === "no summary available yet." ||
+    normalizedSummary.length < 28
+  ) {
+    return false;
+  }
+
+  const normalizedPreview = params.previewText?.trim();
+
+  if (!normalizedPreview) {
+    return true;
+  }
+
+  const lowerPreview = normalizedPreview.toLocaleLowerCase();
+
+  if (
+    lowerSummary === lowerPreview ||
+    lowerPreview.includes(lowerSummary) ||
+    lowerSummary.includes(lowerPreview)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 export function getEmailWorkItemClassName(params: {
   isSelected: boolean;
   isUnread?: boolean;
 }) {
   return cn(
-    "w-full min-w-0 rounded-xl px-4 py-3 text-left transition-colors",
-    params.isUnread
-      ? params.isSelected
-        ? "border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/12 shadow-none"
-        : "border border-[rgb(var(--theme-primary-rgb))]/20 bg-[rgb(var(--theme-primary-rgb))]/[0.08] ring-0 shadow-none hover:border-[rgb(var(--theme-primary-rgb))]/35 hover:bg-[rgb(var(--theme-primary-rgb))]/12"
-      : params.isSelected
-        ? "border border-zinc-700 bg-zinc-900/80"
-        : "border border-zinc-800/80 bg-zinc-950/30 hover:border-zinc-700 hover:bg-zinc-900/60",
+    "w-full min-w-0 rounded-xl border px-4 py-3 text-left transition-[background-color,background-image,border-color] duration-200",
+    params.isSelected
+      ? "border-zinc-600/80 shadow-none"
+      : "border-zinc-800/80 shadow-none",
   );
+}
+
+export function getEmailWorkItemStyle(params: {
+  isSelected: boolean;
+  isUnread?: boolean;
+}): CSSProperties {
+  if (params.isSelected) {
+    return {
+      backgroundColor: "rgba(255, 255, 255, 0.12)",
+    };
+  }
+
+  if (params.isUnread) {
+    return {
+      backgroundImage:
+        "linear-gradient(rgba(10, 10, 11, 0.9), rgba(10, 10, 11, 0.9)), var(--user-profile-gradient)",
+    };
+  }
+
+  return {
+    backgroundColor: params.isSelected
+      ? "rgba(255, 255, 255, 0.12)"
+      : "rgba(255, 255, 255, 0.10)",
+  };
 }
 
 export function getEmailWorkPreviewClassName(isUnread?: boolean) {
   return cn(
     "mt-3 break-words whitespace-normal text-sm",
-    isUnread ? "font-medium text-zinc-100" : "text-zinc-400",
+    isUnread ? "font-semibold text-zinc-100" : "font-normal text-zinc-400",
+  );
+}
+
+export function getEmailWorkVisualUnreadState(params: {
+  isSelected: boolean;
+  isUnread?: boolean;
+}) {
+  return Boolean(params.isUnread) && !params.isSelected;
+}
+
+export async function parseLinkedTasksResponse(response: Response) {
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload &&
+      typeof payload === "object" &&
+      "error" in payload &&
+      typeof payload.error === "string"
+        ? payload.error
+        : "Failed to load linked tasks";
+
+    throw new Error(message);
+  }
+
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  return payload.filter(
+    (task): task is LinkedTaskSummary =>
+      Boolean(
+        task &&
+          typeof task === "object" &&
+          "id" in task &&
+          typeof task.id === "string" &&
+          "name" in task &&
+          typeof task.name === "string",
+      ),
   );
 }
 
@@ -201,8 +396,45 @@ export function EmailWorkList({
   onSelect,
   onSenderClick,
   onProjectClick,
+  activeProjectPickerThreadId = null,
+  projectSearchQuery = "",
+  filteredProjects = [],
+  isProjectActionBusy = false,
+  isCreatingProject = false,
+  onProjectSearchQueryChange,
+  onProjectPickerSelect,
+  onProjectCreate,
+  onProjectPickerClose,
   emptyLabel = "No email work yet.",
 }: EmailWorkListProps) {
+  const [linkedTasksThreadTitle, setLinkedTasksThreadTitle] = useState("");
+  const [linkedTasks, setLinkedTasks] = useState<LinkedTaskSummary[]>([]);
+  const [isLinkedTasksModalOpen, setIsLinkedTasksModalOpen] = useState(false);
+  const [linkedTasksLoading, setLinkedTasksLoading] = useState(false);
+  const [linkedTasksError, setLinkedTasksError] = useState<string | null>(null);
+
+  const handleOpenLinkedTasks = async (item: InboxItem) => {
+    setLinkedTasksThreadTitle(formatEmailSubject(item.subject));
+    setLinkedTasks([]);
+    setLinkedTasksError(null);
+    setLinkedTasksLoading(true);
+    setIsLinkedTasksModalOpen(true);
+
+    try {
+      const response = await fetch(`/api/email/threads/${item.id}/tasks`, {
+        credentials: "include",
+      });
+      const payload = await parseLinkedTasksResponse(response);
+      setLinkedTasks(payload);
+    } catch (error) {
+      setLinkedTasksError(
+        error instanceof Error ? error.message : "Failed to load linked tasks",
+      );
+    } finally {
+      setLinkedTasksLoading(false);
+    }
+  };
+
   if (items.length === 0) {
     return (
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 px-4 py-6 text-sm text-zinc-500">
@@ -212,23 +444,41 @@ export function EmailWorkList({
   }
 
   return (
-    <div className="space-y-2">
-      {items.map((item) => {
+    <>
+      <div className="space-y-2">
+        {items.map((item) => {
+        const isSelected = selectedId === item.id;
+        const isVisuallyUnread = getEmailWorkVisualUnreadState({
+          isSelected,
+          isUnread: item.isUnread,
+        });
         const mailbox = mailboxes.find(
           (candidate) => candidate.id === item.mailboxId,
         );
+        const mailboxLabel = getMailboxDisplayLabel(mailbox, item);
+        const mailboxAccentColor = getMailboxAccentColor(mailbox, item);
+        const mailboxBadgeLabel = getMailboxBadgeLabel(mailboxLabel);
         const project = projects.find(
           (candidate) => candidate.id === item.projectId,
         );
+        const isProjectPickerOpen = activeProjectPickerThreadId === item.id;
         const sender = getPrimarySenderParticipant(item.participants);
         const senderName = formatParticipantName(sender);
         const ccLine = formatParticipantLine(item.participants, "cc");
-        const summaryText = item.summaryText
+        const rawSummaryText = item.summaryText
           ? formatInboxPreviewText(item.summaryText)
+          : null;
+        const summaryText = shouldShowAiSummary({
+          summaryText: rawSummaryText,
+          previewText: item.previewText
+            ? formatInboxPreviewText(item.previewText)
+            : null,
+        })
+          ? rawSummaryText
           : null;
         const previewText = item.previewText
           ? formatInboxPreviewText(item.previewText)
-          : summaryText || "No summary available yet.";
+          : rawSummaryText || "No summary available yet.";
         const showSecondaryActionTitle = shouldShowSecondaryActionTitle(
           item.actionTitle,
           item.subject,
@@ -247,34 +497,43 @@ export function EmailWorkList({
               }
             }}
             className={getEmailWorkItemClassName({
-              isSelected: selectedId === item.id,
-              isUnread: item.isUnread,
+              isSelected,
+              isUnread: isVisuallyUnread,
+            })}
+            style={getEmailWorkItemStyle({
+              isSelected,
+              isUnread: isVisuallyUnread,
             })}
           >
             <div
               className={cn(
                 "group flex min-w-0 flex-col transition-opacity",
-                item.isUnread ? "opacity-100" : "opacity-100",
+                isVisuallyUnread
+                  ? "font-semibold opacity-100"
+                  : "font-normal opacity-85",
               )}
             >
               <div
                 className={cn(
                   "flex min-w-0 items-start justify-between gap-3",
-                  item.isUnread ? "opacity-100" : "opacity-100",
+                  isVisuallyUnread ? "opacity-100" : "opacity-100",
                 )}
               >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
-                  {statusIcon(item.status)}
                   {sender?.emailAddress ? (
                     <span
                       className={cn(
                         "inline-flex items-center gap-1 text-xs",
-                        item.isUnread ? "text-zinc-300" : "text-zinc-500",
+                        isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
                       )}
                     >
                       <span>From:</span>
-                      <Tooltip content={sender.emailAddress} className="w-auto">
+                      <Tooltip
+                        content={sender.emailAddress}
+                        className="w-auto"
+                        side="top"
+                      >
                         <button
                           type="button"
                           onClick={(event) => {
@@ -294,36 +553,61 @@ export function EmailWorkList({
                     <span
                       className={cn(
                         "break-words text-xs",
-                        item.isUnread ? "text-zinc-300" : "text-zinc-500",
+                        isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
                       )}
                     >
                       From: Unknown
                     </span>
                   )}
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1.5 break-words text-xs",
+                      isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
+                    )}
+                  >
+                    <span
+                      className="inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-semibold uppercase tracking-wide text-black"
+                      style={{ backgroundColor: mailboxAccentColor }}
+                    >
+                      {mailboxBadgeLabel}
+                    </span>
+                    <span>To:</span>
+                    <span
+                      className="font-medium"
+                      style={{ color: mailboxAccentColor }}
+                    >
+                      {mailboxLabel}
+                    </span>
+                  </span>
                   {ccLine ? (
                     <span
                       className={cn(
                         "break-words text-xs",
-                        item.isUnread ? "text-zinc-300" : "text-zinc-500",
+                        isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
                       )}
                     >
                       {ccLine}
                     </span>
                   ) : null}
                 </div>
-                <div
-                  className={cn(
-                    "mt-2 break-words text-white",
-                    item.isUnread ? "font-semibold" : "font-normal",
-                  )}
-                >
-                  {formatEmailSubject(item.subject)}
+                <div className="mt-1 flex min-w-0 items-start gap-2">
+                  {shouldShowSpamIndicator(item.status) ? (
+                    <Skull className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+                  ) : null}
+                  <div
+                    className={cn(
+                      "min-w-0 break-words text-white",
+                      isVisuallyUnread ? "font-semibold" : "font-normal",
+                    )}
+                  >
+                    {formatEmailSubject(item.subject)}
+                  </div>
                 </div>
                 {showSecondaryActionTitle ? (
                   <div
                     className={cn(
                       "mt-1 break-words text-sm",
-                      item.isUnread ? "font-semibold text-white" : "font-normal text-zinc-500",
+                      isVisuallyUnread ? "text-white" : "text-zinc-500",
                     )}
                   >
                     {item.actionTitle}
@@ -331,9 +615,6 @@ export function EmailWorkList({
                 ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                <div className={getEmailReadStateBadgeClassName(item.isUnread)}>
-                  {getEmailReadStateLabel(item.isUnread)}
-                </div>
                 {shouldShowStatusBadge(item.status) ? (
                   <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
                     {statusLabel(item.status)}
@@ -354,7 +635,7 @@ export function EmailWorkList({
                   <div
                     className={cn(
                       "inline-flex max-w-full items-start gap-2 text-sm italic",
-                      item.isUnread ? "text-zinc-200" : "text-zinc-400",
+                      isVisuallyUnread ? "text-zinc-200" : "text-zinc-400",
                     )}
                   >
                     <Bot className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
@@ -383,9 +664,9 @@ export function EmailWorkList({
                 >
                   <div
                     className={cn(
-                      getEmailWorkPreviewClassName(item.isUnread),
+                      getEmailWorkPreviewClassName(isVisuallyUnread),
                       "mt-0",
-                      item.isUnread ? "opacity-100" : "opacity-100",
+                      isVisuallyUnread ? "opacity-100" : "opacity-100",
                     )}
                   >
                     {previewText}
@@ -395,13 +676,13 @@ export function EmailWorkList({
 
               <div
                 className={cn(
-                  "mt-3 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500 transition-opacity",
-                  item.isUnread ? "text-zinc-400 opacity-100" : "opacity-100",
+                  "mt-2 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500 transition-opacity",
+                  isVisuallyUnread ? "text-zinc-400 opacity-100" : "opacity-100",
                 )}
               >
                 <span className="inline-flex items-center gap-1 break-words">
                   <Mail className="h-3.5 w-3.5" />
-                  {mailbox?.name || item.mailboxName || "Mailbox"}
+                  {mailboxLabel}
                 </span>
                 <button
                   type="button"
@@ -411,18 +692,41 @@ export function EmailWorkList({
                   }}
                   className="inline-flex items-center gap-1 break-words rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/70 hover:text-white"
                 >
-                  <FolderSearch className="h-3.5 w-3.5" />
                   {project ? (
-                    project.name
+                    <>
+                      <span
+                        className="inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] px-1 text-[9px] font-semibold uppercase tracking-wide text-black"
+                        style={{ backgroundColor: project.color }}
+                      >
+                        {getProjectBadgeLabel(project)}
+                      </span>
+                      {project.name}
+                    </>
                   ) : (
-                    <span className="text-zinc-500">No Project</span>
+                    <>
+                      <FolderSearch className="h-3.5 w-3.5" />
+                      <span className="text-zinc-500">No Project</span>
+                    </>
                   )}
                 </button>
-                <span className="inline-flex items-center gap-1 break-words">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleOpenLinkedTasks(item);
+                  }}
+                  disabled={item.derivedTaskCount === 0}
+                  className={cn(
+                    "inline-flex items-center gap-1 break-words rounded-md px-1 py-0.5 text-left transition-colors",
+                    item.derivedTaskCount > 0
+                      ? "hover:bg-zinc-800/70 hover:text-white"
+                      : "cursor-default opacity-70",
+                  )}
+                >
                   <MessageSquare className="h-3.5 w-3.5" />
                   {item.derivedTaskCount} linked task
                   {item.derivedTaskCount === 1 ? "" : "s"}
-                </span>
+                </button>
                 {item.actionConfidence ? (
                   <span className="inline-flex items-center gap-1 break-words">
                     <Sparkles className="h-3.5 w-3.5" />
@@ -430,10 +734,198 @@ export function EmailWorkList({
                   </span>
                 ) : null}
               </div>
+
+              {isProjectPickerOpen ? (
+                <div
+                  className="relative mt-3"
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => event.stopPropagation()}
+                >
+                  <div className="rounded-xl border border-zinc-700 bg-zinc-900/95 p-3 shadow-2xl">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                      <input
+                        type="text"
+                        value={projectSearchQuery}
+                        onChange={(event) =>
+                          onProjectSearchQueryChange?.(event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            onProjectPickerClose?.();
+                            return;
+                          }
+
+                          if (
+                            event.key === "Enter" &&
+                            filteredProjects.length > 0
+                          ) {
+                            event.preventDefault();
+                            onProjectPickerSelect?.(item, filteredProjects[0].id);
+                          }
+                        }}
+                        placeholder="Search projects..."
+                        autoFocus
+                        disabled={isProjectActionBusy || isCreatingProject}
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2.5 pl-10 pr-10 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onProjectPickerClose?.()}
+                        className="absolute inset-y-0 right-3 inline-flex items-center text-zinc-500 transition-colors hover:text-zinc-300"
+                        aria-label="Close project picker"
+                      >
+                        {isProjectActionBusy || isCreatingProject ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4 rotate-180" />
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="mt-2 rounded-lg border border-zinc-700 bg-zinc-950/70">
+                      <div className="border-b border-zinc-700/80 px-3 py-2">
+                        <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
+                          Current Project
+                        </div>
+                        <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-950/80 px-3 py-1 text-xs text-zinc-300">
+                          {project ? (
+                            <>
+                              <span
+                                className="inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] px-1 text-[9px] font-semibold uppercase tracking-wide text-black"
+                                style={{ backgroundColor: project.color }}
+                              >
+                                {getProjectBadgeLabel(project)}
+                              </span>
+                              <span className="truncate">{project.name}</span>
+                            </>
+                          ) : (
+                            <span className="truncate">No Project</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {filteredProjects.length > 0 ? (
+                        filteredProjects.map((candidate) => {
+                          const isCurrent = candidate.id === item.projectId;
+                          return (
+                            <button
+                              key={candidate.id}
+                              type="button"
+                              onClick={() =>
+                                onProjectPickerSelect?.(item, candidate.id)
+                              }
+                              className={cn(
+                                "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
+                                isCurrent
+                                  ? "bg-[rgb(var(--theme-primary-rgb))]/15 text-white"
+                                  : "text-zinc-300 hover:bg-zinc-800 hover:text-white",
+                              )}
+                            >
+                              <span
+                                className="h-3 w-3 flex-shrink-0 rounded-full"
+                                style={{ backgroundColor: candidate.color }}
+                              />
+                              <span className="flex-1 truncate">
+                                {candidate.name}
+                              </span>
+                              {isCurrent ? (
+                                <Check className="h-4 w-4 text-[rgb(var(--theme-primary-rgb))]" />
+                              ) : null}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-zinc-500">
+                          No matching projects
+                        </div>
+                      )}
+
+                      {projectSearchQuery.trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => onProjectCreate?.(item)}
+                          disabled={isCreatingProject}
+                          className="flex w-full items-center gap-2 border-t border-zinc-700 px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800 hover:text-white disabled:opacity-50"
+                        >
+                          {isCreatingProject ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Plus className="h-4 w-4" />
+                          )}
+                          <span className="truncate">
+                            Add New Project &quot;{projectSearchQuery.trim()}&quot;
+                          </span>
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         );
-      })}
-    </div>
+        })}
+      </div>
+
+      <Dialog
+        open={isLinkedTasksModalOpen}
+        onOpenChange={(open) => {
+          setIsLinkedTasksModalOpen(open);
+          if (!open) {
+            setLinkedTasksThreadTitle("");
+            setLinkedTasks([]);
+            setLinkedTasksError(null);
+            setLinkedTasksLoading(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg border-zinc-800 bg-zinc-950 text-zinc-100">
+          <DialogTitle>Linked Tasks</DialogTitle>
+          <DialogDescription className="text-zinc-400">
+            {linkedTasksThreadTitle
+              ? `Tasks generated from ${linkedTasksThreadTitle}.`
+              : "Tasks generated from this email thread."}
+          </DialogDescription>
+
+          <div className="mt-4">
+            {linkedTasksLoading ? (
+              <div className="flex items-center gap-2 text-sm text-zinc-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading linked tasks...
+              </div>
+            ) : linkedTasksError ? (
+              <div className="rounded-xl border border-red-900/50 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+                {linkedTasksError}
+              </div>
+            ) : linkedTasks.length === 0 ? (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-6 text-sm text-zinc-400">
+                No linked tasks were found for this thread.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {linkedTasks.map((task) => (
+                  <div
+                    key={task.id}
+                    className="flex items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3"
+                  >
+                    <SquareCheckBig className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
+                    <div className="min-w-0">
+                      <div className="break-words text-sm font-medium text-zinc-100">
+                        {task.name}
+                      </div>
+                      <div className="mt-1 text-[11px] text-zinc-500">
+                        {task.id}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

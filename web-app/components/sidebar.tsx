@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -39,6 +39,9 @@ import { Database, Project } from "@/lib/types";
 import { UserAvatar } from "@/components/user-avatar";
 import { Tooltip } from "./tooltip";
 import { formatElapsed } from "@/lib/time/client";
+import { isOverdue, isToday, isTomorrow, isRestOfWeek } from "@/lib/date-utils";
+import { filterTasksByBlockedStatus } from "@/lib/dependency-utils";
+import { shouldShowInboxItemInToday } from "@/lib/email-inbox/shared";
 import {
   Dialog,
   DialogContent,
@@ -436,6 +439,41 @@ export function Sidebar({
   // Get pending users
   const pendingUsers = data.users?.filter((u) => u.status === "pending") || [];
 
+  const todayBadgeCount = useMemo(() => {
+    const activeTodayTasks = filterTasksByBlockedStatus(
+      data.tasks.filter((task) => {
+        if (task.completed) return false;
+
+        const dueDate = (task as { due_date?: string }).due_date || task.dueDate;
+        if (!dueDate) return false;
+
+        return (
+          isOverdue(dueDate) ||
+          isToday(dueDate) ||
+          isTomorrow(dueDate) ||
+          isRestOfWeek(dueDate)
+        );
+      }),
+      data.tasks,
+      false,
+    );
+
+    const todayEmailCount = data.inboxItems.filter(shouldShowInboxItemInToday).length;
+
+    return activeTodayTasks.length + todayEmailCount;
+  }, [data.inboxItems, data.tasks]);
+
+  const inboxItemsCount = useMemo(() => {
+    const visibleInboxItems = data.inboxItems.filter(
+      (item) => item.status !== "quarantine" && item.status !== "deleted",
+    );
+
+    return {
+      total: visibleInboxItems.length,
+      unread: visibleInboxItems.filter((item) => item.isUnread).length,
+    };
+  }, [data.inboxItems]);
+
   const orgProjects = (orgId: string) =>
     data.projects
       .filter((project) => {
@@ -716,14 +754,21 @@ export function Sidebar({
         ) : (
           <Link
             href="/today"
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
               currentView === "today"
                 ? "bg-zinc-800 text-white"
                 : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
             }`}
           >
-            <Calendar className="w-4 h-4" />
-            Today
+            <span className="flex items-center gap-3">
+              <Calendar className="w-4 h-4" />
+              Today
+            </span>
+            {todayBadgeCount > 0 ? (
+              <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                {todayBadgeCount}
+              </span>
+            ) : null}
           </Link>
         )}
 
@@ -769,13 +814,18 @@ export function Sidebar({
             <div className="mt-1 space-y-1 border-t border-zinc-800 pt-1">
               <Link
                 href="/email-inbox"
-                className={`block rounded-md px-2 py-1.5 text-sm transition-colors ${
+                className={`flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
                   currentView === "email-inbox"
                     ? "bg-zinc-800 text-white"
                     : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
                 }`}
               >
-                Inbox
+                <span>Inbox</span>
+                {inboxItemsCount.total > 0 ? (
+                  <span className="text-[10px] text-zinc-400">
+                    {inboxItemsCount.unread}/{inboxItemsCount.total}
+                  </span>
+                ) : null}
               </Link>
               <Link
                 href="/email-quarantine"
