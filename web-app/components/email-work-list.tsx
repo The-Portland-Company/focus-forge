@@ -1,5 +1,6 @@
 "use client";
 
+import * as Popover from "@radix-ui/react-popover";
 import { useState, type CSSProperties } from "react";
 import {
   Bot,
@@ -28,6 +29,7 @@ import type {
   Mailbox,
   Project,
 } from "@/lib/types";
+import type { ThreadAction } from "@/lib/email-inbox/thread-actions";
 import { cn } from "@/lib/utils";
 
 type LinkedTaskSummary = {
@@ -54,19 +56,9 @@ type EmailWorkListProps = {
   onProjectPickerSelect?: (item: InboxItem, projectId: string) => void;
   onProjectCreate?: (item: InboxItem) => void;
   onProjectPickerClose?: () => void;
+  onThreadAction?: (item: InboxItem, action: ThreadAction) => Promise<void> | void;
   emptyLabel?: string;
 };
-
-function statusLabel(status: InboxItem["status"]) {
-  switch (status) {
-    case "needs_project":
-      return "Needs Project";
-    case "quarantine":
-      return "Quarantine";
-    default:
-      return status.charAt(0).toUpperCase() + status.slice(1);
-  }
-}
 
 export function formatEmailSubject(subject: string) {
   return subject.trim() || "Untitled email";
@@ -224,12 +216,62 @@ export function getProjectBadgeLabel(project: Pick<Project, "name"> | null) {
     .join("");
 }
 
-export function shouldShowStatusBadge(status: InboxItem["status"]) {
-  return status === "quarantine" || status === "spam";
+export function getInboxReviewState(
+  item:
+    | Pick<InboxItem, "status" | "classification">
+    | null
+    | undefined,
+) {
+  if (!item) {
+    return null;
+  }
+
+  if (item.status === "quarantine") {
+    return "quarantine";
+  }
+
+  if (item.status === "spam" || item.classification === "spam") {
+    return "spam";
+  }
+
+  return null;
 }
 
-export function shouldShowSpamIndicator(status: InboxItem["status"]) {
-  return status === "quarantine" || status === "spam";
+export function shouldShowStatusBadge(
+  item:
+    | Pick<InboxItem, "status" | "classification">
+    | null
+    | undefined,
+) {
+  return getInboxReviewState(item) !== null;
+}
+
+export function shouldShowSpamIndicator(
+  item:
+    | Pick<InboxItem, "status" | "classification">
+    | null
+    | undefined,
+) {
+  return getInboxReviewState(item) !== null;
+}
+
+export function getInboxReviewBadgeLabel(
+  item:
+    | Pick<InboxItem, "status" | "classification">
+    | null
+    | undefined,
+) {
+  const reviewState = getInboxReviewState(item);
+
+  if (reviewState === "quarantine") {
+    return "Quarantine";
+  }
+
+  if (reviewState === "spam") {
+    return "Spam";
+  }
+
+  return null;
 }
 
 export function getEmailReadStateLabel(isUnread?: boolean) {
@@ -405,6 +447,7 @@ export function EmailWorkList({
   onProjectPickerSelect,
   onProjectCreate,
   onProjectPickerClose,
+  onThreadAction,
   emptyLabel = "No email work yet.",
 }: EmailWorkListProps) {
   const [linkedTasksThreadTitle, setLinkedTasksThreadTitle] = useState("");
@@ -412,6 +455,9 @@ export function EmailWorkList({
   const [isLinkedTasksModalOpen, setIsLinkedTasksModalOpen] = useState(false);
   const [linkedTasksLoading, setLinkedTasksLoading] = useState(false);
   const [linkedTasksError, setLinkedTasksError] = useState<string | null>(null);
+  const [spamActionThreadId, setSpamActionThreadId] = useState<string | null>(
+    null,
+  );
 
   const handleOpenLinkedTasks = async (item: InboxItem) => {
     setLinkedTasksThreadTitle(formatEmailSubject(item.subject));
@@ -483,6 +529,10 @@ export function EmailWorkList({
           item.actionTitle,
           item.subject,
         );
+        const reviewState = getInboxReviewState(item);
+        const reviewBadgeLabel = getInboxReviewBadgeLabel(item);
+        const canMoveToQuarantine =
+          reviewState === "spam" && item.status !== "quarantine";
 
         return (
           <div
@@ -591,8 +641,59 @@ export function EmailWorkList({
                   ) : null}
                 </div>
                 <div className="mt-1 flex min-w-0 items-start gap-2">
-                  {shouldShowSpamIndicator(item.status) ? (
-                    <Skull className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+                  {shouldShowSpamIndicator(item) ? (
+                    canMoveToQuarantine ? (
+                      <Popover.Root
+                        open={spamActionThreadId === item.id}
+                        onOpenChange={(open) =>
+                          setSpamActionThreadId(open ? item.id : null)
+                        }
+                      >
+                        <Popover.Trigger asChild>
+                          <button
+                            type="button"
+                            onClick={(event) => event.stopPropagation()}
+                            className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-rose-400 transition-colors hover:bg-rose-500/10 hover:text-rose-300"
+                            aria-label="Spam actions"
+                            title="Spam actions"
+                          >
+                            <Skull className="h-4 w-4" />
+                          </button>
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                          <Popover.Content
+                            side="bottom"
+                            align="start"
+                            sideOffset={8}
+                            onInteractOutside={() => setSpamActionThreadId(null)}
+                            className="z-50 w-56 rounded-xl border border-zinc-700 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur"
+                          >
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSpamActionThreadId(null);
+                                void onThreadAction?.(item, "quarantine");
+                              }}
+                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800 hover:text-white"
+                            >
+                              <Skull className="h-4 w-4 text-rose-400" />
+                              Move to Quarantine
+                            </button>
+                          </Popover.Content>
+                        </Popover.Portal>
+                      </Popover.Root>
+                    ) : (
+                      <Tooltip
+                        content={reviewBadgeLabel || "Spam"}
+                        className="w-auto"
+                        side="top"
+                      >
+                        <span className="inline-flex">
+                          <Skull className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+                        </span>
+                      </Tooltip>
+                    )
                   ) : null}
                   <div
                     className={cn(
@@ -615,9 +716,9 @@ export function EmailWorkList({
                 ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                {shouldShowStatusBadge(item.status) ? (
+                {shouldShowStatusBadge(item) && reviewBadgeLabel ? (
                   <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                    {statusLabel(item.status)}
+                    {reviewBadgeLabel}
                   </div>
                 ) : null}
               </div>

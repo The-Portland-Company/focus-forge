@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   formatEmailSubject,
   formatInboxPreviewText,
+  getInboxReviewBadgeLabel,
+  getInboxReviewState,
   getMailboxAccentColor,
   getMailboxBadgeLabel,
   getMailboxDisplayLabel,
@@ -256,17 +258,75 @@ test("shouldShowAiSummary hides short or duplicate summaries", () => {
 });
 
 test("shouldShowStatusBadge only shows badges for quarantine and spam states", () => {
-  assert.equal(shouldShowStatusBadge("active"), false);
-  assert.equal(shouldShowStatusBadge("needs_project"), false);
-  assert.equal(shouldShowStatusBadge("quarantine"), true);
-  assert.equal(shouldShowStatusBadge("spam"), true);
+  assert.equal(
+    shouldShowStatusBadge({ status: "active", classification: "actionable" } as any),
+    false,
+  );
+  assert.equal(
+    shouldShowStatusBadge({ status: "needs_project", classification: "unknown" } as any),
+    false,
+  );
+  assert.equal(
+    shouldShowStatusBadge({ status: "quarantine", classification: "spam" } as any),
+    true,
+  );
+  assert.equal(
+    shouldShowStatusBadge({ status: "active", classification: "spam" } as any),
+    true,
+  );
 });
 
 test("shouldShowSpamIndicator only flags ai-identified spam states", () => {
-  assert.equal(shouldShowSpamIndicator("active"), false);
-  assert.equal(shouldShowSpamIndicator("needs_project"), false);
-  assert.equal(shouldShowSpamIndicator("quarantine"), true);
-  assert.equal(shouldShowSpamIndicator("spam"), true);
+  assert.equal(
+    shouldShowSpamIndicator({ status: "active", classification: "actionable" } as any),
+    false,
+  );
+  assert.equal(
+    shouldShowSpamIndicator({ status: "needs_project", classification: "unknown" } as any),
+    false,
+  );
+  assert.equal(
+    shouldShowSpamIndicator({ status: "quarantine", classification: "spam" } as any),
+    true,
+  );
+  assert.equal(
+    shouldShowSpamIndicator({ status: "active", classification: "spam" } as any),
+    true,
+  );
+});
+
+test("getInboxReviewState prioritizes quarantine over generic spam", () => {
+  assert.equal(
+    getInboxReviewState({ status: "quarantine", classification: "spam" } as any),
+    "quarantine",
+  );
+  assert.equal(
+    getInboxReviewState({ status: "active", classification: "spam" } as any),
+    "spam",
+  );
+  assert.equal(
+    getInboxReviewState({ status: "spam", classification: "reference" } as any),
+    "spam",
+  );
+  assert.equal(
+    getInboxReviewState({ status: "active", classification: "reference" } as any),
+    null,
+  );
+});
+
+test("getInboxReviewBadgeLabel returns the user-facing review badge copy", () => {
+  assert.equal(
+    getInboxReviewBadgeLabel({ status: "quarantine", classification: "spam" } as any),
+    "Quarantine",
+  );
+  assert.equal(
+    getInboxReviewBadgeLabel({ status: "active", classification: "spam" } as any),
+    "Spam",
+  );
+  assert.equal(
+    getInboxReviewBadgeLabel({ status: "active", classification: "actionable" } as any),
+    null,
+  );
 });
 
 test("getEmailWorkItemClassName keeps unread threads brand-accented", () => {

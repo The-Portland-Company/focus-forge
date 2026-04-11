@@ -1,7 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import {
+  type ChangeEvent,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
@@ -18,21 +21,24 @@ import {
   ChevronDown,
   Expand,
   ExternalLink,
+  FileText,
   FolderSearch,
   GripVertical,
+  ImageIcon,
   Loader2,
   Mail,
   MailPlus,
   MailCheck,
   MailOpen,
+  Paperclip,
   Plus,
   RefreshCw,
   Search,
   SendHorizontal,
   Shield,
   ShieldAlert,
-  Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   EmailWorkList,
@@ -40,17 +46,20 @@ import {
   getEmailReadStateLabel,
   formatEmailSubject,
   formatParticipantName,
+  getInboxReviewBadgeLabel,
   getPrimarySenderParticipant,
   shouldShowStatusBadge,
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
+import { EmailSignatureContent } from "@/components/email-signature-content";
 import { EmailSpamReviewModal } from "@/components/email-spam-review-modal";
+import { EmailThreadAttachments } from "@/components/email-thread-attachments";
 import { EmailThreadModal } from "@/components/email-thread-modal";
 import { SenderHistoryModal } from "@/components/sender-history-modal";
 import { Tooltip } from "@/components/tooltip";
 import { FloatingFieldLabel } from "@/components/ui/floating-field-label";
-import { RichTextContent } from "@/components/ui/rich-text-content";
+import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import {
   Select,
   SelectContent,
@@ -87,7 +96,10 @@ import {
   getDefaultEmailSignature,
   loadEmailSignatures,
 } from "@/lib/email-signatures";
+import { loadHideEmailSignaturesPreference } from "@/lib/email-signature-display";
 import {
+  getConversationEntriesExcludingPrimary,
+  getDisplayableThreadAttachments,
   getEmailActorGradient,
   getEmailActorInitials,
   getEmailActorName,
@@ -103,6 +115,12 @@ import {
   requiresThreadActionConfirmation,
   type ThreadAction,
 } from "@/lib/email-inbox/thread-actions";
+import {
+  formatReplyAttachmentSize,
+  isInlineAttachmentEligible,
+  type EmailReplyAttachment,
+} from "@/lib/email-reply";
+import { hasRichTextContent, richTextToPlainText } from "@/lib/rich-text";
 import { cn } from "@/lib/utils";
 
 type EmailInboxViewProps = {
@@ -110,6 +128,11 @@ type EmailInboxViewProps = {
   data: Database;
   onRefresh: () => Promise<void> | void;
   currentUserId?: string;
+};
+
+type ComposerAttachment = EmailReplyAttachment & {
+  previewUrl?: string | null;
+  isImage?: boolean;
 };
 
 const DEFAULT_PROFILE_SETTINGS = JSON.stringify(
@@ -327,6 +350,23 @@ export function getThreadActionButtonClassName(options?: {
     : "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50";
 }
 
+export function getConversationEntryHeaderClassName(
+  isCurrentUserEntry: boolean,
+) {
+  return isCurrentUserEntry
+    ? "flex items-start gap-3"
+    : "flex items-start justify-between gap-3";
+}
+
+export function applyOptimisticThreadReadState(
+  items: InboxItem[],
+  threadId: string,
+) {
+  return items.map((item) =>
+    item.id === threadId ? { ...item, isUnread: false } : item,
+  );
+}
+
 function getThreadActionButtonIcon(action: ThreadAction) {
   switch (getThreadActionButtonIconName(action)) {
     case "check":
@@ -364,12 +404,20 @@ export function EmailInboxView({
   const [mailboxForm, setMailboxForm] = useState(createEmptyMailboxForm);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
+  const [inlineProjectPickerThreadId, setInlineProjectPickerThreadId] = useState<
+    string | null
+  >(null);
+  const [inlineProjectSearchQuery, setInlineProjectSearchQuery] = useState("");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [replyContent, setReplyContent] = useState("");
+  const [replyAttachments, setReplyAttachments] = useState<ComposerAttachment[]>(
+    [],
+  );
   const [replyMode, setReplyMode] = useState<"reply_all" | "internal_note">(
     "reply_all",
   );
   const [emailSignatures, setEmailSignatures] = useState<EmailSignature[]>([]);
+  const [hideEmailSignatures, setHideEmailSignatures] = useState(true);
   const [selectedSignatureId, setSelectedSignatureId] = useState<string | null>(
     null,
   );
@@ -399,8 +447,11 @@ export function EmailInboxView({
   );
   const [isDesktopSplitLayout, setIsDesktopSplitLayout] = useState(false);
   const [isThreadModalOpen, setIsThreadModalOpen] = useState(false);
+  const [isReplyDragActive, setIsReplyDragActive] = useState(false);
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
   const projectSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const replyFileInputRef = useRef<HTMLInputElement | null>(null);
+  const replyAttachmentsRef = useRef<ComposerAttachment[]>([]);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const queuedActionTimeoutRef = useRef<number | null>(null);
   const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
@@ -470,6 +521,10 @@ export function EmailInboxView({
     () => filterInboxProjects(sortedInboxProjects, projectSearchQuery),
     [projectSearchQuery, sortedInboxProjects],
   );
+  const filteredInlineInboxProjects = useMemo(
+    () => filterInboxProjects(sortedInboxProjects, inlineProjectSearchQuery),
+    [inlineProjectSearchQuery, sortedInboxProjects],
+  );
   const selectedProjectId = getThreadProjectId(selectedThread);
   const selectedProject = useMemo(
     () =>
@@ -513,6 +568,12 @@ export function EmailInboxView({
   const selectedThreadPrimaryEntry = getPrimaryThreadRenderEntry(
     selectedThread?.conversation,
   );
+  const selectedThreadPrimaryAttachments = getDisplayableThreadAttachments(
+    selectedThreadPrimaryEntry,
+  );
+  const selectedThreadConversationEntries = getConversationEntriesExcludingPrimary(
+    selectedThread?.conversation,
+  );
   const isEditingMailbox = editingMailboxId !== null;
   const splitLayoutStyle = {
     "--email-detail-width": `${detailPanelWidth}px`,
@@ -530,6 +591,7 @@ export function EmailInboxView({
   useEffect(() => {
     if (!currentUserId) return;
     setEmailSignatures(loadEmailSignatures(currentUserId));
+    setHideEmailSignatures(loadHideEmailSignaturesPreference(currentUserId));
   }, [currentUserId]);
 
   useEffect(() => {
@@ -676,6 +738,47 @@ export function EmailInboxView({
     );
   };
 
+  const handleSelectThread = (item: InboxItem) => {
+    setSelectedThreadId(item.id);
+
+    if (!item.isUnread) {
+      return;
+    }
+
+    setInboxItems((current) => applyOptimisticThreadReadState(current, item.id));
+    inboxSnapshotRef.current = applyOptimisticThreadReadState(
+      inboxSnapshotRef.current,
+      item.id,
+    );
+
+    setSelectedThread((current: any | null) =>
+      current && current.id === item.id ? { ...current, isUnread: false } : current,
+    );
+
+    void fetch(`/api/email/threads/${item.id}/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "mark_read" }),
+    })
+      .then(async (response) => {
+        if (response.ok) {
+          return;
+        }
+
+        const payload = await response
+          .json()
+          .catch(() => ({ error: "Failed to mark thread as read" }));
+        throw new Error(payload.error || "Failed to mark thread as read");
+      })
+      .catch((error) => {
+        setStatusMessage(
+          error instanceof Error ? error.message : "Failed to mark thread as read",
+        );
+        void refreshInboxStateRef.current?.();
+      });
+  };
+
   const applyInboxSnapshot = (params: {
     nextMailboxes: Mailbox[];
     nextItems: InboxItem[];
@@ -703,10 +806,19 @@ export function EmailInboxView({
   };
 
   useEffect(() => {
+    replyAttachmentsRef.current = replyAttachments;
+  }, [replyAttachments]);
+
+  useEffect(() => {
     return () => {
       if (queuedActionTimeoutRef.current !== null) {
         window.clearTimeout(queuedActionTimeoutRef.current);
       }
+      replyAttachmentsRef.current.forEach((attachment) => {
+        if (attachment.previewUrl) {
+          URL.revokeObjectURL(attachment.previewUrl);
+        }
+      });
     };
   }, []);
 
@@ -781,6 +893,23 @@ export function EmailInboxView({
   useEffect(() => {
     setIsProjectPickerOpen(false);
     setProjectSearchQuery("");
+  }, [selectedThreadId]);
+
+  useEffect(() => {
+    closeInlineProjectPicker();
+  }, [selectedThreadId, view]);
+
+  useEffect(() => {
+    setReplyContent("");
+    setReplyAttachments((current) => {
+      current.forEach((attachment) => {
+        if (attachment.previewUrl) {
+          URL.revokeObjectURL(attachment.previewUrl);
+        }
+      });
+      return [];
+    });
+    setIsReplyDragActive(false);
   }, [selectedThreadId]);
 
   useEffect(() => {
@@ -1129,27 +1258,33 @@ export function EmailInboxView({
     }
   };
 
-  const handleThreadAction = async (action: ThreadAction) => {
-    if (!selectedThreadId) return;
+  const handleThreadAction = async (
+    action: ThreadAction,
+    options?: {
+      threadId?: string | null;
+      updateSelectedThread?: boolean;
+    },
+  ) => {
+    const threadId = options?.threadId ?? selectedThreadId;
+    if (!threadId) return;
+
+    const shouldUpdateSelectedThread = options?.updateSelectedThread ?? true;
     setBusyState(action);
     try {
-      const response = await fetch(
-        `/api/email/threads/${selectedThreadId}/actions`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ action }),
-        },
-      );
+      const response = await fetch(`/api/email/threads/${threadId}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action }),
+      });
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload.error || "Failed to apply thread action");
       }
       await refreshInboxState();
-      if (action === "mark_read") {
+      if (action === "mark_read" && shouldUpdateSelectedThread) {
         const detailResponse = await fetch(
-          `/api/email/threads/${selectedThreadId}`,
+          `/api/email/threads/${threadId}`,
           {
             credentials: "include",
           },
@@ -1161,7 +1296,7 @@ export function EmailInboxView({
         }
 
         setSelectedThread(detailPayload);
-      } else {
+      } else if (shouldUpdateSelectedThread) {
         setSelectedThread(payload.id ? payload : selectedThread);
       }
       updateStatus(`Applied ${action.replace(/_/g, " ")}.`);
@@ -1172,6 +1307,16 @@ export function EmailInboxView({
     } finally {
       setBusyState(null);
     }
+  };
+
+  const handleInboxItemThreadAction = async (
+    item: InboxItem,
+    action: ThreadAction,
+  ) => {
+    await handleThreadAction(action, {
+      threadId: item.id,
+      updateSelectedThread: selectedThreadId === item.id,
+    });
   };
 
   const clearQueuedAction = () => {
@@ -1267,6 +1412,7 @@ export function EmailInboxView({
         key={action}
         content={isQueued ? `${label} queued` : label}
         className="w-auto"
+        side="top"
       >
         <button
           type="button"
@@ -1286,12 +1432,12 @@ export function EmailInboxView({
     );
   };
 
-  const handleProjectAssign = async (projectId: string) => {
-    if (!selectedThreadId) return;
+  const handleProjectAssign = async (threadId: string, projectId: string) => {
+    if (!threadId) return;
     setBusyState("project");
     try {
       const response = await fetch(
-        `/api/email/threads/${selectedThreadId}/project`,
+        `/api/email/threads/${threadId}/project`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -1304,7 +1450,9 @@ export function EmailInboxView({
         throw new Error(payload.error || "Failed to assign project");
       }
       await refreshInboxState();
-      setSelectedThread(payload);
+      if (selectedThreadId === threadId) {
+        setSelectedThread(payload);
+      }
       updateStatus("Project assigned.");
     } catch (error) {
       updateStatus(
@@ -1320,33 +1468,61 @@ export function EmailInboxView({
     setProjectSearchQuery("");
   };
 
+  const closeInlineProjectPicker = () => {
+    setInlineProjectPickerThreadId(null);
+    setInlineProjectSearchQuery("");
+  };
+
   const handleProjectPickerSelect = (projectId: string) => {
     closeProjectPicker();
     if (projectId !== selectedProjectId) {
-      void handleProjectAssign(projectId);
+      void handleProjectAssign(selectedThreadId || "", projectId);
     }
   };
 
   const handleProjectPickerOpenForItem = (item: InboxItem) => {
-    setSelectedThreadId(item.id);
-    setProjectSearchQuery("");
-    setIsProjectPickerOpen(true);
+    setInlineProjectPickerThreadId(item.id);
+    setInlineProjectSearchQuery("");
   };
 
-  const handleCreateProject = async () => {
-    const name = projectSearchQuery.trim();
+  const handleInlineProjectPickerSelect = (
+    item: InboxItem,
+    projectId: string,
+  ) => {
+    closeInlineProjectPicker();
+    if (projectId !== item.projectId) {
+      void handleProjectAssign(item.id, projectId);
+    }
+  };
+
+  const handleCreateProject = async (
+    options?: {
+      threadId?: string | null;
+      mailboxId?: string | null;
+      query?: string;
+      closePicker?: () => void;
+    },
+  ) => {
+    const name = (options?.query ?? projectSearchQuery).trim();
     if (!name || isCreatingProject) return;
 
     const existingProject = sortedInboxProjects.find(
       (project) => project.name.trim().toLowerCase() === name.toLowerCase(),
     );
     if (existingProject) {
-      handleProjectPickerSelect(existingProject.id);
+      if (options?.threadId) {
+        options.closePicker?.();
+        void handleProjectAssign(options.threadId, existingProject.id);
+      } else {
+        handleProjectPickerSelect(existingProject.id);
+      }
       return;
     }
 
     const mailboxForThread = mailboxes.find(
-      (mailbox) => mailbox.id === selectedThread?.mailboxId,
+      (mailbox) =>
+        mailbox.id ===
+        (options?.mailboxId || selectedThread?.mailboxId || null),
     );
     const organizationId =
       mailboxForThread?.organizationId ||
@@ -1378,8 +1554,12 @@ export function EmailInboxView({
       }
 
       await onRefresh();
-      closeProjectPicker();
-      await handleProjectAssign(payload.id);
+      if (options?.closePicker) {
+        options.closePicker();
+      } else {
+        closeProjectPicker();
+      }
+      await handleProjectAssign(options?.threadId || selectedThreadId || "", payload.id);
       updateStatus(`Created project "${name}".`);
     } catch (error) {
       updateStatus(
@@ -1423,14 +1603,112 @@ export function EmailInboxView({
     }
   };
 
+  const handleReplyFilesAdded = async (files: File[]) => {
+    if (files.length === 0 || busyState === "reply_upload") {
+      return;
+    }
+
+    setBusyState("reply_upload");
+
+    try {
+      const uploadedAttachments: ComposerAttachment[] = [];
+
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch("/api/attachments/upload", {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || `Failed to upload ${file.name}`);
+        }
+
+        uploadedAttachments.push({
+          id: payload.id,
+          name: payload.name,
+          url: payload.url,
+          type: payload.type,
+          sizeBytes: payload.size_bytes,
+          mimeType: payload.mime_type,
+          storageProvider: payload.storage_provider,
+          inline: false,
+          isImage: file.type.startsWith("image/"),
+          previewUrl: file.type.startsWith("image/")
+            ? URL.createObjectURL(file)
+            : null,
+        });
+      }
+
+      setReplyAttachments((current) => [...current, ...uploadedAttachments]);
+      updateStatus(
+        `Uploaded ${uploadedAttachments.length} attachment${uploadedAttachments.length === 1 ? "" : "s"}.`,
+      );
+    } catch (error) {
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to upload files",
+      );
+    } finally {
+      setBusyState(null);
+      if (replyFileInputRef.current) {
+        replyFileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleReplyAttachmentRemove = (attachmentId: string) => {
+    setReplyAttachments((current) => {
+      const attachment = current.find((item) => item.id === attachmentId);
+      if (attachment?.previewUrl) {
+        URL.revokeObjectURL(attachment.previewUrl);
+      }
+
+      return current.filter((item) => item.id !== attachmentId);
+    });
+  };
+
+  const handleReplyAttachmentInlineToggle = (attachmentId: string) => {
+    setReplyAttachments((current) =>
+      current.map((attachment) =>
+        attachment.id === attachmentId
+          ? { ...attachment, inline: !attachment.inline }
+          : attachment,
+      ),
+    );
+  };
+
+  const handleReplyFileInputChange = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    await handleReplyFilesAdded(Array.from(files));
+  };
+
+  const handleReplyEditorDrop = async (
+    event: ReactDragEvent<HTMLDivElement>,
+  ) => {
+    event.preventDefault();
+    setIsReplyDragActive(false);
+    const files = Array.from(event.dataTransfer.files || []);
+    if (files.length === 0) return;
+    await handleReplyFilesAdded(files);
+  };
+
   const handleReply = async () => {
-    if (!selectedThreadId || !replyContent.trim()) return;
+    if (
+      !selectedThreadId ||
+      !hasRichTextContent(replyContent) ||
+      busyState === "reply_upload"
+    ) {
+      return;
+    }
     setBusyState("reply");
     try {
-      const composedReply =
-        replyMode === "reply_all" && selectedSignature?.content?.trim()
-          ? `${replyContent.trim()}\n\n${selectedSignature.content.trim()}`
-          : replyContent.trim();
       const response = await fetch(
         `/api/email/threads/${selectedThreadId}/reply`,
         {
@@ -1438,8 +1716,24 @@ export function EmailInboxView({
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({
-            content: composedReply,
+            content: richTextToPlainText(replyContent),
+            contentHtml: replyContent,
             mode: replyMode,
+            signatureText:
+              replyMode === "reply_all" ? selectedSignature?.content || null : null,
+            attachments:
+              replyMode === "reply_all"
+                ? replyAttachments.map((attachment) => ({
+                    id: attachment.id,
+                    name: attachment.name,
+                    url: attachment.url,
+                    type: attachment.type,
+                    sizeBytes: attachment.sizeBytes,
+                    mimeType: attachment.mimeType,
+                    storageProvider: attachment.storageProvider,
+                    inline: attachment.inline,
+                  }))
+                : [],
           }),
         },
       );
@@ -1448,6 +1742,14 @@ export function EmailInboxView({
         throw new Error(payload.error || "Failed to send reply");
       }
       setReplyContent("");
+      setReplyAttachments((current) => {
+        current.forEach((attachment) => {
+          if (attachment.previewUrl) {
+            URL.revokeObjectURL(attachment.previewUrl);
+          }
+        });
+        return [];
+      });
       setIsSignaturePickerOpen(false);
       await refreshInboxState();
       if (selectedThreadId) {
@@ -2222,9 +2524,28 @@ export function EmailInboxView({
               selectedId={selectedThreadId}
               alwaysShowSummary={alwaysShowSummary}
               alwaysShowExcerpt={alwaysShowExcerpt}
-              onSelect={(item) => setSelectedThreadId(item.id)}
+              activeProjectPickerThreadId={inlineProjectPickerThreadId}
+              projectSearchQuery={inlineProjectSearchQuery}
+              filteredProjects={filteredInlineInboxProjects}
+              isProjectActionBusy={busyState === "project"}
+              isCreatingProject={isCreatingProject}
+              onSelect={handleSelectThread}
               onSenderClick={(sender) => setSenderHistory(sender)}
               onProjectClick={handleProjectPickerOpenForItem}
+              onProjectSearchQueryChange={setInlineProjectSearchQuery}
+              onProjectPickerSelect={handleInlineProjectPickerSelect}
+              onProjectCreate={(item) =>
+                void handleCreateProject({
+                  threadId: item.id,
+                  mailboxId: item.mailboxId,
+                  query: inlineProjectSearchQuery,
+                  closePicker: closeInlineProjectPicker,
+                })
+              }
+              onProjectPickerClose={closeInlineProjectPicker}
+              onThreadAction={(item, action) =>
+                handleInboxItemThreadAction(item, action)
+              }
               emptyLabel={
                 view === "email-quarantine"
                   ? "No suspicious email is waiting for review."
@@ -2276,9 +2597,10 @@ export function EmailInboxView({
                     >
                       {getEmailReadStateLabel(selectedThread.isUnread)}
                     </div>
-                    {shouldShowStatusBadge(selectedThread.status) ? (
+                    {shouldShowStatusBadge(selectedThread) &&
+                    getInboxReviewBadgeLabel(selectedThread) ? (
                       <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                        {selectedThread.status}
+                        {getInboxReviewBadgeLabel(selectedThread)}
                       </div>
                     ) : null}
                   </div>
@@ -2304,33 +2626,39 @@ export function EmailInboxView({
                   </div>
                 </div>
                 <div className="mt-4 min-w-0 space-y-3">
-                  <div className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                  <div className="inline-flex min-w-0 items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
                     <Mail className="h-3.5 w-3.5" />
-                    <span>Subject</span>
+                    <span className="truncate">
+                      {formatEmailSubject(selectedThread.subject)}
+                    </span>
                   </div>
-                  <h2 className="break-words text-xl font-semibold text-white">
-                    {formatEmailSubject(selectedThread.subject)}
-                  </h2>
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
-                    <div className="mb-3 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
-                      <Sparkles className="h-3.5 w-3.5" />
-                      <span>AI Summary:</span>
-                    </div>
                     {selectedThreadShowsSecondaryActionTitle &&
                     selectedThread.actionTitle ? (
-                      <div className="mb-3 break-words text-sm text-zinc-400">
-                        {selectedThread.actionTitle}
+                      <div className="mb-3 flex items-start gap-2 break-words text-[13px] italic text-zinc-400">
+                        <Tooltip
+                          content="AI Summary"
+                          className="w-auto shrink-0"
+                          side="bottom"
+                        >
+                          <span className="inline-flex">
+                            <Bot className="mt-0.5 h-3.5 w-3.5 text-zinc-400" />
+                          </span>
+                        </Tooltip>
+                        <span className="min-w-0 break-words">
+                          {selectedThread.actionTitle}
+                        </span>
                       </div>
                     ) : null}
-                    {selectedThreadPrimaryEntry?.contentHtml ? (
-                      <RichTextContent
-                        html={selectedThreadPrimaryEntry.contentHtml}
-                        className="break-words text-sm leading-6 text-zinc-200"
+                    {selectedThreadPrimaryEntry?.contentHtml ||
+                    selectedThreadPrimaryEntry?.content ? (
+                      <EmailSignatureContent
+                        html={selectedThreadPrimaryEntry?.contentHtml}
+                        text={selectedThreadPrimaryEntry?.content}
+                        hideSignatures={hideEmailSignatures}
+                        contentClassName="break-words text-sm leading-6 text-zinc-200"
+                        signatureClassName="break-words text-sm leading-6 text-zinc-200 opacity-90"
                       />
-                    ) : selectedThreadPrimaryEntry?.content ? (
-                      <div className="break-words whitespace-pre-wrap text-sm leading-6 text-zinc-200">
-                        {selectedThreadPrimaryEntry.content}
-                      </div>
                     ) : (
                       <div className="break-words text-sm text-zinc-400">
                         {selectedThread.summaryText ||
@@ -2338,6 +2666,9 @@ export function EmailInboxView({
                           "No message body available yet."}
                       </div>
                     )}
+                    <EmailThreadAttachments
+                      attachments={selectedThreadPrimaryAttachments}
+                    />
                   </div>
                 </div>
               </div>
@@ -2592,8 +2923,158 @@ export function EmailInboxView({
                     </Select>
                   </div>
                 </div>
+                <input
+                  ref={replyFileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={handleReplyFileInputChange}
+                />
+                <div
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setIsReplyDragActive(true);
+                  }}
+                  onDragLeave={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                      setIsReplyDragActive(false);
+                    }
+                  }}
+                  onDrop={(event) => void handleReplyEditorDrop(event)}
+                  className={cn(
+                    "rounded-xl border transition-colors",
+                    isReplyDragActive
+                      ? "border-[rgb(var(--theme-primary-rgb))]/60 bg-[rgb(var(--theme-primary-rgb))]/10"
+                      : "border-transparent",
+                  )}
+                >
+                  <div className="relative">
+                    <RichTextEditor
+                      value={replyContent}
+                      onChange={setReplyContent}
+                      placeholder={
+                        replyMode === "internal_note"
+                          ? "Write an internal note for linked Forge tasks…"
+                          : "Reply to all participants…"
+                      }
+                      minHeightClassName="min-h-[160px] pb-16"
+                    />
+                    <Tooltip content="Send" className="w-auto">
+                      <button
+                        type="button"
+                        onClick={handleReply}
+                        disabled={
+                          busyState === "reply" ||
+                          busyState === "reply_upload" ||
+                          !hasRichTextContent(replyContent)
+                        }
+                        className="absolute bottom-3 right-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-theme-gradient text-white shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
+                      >
+                        {busyState === "reply" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <SendHorizontal className="h-4 w-4" />
+                        )}
+                      </button>
+                    </Tooltip>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
+                    <Tooltip content="Add attachments" className="w-auto">
+                      <button
+                        type="button"
+                        onClick={() => replyFileInputRef.current?.click()}
+                        disabled={busyState === "reply_upload"}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                      >
+                        {busyState === "reply_upload" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Paperclip className="h-4 w-4" />
+                        )}
+                      </button>
+                    </Tooltip>
+                    <div className="text-xs text-zinc-500">
+                      Drag and drop files here, or use the attachment button.
+                    </div>
+                  </div>
+                </div>
+                {replyMode === "reply_all" && replyAttachments.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {replyAttachments.map((attachment) => (
+                      <div
+                        key={attachment.id}
+                        className="flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2"
+                      >
+                        <div className="mt-0.5 text-zinc-400">
+                          {attachment.isImage ? (
+                            <ImageIcon className="h-4 w-4" />
+                          ) : (
+                            <FileText className="h-4 w-4" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-zinc-100">
+                            {attachment.name}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {formatReplyAttachmentSize(attachment.sizeBytes)}
+                          </div>
+                          {attachment.isImage && attachment.previewUrl ? (
+                            <Image
+                              src={attachment.previewUrl}
+                              alt={attachment.name}
+                              width={160}
+                              height={112}
+                              unoptimized
+                              className="mt-2 max-h-28 w-auto rounded-lg border border-zinc-800 object-contain"
+                            />
+                          ) : null}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {isInlineAttachmentEligible(attachment) ? (
+                            <Tooltip
+                              content={
+                                attachment.inline
+                                  ? "Send as attachment only"
+                                  : "Include inline in email"
+                              }
+                              className="w-auto"
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleReplyAttachmentInlineToggle(attachment.id)
+                                }
+                                className={cn(
+                                  "inline-flex rounded-md border px-2 py-1 text-[11px] font-medium uppercase tracking-wide transition-colors",
+                                  attachment.inline
+                                    ? "border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))]"
+                                    : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-white",
+                                )}
+                              >
+                                Inline
+                              </button>
+                            </Tooltip>
+                          ) : null}
+                          <Tooltip content="Remove attachment" className="w-auto">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleReplyAttachmentRemove(attachment.id)
+                              }
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {replyMode === "reply_all" ? (
-                  <div className="mb-3">
+                  <div className="mt-3">
                     <div className="relative">
                       <FloatingFieldLabel label="Signature" />
                       <div className="relative">
@@ -2668,33 +3149,6 @@ export function EmailInboxView({
                     </div>
                   </div>
                 ) : null}
-                <div className="relative">
-                  <textarea
-                    value={replyContent}
-                    onChange={(event) => setReplyContent(event.target.value)}
-                    rows={5}
-                    placeholder={
-                      replyMode === "internal_note"
-                        ? "Write an internal note for linked Forge tasks…"
-                        : "Reply to all participants…"
-                    }
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 pr-16 text-sm text-white transition-[height] duration-200"
-                  />
-                  <Tooltip content="Send" className="w-auto">
-                    <button
-                      type="button"
-                      onClick={handleReply}
-                      disabled={busyState === "reply" || !replyContent.trim()}
-                      className="absolute bottom-3 right-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-theme-gradient text-white shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
-                    >
-                      {busyState === "reply" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <SendHorizontal className="h-4 w-4" />
-                      )}
-                    </button>
-                  </Tooltip>
-                </div>
               </div>
 
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
@@ -2702,7 +3156,7 @@ export function EmailInboxView({
                   Conversation
                 </div>
                 <div className="space-y-3">
-                  {(selectedThread.conversation || []).map((entry: any) => {
+                  {selectedThreadConversationEntries.map((entry: any) => {
                     const entryAuthorEmail =
                       entry.authorEmail?.toLowerCase().trim() || null;
                     const currentUserEmail =
@@ -2729,12 +3183,6 @@ export function EmailInboxView({
                             isCurrentUserEntry && "justify-end",
                           )}
                         >
-                          {!isCurrentUserEntry ? (
-                            <EmailActorAvatar
-                              name={entry.authorName}
-                              email={entry.authorEmail}
-                            />
-                          ) : null}
                           <div
                             className={cn(
                               "min-w-0 flex-1",
@@ -2742,16 +3190,16 @@ export function EmailInboxView({
                             )}
                           >
                             <div
-                              className={cn(
-                                "flex flex-wrap gap-3",
-                                isCurrentUserEntry
-                                  ? "justify-end"
-                                  : "items-center justify-between",
+                              className={getConversationEntryHeaderClassName(
+                                isCurrentUserEntry,
                               )}
                             >
                               {isCurrentUserEntry ? (
                                 <>
-                                  <div className="min-w-0">
+                                  <div className="shrink-0 pt-0.5 text-xs text-zinc-500">
+                                    {new Date(entry.createdAt).toLocaleString()}
+                                  </div>
+                                  <div className="min-w-0 max-w-[65%]">
                                     <div className="truncate text-sm font-medium text-zinc-100">
                                       {getEmailActorName(
                                         entry.authorName,
@@ -2765,13 +3213,18 @@ export function EmailInboxView({
                                       </div>
                                     ) : null}
                                   </div>
-                                  <div className="text-xs text-zinc-500">
-                                    {new Date(entry.createdAt).toLocaleString()}
-                                  </div>
+                                  <EmailActorAvatar
+                                    name={entry.authorName}
+                                    email={entry.authorEmail}
+                                  />
                                 </>
                               ) : (
                                 <>
-                                  <div className="min-w-0">
+                                  <EmailActorAvatar
+                                    name={entry.authorName}
+                                    email={entry.authorEmail}
+                                  />
+                                  <div className="min-w-0 flex-1">
                                     <div className="truncate text-sm font-medium text-zinc-100">
                                       {getEmailActorName(
                                         entry.authorName,
@@ -2785,37 +3238,31 @@ export function EmailInboxView({
                                       </div>
                                     ) : null}
                                   </div>
-                                  <div className="text-xs text-zinc-500">
+                                  <div className="shrink-0 pt-0.5 text-xs text-zinc-500">
                                     {new Date(entry.createdAt).toLocaleString()}
                                   </div>
                                 </>
                               )}
                             </div>
-                            {entry.contentHtml ? (
-                              <RichTextContent
+                            <div className="mt-3">
+                              <EmailSignatureContent
                                 html={entry.contentHtml}
-                                className={cn(
-                                  "mt-3 break-words text-sm leading-6 text-zinc-300",
+                                text={entry.content}
+                                hideSignatures={hideEmailSignatures}
+                                contentClassName={cn(
+                                  "break-words text-sm leading-6 text-zinc-300",
+                                  isCurrentUserEntry && "text-right",
+                                )}
+                                signatureClassName={cn(
+                                  "break-words text-sm leading-6 text-zinc-300 opacity-90",
                                   isCurrentUserEntry && "text-right",
                                 )}
                               />
-                            ) : (
-                              <div
-                                className={cn(
-                                  "mt-3 break-words whitespace-pre-wrap text-sm text-zinc-300",
-                                  isCurrentUserEntry && "text-right",
-                                )}
-                              >
-                                {entry.content}
-                              </div>
-                            )}
-                          </div>
-                          {isCurrentUserEntry ? (
-                            <EmailActorAvatar
-                              name={entry.authorName}
-                              email={entry.authorEmail}
+                            </div>
+                            <EmailThreadAttachments
+                              attachments={getDisplayableThreadAttachments(entry)}
                             />
-                          ) : null}
+                          </div>
                         </div>
                       </div>
                     );
@@ -2860,6 +3307,7 @@ export function EmailInboxView({
         open={isThreadModalOpen && Boolean(selectedThreadId)}
         threadId={selectedThreadId}
         projects={data.projects}
+        hideEmailSignatures={hideEmailSignatures}
         onRefresh={onRefresh}
         onOpenChange={setIsThreadModalOpen}
       />
