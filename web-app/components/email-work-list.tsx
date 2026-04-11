@@ -508,7 +508,6 @@ export function EmailWorkList({
         );
         const mailboxLabel = getMailboxDisplayLabel(mailbox, item);
         const mailboxAccentColor = getMailboxAccentColor(mailbox, item);
-        const mailboxBadgeLabel = getMailboxBadgeLabel(mailboxLabel);
         const project = projects.find(
           (candidate) => candidate.id === item.projectId,
         );
@@ -621,12 +620,6 @@ export function EmailWorkList({
                       isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
                     )}
                   >
-                    <span
-                      className="inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-semibold uppercase tracking-wide text-black"
-                      style={{ backgroundColor: mailboxAccentColor }}
-                    >
-                      {mailboxBadgeLabel}
-                    </span>
                     <span>To:</span>
                     <span
                       className="font-medium"

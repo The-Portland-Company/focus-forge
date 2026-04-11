@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api/authz";
-import { applyThreadAction } from "@/lib/email-inbox/server";
+import {
+  applyThreadAction,
+  getThreadDetailForUser,
+} from "@/lib/email-inbox/server";
 
 export async function POST(
   request: NextRequest,
@@ -17,6 +20,10 @@ export async function POST(
       threadId: params.id,
       action: body.action,
     });
+    if (body.action === "reprocess") {
+      const detail = await getThreadDetailForUser(auth.user.id, params.id);
+      return NextResponse.json(detail);
+    }
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

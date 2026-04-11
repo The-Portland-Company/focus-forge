@@ -32,6 +32,7 @@ import {
   MailOpen,
   Paperclip,
   Plus,
+  Radar,
   RefreshCw,
   Search,
   SendHorizontal,
@@ -367,6 +368,18 @@ export function applyOptimisticThreadReadState(
   );
 }
 
+export function mergeInboxItem(items: InboxItem[], nextItem: InboxItem) {
+  return items.map((item) => (item.id === nextItem.id ? nextItem : item));
+}
+
+export function getSpamScanProgressPercent(completed: number, total: number) {
+  if (total <= 0) {
+    return 0;
+  }
+
+  return Math.min(100, Math.max(0, (completed / total) * 100));
+}
+
 function getThreadActionButtonIcon(action: ThreadAction) {
   switch (getThreadActionButtonIconName(action)) {
     case "check":
@@ -438,6 +451,17 @@ export function EmailInboxView({
   const [alwaysShowSummary, setAlwaysShowSummary] = useState(false);
   const [alwaysShowExcerpt, setAlwaysShowExcerpt] = useState(false);
   const [sortBy, setSortBy] = useState<EmailInboxSortOption>("received_desc");
+  const [spamScanProgress, setSpamScanProgress] = useState<{
+    total: number;
+    completed: number;
+    currentPosition: number;
+    currentThreadId: string | null;
+    currentSubject: string | null;
+    detectedSpamIds: string[];
+  } | null>(null);
+  const [retainedSpamThreadIds, setRetainedSpamThreadIds] = useState<string[]>(
+    [],
+  );
   const [senderHistory, setSenderHistory] = useState<{
     name: string;
     email: string;
@@ -480,7 +504,15 @@ export function EmailInboxView({
         return item.status === "quarantine";
       }
 
-      return item.status !== "quarantine" && item.status !== "deleted";
+      if (item.status === "deleted") {
+        return false;
+      }
+
+      if (item.status === "quarantine") {
+        return retainedSpamThreadIds.includes(item.id);
+      }
+
+      return true;
     });
 
     if (readFilter === "unread") {
@@ -492,7 +524,7 @@ export function EmailInboxView({
     }
 
     return base;
-  }, [inboxItems, readFilter, selectedMailboxId, view]);
+  }, [inboxItems, readFilter, retainedSpamThreadIds, selectedMailboxId, view]);
   const visibleInboxItems = useMemo(
     () => sortInboxItemsForView(filteredInboxItems, sortBy),
     [filteredInboxItems, sortBy],
@@ -505,6 +537,14 @@ export function EmailInboxView({
   const unreadInboxCount = useMemo(
     () => visibleInboxItems.filter((item) => item.isUnread).length,
     [visibleInboxItems],
+  );
+  const spamScanProgressPercent = useMemo(
+    () =>
+      getSpamScanProgressPercent(
+        spamScanProgress?.completed || 0,
+        spamScanProgress?.total || 0,
+      ),
+    [spamScanProgress],
   );
   const selectedMailbox = useMemo(
     () =>
@@ -942,6 +982,17 @@ export function EmailInboxView({
     window.setTimeout(() => setStatusMessage(null), 2400);
   };
 
+  const applyInboxItemUpdate = (nextItem: InboxItem) => {
+    setInboxItems((current) => {
+      const updated = mergeInboxItem(current, nextItem);
+      inboxSnapshotRef.current = updated;
+      setQuarantineCount(
+        updated.filter((item) => item.status === "quarantine").length,
+      );
+      return updated;
+    });
+  };
+
   const mailboxPreset = MAILBOX_PROVIDER_PRESETS[mailboxForm.provider];
   const mailboxPasswordError = getMailboxPasswordValidationError(
     mailboxForm.provider,
@@ -1317,6 +1368,98 @@ export function EmailInboxView({
       threadId: item.id,
       updateSelectedThread: selectedThreadId === item.id,
     });
+  };
+
+  const handleRunSpamScan = async () => {
+    if (spamScanProgress || visibleInboxItems.length === 0) {
+      return;
+    }
+
+    const itemsToScan = [...visibleInboxItems];
+    const retainedIds = new Set(retainedSpamThreadIds);
+    const detectedSpamIds = new Set<string>();
+
+    setSpamScanProgress({
+      total: itemsToScan.length,
+      completed: 0,
+      currentPosition: itemsToScan.length > 0 ? 1 : 0,
+      currentThreadId: itemsToScan[0]?.id || null,
+      currentSubject: itemsToScan[0]?.subject || null,
+      detectedSpamIds: [],
+    });
+
+    try {
+      for (const [index, item] of itemsToScan.entries()) {
+        setSpamScanProgress({
+          total: itemsToScan.length,
+          completed: index,
+          currentPosition: index + 1,
+          currentThreadId: item.id,
+          currentSubject: item.subject,
+          detectedSpamIds: [...detectedSpamIds],
+        });
+
+        const response = await fetch(`/api/email/threads/${item.id}/actions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ action: "reprocess" }),
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Failed to run spam detection");
+        }
+
+        applyInboxItemUpdate(payload);
+
+        if (
+          payload.status === "quarantine" ||
+          payload.status === "spam" ||
+          payload.classification === "spam"
+        ) {
+          retainedIds.add(payload.id);
+          detectedSpamIds.add(payload.id);
+          setRetainedSpamThreadIds([...retainedIds]);
+        }
+
+        if (selectedThreadId === payload.id) {
+          setSelectedThread(payload);
+        }
+
+        setSpamScanProgress({
+          total: itemsToScan.length,
+          completed: index + 1,
+          currentPosition: index + 1,
+          currentThreadId: item.id,
+          currentSubject: item.subject,
+          detectedSpamIds: [...detectedSpamIds],
+        });
+      }
+
+      updateStatus(
+        detectedSpamIds.size > 0
+          ? `Spam scan flagged ${detectedSpamIds.size} email${detectedSpamIds.size === 1 ? "" : "s"}.`
+          : "Spam scan finished. No spam detected.",
+      );
+    } catch (error) {
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to run spam detection",
+      );
+    } finally {
+      setSpamScanProgress((current) =>
+        current
+          ? {
+              ...current,
+              currentThreadId: null,
+              currentSubject: null,
+            }
+          : null,
+      );
+      window.setTimeout(() => {
+        setSpamScanProgress(null);
+      }, 1800);
+    }
   };
 
   const clearQueuedAction = () => {
@@ -2461,6 +2604,30 @@ export function EmailInboxView({
                 </div>
                 <div className="inline-flex items-center gap-2">
                   <Tooltip
+                    content="Run AI spam detection"
+                    className="w-auto"
+                    side="bottom"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void handleRunSpamScan()}
+                      disabled={Boolean(spamScanProgress) || visibleInboxItems.length === 0}
+                      aria-label="Run AI spam detection"
+                      className={cn(
+                        "inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                        spamScanProgress
+                          ? "border-rose-500/40 bg-rose-500/10 text-rose-300"
+                          : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:text-white",
+                      )}
+                    >
+                      {spamScanProgress ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Radar className="h-4 w-4" />
+                      )}
+                    </button>
+                  </Tooltip>
+                  <Tooltip
                     content={
                       alwaysShowSummary
                         ? "Always show AI summary"
@@ -2512,6 +2679,31 @@ export function EmailInboxView({
                       <MailOpen className="h-4 w-4" />
                     </button>
                   </Tooltip>
+                </div>
+              </div>
+            ) : null}
+            {view !== "email-quarantine" && spamScanProgress ? (
+              <div className="mb-3 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-rose-100">
+                      Running AI spam detection
+                    </div>
+                    <div className="truncate text-xs text-rose-200/80">
+                      {spamScanProgress.currentSubject
+                        ? `Scanning ${spamScanProgress.currentPosition} of ${spamScanProgress.total}: ${formatEmailSubject(spamScanProgress.currentSubject)}`
+                        : `Scanned ${spamScanProgress.completed} of ${spamScanProgress.total}`}
+                    </div>
+                  </div>
+                  <div className="text-xs text-rose-200/80">
+                    {spamScanProgress.detectedSpamIds.length} flagged
+                  </div>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className="h-full rounded-full bg-rose-400 transition-[width] duration-300"
+                    style={{ width: `${spamScanProgressPercent}%` }}
+                  />
                 </div>
               </div>
             ) : null}

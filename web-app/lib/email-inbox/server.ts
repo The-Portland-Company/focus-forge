@@ -2,7 +2,10 @@ import {
   SupabaseAdapter,
   resolveVisibleProjectIds,
 } from "@/lib/db/supabase-adapter";
-import { analyzeThreadWithAI } from "@/lib/email-inbox/ai";
+import {
+  analyzeThreadWithAI,
+  formatAiGeneratedTaskName,
+} from "@/lib/email-inbox/ai";
 import {
   applyEmailRules,
   type EmailRuleContext,
@@ -1415,7 +1418,10 @@ async function createTasksForThreadInternal(params: {
 
   for (const suggestion of params.suggestions) {
     const task = await adapter.createTask({
-      name: suggestion.name,
+      name:
+        params.generatedBy === "ai"
+          ? formatAiGeneratedTaskName(suggestion.name)
+          : suggestion.name,
       description:
         suggestion.description ||
         latestInbound?.body_html ||
@@ -2304,6 +2310,7 @@ export async function applyThreadAction(params: {
   userId: string;
   threadId: string;
   action:
+    | "reprocess"
     | "approve"
     | "quarantine"
     | "mark_read"
@@ -2326,6 +2333,10 @@ export async function applyThreadAction(params: {
   const providerMessageIds = (messages || [])
     .map((message: any) => message.provider_message_id)
     .filter(Boolean);
+
+  if (params.action === "reprocess") {
+    return reprocessThread(params.threadId, params.userId);
+  }
 
   if (params.action === "approve") {
     await admin

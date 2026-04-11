@@ -36,6 +36,30 @@ export type EmailThreadAIOutput = {
   taskSuggestions: InboxTaskSuggestion[];
 };
 
+export function formatAiGeneratedTaskName(name: string) {
+  let formatted = name.trim();
+
+  if (!formatted) {
+    return "🤖 Task.";
+  }
+
+  formatted = formatted.replace(/^🤖\s*/u, "");
+  formatted = formatted.replace(/👀\s*Review/g, "Review");
+  formatted = formatted.replace(/💬\s*Respond/gi, "Respond");
+  formatted = formatted.replace(/\bReview\b/g, "👀 Review");
+  formatted = formatted.replace(/\brespond\b/gi, "💬 Respond");
+
+  if (!/[.!?]$/.test(formatted)) {
+    formatted = `${formatted}.`;
+  }
+
+  if (!formatted.startsWith("🤖 ")) {
+    formatted = `🤖 ${formatted}`;
+  }
+
+  return formatted;
+}
+
 function detectSpam(subject: string, body: string, senderEmail: string) {
   const haystack = `${subject} ${body} ${senderEmail}`.toLowerCase();
   const spamSignals = [
@@ -138,7 +162,9 @@ function fallbackTaskSuggestions(
 
   return [
     {
-      name: `Review and respond: ${subject || "Untitled email"}`.slice(0, 120),
+      name: formatAiGeneratedTaskName(
+        `Review and respond: ${subject || "Untitled email"}`.slice(0, 120),
+      ),
       description: preview,
       priority: 3,
     },

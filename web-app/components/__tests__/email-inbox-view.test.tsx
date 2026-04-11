@@ -8,8 +8,10 @@ import {
   clampEmailDetailPanelWidth,
   getConversationEntryHeaderClassName,
   getEmailInboxSplitClassName,
+  getSpamScanProgressPercent,
   getThreadActionButtonClassName,
   getThreadActionButtonIconName,
+  mergeInboxItem,
   sortInboxItemsForView,
 } from "../email-inbox-view";
 import {
@@ -170,4 +172,24 @@ test("applyOptimisticThreadReadState marks the selected thread read immediately"
 
   assert.equal(updated[0]?.isUnread, false);
   assert.equal(updated[1]?.isUnread, true);
+});
+
+test("mergeInboxItem replaces the matching thread with the scanned result", () => {
+  const updated = mergeInboxItem(
+    [
+      { id: "thread-1", status: "active", classification: "unknown" },
+      { id: "thread-2", status: "active", classification: "unknown" },
+    ] as any,
+    { id: "thread-2", status: "quarantine", classification: "spam" } as any,
+  );
+
+  assert.equal(updated[0]?.status, "active");
+  assert.equal(updated[1]?.status, "quarantine");
+  assert.equal(updated[1]?.classification, "spam");
+});
+
+test("getSpamScanProgressPercent clamps progress to a usable width value", () => {
+  assert.equal(getSpamScanProgressPercent(0, 0), 0);
+  assert.equal(getSpamScanProgressPercent(1, 4), 25);
+  assert.equal(getSpamScanProgressPercent(8, 4), 100);
 });

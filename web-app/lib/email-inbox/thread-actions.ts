@@ -1,4 +1,5 @@
 export type ThreadAction =
+  | "reprocess"
   | "approve"
   | "quarantine"
   | "mark_read"
@@ -15,6 +16,7 @@ const CONFIRMATION_REQUIRED_ACTIONS = new Set<ThreadAction>([
 ]);
 
 const ACTION_LABELS: Record<ThreadAction, string> = {
+  reprocess: "Reprocess",
   approve: "Approve",
   quarantine: "Quarantine",
   mark_read: "Mark read",
@@ -35,4 +37,3 @@ export function requiresThreadActionConfirmation(action: ThreadAction) {
 export function getQueuedThreadActionMessage(action: ThreadAction) {
   return `${getThreadActionLabel(action)} queued. Undo before it runs.`;
 }
-

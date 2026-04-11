@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildHeuristicAnalysis,
+  formatAiGeneratedTaskName,
   normalizePreventedSpamResult,
 } from "../email-inbox/ai";
 
@@ -53,6 +54,13 @@ test("buildHeuristicAnalysis routes actionable email to a matching project", () 
   assert.equal(result.status, "active");
   assert.equal(result.projectId, "project-1");
   assert.equal(result.taskSuggestions.length > 0, true);
+});
+
+test("formatAiGeneratedTaskName decorates review/respond task names", () => {
+  assert.equal(
+    formatAiGeneratedTaskName("Review and respond: The Portland Company"),
+    "🤖 👀 Review and 💬 Respond: The Portland Company.",
+  );
 });
 
 test("buildHeuristicAnalysis skips spam classification when prevented by rule", () => {
