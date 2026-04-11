@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { sendTaskLifecycleNotifications } from "@/lib/task-notifications";
 
 export async function GET(
   request: NextRequest,
@@ -46,6 +47,11 @@ export async function PUT(
     }
 
     const user = session.user;
+    const { data: existingTask } = await supabase
+      .from("tasks")
+      .select("id,name,description,assigned_to")
+      .eq("id", params.id)
+      .maybeSingle();
 
     // Filter updates to only include valid database fields
     const dbUpdates: any = {};
@@ -141,6 +147,18 @@ export async function PUT(
       if (!updatedTask) {
         return NextResponse.json({ error: "Task not found" }, { status: 404 });
       }
+
+      void sendTaskLifecycleNotifications({
+        taskId: updatedTask.id,
+        actorUserId: user.id,
+        previousAssignedTo: existingTask?.assigned_to || null,
+        previousText: [
+          existingTask?.name || "",
+          existingTask?.description || "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      });
 
       return NextResponse.json(updatedTask);
     } catch (error) {

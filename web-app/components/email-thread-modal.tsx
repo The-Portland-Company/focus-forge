@@ -15,7 +15,9 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
+import { EmailThreadAttachments } from "@/components/email-thread-attachments";
 import { Tooltip } from "@/components/tooltip";
+import { EmailSignatureContent } from "@/components/email-signature-content";
 import {
   Dialog,
   DialogContent,
@@ -27,7 +29,6 @@ import {
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
 import { FloatingFieldLabel } from "@/components/ui/floating-field-label";
-import { RichTextContent } from "@/components/ui/rich-text-content";
 import {
   Select,
   SelectContent,
@@ -41,6 +42,8 @@ import {
   sortInboxProjects,
 } from "@/lib/email-thread-projects";
 import {
+  getConversationEntriesExcludingPrimary,
+  getDisplayableThreadAttachments,
   getEmailActorGradient,
   getEmailActorInitials,
   getEmailActorName,
@@ -68,6 +71,7 @@ type EmailThreadModalProps = {
   open: boolean;
   threadId: string | null;
   projects: Project[];
+  hideEmailSignatures?: boolean;
   onOpenChange: (open: boolean) => void;
   onRefresh?: () => Promise<void> | void;
 };
@@ -139,6 +143,7 @@ export function EmailThreadModal({
   open,
   threadId,
   projects,
+  hideEmailSignatures = true,
   onOpenChange,
   onRefresh,
 }: EmailThreadModalProps) {
@@ -174,6 +179,12 @@ export function EmailThreadModal({
     [selectedProjectId, sortedInboxProjects],
   );
   const primaryThreadEntry = getPrimaryThreadRenderEntry(thread?.conversation);
+  const primaryThreadAttachments = getDisplayableThreadAttachments(
+    primaryThreadEntry,
+  );
+  const conversationEntries = getConversationEntriesExcludingPrimary(
+    thread?.conversation,
+  );
 
   useEffect(() => {
     if (!open || !threadId) {
@@ -577,15 +588,15 @@ export function EmailThreadModal({
                           {thread.actionTitle}
                         </div>
                       ) : null}
-                      {primaryThreadEntry?.contentHtml ? (
-                        <RichTextContent
-                          html={primaryThreadEntry.contentHtml}
-                          className="break-words text-sm leading-6 text-zinc-200"
+                      {primaryThreadEntry?.contentHtml ||
+                      primaryThreadEntry?.content ? (
+                        <EmailSignatureContent
+                          html={primaryThreadEntry?.contentHtml}
+                          text={primaryThreadEntry?.content}
+                          hideSignatures={hideEmailSignatures}
+                          contentClassName="break-words text-sm leading-6 text-zinc-200"
+                          signatureClassName="break-words text-sm leading-6 text-zinc-200 opacity-90"
                         />
-                      ) : primaryThreadEntry?.content ? (
-                        <div className="break-words whitespace-pre-wrap text-sm leading-6 text-zinc-200">
-                          {primaryThreadEntry.content}
-                        </div>
                       ) : (
                         <div className="break-words text-sm text-zinc-400">
                           {thread.summaryText ||
@@ -593,6 +604,7 @@ export function EmailThreadModal({
                             "No message body available yet."}
                         </div>
                       )}
+                      <EmailThreadAttachments attachments={primaryThreadAttachments} />
                     </div>
                   </div>
 
@@ -857,7 +869,7 @@ export function EmailThreadModal({
                   Conversation
                 </div>
                 <div className="space-y-3">
-                  {(thread.conversation || []).map((entry) => (
+                  {conversationEntries.map((entry) => (
                     <div
                       key={entry.id}
                       className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3"
@@ -887,16 +899,15 @@ export function EmailThreadModal({
                               {new Date(entry.createdAt).toLocaleString()}
                             </div>
                           </div>
-                          {entry.contentHtml ? (
-                            <RichTextContent
+                          <div className="mt-3">
+                            <EmailSignatureContent
                               html={entry.contentHtml}
-                              className="mt-3 break-words text-sm leading-6 text-zinc-300"
+                              text={entry.content}
+                              hideSignatures={hideEmailSignatures}
+                              contentClassName="break-words text-sm leading-6 text-zinc-300"
+                              signatureClassName="break-words text-sm leading-6 text-zinc-300 opacity-90"
                             />
-                          ) : (
-                            <div className="mt-3 break-words whitespace-pre-wrap text-sm text-zinc-300">
-                              {entry.content}
-                            </div>
-                          )}
+                          </div>
                         </div>
                       </div>
                     </div>

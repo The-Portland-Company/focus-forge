@@ -23,6 +23,15 @@ export type NormalizedMailboxAddress = {
   name?: string | null;
 };
 
+export type NormalizedMailboxAttachment = {
+  filename?: string | null;
+  contentType?: string | null;
+  contentDisposition?: "attachment" | "inline" | null;
+  cid?: string | null;
+  size: number;
+  related: boolean;
+};
+
 export type NormalizedMailboxMessage = {
   providerMessageId: string;
   internetMessageId?: string | null;
@@ -39,6 +48,8 @@ export type NormalizedMailboxMessage = {
   bcc: NormalizedMailboxAddress[];
   replyTo: NormalizedMailboxAddress[];
   rawHeaders: Record<string, string>;
+  isUnread: boolean;
+  attachments: NormalizedMailboxAttachment[];
 };
 
 function getMailboxPassword(mailbox: MailboxTransportRow) {
@@ -106,6 +117,57 @@ function normalizeDate(value: string | Date | undefined | null) {
   return parsed.toISOString();
 }
 
+function normalizeAttachments(
+  attachments: Array<{
+    filename?: string | null;
+    contentType?: string | null;
+    contentDisposition?: string | null;
+    cid?: string | null;
+    size?: number | null;
+    related?: boolean | null;
+  }> = [],
+): NormalizedMailboxAttachment[] {
+  return attachments.map((attachment) => ({
+    filename: attachment.filename ? String(attachment.filename) : null,
+    contentType: attachment.contentType ? String(attachment.contentType) : null,
+    contentDisposition:
+      attachment.contentDisposition === "inline" ? "inline" : "attachment",
+    cid: attachment.cid ? String(attachment.cid) : null,
+    size: Number(attachment.size || 0),
+    related: Boolean(attachment.related),
+  }));
+}
+
+function normalizeParsedMailboxMessage(params: {
+  uid: number;
+  source: Buffer;
+  flags?: Set<string> | null;
+  internalDate?: string | Date | null;
+}) {
+  return simpleParser(params.source).then((parsed) => {
+    const flags = Array.from(params.flags || []).map((flag) => String(flag));
+    return {
+      providerMessageId: String(params.uid),
+      internetMessageId: parsed.messageId || null,
+      inReplyTo: parsed.inReplyTo || null,
+      references: normalizeReferences(parsed.references as any),
+      subject: parsed.subject || "",
+      bodyText: parsed.text || "",
+      bodyHtml: parsed.html ? String(parsed.html) : null,
+      receivedAt: normalizeDate(params.internalDate),
+      sentAt: normalizeDate(parsed.date),
+      from: normalizeAddressList(parsed.from?.value || []),
+      to: normalizeAddressList(parsed.to?.value || []),
+      cc: normalizeAddressList(parsed.cc?.value || []),
+      bcc: normalizeAddressList(parsed.bcc?.value || []),
+      replyTo: normalizeAddressList(parsed.replyTo?.value || []),
+      rawHeaders: normalizeHeaders(parsed.headers),
+      isUnread: !flags.includes("\\Seen"),
+      attachments: normalizeAttachments(parsed.attachments as any[]),
+    } satisfies NormalizedMailboxMessage;
+  });
+}
+
 export async function fetchMailboxMessages(
   mailbox: MailboxTransportRow,
   lastSeenAt?: string | null,
@@ -147,24 +209,14 @@ export async function fetchMailboxMessages(
         continue;
       }
 
-      const parsed = await simpleParser(message.source);
-      messages.push({
-        providerMessageId: String(message.uid),
-        internetMessageId: parsed.messageId || null,
-        inReplyTo: parsed.inReplyTo || null,
-        references: normalizeReferences(parsed.references as any),
-        subject: parsed.subject || "",
-        bodyText: parsed.text || "",
-        bodyHtml: parsed.html ? String(parsed.html) : null,
-        receivedAt: normalizeDate(message.internalDate),
-        sentAt: normalizeDate(parsed.date),
-        from: normalizeAddressList(parsed.from?.value || []),
-        to: normalizeAddressList(parsed.to?.value || []),
-        cc: normalizeAddressList(parsed.cc?.value || []),
-        bcc: normalizeAddressList(parsed.bcc?.value || []),
-        replyTo: normalizeAddressList(parsed.replyTo?.value || []),
-        rawHeaders: normalizeHeaders(parsed.headers),
-      });
+      messages.push(
+        await normalizeParsedMailboxMessage({
+          uid: message.uid,
+          source: message.source,
+          flags: message.flags || null,
+          internalDate: message.internalDate || null,
+        }),
+      );
     }
 
     return messages;
@@ -172,6 +224,134 @@ export async function fetchMailboxMessages(
     lock.release();
     await client.logout();
   }
+}
+
+export async function fetchMailboxMessageReadStates(
+  mailbox: MailboxTransportRow,
+  providerMessageIds: string[],
+) {
+  const uids = providerMessageIds
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  if (uids.length === 0) {
+    return [] as Array<{
+      providerMessageId: string;
+      isUnread: boolean;
+    }>;
+  }
+
+  return await withImapClient(mailbox, async (client) => {
+    const states: Array<{
+      providerMessageId: string;
+      isUnread: boolean;
+    }> = [];
+
+    for (let index = 0; index < uids.length; index += 200) {
+      const batch = uids.slice(index, index + 200);
+
+      for await (const message of client.fetch(
+        batch,
+        {
+          uid: true,
+          flags: true,
+        },
+        { uid: true },
+      )) {
+        const flags = Array.from(message.flags || []).map((flag) =>
+          String(flag),
+        );
+
+        states.push({
+          providerMessageId: String(message.uid),
+          isUnread: !flags.includes("\\Seen"),
+        });
+      }
+    }
+
+    return states;
+  });
+}
+
+export async function fetchMailboxMessageByProviderMessageId(
+  mailbox: MailboxTransportRow,
+  providerMessageId: string,
+) {
+  const uid = Number(providerMessageId);
+  if (!Number.isFinite(uid) || uid <= 0) {
+    return null;
+  }
+
+  return await withImapClient(mailbox, async (client) => {
+    for await (const message of client.fetch(
+      [uid],
+      {
+        uid: true,
+        source: true,
+        flags: true,
+        internalDate: true,
+      },
+      { uid: true },
+    )) {
+      if (!message.source) {
+        continue;
+      }
+
+      return await normalizeParsedMailboxMessage({
+        uid: message.uid,
+        source: message.source,
+        flags: message.flags || null,
+        internalDate: message.internalDate || null,
+      });
+    }
+
+    return null;
+  });
+}
+
+export async function fetchMailboxAttachmentByProviderMessageId(
+  mailbox: MailboxTransportRow,
+  providerMessageId: string,
+  attachmentIndex: number,
+) {
+  const uid = Number(providerMessageId);
+  if (!Number.isFinite(uid) || uid <= 0 || attachmentIndex < 0) {
+    return null;
+  }
+
+  return await withImapClient(mailbox, async (client) => {
+    for await (const message of client.fetch(
+      [uid],
+      {
+        uid: true,
+        source: true,
+      },
+      { uid: true },
+    )) {
+      if (!message.source) {
+        continue;
+      }
+
+      const parsed = await simpleParser(message.source);
+      const attachment = parsed.attachments?.[attachmentIndex];
+
+      if (!attachment?.content) {
+        return null;
+      }
+
+      return {
+        filename: attachment.filename ? String(attachment.filename) : "attachment",
+        contentType: attachment.contentType ? String(attachment.contentType) : null,
+        contentDisposition:
+          attachment.contentDisposition === "inline" ? "inline" : "attachment",
+        content: Buffer.isBuffer(attachment.content)
+          ? attachment.content
+          : Buffer.from(attachment.content),
+      };
+    }
+
+    return null;
+  });
 }
 
 export async function sendMailboxReply(params: {
@@ -182,6 +362,12 @@ export async function sendMailboxReply(params: {
   subject: string;
   text: string;
   html?: string | null;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType?: string | null;
+    contentDisposition?: "attachment" | "inline";
+  }>;
   inReplyTo?: string | null;
   references?: string[];
 }) {
@@ -206,6 +392,9 @@ export async function sendMailboxReply(params: {
     subject: params.subject,
     text: params.text,
     ...(params.html ? { html: params.html } : {}),
+    ...(params.attachments && params.attachments.length > 0
+      ? { attachments: params.attachments }
+      : {}),
     ...(params.inReplyTo ? { inReplyTo: params.inReplyTo } : {}),
     ...(params.references && params.references.length > 0
       ? { references: params.references }

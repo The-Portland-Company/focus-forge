@@ -17,6 +17,22 @@ export async function POST(request: NextRequest) {
     }
 
     const serviceSupabase = createServiceSupabase()
+    const body = await request.json().catch(() => ({}))
+    const deviceId = String(body?.device_id || '').trim().toLowerCase()
+
+    if (deviceId) {
+      await serviceSupabase
+        .from('mobile_push_devices')
+        .update({
+          is_active: false,
+          last_error_at: null,
+          last_error_message: null,
+        })
+        .eq('user_id', auth.user.id)
+        .eq('platform', 'ios')
+        .eq('device_id', deviceId)
+    }
+
     const { error } = await serviceSupabase.auth.admin.signOut(auth.user.id, 'global')
 
     if (error) {

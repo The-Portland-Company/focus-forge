@@ -5,7 +5,7 @@ interface TooltipProps {
   content: string;
   delay?: number;
   className?: string;
-  side?: "right" | "bottom";
+  side?: "right" | "bottom" | "top";
   align?: "center" | "start" | "end";
 }
 
@@ -39,6 +39,16 @@ export function Tooltip({
                       ? rect.right
                       : rect.left + rect.width / 2,
               }
+            : side === "top"
+              ? {
+                  top: rect.top - 10,
+                  left:
+                    align === "start"
+                      ? rect.left
+                      : align === "end"
+                        ? rect.right
+                        : rect.left + rect.width / 2,
+                }
             : {
                 top: rect.top + rect.height / 2,
                 left: rect.right + 10,
@@ -74,7 +84,7 @@ export function Tooltip({
       </div>
       {isVisible && (
         <div
-          className="fixed z-50 px-2 py-1 text-xs text-white bg-zinc-800 rounded-md shadow-lg pointer-events-none whitespace-nowrap"
+          className="fixed z-50 rounded-md px-2 py-1 text-xs text-white shadow-lg pointer-events-none whitespace-nowrap border border-white/10 bg-[image:var(--user-profile-gradient)]"
           style={{
             top: `${position.top}px`,
             left: `${position.left}px`,
@@ -85,15 +95,25 @@ export function Tooltip({
                   : align === "end"
                     ? "translateX(-100%)"
                     : "translateX(-50%)"
+                : side === "top"
+                  ? align === "start"
+                    ? "translate(-0, -100%)"
+                    : align === "end"
+                      ? "translate(-100%, -100%)"
+                      : "translate(-50%, -100%)"
                 : "translateY(-50%)",
+            backgroundColor: "rgba(10, 10, 11, 0.9)",
+            backgroundBlendMode: "overlay",
           }}
         >
           {content}
           <div
             className={
               side === "bottom"
-                ? "absolute h-0 w-0 border-b-4 border-l-4 border-r-4 border-b-zinc-800 border-l-transparent border-r-transparent"
-                : "absolute h-0 w-0 border-b-4 border-r-4 border-t-4 border-b-transparent border-r-zinc-800 border-t-transparent"
+                ? "absolute h-0 w-0 border-b-4 border-l-4 border-r-4 border-b-[rgb(var(--theme-primary-rgb))] border-l-transparent border-r-transparent"
+                : side === "top"
+                  ? "absolute h-0 w-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[rgb(var(--theme-primary-rgb))]"
+                : "absolute h-0 w-0 border-b-4 border-r-4 border-t-4 border-b-transparent border-r-[rgb(var(--theme-primary-rgb))] border-t-transparent"
             }
             style={{
               ...(side === "bottom"
@@ -108,6 +128,18 @@ export function Tooltip({
                     transform:
                       align === "center" ? "translateX(-50%)" : "none",
                   }
+                : side === "top"
+                  ? {
+                      left:
+                        align === "start"
+                          ? "12px"
+                          : align === "end"
+                            ? "calc(100% - 12px)"
+                            : "50%",
+                      bottom: "-4px",
+                      transform:
+                        align === "center" ? "translateX(-50%)" : "none",
+                    }
                 : {
                     left: "-4px",
                     top: "50%",

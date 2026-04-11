@@ -3,8 +3,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   EMAIL_INBOX_SORT_OPTIONS,
+  applyOptimisticThreadReadState,
   buildEmailThreadPopoutUrl,
   clampEmailDetailPanelWidth,
+  getConversationEntryHeaderClassName,
   getEmailInboxSplitClassName,
   getThreadActionButtonClassName,
   getThreadActionButtonIconName,
@@ -144,4 +146,28 @@ test("thread action buttons render as fixed-size icon buttons", () => {
   assert.match(standardClasses, /\bjustify-center\b/);
   assert.doesNotMatch(standardClasses, /\bpx-3\b/);
   assert.match(destructiveClasses, /border-red-900\/50/);
+});
+
+test("conversation entry header uses mirrored alignment for current user rows", () => {
+  assert.equal(
+    getConversationEntryHeaderClassName(true),
+    "flex items-start gap-3",
+  );
+  assert.equal(
+    getConversationEntryHeaderClassName(false),
+    "flex items-start justify-between gap-3",
+  );
+});
+
+test("applyOptimisticThreadReadState marks the selected thread read immediately", () => {
+  const updated = applyOptimisticThreadReadState(
+    [
+      { id: "thread-1", isUnread: true },
+      { id: "thread-2", isUnread: true },
+    ] as any,
+    "thread-1",
+  );
+
+  assert.equal(updated[0]?.isUnread, false);
+  assert.equal(updated[1]?.isUnread, true);
 });

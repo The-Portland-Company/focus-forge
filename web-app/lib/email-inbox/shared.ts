@@ -305,6 +305,16 @@ export function coerceConversationEntry(row: any): ConversationEntry {
     subject: row.subject ?? null,
     content: row.body_text ?? "",
     contentHtml: row.body_html ?? null,
+    attachments: Array.isArray(row.metadata_json?.attachments)
+      ? row.metadata_json.attachments.map((attachment: any, index: number) => ({
+          ...attachment,
+          attachmentIndex: index,
+          url:
+            typeof row.id === "string" || typeof row.id === "number"
+              ? `/api/email/messages/${row.id}/attachments/${index}`
+              : null,
+        }))
+      : [],
     createdAt: row.received_at ?? row.sent_at ?? row.created_at,
   };
 }

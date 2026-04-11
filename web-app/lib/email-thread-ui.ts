@@ -82,3 +82,41 @@ export function getPrimaryThreadRenderEntry(
 
   return conversation[conversation.length - 1] || null;
 }
+
+export function getConversationEntriesExcludingPrimary(
+  conversation?: ConversationEntry[] | null,
+) {
+  const primaryEntry = getPrimaryThreadRenderEntry(conversation);
+  if (!conversation?.length || !primaryEntry) {
+    return conversation || [];
+  }
+
+  return conversation.filter((entry) => entry.id !== primaryEntry.id);
+}
+
+export function getDisplayableThreadAttachments(
+  entry?: ConversationEntry | null,
+) {
+  return (entry?.attachments || []).filter((attachment) => {
+    if (attachment.related) {
+      return false;
+    }
+
+    if (attachment.contentDisposition === "inline" && attachment.cid) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+export function isPreviewableThreadAttachment(attachment: {
+  contentType?: string | null;
+  url?: string | null;
+}) {
+  return Boolean(
+    attachment.url &&
+      attachment.contentType &&
+      attachment.contentType.toLowerCase().startsWith("image/"),
+  );
+}

@@ -185,9 +185,5 @@ export function normalizeTimeZone(timezone: unknown) {
 }
 
 export function resolveBaseUrl() {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.CAPACITOR_PRODUCTION_URL ||
-    "http://localhost:3244"
-  );
+  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3244";
 }

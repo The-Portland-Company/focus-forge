@@ -29,7 +29,9 @@ import {
 } from "@/lib/email-inbox/shared";
 import { encryptMailboxCredentials } from "@/lib/email-inbox/crypto";
 import {
+  fetchMailboxAttachmentByProviderMessageId,
   applyMailboxThreadAction,
+  fetchMailboxMessageByProviderMessageId,
   fetchMailboxMessageReadStates,
   fetchMailboxMessages,
   sendMailboxReply,
@@ -58,6 +60,11 @@ import type {
 } from "@/lib/types";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
+import {
+  buildReplyHtml,
+  buildReplyPlainText,
+  type EmailReplyAttachment,
+} from "@/lib/email-reply";
 
 type VisibleScope = {
   orgMemberships: Array<{ organization_id: string; is_owner: boolean | null }>;
@@ -79,6 +86,76 @@ function isUniqueViolation(error: any) {
       String(error?.message || ""),
     )
   );
+}
+
+function hasStoredMessageAttachments(row: any) {
+  return Array.isArray(row?.metadata_json?.attachments);
+}
+
+function messageLikelyHasAttachments(row: any) {
+  const hasAttachHeader = String(
+    row?.raw_headers?.["x-ms-has-attach"] ||
+      row?.raw_headers?.["x-has-attachment"] ||
+      "",
+  )
+    .trim()
+    .toLowerCase();
+
+  if (hasAttachHeader === "yes" || hasAttachHeader === "true") {
+    return true;
+  }
+
+  const contentType = String(row?.raw_headers?.["content-type"] || "")
+    .trim()
+    .toLowerCase();
+
+  return contentType.includes("multipart/mixed");
+}
+
+async function hydrateMessageAttachmentMetadata(
+  mailbox: MailboxTransportRow,
+  messageRows: any[],
+) {
+  const admin = getAdminClient();
+  const hydratedRows = [...messageRows];
+
+  for (let index = 0; index < hydratedRows.length; index += 1) {
+    const row = hydratedRows[index];
+    if (
+      !row?.provider_message_id ||
+      hasStoredMessageAttachments(row) ||
+      !messageLikelyHasAttachments(row)
+    ) {
+      continue;
+    }
+
+    const refreshedMessage = await fetchMailboxMessageByProviderMessageId(
+      mailbox,
+      String(row.provider_message_id),
+    );
+
+    if (!refreshedMessage) {
+      continue;
+    }
+
+    const nextMetadata = {
+      ...(row.metadata_json || {}),
+      attachments: refreshedMessage.attachments,
+    };
+
+    const { data: updatedRow } = await admin
+      .from("email_messages")
+      .update({ metadata_json: nextMetadata })
+      .eq("id", row.id)
+      .select("*")
+      .single();
+
+    hydratedRows[index] = updatedRow
+      ? { ...updatedRow }
+      : { ...row, metadata_json: nextMetadata };
+  }
+
+  return hydratedRows;
 }
 
 async function getVisibleScope(userId: string): Promise<VisibleScope> {
@@ -592,6 +669,7 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
       bcc: message.bcc,
       replyTo: message.replyTo,
       isUnread: message.isUnread,
+      attachments: message.attachments || [],
     },
   };
 
@@ -1831,7 +1909,7 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
   const mailbox = await ensureMailboxAccess(userId, String(thread.mailbox_id));
   const [
     mailboxes,
-    { data: messageRows },
+    { data: rawMessageRows },
     { data: taskLinks },
     { data: tasks },
   ] = await Promise.all([
@@ -1856,6 +1934,11 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
         ).data?.map((row: any) => row.task_id) || [],
       ),
   ]);
+
+  const messageRows = await hydrateMessageAttachmentMetadata(
+    mailbox,
+    ((rawMessageRows || []) as any[]).map((row: any) => ({ ...row })),
+  );
 
   const participants =
     (
@@ -1885,7 +1968,7 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
     taskCount: (taskLinks || []).length,
   });
 
-  const conversation: ConversationEntry[] = ((messageRows || []) as any[]).map(
+  const conversation: ConversationEntry[] = (messageRows || []).map(
     (row: any) =>
       coerceConversationEntry({
         ...row,
@@ -1903,6 +1986,38 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
     })),
     linkedTasks: tasks || [],
   };
+}
+
+export async function getThreadAttachmentForUser(
+  userId: string,
+  messageId: string,
+  attachmentIndex: number,
+) {
+  const admin = getAdminClient();
+  const { data: row } = await admin
+    .from("email_messages")
+    .select("id,thread_id,mailbox_id,provider_message_id,metadata_json")
+    .eq("id", messageId)
+    .maybeSingle();
+
+  if (!row?.id || !row.thread_id || !row.mailbox_id || !row.provider_message_id) {
+    throw new Error("Attachment not found");
+  }
+
+  await ensureThreadAccess(userId, String(row.thread_id));
+  const mailbox = await ensureMailboxAccess(userId, String(row.mailbox_id));
+
+  const attachment = await fetchMailboxAttachmentByProviderMessageId(
+    mailbox as MailboxTransportRow,
+    String(row.provider_message_id),
+    attachmentIndex,
+  );
+
+  if (!attachment?.content) {
+    throw new Error("Attachment not found");
+  }
+
+  return attachment;
 }
 
 export async function assignProjectToThread(
@@ -1979,6 +2094,9 @@ export async function replyToThread(params: {
   userId: string;
   threadId: string;
   content: string;
+  contentHtml?: string;
+  signatureText?: string | null;
+  attachments?: EmailReplyAttachment[];
   mode: "reply_all" | "internal_note";
 }) {
   const admin = getAdminClient();
@@ -2000,7 +2118,7 @@ export async function replyToThread(params: {
       throw new Error("Create or link a task before leaving an internal note.");
     }
 
-    const content = normalizeRichText(params.content);
+    const content = normalizeRichText(params.contentHtml || params.content);
     const { data: inserted } = await admin
       .from("comments")
       .insert({
@@ -2057,13 +2175,73 @@ export async function replyToThread(params: {
     ? thread.subject
     : `Re: ${thread.subject}`;
 
+  const attachmentPayloads = await Promise.all(
+    (params.attachments || []).map(async (attachment) => {
+      if (
+        attachment.storageProvider !== "supabase" ||
+        !attachment.url ||
+        !attachment.name
+      ) {
+        throw new Error(`Unsupported attachment source for ${attachment.name || "file"}.`);
+      }
+
+      const { data, error } = await admin.storage
+        .from("task-attachments")
+        .download(attachment.url);
+
+      if (error || !data) {
+        throw new Error(
+          `Failed to download attachment ${attachment.name}: ${error?.message || "unknown error"}`,
+        );
+      }
+
+      let publicUrl: string | null = null;
+      if (attachment.inline) {
+        const { data: signed, error: signedUrlError } = await admin.storage
+          .from("task-attachments")
+          .createSignedUrl(attachment.url, 60 * 60 * 24 * 30);
+
+        if (signedUrlError || !signed?.signedUrl) {
+          throw new Error(
+            `Failed to create inline URL for ${attachment.name}: ${signedUrlError?.message || "unknown error"}`,
+          );
+        }
+
+        publicUrl = signed.signedUrl;
+      }
+
+      return {
+        ...attachment,
+        publicUrl,
+        buffer: Buffer.from(await data.arrayBuffer()),
+      };
+    }),
+  );
+
+  const normalizedHtml = buildReplyHtml({
+    contentHtml: params.contentHtml || params.content,
+    signatureText: params.signatureText,
+    attachments: attachmentPayloads,
+  });
+  const normalizedText = buildReplyPlainText({
+    contentHtml: params.contentHtml || params.content,
+    signatureText: params.signatureText,
+    attachments: attachmentPayloads,
+  });
+
   const info = await sendMailboxReply({
     mailbox,
     to: toEmails,
     cc: ccEmails,
     subject,
-    text: params.content,
-    html: `<p>${params.content.replace(/\n/g, "<br/>")}</p>`,
+    text: normalizedText,
+    html: normalizedHtml,
+    attachments: attachmentPayloads.map((attachment) => ({
+      filename: attachment.name,
+      content: attachment.buffer,
+      contentType: attachment.mimeType || null,
+      contentDisposition: attachment.inline ? "inline" : "attachment",
+    })),
     inReplyTo: latestMessage.internet_message_id ?? null,
     references,
   });
@@ -2078,8 +2256,8 @@ export async function replyToThread(params: {
       internet_message_id: info.messageId || null,
       in_reply_to_message_id: latestMessage.internet_message_id ?? null,
       subject,
-      body_text: params.content,
-      body_html: `<p>${params.content.replace(/\n/g, "<br/>")}</p>`,
+      body_text: normalizedText,
+      body_html: normalizedHtml,
       sent_at: new Date().toISOString(),
       raw_headers: {},
       metadata_json: {

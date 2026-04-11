@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 import {
   formatEmailSubject,
   formatParticipantLine,
+  shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
 
 type EmailSpamReviewModalProps = {
@@ -69,6 +70,67 @@ async function parseResponse<T>(response: Response, fallbackError: string) {
   return payload as T;
 }
 
+type SpamReviewThreadCardAnimation = {
+  cancel: () => void;
+};
+
+type SpamReviewThreadCardElement = {
+  animate: (
+    keyframes: Keyframe[],
+    options?: KeyframeAnimationOptions,
+  ) => unknown;
+  getAnimations: () => SpamReviewThreadCardAnimation[];
+  scrollIntoView: (options?: ScrollIntoViewOptions) => void;
+};
+
+const spamReviewThreadCardPulseKeyframes: Keyframe[] = [
+  {
+    opacity: 1,
+    boxShadow: "0 0 0 0 rgba(251, 191, 36, 0)",
+    backgroundColor: "rgba(24, 24, 27, 0.5)",
+    borderColor: "rgba(63, 63, 70, 1)",
+  },
+  {
+    opacity: 0.84,
+    boxShadow: "0 0 0 10px rgba(251, 191, 36, 0.12)",
+    backgroundColor: "rgba(120, 53, 15, 0.18)",
+    borderColor: "rgba(251, 191, 36, 0.45)",
+  },
+  {
+    opacity: 1,
+    boxShadow: "0 0 0 0 rgba(251, 191, 36, 0)",
+    backgroundColor: "rgba(24, 24, 27, 0.5)",
+    borderColor: "rgba(63, 63, 70, 1)",
+  },
+];
+
+const spamReviewThreadCardPulseOptions: KeyframeAnimationOptions = {
+  duration: 640,
+  easing: "ease-in-out",
+  iterations: 2,
+};
+
+export function scrollAndPulseSpamReviewThreadCard(
+  element: SpamReviewThreadCardElement | null,
+) {
+  if (!element) {
+    return false;
+  }
+
+  element.scrollIntoView({
+    behavior: "smooth",
+    block: "center",
+    inline: "nearest",
+  });
+  element.getAnimations().forEach((animation) => animation.cancel());
+  element.animate(
+    spamReviewThreadCardPulseKeyframes,
+    spamReviewThreadCardPulseOptions,
+  );
+
+  return true;
+}
+
 export function EmailSpamReviewModal({
   open,
   onOpenChange,
@@ -98,6 +160,7 @@ export function EmailSpamReviewModal({
   const previousMailboxFilterIdRef = useRef<string | null | undefined>(
     mailboxFilterId,
   );
+  const threadCardRefs = useRef(new Map<string, HTMLDivElement>());
 
   useEffect(() => {
     const filterChanged =
@@ -158,6 +221,12 @@ export function EmailSpamReviewModal({
   const updateStatus = (message: string) => {
     setStatusMessage(message);
     window.setTimeout(() => setStatusMessage(null), 2400);
+  };
+
+  const focusThreadCard = (threadId: string) => {
+    scrollAndPulseSpamReviewThreadCard(
+      threadCardRefs.current.get(threadId) ?? null,
+    );
   };
 
   const handleCreateRule = async (thread: InboxItem) => {
@@ -327,10 +396,24 @@ export function EmailSpamReviewModal({
                   );
                   const isBusy = busyThreadId === thread.id;
                   const isConfirming = confirmingThreadId === thread.id;
+                  const showSecondaryActionTitle =
+                    shouldShowSecondaryActionTitle(
+                      thread.actionTitle,
+                      thread.subject,
+                    );
 
                   return (
                     <div
                       key={thread.id}
+                      ref={(node) => {
+                        if (node) {
+                          threadCardRefs.current.set(thread.id, node);
+                          return;
+                        }
+
+                        threadCardRefs.current.delete(thread.id);
+                      }}
+                      data-thread-id={thread.id}
                       className={cn(
                         "rounded-2xl border px-4 py-4 transition-colors",
                         keepSpam
@@ -342,18 +425,20 @@ export function EmailSpamReviewModal({
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-300">
                             <ShieldAlert className="h-4 w-4 text-amber-400" />
-                            <span className="font-medium text-white">
-                              {thread.actionTitle}
-                            </span>
                             {!keepSpam && createdRule ? (
                               <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
                                 Allowed
                               </span>
                             ) : null}
                           </div>
-                          <div className="mt-2 text-xs text-zinc-500">
+                          <div className="mt-2 text-sm font-medium text-white">
                             {formatEmailSubject(thread.subject)}
                           </div>
+                          {showSecondaryActionTitle ? (
+                            <div className="mt-1 text-sm text-zinc-400">
+                              {thread.actionTitle}
+                            </div>
+                          ) : null}
                           {fromLine ? (
                             <div className="mt-1 text-xs text-zinc-500">
                               {fromLine}
@@ -570,24 +655,36 @@ export function EmailSpamReviewModal({
                                       thread.participants,
                                       "from",
                                     );
+                                    const showSecondaryActionTitle =
+                                      shouldShowSecondaryActionTitle(
+                                        thread.actionTitle,
+                                        thread.subject,
+                                      );
 
                                     return (
-                                      <div
+                                      <button
+                                        type="button"
                                         key={`${group.rule.id}-${thread.id}`}
-                                        className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3"
+                                        onClick={() =>
+                                          focusThreadCard(thread.id)
+                                        }
+                                        className="w-full rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 text-left transition-colors hover:border-amber-400/35 hover:bg-amber-500/10 focus-visible:border-amber-400/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30"
+                                        aria-label={`Jump to ${thread.actionTitle}`}
                                       >
                                         <div className="text-sm font-medium text-white">
-                                          {thread.actionTitle}
-                                        </div>
-                                        <div className="mt-1 text-xs text-zinc-500">
                                           {formatEmailSubject(thread.subject)}
                                         </div>
+                                        {showSecondaryActionTitle ? (
+                                          <div className="mt-1 text-sm text-zinc-400">
+                                            {thread.actionTitle}
+                                          </div>
+                                        ) : null}
                                         {fromLine ? (
                                           <div className="mt-1 text-xs text-zinc-500">
                                             {fromLine}
                                           </div>
                                         ) : null}
-                                      </div>
+                                      </button>
                                     );
                                   })}
                                 </div>
@@ -609,19 +706,32 @@ export function EmailSpamReviewModal({
                           is no saved rule attached to them yet.
                         </div>
                         <div className="mt-3 space-y-2">
-                          {unmatchedItems.map((thread) => (
-                            <div
-                              key={`unmatched-${thread.id}`}
-                              className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3"
-                            >
-                              <div className="text-sm font-medium text-white">
-                                {thread.actionTitle}
-                              </div>
-                              <div className="mt-1 text-xs text-zinc-500">
-                                {formatEmailSubject(thread.subject)}
-                              </div>
-                            </div>
-                          ))}
+                          {unmatchedItems.map((thread) => {
+                            const showSecondaryActionTitle =
+                              shouldShowSecondaryActionTitle(
+                                thread.actionTitle,
+                                thread.subject,
+                              );
+
+                            return (
+                              <button
+                                type="button"
+                                key={`unmatched-${thread.id}`}
+                                onClick={() => focusThreadCard(thread.id)}
+                                className="w-full rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 text-left transition-colors hover:border-amber-400/35 hover:bg-amber-500/10 focus-visible:border-amber-400/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30"
+                                aria-label={`Jump to ${thread.actionTitle}`}
+                              >
+                                <div className="text-sm font-medium text-white">
+                                  {formatEmailSubject(thread.subject)}
+                                </div>
+                                {showSecondaryActionTitle ? (
+                                  <div className="mt-1 text-sm text-zinc-400">
+                                    {thread.actionTitle}
+                                  </div>
+                                ) : null}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     ) : null}

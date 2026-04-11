@@ -267,6 +267,16 @@ export interface ConversationEntry {
   subject?: string | null;
   content: string;
   contentHtml?: string | null;
+  attachments?: Array<{
+    filename?: string | null;
+    contentType?: string | null;
+    contentDisposition?: "attachment" | "inline" | null;
+    cid?: string | null;
+    size: number;
+    related: boolean;
+    attachmentIndex?: number;
+    url?: string | null;
+  }>;
   createdAt: string;
   participants?: InboxParticipant[];
 }

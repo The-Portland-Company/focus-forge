@@ -1,26 +1,63 @@
-import { Resend } from 'resend'
+import { Resend } from "resend";
 
-let _resend: Resend | null = null
+let _resend: Resend | null = null;
 
 function getResend() {
   if (!_resend) {
-    _resend = new Resend(process.env.RESEND_API_KEY)
+    _resend = new Resend(process.env.RESEND_API_KEY);
   }
-  return _resend
+  return _resend;
 }
 
 // Default from address - update with your verified domain
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'noreply@focusforge.theportlandcompany.com'
-const FROM_NAME = process.env.RESEND_FROM_NAME || 'Focus: Forge'
+const FROM_EMAIL =
+  process.env.RESEND_FROM_EMAIL || "noreply@focusforge.theportlandcompany.com";
+const FROM_NAME = process.env.RESEND_FROM_NAME || "Focus: Forge";
 
 interface SendInviteEmailParams {
-  to: string
-  firstName: string
-  lastName: string
-  organizationName: string
-  projectName?: string
-  inviteUrl: string
-  cc?: string | string[]
+  to: string;
+  firstName: string;
+  lastName: string;
+  organizationName: string;
+  projectName?: string;
+  inviteUrl: string;
+  cc?: string | string[];
+}
+
+interface SendEmailMessageParams {
+  to: string | string[];
+  subject: string;
+  html: string;
+  text: string;
+  cc?: string | string[];
+}
+
+export async function sendEmailMessage({
+  to,
+  subject,
+  html,
+  text,
+  cc,
+}: SendEmailMessageParams) {
+  const { data, error } = await getResend().emails.send({
+    from: `${FROM_NAME} <${FROM_EMAIL}>`,
+    to: Array.isArray(to) ? to : [to],
+    ...(cc ? { cc: Array.isArray(cc) ? cc : [cc] } : {}),
+    subject,
+    html,
+    text,
+  });
+
+  if (error) {
+    console.error("Resend email error:", error);
+    throw new Error(error.message || "Failed to send email");
+  }
+
+  return {
+    provider: "Resend",
+    messageId: data?.id || null,
+    raw: data || null,
+  };
 }
 
 export async function sendInviteEmail({
@@ -30,20 +67,19 @@ export async function sendInviteEmail({
   organizationName,
   projectName,
   inviteUrl,
-  cc
+  cc,
 }: SendInviteEmailParams) {
-  const fullName = `${firstName} ${lastName}`.trim() || 'there'
+  const fullName = `${firstName} ${lastName}`.trim() || "there";
   const inviteContext = projectName
     ? `You've been invited to join ${organizationName} on Focus: Forge and added to the project ${projectName}.`
-    : `You've been invited to join ${organizationName} on Focus: Forge.`
+    : `You've been invited to join ${organizationName} on Focus: Forge.`;
   const inviteSubject = projectName
     ? `You've been invited to ${projectName} in ${organizationName} on Focus: Forge`
-    : `You've been invited to join ${organizationName} on Focus: Forge`
+    : `You've been invited to join ${organizationName} on Focus: Forge`;
 
-  const { data, error } = await getResend().emails.send({
-    from: `${FROM_NAME} <${FROM_EMAIL}>`,
-    to: [to],
-    ...(cc ? { cc: Array.isArray(cc) ? cc : [cc] } : {}),
+  return sendEmailMessage({
+    to,
+    cc,
     subject: inviteSubject,
     html: `
       <!DOCTYPE html>
@@ -72,9 +108,11 @@ export async function sendInviteEmail({
                         Hi ${fullName},
                       </h2>
                       <p style="margin: 0 0 24px 0; font-size: 16px; line-height: 24px; color: #a1a1aa;">
-                        ${projectName
-                          ? `You've been invited to join <strong style="color: #ffffff;">${organizationName}</strong> on Focus: Forge and added to the project <strong style="color: #ffffff;">${projectName}</strong>.`
-                          : `You've been invited to join <strong style="color: #ffffff;">${organizationName}</strong> on Focus: Forge, a collaborative task management platform.`}
+                        ${
+                          projectName
+                            ? `You've been invited to join <strong style="color: #ffffff;">${organizationName}</strong> on Focus: Forge and added to the project <strong style="color: #ffffff;">${projectName}</strong>.`
+                            : `You've been invited to join <strong style="color: #ffffff;">${organizationName}</strong> on Focus: Forge, a collaborative task management platform.`
+                        }
                       </p>
 
                       <!-- CTA Button -->
@@ -123,36 +161,24 @@ ${inviteUrl}
 If you didn't expect this invitation, you can safely ignore this email.
 
 - Focus: Forge Team
-    `.trim()
-  })
-
-  if (error) {
-    console.error('Resend email error:', error)
-    throw new Error(error.message || 'Failed to send email')
-  }
-
-  return {
-    provider: 'Resend',
-    messageId: data?.id || null,
-    raw: data || null,
-  }
+    `.trim(),
+  });
 }
 
 interface SendPasswordResetEmailParams {
-  to: string
-  firstName: string
-  resetUrl: string
+  to: string;
+  firstName: string;
+  resetUrl: string;
 }
 
 export async function sendPasswordResetEmail({
   to,
   firstName,
-  resetUrl
+  resetUrl,
 }: SendPasswordResetEmailParams) {
-  const { data, error } = await getResend().emails.send({
-    from: `${FROM_NAME} <${FROM_EMAIL}>`,
-    to: [to],
-    subject: 'Reset your Focus: Forge password',
+  return sendEmailMessage({
+    to,
+    subject: "Reset your Focus: Forge password",
     html: `
       <!DOCTYPE html>
       <html>
@@ -173,7 +199,7 @@ export async function sendPasswordResetEmail({
                   <tr>
                     <td style="padding: 32px;">
                       <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #ffffff;">
-                        Hi ${firstName || 'there'},
+                        Hi ${firstName || "there"},
                       </h2>
                       <p style="margin: 0 0 24px 0; font-size: 16px; line-height: 24px; color: #a1a1aa;">
                         We received a request to reset your password. Click the button below to create a new password.
@@ -200,7 +226,7 @@ export async function sendPasswordResetEmail({
       </html>
     `,
     text: `
-Hi ${firstName || 'there'},
+Hi ${firstName || "there"},
 
 We received a request to reset your password. Click the link below to create a new password:
 
@@ -209,13 +235,6 @@ ${resetUrl}
 This link will expire in 1 hour. If you didn't request this, you can safely ignore this email.
 
 - Focus: Forge Team
-    `.trim()
-  })
-
-  if (error) {
-    console.error('Resend email error:', error)
-    throw new Error(error.message || 'Failed to send email')
-  }
-
-  return data
+    `.trim(),
+  });
 }

@@ -17,9 +17,13 @@ const ALLOWED_TAGS = [
   "code",
   "pre",
   "a",
+  "div",
+  "figure",
+  "figcaption",
+  "img",
 ]
 
-const ALLOWED_ATTR = ["href", "target", "rel"]
+const ALLOWED_ATTR = ["href", "target", "rel", "src", "alt"]
 
 export const sanitizeRichText = (value: string | null | undefined) => {
   if (!value) return ""

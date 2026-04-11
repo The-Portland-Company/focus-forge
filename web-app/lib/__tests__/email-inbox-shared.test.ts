@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildThreadKey,
+  coerceConversationEntry,
   extractMailboxErrorMessage,
   getMailboxPasswordValidationError,
   getVisibleMailboxSyncError,
@@ -129,5 +130,34 @@ test("getVisibleMailboxSyncError surfaces mailbox-specific issues", () => {
   assert.equal(
     getVisibleMailboxSyncError(mailboxes, "mailbox-1"),
     "Gmail requires a 16-character Google App Password. Click Edit Mailbox, paste the app password, save, then sync again.",
+  );
+});
+
+test("coerceConversationEntry adds attachment routes and indices", () => {
+  const entry = coerceConversationEntry({
+    id: "message-1",
+    direction: "inbound",
+    subject: "Attachment test",
+    body_text: "See attached",
+    body_html: null,
+    metadata_json: {
+      attachments: [
+        {
+          filename: "Footer Issue.png",
+          contentType: "image/png",
+          contentDisposition: "attachment",
+          size: 332732,
+          related: false,
+        },
+      ],
+    },
+    received_at: "2026-04-10T15:00:00.000Z",
+    created_at: "2026-04-10T15:00:00.000Z",
+  });
+
+  assert.equal(entry.attachments?.[0]?.attachmentIndex, 0);
+  assert.equal(
+    entry.attachments?.[0]?.url,
+    "/api/email/messages/message-1/attachments/0",
   );
 });

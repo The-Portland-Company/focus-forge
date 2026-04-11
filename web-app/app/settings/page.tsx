@@ -41,6 +41,11 @@ import {
   saveEmailSignatures,
   upsertEmailSignature,
 } from "@/lib/email-signatures";
+import {
+  loadHideEmailSignaturesPreference,
+  saveHideEmailSignaturesPreference,
+} from "@/lib/email-signature-display";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +93,7 @@ export default function SettingsPage() {
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarCopied, setCalendarCopied] = useState(false);
   const [emailSignatures, setEmailSignatures] = useState<EmailSignature[]>([]);
+  const [hideEmailSignatures, setHideEmailSignatures] = useState(true);
   const [editingSignatureId, setEditingSignatureId] = useState<string | null>(
     null,
   );
@@ -117,6 +123,7 @@ export default function SettingsPage() {
 
     const loadedSignatures = loadEmailSignatures(profile.id);
     setEmailSignatures(loadedSignatures);
+    setHideEmailSignatures(loadHideEmailSignaturesPreference(profile.id));
 
     if (loadedSignatures[0]) {
       setEditingSignatureId(loadedSignatures[0].id);
@@ -138,6 +145,11 @@ export default function SettingsPage() {
       });
     }
   }, [profile?.id]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    saveHideEmailSignaturesPreference(profile.id, hideEmailSignatures);
+  }, [hideEmailSignatures, profile?.id]);
 
   const isSuperOrAdmin = ["admin", "super_admin"].includes(
     String(profile?.role || ""),
@@ -559,7 +571,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <div className="max-w-2xl mx-auto p-8">
+      <div className="mx-auto w-full max-w-6xl p-8">
         <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-4">
               <button
@@ -695,7 +707,44 @@ export default function SettingsPage() {
                     New Signature
                   </button>
                 </div>
-                <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
+                <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+                  <label className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-medium text-white">
+                        Hide Inbound Email Signatures
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        Default on. Email signatures stay collapsed behind a
+                        hover-to-reveal accordion in thread detail and
+                        conversation items.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={hideEmailSignatures}
+                      onClick={() =>
+                        setHideEmailSignatures((current) => !current)
+                      }
+                      className={cn(
+                        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
+                        hideEmailSignatures
+                          ? "bg-[rgb(var(--theme-primary-rgb))]"
+                          : "bg-zinc-700",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "inline-block h-5 w-5 transform rounded-full bg-white transition-transform",
+                          hideEmailSignatures
+                            ? "translate-x-5"
+                            : "translate-x-1",
+                        )}
+                      />
+                    </button>
+                  </label>
+                </div>
+                <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
                   <div className="space-y-3">
                     {emailSignatures.length > 0 ? (
                       emailSignatures.map((signature) => (

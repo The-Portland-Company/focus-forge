@@ -16,6 +16,11 @@ export async function POST(
       userId: auth.user.id,
       threadId: params.id,
       content: body.content,
+      contentHtml:
+        typeof body.contentHtml === "string" ? body.contentHtml : body.content,
+      signatureText:
+        typeof body.signatureText === "string" ? body.signatureText : null,
+      attachments: Array.isArray(body.attachments) ? body.attachments : [],
       mode: body.mode === "internal_note" ? "internal_note" : "reply_all",
     });
     return NextResponse.json(result, { status: 201 });

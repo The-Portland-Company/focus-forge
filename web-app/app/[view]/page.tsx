@@ -68,7 +68,7 @@ import { ProjectProgressTimeline } from "@/components/project-progress-timeline"
 import { ProjectAiExportControls } from "@/components/project-ai-export-controls";
 import {
   SkeletonSidebar,
-  SkeletonTodayView,
+  SkeletonViewContent,
 } from "@/components/skeleton-loader";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/contexts/ToastContext";
@@ -266,11 +266,38 @@ export default function ViewPage() {
   }, []);
 
   const fetchData = async () => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+
     try {
       const response = await fetch("/api/database", {
         credentials: "include",
+        signal: controller.signal,
       });
-      const data = await response.json();
+      const contentType = response.headers.get("content-type") || "";
+      const data = contentType.includes("application/json")
+        ? await response.json()
+        : null;
+
+      if (response.status === 401) {
+        const loginParams = new URLSearchParams({
+          from: `/${view}`,
+        });
+        router.replace(`/auth/login?${loginParams.toString()}`);
+        return;
+      }
+
+      if (!response.ok) {
+        console.error("Database API request failed:", response.status, data);
+        setDatabase((prev) => prev ?? createEmptyDatabase());
+        return;
+      }
+
+      if (!data) {
+        console.error("Database API returned a non-JSON response");
+        setDatabase((prev) => prev ?? createEmptyDatabase());
+        return;
+      }
 
       // Check if the response has an error
       if (data.error) {
@@ -297,6 +324,8 @@ export default function ViewPage() {
     } catch (error) {
       console.error("Error fetching database:", error);
       setDatabase((prev) => prev ?? createEmptyDatabase());
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   };
 
@@ -1756,7 +1785,7 @@ export default function ViewPage() {
       <div className="h-screen bg-zinc-950 flex">
         <SkeletonSidebar />
         <main className="flex-1 text-white overflow-y-auto">
-          <SkeletonTodayView />
+          <SkeletonViewContent view={view} />
         </main>
       </div>
     );
@@ -2398,7 +2427,12 @@ export default function ViewPage() {
                     section="email"
                     isOpen={todaySections.email}
                     actions={
-                      <Tooltip content="AI + Spam" className="w-auto">
+                      <Tooltip
+                        content="AI + Spam"
+                        className="w-auto"
+                        side="bottom"
+                        align="end"
+                      >
                         <button
                           type="button"
                           onClick={() => setShowTodaySpamReview(true)}

@@ -10,6 +10,13 @@ import {
   Link2Off,
   Square,
   ChevronDown,
+  Mail,
+  Bot,
+  ShieldAlert,
+  FileText,
+  FolderSearch,
+  MessageSquare,
+  Sparkles,
 } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
@@ -253,4 +260,219 @@ export function SkeletonTodayView() {
       </div>
     </div>
   );
+}
+
+function SkeletonLine({
+  widthClass,
+  heightClass = "h-4",
+}: {
+  widthClass: string;
+  heightClass?: string;
+}) {
+  return <div className={`${heightClass} ${widthClass} animate-pulse rounded bg-zinc-800`} />;
+}
+
+function SkeletonTaskPageView() {
+  return (
+    <div className="mx-auto w-full max-w-4xl p-8">
+      <div className="space-y-6">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-2">
+            <SkeletonLine widthClass="w-48" heightClass="h-8" />
+            <SkeletonLine widthClass="w-72" heightClass="h-4" />
+          </div>
+          <div className="flex items-center gap-3">
+            <SkeletonLine widthClass="w-40" heightClass="h-10" />
+            <SkeletonLine widthClass="w-10" heightClass="h-10" />
+            <SkeletonLine widthClass="w-10" heightClass="h-10" />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <SkeletonLine widthClass="w-64" heightClass="h-10" />
+            <SkeletonLine widthClass="w-40" heightClass="h-10" />
+            <SkeletonLine widthClass="w-40" heightClass="h-10" />
+          </div>
+          <div className="space-y-3">
+            {Array.from({ length: 7 }).map((_, index) => (
+              <div
+                key={index}
+                className="flex items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-950/50 px-4 py-3"
+              >
+                <div className="h-5 w-5 animate-pulse rounded-full bg-zinc-800" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <SkeletonLine widthClass={index % 2 === 0 ? "w-3/5" : "w-2/5"} />
+                  <SkeletonLine widthClass="w-4/5" heightClass="h-3" />
+                </div>
+                <SkeletonLine widthClass="w-16" heightClass="h-5" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SkeletonEmailRow() {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-2">
+            <SkeletonLine widthClass="w-52" heightClass="h-3" />
+            <SkeletonLine widthClass="w-72" />
+          </div>
+          <SkeletonLine widthClass="w-12" heightClass="h-5" />
+        </div>
+        <div className="space-y-2">
+          <SkeletonLine widthClass="w-full" heightClass="h-3" />
+          <SkeletonLine widthClass="w-4/5" heightClass="h-3" />
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+          <div className="inline-flex items-center gap-1">
+            <Mail className="h-3.5 w-3.5 text-zinc-700" />
+            <SkeletonLine widthClass="w-24" heightClass="h-3" />
+          </div>
+          <div className="inline-flex items-center gap-1">
+            <FolderSearch className="h-3.5 w-3.5 text-zinc-700" />
+            <SkeletonLine widthClass="w-20" heightClass="h-3" />
+          </div>
+          <div className="inline-flex items-center gap-1">
+            <MessageSquare className="h-3.5 w-3.5 text-zinc-700" />
+            <SkeletonLine widthClass="w-16" heightClass="h-3" />
+          </div>
+          <div className="inline-flex items-center gap-1">
+            <Sparkles className="h-3.5 w-3.5 text-zinc-700" />
+            <SkeletonLine widthClass="w-16" heightClass="h-3" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SkeletonEmailInboxView() {
+  return (
+    <div className="px-3 py-6 pr-6">
+      <div className="grid min-h-[calc(100vh-3rem)] gap-3 xl:grid-cols-[minmax(0,1fr)_14px_minmax(320px,380px)]">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+          <div className="space-y-4">
+            <div>
+              <SkeletonLine widthClass="w-36" heightClass="h-8" />
+              <SkeletonLine widthClass="w-64 mt-2" heightClass="h-4" />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="inline-flex items-center gap-2 text-zinc-500">
+                  <Mail className="h-4 w-4 text-zinc-700" />
+                  <SkeletonLine widthClass="w-28" heightClass="h-4" />
+                </div>
+                <SkeletonLine widthClass="w-24" heightClass="h-4" />
+              </div>
+              <div className="flex gap-2">
+                <SkeletonLine widthClass="w-44" heightClass="h-11" />
+                <SkeletonLine widthClass="w-52" heightClass="h-11" />
+              </div>
+            </div>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
+                <SkeletonLine widthClass="w-10" heightClass="h-8" />
+                <SkeletonLine widthClass="ml-1 w-14" heightClass="h-8" />
+                <SkeletonLine widthClass="ml-1 w-12" heightClass="h-8" />
+              </div>
+              <div className="flex gap-2">
+                <SkeletonLine widthClass="w-9" heightClass="h-9" />
+                <SkeletonLine widthClass="w-9" heightClass="h-9" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              {Array.from({ length: 7 }).map((_, index) => (
+                <SkeletonEmailRow key={index} />
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="relative hidden xl:flex items-stretch justify-center">
+          <div className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-zinc-800" />
+        </div>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+          <div className="space-y-5">
+            <div className="border-b border-zinc-800 pb-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex gap-2">
+                  <SkeletonLine widthClass="w-14" heightClass="h-5" />
+                </div>
+                <div className="flex gap-2">
+                  <SkeletonLine widthClass="w-10" heightClass="h-10" />
+                  <SkeletonLine widthClass="w-10" heightClass="h-10" />
+                  <SkeletonLine widthClass="w-10" heightClass="h-10" />
+                  <SkeletonLine widthClass="w-10" heightClass="h-10" />
+                </div>
+              </div>
+              <div className="mt-4 space-y-3">
+                <div className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
+                  <Mail className="h-3.5 w-3.5 text-zinc-700" />
+                  <SkeletonLine widthClass="w-40" heightClass="h-3" />
+                </div>
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
+                  <div className="mb-3 inline-flex items-start gap-2">
+                    <Bot className="mt-0.5 h-3.5 w-3.5 text-zinc-700" />
+                    <SkeletonLine widthClass="w-44" heightClass="h-3" />
+                  </div>
+                  <div className="space-y-2">
+                    <SkeletonLine widthClass="w-full" heightClass="h-3" />
+                    <SkeletonLine widthClass="w-5/6" heightClass="h-3" />
+                    <SkeletonLine widthClass="w-4/6" heightClass="h-3" />
+                  </div>
+                </div>
+                <div className="mt-4 border-t border-zinc-800 pt-3">
+                  <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    <FileText className="h-3.5 w-3.5 text-zinc-700" />
+                    <SkeletonLine widthClass="w-24" heightClass="h-3" />
+                  </div>
+                  <div className="grid gap-3">
+                    <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/70">
+                      <div className="aspect-[4/3] animate-pulse bg-zinc-800" />
+                      <div className="p-3">
+                        <SkeletonLine widthClass="w-32" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+              <SkeletonLine widthClass="w-full" heightClass="h-11" />
+              <SkeletonLine widthClass="w-40" heightClass="h-11" />
+            </div>
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex gap-2">
+                  <SkeletonLine widthClass="w-9" heightClass="h-9" />
+                  <SkeletonLine widthClass="w-9" heightClass="h-9" />
+                  <SkeletonLine widthClass="w-9" heightClass="h-9" />
+                </div>
+                <SkeletonLine widthClass="w-40" heightClass="h-10" />
+              </div>
+              <SkeletonLine widthClass="w-full" heightClass="h-40" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function SkeletonViewContent({ view }: { view: string }) {
+  if (view.startsWith("email-")) {
+    return <SkeletonEmailInboxView />;
+  }
+
+  if (view === "today") {
+    return <SkeletonTodayView />;
+  }
+
+  return <SkeletonTaskPageView />;
 }
