@@ -20,6 +20,21 @@ test("buildHeuristicAnalysis quarantines obvious spam", () => {
   assert.equal(result.taskSuggestions.length, 0);
 });
 
+test("buildHeuristicAnalysis quarantines unsolicited service pitch spam", () => {
+  const result = buildHeuristicAnalysis({
+    subject: "Program For Your Website Designing",
+    bodyText:
+      "Hey, We are an IT firm and a digital marketing company. Do you want to design or develop a website for a business? Kindly let me know. If interested, may I send you a sample, portfolio, and company Details?",
+    senderEmail: "sinu@example.com",
+    mailboxEmail: "ops@example.com",
+    projectOptions: [],
+  });
+
+  assert.equal(result.status, "quarantine");
+  assert.equal(result.classification, "spam");
+  assert.equal(result.taskSuggestions.length, 0);
+});
+
 test("buildHeuristicAnalysis routes actionable email to a matching project", () => {
   const result = buildHeuristicAnalysis({
     subject: "Acme website proposal",

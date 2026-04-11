@@ -50,6 +50,41 @@ function detectSpam(subject: string, body: string, senderEmail: string) {
   return spamSignals.some((signal) => haystack.includes(signal));
 }
 
+function detectUnsolicitedServicePitchSpam(
+  subject: string,
+  body: string,
+  senderEmail: string,
+) {
+  const haystack = `${subject} ${body} ${senderEmail}`.toLowerCase();
+
+  const solicitationSignals = [
+    "if interested",
+    "kindly let me know",
+    "may i send you",
+    "can i send you",
+    "portfolio",
+    "company details",
+    "sample, portfolio",
+  ];
+  const servicePitchSignals = [
+    "digital marketing company",
+    "website design",
+    "website designing",
+    "design or develop a website",
+    "design or develop",
+    "it firm",
+  ];
+
+  const solicitationMatches = solicitationSignals.filter((signal) =>
+    haystack.includes(signal),
+  ).length;
+  const servicePitchMatches = servicePitchSignals.filter((signal) =>
+    haystack.includes(signal),
+  ).length;
+
+  return solicitationMatches >= 2 && servicePitchMatches >= 1;
+}
+
 function detectNewsletter(subject: string, senderEmail: string) {
   const normalizedSubject = subject.toLowerCase();
   return (
@@ -118,7 +153,8 @@ export function buildHeuristicAnalysis(
 
   if (
     !input.preventSpamClassification &&
-    detectSpam(subject, bodyText, input.senderEmail)
+    (detectSpam(subject, bodyText, input.senderEmail) ||
+      detectUnsolicitedServicePitchSpam(subject, bodyText, input.senderEmail))
   ) {
     return {
       classification: "spam",
@@ -261,6 +297,17 @@ export async function analyzeThreadWithAI(
   }
 
   const fallback = buildHeuristicAnalysis(input);
+  if (
+    !input.preventSpamClassification &&
+    detectUnsolicitedServicePitchSpam(
+      input.subject,
+      input.bodyText,
+      input.senderEmail,
+    )
+  ) {
+    return fallback;
+  }
+
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -282,6 +329,7 @@ Return concise, task-oriented JSON only.
 Prefer an existing project ID only when evidence is strong.
 Use the user's summary instructions when present.
 If the email is spam or low-value, quarantine it.
+Treat unsolicited vendor pitches and generic service offers as spam when they are cold outreach with no established context.
 If actionable but you cannot confidently route it, set needsProject=true and status=needs_project.
 ${
   input.preventSpamClassification
