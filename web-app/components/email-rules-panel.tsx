@@ -21,10 +21,13 @@ type EmailRulesPanelProps = {
   mailboxes: Mailbox[];
   onRefresh?: () => Promise<void> | void;
   onRuleSaved?: (rule: EmailRule) => void;
+  initialEditingRule?: EmailRule | null;
   showHeader?: boolean;
   compact?: boolean;
   className?: string;
 };
+
+export type EmailRuleFormState = ReturnType<typeof createEmptyRuleForm>;
 
 const DEFAULT_RULE_CONDITIONS = JSON.stringify(
   [{ field: "sender_domain", operator: "contains", value: "example.com" }],
@@ -55,6 +58,20 @@ function createEmptyRuleForm() {
   };
 }
 
+export function createRuleFormFromRule(rule: EmailRule): EmailRuleFormState {
+  return {
+    name: rule.name,
+    description: rule.description || "",
+    mailboxId: rule.mailboxId || "all",
+    priority: String(rule.priority),
+    matchMode: rule.matchMode,
+    stopProcessing: rule.stopProcessing,
+    isActive: rule.isActive,
+    conditionsJson: JSON.stringify(rule.conditions, null, 2),
+    actionsJson: JSON.stringify(rule.actions, null, 2),
+  };
+}
+
 function sortRulesByPriority(rules: EmailRule[]) {
   return [...rules].sort((a, b) => a.priority - b.priority);
 }
@@ -80,6 +97,7 @@ export function EmailRulesPanel({
   mailboxes,
   onRefresh,
   onRuleSaved,
+  initialEditingRule,
   showHeader = true,
   compact = false,
   className,
@@ -147,18 +165,16 @@ export function EmailRulesPanel({
   const startEditingRule = (rule: EmailRule) => {
     setIsAssistantOpen(false);
     setEditingRule(rule);
-    setRuleForm({
-      name: rule.name,
-      description: rule.description || "",
-      mailboxId: rule.mailboxId || "all",
-      priority: String(rule.priority),
-      matchMode: rule.matchMode,
-      stopProcessing: rule.stopProcessing,
-      isActive: rule.isActive,
-      conditionsJson: JSON.stringify(rule.conditions, null, 2),
-      actionsJson: JSON.stringify(rule.actions, null, 2),
-    });
+    setRuleForm(createRuleFormFromRule(rule));
   };
+
+  useEffect(() => {
+    if (!initialEditingRule?.id) {
+      return;
+    }
+
+    startEditingRule(initialEditingRule);
+  }, [initialEditingRule]);
 
   const handleOpenAssistant = () => {
     resetRuleForm();

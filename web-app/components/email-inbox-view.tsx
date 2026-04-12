@@ -59,6 +59,12 @@ import { EmailThreadAttachments } from "@/components/email-thread-attachments";
 import { EmailThreadModal } from "@/components/email-thread-modal";
 import { SenderHistoryModal } from "@/components/sender-history-modal";
 import { Tooltip } from "@/components/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { FloatingFieldLabel } from "@/components/ui/floating-field-label";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import {
@@ -71,6 +77,8 @@ import {
 import type {
   Database,
   EmailSignature,
+  EmailRule,
+  EmailSpamExceptionResult,
   InboxItem,
   Mailbox,
   SummaryProfile,
@@ -445,6 +453,9 @@ export function EmailInboxView({
     null,
   );
   const [isSpamReviewOpen, setIsSpamReviewOpen] = useState(false);
+  const [isRuleEditorOpen, setIsRuleEditorOpen] = useState(false);
+  const [ruleEditorInitialRule, setRuleEditorInitialRule] =
+    useState<EmailRule | null>(null);
   const [readFilter, setReadFilter] = useState<"all" | "unread" | "read">(
     "all",
   );
@@ -1459,6 +1470,48 @@ export function EmailInboxView({
       window.setTimeout(() => {
         setSpamScanProgress(null);
       }, 1800);
+    }
+  };
+
+  const handleMarkThreadNotSpam = async () => {
+    if (!selectedThreadId) {
+      return;
+    }
+
+    setBusyState("spam_exception");
+
+    try {
+      const response = await fetch("/api/email/spam-exceptions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ threadId: selectedThreadId }),
+      });
+      const payload = (await response.json()) as EmailSpamExceptionResult & {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to create spam exception");
+      }
+
+      setRuleEditorInitialRule(payload.rule);
+      setIsRuleEditorOpen(true);
+
+      await Promise.allSettled([
+        refreshInboxState(),
+        Promise.resolve(onRefresh?.()),
+      ]);
+
+      updateStatus("Marked as not spam. Review the generated rule.");
+    } catch (error) {
+      updateStatus(
+        error instanceof Error
+          ? error.message
+          : "Failed to create spam exception",
+      );
+    } finally {
+      setBusyState(null);
     }
   };
 
@@ -2795,14 +2848,39 @@ export function EmailInboxView({
                     ) : null}
                   </div>
                   <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
-                    {view === "email-quarantine"
-                      ? renderThreadActionButton("approve", {
+                    {view === "email-quarantine" ? (
+                      <>
+                        <Tooltip
+                          content="Mark Not Spam"
+                          className="w-auto"
+                          side="top"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => void handleMarkThreadNotSpam()}
+                            disabled={Boolean(busyState) || Boolean(queuedAction)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 transition-colors hover:border-emerald-400/60 hover:bg-emerald-500/15 disabled:opacity-50"
+                            aria-label="Mark not spam"
+                            title="Mark not spam"
+                          >
+                            {busyState === "spam_exception" ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Check className="h-4 w-4" />
+                            )}
+                            <span>Not Spam</span>
+                          </button>
+                        </Tooltip>
+                        {renderThreadActionButton("approve", {
                           label: "Approve",
                           icon: getThreadActionButtonIcon("approve"),
-                        })
-                      : renderThreadActionButton("quarantine", {
-                          icon: getThreadActionButtonIcon("quarantine"),
                         })}
+                      </>
+                    ) : (
+                      renderThreadActionButton("quarantine", {
+                        icon: getThreadActionButtonIcon("quarantine"),
+                      })
+                    )}
                     {renderThreadActionButton("archive", {
                       icon: getThreadActionButtonIcon("archive"),
                     })}
@@ -3481,6 +3559,38 @@ export function EmailInboxView({
         mailboxFilterId={selectedMailboxId}
         onRefresh={onRefresh}
       />
+
+      <Dialog
+        open={isRuleEditorOpen}
+        onOpenChange={(open) => {
+          setIsRuleEditorOpen(open);
+          if (!open) {
+            setRuleEditorInitialRule(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[92vh] w-[min(96vw,1200px)] max-w-[96vw] overflow-y-auto border-zinc-800 bg-zinc-950 p-0 text-white">
+          <div className="border-b border-zinc-800 px-6 py-5">
+            <DialogTitle className="text-xl text-white">
+              Edit Not-Spam Rule
+            </DialogTitle>
+            <DialogDescription className="mt-2 text-zinc-400">
+              Review the generated rule and adjust it before future matching
+              messages are allowed out of quarantine.
+            </DialogDescription>
+          </div>
+          <div className="px-6 py-5">
+            <EmailRulesPanel
+              rules={data.emailRules}
+              mailboxes={mailboxes}
+              onRefresh={onRefresh}
+              initialEditingRule={ruleEditorInitialRule}
+              compact
+              showHeader={false}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <SenderHistoryModal
         open={Boolean(senderHistory)}

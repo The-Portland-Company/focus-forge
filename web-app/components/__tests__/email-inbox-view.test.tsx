@@ -14,6 +14,7 @@ import {
   mergeInboxItem,
   sortInboxItemsForView,
 } from "../email-inbox-view";
+import { createRuleFormFromRule } from "../email-rules-panel";
 import {
   filterInboxProjects,
   sortInboxProjects,
@@ -192,4 +193,31 @@ test("getSpamScanProgressPercent clamps progress to a usable width value", () =>
   assert.equal(getSpamScanProgressPercent(0, 0), 0);
   assert.equal(getSpamScanProgressPercent(1, 4), 25);
   assert.equal(getSpamScanProgressPercent(8, 4), 100);
+});
+
+test("createRuleFormFromRule hydrates the rule editor with an editable not-spam rule", () => {
+  const form = createRuleFormFromRule({
+    id: "rule-1",
+    name: "Allow payroll sender",
+    description: "Never quarantine payroll mail.",
+    mailboxId: null,
+    priority: 25,
+    matchMode: "all",
+    stopProcessing: true,
+    isActive: true,
+    conditions: [
+      {
+        field: "sender_email",
+        operator: "contains",
+        value: "payroll@example.com",
+      },
+    ],
+    actions: [{ type: "never_spam" }],
+  } as any);
+
+  assert.equal(form.name, "Allow payroll sender");
+  assert.equal(form.mailboxId, "all");
+  assert.equal(form.priority, "25");
+  assert.match(form.conditionsJson, /payroll@example\.com/);
+  assert.match(form.actionsJson, /never_spam/);
 });
