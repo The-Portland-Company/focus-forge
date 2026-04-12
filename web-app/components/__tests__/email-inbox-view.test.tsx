@@ -6,6 +6,7 @@ import {
   applyOptimisticThreadReadState,
   buildEmailThreadPopoutUrl,
   clampEmailDetailPanelWidth,
+  filterInboxItemsForView,
   getConversationEntryHeaderClassName,
   getEmailInboxSplitClassName,
   getSpamScanProgressPercent,
@@ -193,6 +194,43 @@ test("getSpamScanProgressPercent clamps progress to a usable width value", () =>
   assert.equal(getSpamScanProgressPercent(0, 0), 0);
   assert.equal(getSpamScanProgressPercent(1, 4), 25);
   assert.equal(getSpamScanProgressPercent(8, 4), 100);
+});
+
+test("filterInboxItemsForView returns only spam-marked inbox items on the spam tab", () => {
+  const filtered = filterInboxItemsForView({
+    inboxItems: [
+      {
+        id: "thread-1",
+        mailboxId: "mailbox-1",
+        status: "active",
+        classification: "unknown",
+        isUnread: true,
+      },
+      {
+        id: "thread-2",
+        mailboxId: "mailbox-1",
+        status: "spam",
+        classification: "spam",
+        isUnread: false,
+      },
+      {
+        id: "thread-3",
+        mailboxId: "mailbox-1",
+        status: "quarantine",
+        classification: "spam",
+        isUnread: true,
+      },
+    ] as any,
+    selectedMailboxId: "all",
+    filterTab: "spam",
+    retainedSpamThreadIds: ["thread-3"],
+    view: "email-inbox",
+  });
+
+  assert.deepEqual(
+    filtered.map((item) => item.id),
+    ["thread-2", "thread-3"],
+  );
 });
 
 test("createRuleFormFromRule hydrates the rule editor with an editable not-spam rule", () => {

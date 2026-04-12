@@ -49,6 +49,7 @@ import {
   formatParticipantName,
   getInboxReviewBadgeLabel,
   getPrimarySenderParticipant,
+  getInboxReviewState,
   shouldShowStatusBadge,
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
@@ -205,6 +206,8 @@ export const EMAIL_INBOX_SORT_OPTIONS = [
 export type EmailInboxSortOption =
   (typeof EMAIL_INBOX_SORT_OPTIONS)[number]["value"];
 
+export type EmailInboxFilterTab = "all" | "unread" | "read" | "spam";
+
 function getBrowserNotificationPermission():
   | NotificationPermission
   | "unsupported" {
@@ -221,6 +224,51 @@ function parseJsonValue<T>(input: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+export function filterInboxItemsForView(params: {
+  inboxItems: InboxItem[];
+  selectedMailboxId: string;
+  filterTab: EmailInboxFilterTab;
+  retainedSpamThreadIds: string[];
+  view: string;
+}) {
+  const base = params.inboxItems.filter((item) => {
+    if (
+      params.selectedMailboxId !== "all" &&
+      item.mailboxId !== params.selectedMailboxId
+    ) {
+      return false;
+    }
+
+    if (params.view === "email-quarantine") {
+      return item.status === "quarantine";
+    }
+
+    if (item.status === "deleted") {
+      return false;
+    }
+
+    if (item.status === "quarantine") {
+      return params.retainedSpamThreadIds.includes(item.id);
+    }
+
+    return true;
+  });
+
+  if (params.filterTab === "unread") {
+    return base.filter((item) => item.isUnread);
+  }
+
+  if (params.filterTab === "read") {
+    return base.filter((item) => !item.isUnread);
+  }
+
+  if (params.filterTab === "spam") {
+    return base.filter((item) => getInboxReviewState(item) !== null);
+  }
+
+  return base;
 }
 
 export function getEmailInboxSplitClassName() {
@@ -456,9 +504,8 @@ export function EmailInboxView({
   const [isRuleEditorOpen, setIsRuleEditorOpen] = useState(false);
   const [ruleEditorInitialRule, setRuleEditorInitialRule] =
     useState<EmailRule | null>(null);
-  const [readFilter, setReadFilter] = useState<"all" | "unread" | "read">(
-    "all",
-  );
+  const [inboxFilterTab, setInboxFilterTab] =
+    useState<EmailInboxFilterTab>("all");
   const [alwaysShowSummary, setAlwaysShowSummary] = useState(false);
   const [alwaysShowExcerpt, setAlwaysShowExcerpt] = useState(false);
   const [sortBy, setSortBy] = useState<EmailInboxSortOption>("received_desc");
@@ -505,37 +552,17 @@ export function EmailInboxView({
     settingsJson: DEFAULT_PROFILE_SETTINGS,
   });
 
-  const filteredInboxItems = useMemo(() => {
-    const base = inboxItems.filter((item) => {
-      if (selectedMailboxId !== "all" && item.mailboxId !== selectedMailboxId) {
-        return false;
-      }
-
-      if (view === "email-quarantine") {
-        return item.status === "quarantine";
-      }
-
-      if (item.status === "deleted") {
-        return false;
-      }
-
-      if (item.status === "quarantine") {
-        return retainedSpamThreadIds.includes(item.id);
-      }
-
-      return true;
-    });
-
-    if (readFilter === "unread") {
-      return base.filter((item) => item.isUnread);
-    }
-
-    if (readFilter === "read") {
-      return base.filter((item) => !item.isUnread);
-    }
-
-    return base;
-  }, [inboxItems, readFilter, retainedSpamThreadIds, selectedMailboxId, view]);
+  const filteredInboxItems = useMemo(
+    () =>
+      filterInboxItemsForView({
+        inboxItems,
+        selectedMailboxId,
+        filterTab: inboxFilterTab,
+        retainedSpamThreadIds,
+        view,
+      }),
+    [inboxItems, inboxFilterTab, retainedSpamThreadIds, selectedMailboxId, view],
+  );
   const visibleInboxItems = useMemo(
     () => sortInboxItemsForView(filteredInboxItems, sortBy),
     [filteredInboxItems, sortBy],
@@ -2634,17 +2661,18 @@ export function EmailInboxView({
                     { id: "all", label: "All" },
                     { id: "unread", label: "Unread" },
                     { id: "read", label: "Read" },
+                    { id: "spam", label: "Spam" },
                   ].map((tab) => (
                     <button
                       key={tab.id}
                       type="button"
-                      onClick={() =>
-                        setReadFilter(tab.id as "all" | "unread" | "read")
-                      }
+                      onClick={() => setInboxFilterTab(tab.id as EmailInboxFilterTab)}
                       className={
-                        readFilter === tab.id
+                        inboxFilterTab === tab.id
                           ? tab.id === "unread"
                             ? "rounded-lg border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-3 py-1.5 text-sm font-medium text-[rgb(var(--theme-primary-rgb))]"
+                            : tab.id === "spam"
+                              ? "rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-1.5 text-sm font-medium text-red-200"
                             : tab.id === "read"
                               ? "rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-sm font-medium text-zinc-200"
                               : "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
