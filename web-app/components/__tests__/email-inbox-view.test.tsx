@@ -7,6 +7,7 @@ import {
   applyOptimisticThreadReadState,
   buildEmailThreadPopoutUrl,
   clampEmailDetailPanelWidth,
+  filterInboxItemsBySearchQuery,
   filterInboxItemsForView,
   filterReplyDraftsForView,
   getConversationEntryHeaderClassName,
@@ -144,6 +145,76 @@ test("sortInboxItemsForView orders inbox threads by newest received date first",
   assert.deepEqual(
     sorted.map((item) => item.id),
     ["newest", "fallback", "older"],
+  );
+});
+
+test("filterInboxItemsBySearchQuery matches sender, mailbox, and project text", () => {
+  const items = [
+    {
+      id: "thread-1",
+      subject: "Quarterly planning",
+      mailboxId: "mailbox-1",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Shelby Riley",
+          emailAddress: "shelby@example.com",
+        },
+      ],
+      previewText: "Reviewing the new roadmap",
+      summaryText: null,
+      actionTitle: null,
+      projectId: "project-1",
+    },
+    {
+      id: "thread-2",
+      subject: "Invoice",
+      mailboxId: "mailbox-2",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Finance Bot",
+          emailAddress: "billing@example.com",
+        },
+      ],
+      previewText: "Attached invoice",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+    },
+  ] as any;
+
+  const mailboxes = [
+    { id: "mailbox-1", name: "CEO Inbox", emailAddress: "ceo@example.com" },
+    { id: "mailbox-2", name: "Billing", emailAddress: "billing@example.com" },
+  ] as any;
+
+  assert.deepEqual(
+    filterInboxItemsBySearchQuery({
+      items,
+      query: "shelby",
+      mailboxes,
+      projects: projects as any,
+    }).map((item) => item.id),
+    ["thread-1"],
+  );
+  assert.deepEqual(
+    filterInboxItemsBySearchQuery({
+      items,
+      query: "billing",
+      mailboxes,
+      projects: projects as any,
+    }).map((item) => item.id),
+    ["thread-2"],
+  );
+  assert.deepEqual(
+    filterInboxItemsBySearchQuery({
+      items,
+      query: "beta refresh",
+      mailboxes,
+      projects: projects as any,
+    }).map((item) => item.id),
+    ["thread-1"],
   );
 });
 

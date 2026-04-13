@@ -67,6 +67,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FloatingFieldLabel } from "@/components/ui/floating-field-label";
+import { Input } from "@/components/ui/input";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import {
   Select,
@@ -173,6 +174,8 @@ const EMAIL_DETAIL_PANEL_MAX_WIDTH = 720;
 const EMAIL_LIST_PANEL_MIN_WIDTH = 520;
 const EMAIL_DETAIL_PANEL_STORAGE_KEY =
   "focus-forge.email-inbox.detail-panel-width";
+const EMAIL_INBOX_FILTER_BAR_STORAGE_KEY =
+  "focus-forge.email-inbox.filter-bar-collapsed";
 const DOCK_BADGE_EVENT_NAME = "focus-forge:dock-badge-count-change";
 const APP_TITLE = "Focus: Forge";
 
@@ -357,6 +360,50 @@ export function filterInboxItemsForView(params: {
   }
 
   return base;
+}
+
+export function filterInboxItemsBySearchQuery(params: {
+  items: InboxItem[];
+  query: string;
+  mailboxes: Mailbox[];
+  projects: Database["projects"];
+}) {
+  const normalizedQuery = params.query.trim().toLocaleLowerCase();
+
+  if (!normalizedQuery) {
+    return params.items;
+  }
+
+  return params.items.filter((item) => {
+    const mailbox = params.mailboxes.find(
+      (candidate) => candidate.id === item.mailboxId,
+    );
+    const project = params.projects.find(
+      (candidate) => candidate.id === item.projectId,
+    );
+    const haystack = [
+      item.subject,
+      item.normalizedSubject,
+      item.actionTitle,
+      item.previewText,
+      item.summaryText,
+      item.mailboxName,
+      item.mailboxEmailAddress,
+      mailbox?.name,
+      mailbox?.displayName,
+      mailbox?.emailAddress,
+      project?.name,
+      ...(item.participants || []).flatMap((participant) => [
+        participant.displayName,
+        participant.emailAddress,
+      ]),
+    ]
+      .filter((value): value is string => Boolean(value?.trim()))
+      .join(" ")
+      .toLocaleLowerCase();
+
+    return haystack.includes(normalizedQuery);
+  });
 }
 
 export function getEmailInboxSplitClassName() {
@@ -714,6 +761,8 @@ export function EmailInboxView({
     useState<EmailRule | null>(null);
   const [inboxFilterTab, setInboxFilterTab] =
     useState<EmailInboxFilterTab>("all");
+  const [inboxSearchQuery, setInboxSearchQuery] = useState("");
+  const [isFilterBarCollapsed, setIsFilterBarCollapsed] = useState(false);
   const [alwaysShowSummary, setAlwaysShowSummary] = useState(false);
   const [alwaysShowExcerpt, setAlwaysShowExcerpt] = useState(false);
   const [sortBy, setSortBy] = useState<EmailInboxSortOption>("received_desc");
@@ -782,9 +831,19 @@ export function EmailInboxView({
       view,
     ],
   );
+  const searchedInboxItems = useMemo(
+    () =>
+      filterInboxItemsBySearchQuery({
+        items: filteredInboxItems,
+        query: inboxSearchQuery,
+        mailboxes,
+        projects: data.projects,
+      }),
+    [data.projects, filteredInboxItems, inboxSearchQuery, mailboxes],
+  );
   const visibleInboxItems = useMemo(
-    () => sortInboxItemsForView(filteredInboxItems, sortBy),
-    [filteredInboxItems, sortBy],
+    () => sortInboxItemsForView(searchedInboxItems, sortBy),
+    [searchedInboxItems, sortBy],
   );
 
   const visibleSyncError = useMemo(
@@ -1170,6 +1229,27 @@ export function EmailInboxView({
       data.inboxItems.filter((item) => item.status === "quarantine").length,
     );
   }, [data.inboxItems, data.mailboxes]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setIsFilterBarCollapsed(
+      window.localStorage.getItem(EMAIL_INBOX_FILTER_BAR_STORAGE_KEY) === "1",
+    );
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      EMAIL_INBOX_FILTER_BAR_STORAGE_KEY,
+      isFilterBarCollapsed ? "1" : "0",
+    );
+  }, [isFilterBarCollapsed]);
 
   useEffect(() => {
     void refreshReplyDraftState().catch((error) => {
@@ -3249,219 +3329,299 @@ export function EmailInboxView({
                     {trashedThreadCount} in trash
                   </div>
                 ) : null}
-                <div className="relative w-full sm:w-[240px]">
-                  <FloatingFieldLabel label="Mailbox" />
-                  <Mail className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                  <div className="pointer-events-none absolute left-9 top-1/2 z-10 h-5 w-px -translate-y-1/2 bg-zinc-700" />
-                  <Select
-                    value={selectedMailboxId}
-                    onValueChange={setSelectedMailboxId}
-                  >
-                    <SelectTrigger className="h-11 border-zinc-800 bg-zinc-950/70 pl-12 text-white">
-                      <SelectValue placeholder="Mailbox" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All mailboxes</SelectItem>
-                      {mailboxes.map((mailbox) => (
-                        <SelectItem key={mailbox.id} value={mailbox.id}>
-                          {mailbox.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="relative w-full sm:w-[260px]">
-                  <FloatingFieldLabel label="Sort by" />
-                  <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                  <div className="pointer-events-none absolute left-9 top-1/2 z-10 h-5 w-px -translate-y-1/2 bg-zinc-700" />
-                  <Select
-                    value={sortBy}
-                    onValueChange={(value) =>
-                      setSortBy(value as EmailInboxSortOption)
-                    }
-                  >
-                    <SelectTrigger className="h-11 border-zinc-800 bg-zinc-950/70 pl-12 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {EMAIL_INBOX_SORT_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
             </div>
-            {!isQuarantineView ? (
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  {isInboxView ? (
-                    <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
-                      {[
-                        { id: "threads", label: "Threads" },
-                        { id: "reply_queue", label: "Reply Queue" },
-                      ].map((tab) => (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() =>
-                            setReplyQueueTab(tab.id as EmailReplyQueueTab)
-                          }
-                          className={
-                            replyQueueTab === tab.id
-                              ? "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
-                              : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
-                          }
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
+            <div className="mb-3 rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-300">
+                    <Search className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-white">
+                      Search & Filters
+                    </div>
+                    <div className="text-xs text-zinc-500">
+                      Search sender, subject, project, preview, or mailbox.
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {inboxSearchQuery.trim() ? (
+                    <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                      {visibleInboxItems.length} match
+                      {visibleInboxItems.length === 1 ? "" : "es"}
                     </div>
                   ) : null}
-                  {!isInboxView || replyQueueTab === "threads" ? (
-                    <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
-                      {[
-                        { id: "all", label: "All" },
-                        { id: "unread", label: "Unread" },
-                        { id: "read", label: "Read" },
-                        ...(!isTrashView
-                          ? [{ id: "spam", label: "Spam" }]
-                          : []),
-                      ].map((tab) => (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() =>
-                            setInboxFilterTab(tab.id as EmailInboxFilterTab)
-                          }
-                          className={
-                            inboxFilterTab === tab.id
-                              ? tab.id === "unread"
-                                ? "rounded-lg border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-3 py-1.5 text-sm font-medium text-[rgb(var(--theme-primary-rgb))]"
-                                : tab.id === "spam"
-                                  ? "rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-1.5 text-sm font-medium text-red-200"
-                                  : tab.id === "read"
-                                    ? "rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-sm font-medium text-zinc-200"
-                                    : "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
-                              : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
-                          }
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
-                      {[
-                        { id: "draft", label: "Draft" },
-                        { id: "scheduled", label: "Scheduled" },
-                        { id: "failed", label: "Failed" },
-                        { id: "sent", label: "Sent" },
-                        { id: "all", label: "All" },
-                      ].map((tab) => (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() =>
-                            setReplyQueueFilter(tab.id as EmailReplyQueueFilter)
-                          }
-                          className={
-                            replyQueueFilter === tab.id
-                              ? "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
-                              : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
-                          }
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="inline-flex items-center gap-2">
-                  <Tooltip
-                    content="Run AI spam detection"
-                    className="w-auto"
-                    side="bottom"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => void handleRunSpamScan()}
-                      disabled={
-                        Boolean(spamScanProgress) ||
-                        visibleInboxItems.length === 0
-                      }
-                      aria-label="Run AI spam detection"
-                      className={cn(
-                        "inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-                        spamScanProgress
-                          ? "border-rose-500/40 bg-rose-500/10 text-rose-300"
-                          : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:text-white",
-                      )}
-                    >
-                      {spamScanProgress ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Radar className="h-4 w-4" />
-                      )}
-                    </button>
-                  </Tooltip>
-                  <Tooltip
-                    content={
-                      alwaysShowSummary
-                        ? "Always show AI summary"
-                        : "Show AI summary on hover"
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setIsFilterBarCollapsed((current) => !current)
                     }
-                    className="w-auto"
-                    side="bottom"
-                  >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setAlwaysShowSummary((current) => !current)
-                      }
-                      aria-pressed={alwaysShowSummary}
-                      aria-label="Toggle AI summary visibility"
-                      className={cn(
-                        "inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors",
-                        alwaysShowSummary
-                          ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 text-[rgb(var(--theme-primary-rgb))]"
-                          : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:text-white",
-                      )}
-                    >
-                      <Bot className="h-4 w-4" />
-                    </button>
-                  </Tooltip>
-                  <Tooltip
-                    content={
-                      alwaysShowExcerpt
-                        ? "Always show email excerpt"
-                        : "Show email excerpt on hover"
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/80 px-3 text-sm text-zinc-300 transition-colors hover:text-white"
+                    aria-expanded={!isFilterBarCollapsed}
+                    aria-label={
+                      isFilterBarCollapsed
+                        ? "Expand search and filters"
+                        : "Collapse search and filters"
                     }
-                    className="w-auto"
-                    side="bottom"
                   >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setAlwaysShowExcerpt((current) => !current)
-                      }
-                      aria-pressed={alwaysShowExcerpt}
-                      aria-label="Toggle email excerpt visibility"
+                    {isFilterBarCollapsed ? "Show" : "Hide"}
+                    <ChevronDown
                       className={cn(
-                        "inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors",
-                        alwaysShowExcerpt
-                          ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 text-[rgb(var(--theme-primary-rgb))]"
-                          : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:text-white",
+                        "h-4 w-4 transition-transform",
+                        isFilterBarCollapsed ? "" : "rotate-180",
                       )}
-                    >
-                      <MailOpen className="h-4 w-4" />
-                    </button>
-                  </Tooltip>
+                    />
+                  </button>
                 </div>
               </div>
-            ) : null}
+              {!isFilterBarCollapsed ? (
+                <div className="mt-3 space-y-3">
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.8fr)_minmax(240px,0.9fr)]">
+                    <div className="relative">
+                      <FloatingFieldLabel label="Search inbox" />
+                      <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                      <div className="pointer-events-none absolute left-9 top-1/2 z-10 h-5 w-px -translate-y-1/2 bg-zinc-700" />
+                      <Input
+                        value={inboxSearchQuery}
+                        onChange={(event) =>
+                          setInboxSearchQuery(event.target.value)
+                        }
+                        placeholder="Search sender, subject, preview, or mailbox..."
+                        className="h-11 rounded-xl border-zinc-800 bg-zinc-950/70 pl-12 pr-11"
+                        aria-label="Search inbox"
+                      />
+                      {inboxSearchQuery.trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => setInboxSearchQuery("")}
+                          className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-zinc-500 transition-colors hover:text-white"
+                          aria-label="Clear inbox search"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="relative">
+                      <FloatingFieldLabel label="Mailbox" />
+                      <Mail className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                      <div className="pointer-events-none absolute left-9 top-1/2 z-10 h-5 w-px -translate-y-1/2 bg-zinc-700" />
+                      <Select
+                        value={selectedMailboxId}
+                        onValueChange={setSelectedMailboxId}
+                      >
+                        <SelectTrigger className="h-11 rounded-xl border-zinc-800 bg-zinc-950/70 pl-12 text-white">
+                          <SelectValue placeholder="Mailbox" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All mailboxes</SelectItem>
+                          {mailboxes.map((mailbox) => (
+                            <SelectItem key={mailbox.id} value={mailbox.id}>
+                              {mailbox.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="relative">
+                      <FloatingFieldLabel label="Sort by" />
+                      <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                      <div className="pointer-events-none absolute left-9 top-1/2 z-10 h-5 w-px -translate-y-1/2 bg-zinc-700" />
+                      <Select
+                        value={sortBy}
+                        onValueChange={(value) =>
+                          setSortBy(value as EmailInboxSortOption)
+                        }
+                      >
+                        <SelectTrigger className="h-11 rounded-xl border-zinc-800 bg-zinc-950/70 pl-12 text-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {EMAIL_INBOX_SORT_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  {!isQuarantineView ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {isInboxView ? (
+                          <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
+                            {[
+                              { id: "threads", label: "Threads" },
+                              { id: "reply_queue", label: "Reply Queue" },
+                            ].map((tab) => (
+                              <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() =>
+                                  setReplyQueueTab(tab.id as EmailReplyQueueTab)
+                                }
+                                className={
+                                  replyQueueTab === tab.id
+                                    ? "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
+                                    : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
+                                }
+                              >
+                                {tab.label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                        {!isInboxView || replyQueueTab === "threads" ? (
+                          <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
+                            {[
+                              { id: "all", label: "All" },
+                              { id: "unread", label: "Unread" },
+                              { id: "read", label: "Read" },
+                              ...(!isTrashView
+                                ? [{ id: "spam", label: "Spam" }]
+                                : []),
+                            ].map((tab) => (
+                              <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() =>
+                                  setInboxFilterTab(
+                                    tab.id as EmailInboxFilterTab,
+                                  )
+                                }
+                                className={
+                                  inboxFilterTab === tab.id
+                                    ? tab.id === "unread"
+                                      ? "rounded-lg border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-3 py-1.5 text-sm font-medium text-[rgb(var(--theme-primary-rgb))]"
+                                      : tab.id === "spam"
+                                        ? "rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-1.5 text-sm font-medium text-red-200"
+                                        : tab.id === "read"
+                                          ? "rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-sm font-medium text-zinc-200"
+                                          : "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
+                                    : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
+                                }
+                              >
+                                {tab.label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
+                            {[
+                              { id: "draft", label: "Draft" },
+                              { id: "scheduled", label: "Scheduled" },
+                              { id: "failed", label: "Failed" },
+                              { id: "sent", label: "Sent" },
+                              { id: "all", label: "All" },
+                            ].map((tab) => (
+                              <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() =>
+                                  setReplyQueueFilter(
+                                    tab.id as EmailReplyQueueFilter,
+                                  )
+                                }
+                                className={
+                                  replyQueueFilter === tab.id
+                                    ? "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
+                                    : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
+                                }
+                              >
+                                {tab.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="inline-flex items-center gap-2">
+                        <Tooltip
+                          content="Run AI spam detection"
+                          className="w-auto"
+                          side="bottom"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => void handleRunSpamScan()}
+                            disabled={
+                              Boolean(spamScanProgress) ||
+                              visibleInboxItems.length === 0
+                            }
+                            aria-label="Run AI spam detection"
+                            className={cn(
+                              "inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                              spamScanProgress
+                                ? "border-rose-500/40 bg-rose-500/10 text-rose-300"
+                                : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:text-white",
+                            )}
+                          >
+                            {spamScanProgress ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Radar className="h-4 w-4" />
+                            )}
+                          </button>
+                        </Tooltip>
+                        <Tooltip
+                          content={
+                            alwaysShowSummary
+                              ? "Always show AI summary"
+                              : "Show AI summary on hover"
+                          }
+                          className="w-auto"
+                          side="bottom"
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setAlwaysShowSummary((current) => !current)
+                            }
+                            aria-pressed={alwaysShowSummary}
+                            aria-label="Toggle AI summary visibility"
+                            className={cn(
+                              "inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors",
+                              alwaysShowSummary
+                                ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 text-[rgb(var(--theme-primary-rgb))]"
+                                : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:text-white",
+                            )}
+                          >
+                            <Bot className="h-4 w-4" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip
+                          content={
+                            alwaysShowExcerpt
+                              ? "Always show email excerpt"
+                              : "Show email excerpt on hover"
+                          }
+                          className="w-auto"
+                          side="bottom"
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setAlwaysShowExcerpt((current) => !current)
+                            }
+                            aria-pressed={alwaysShowExcerpt}
+                            aria-label="Toggle email excerpt visibility"
+                            className={cn(
+                              "inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors",
+                              alwaysShowExcerpt
+                                ? "border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 text-[rgb(var(--theme-primary-rgb))]"
+                                : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:text-white",
+                            )}
+                          >
+                            <MailOpen className="h-4 w-4" />
+                          </button>
+                        </Tooltip>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
             {isInboxView && spamScanProgress ? (
               <div className="mb-3 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3522,7 +3682,9 @@ export function EmailInboxView({
                     ? "No suspicious email is waiting for review."
                     : isTrashView
                       ? "Trash is empty."
-                      : "No inbox work yet."
+                      : inboxSearchQuery.trim()
+                        ? "No email matches your current search."
+                        : "No inbox work yet."
                 }
               />
             ) : visibleReplyDrafts.length === 0 ? (
