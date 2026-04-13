@@ -424,6 +424,83 @@ export function applyOptimisticThreadReadState(
   );
 }
 
+export function applyOptimisticThreadActionState(
+  items: InboxItem[],
+  threadId: string,
+  action: ThreadAction,
+): InboxItem[] {
+  let didChange = false;
+
+  const nextItems = items.map((item) => {
+    if (item.id !== threadId) {
+      return item;
+    }
+
+    didChange = true;
+
+    switch (action) {
+      case "approve": {
+        const nextItem: InboxItem = {
+          ...item,
+          status: item.projectId ? "active" : "needs_project",
+          classification:
+            item.classification === "spam" ? "actionable" : item.classification,
+          isUnread: false,
+        };
+        return nextItem;
+      }
+      case "quarantine": {
+        const nextItem: InboxItem = {
+          ...item,
+          status: "quarantine",
+          isUnread: false,
+        };
+        return nextItem;
+      }
+      case "archive": {
+        const nextItem: InboxItem = {
+          ...item,
+          status: "archived",
+          isUnread: false,
+        };
+        return nextItem;
+      }
+      case "spam": {
+        const nextItem: InboxItem = {
+          ...item,
+          status: "spam",
+          classification: "spam",
+          isUnread: false,
+        };
+        return nextItem;
+      }
+      case "delete":
+      case "always_delete_sender": {
+        const nextItem: InboxItem = {
+          ...item,
+          status: "deleted",
+          classification: "spam",
+          alwaysDelete:
+            action === "always_delete_sender" ? true : item.alwaysDelete,
+          isUnread: false,
+        };
+        return nextItem;
+      }
+      case "mark_read": {
+        const nextItem: InboxItem = {
+          ...item,
+          isUnread: false,
+        };
+        return nextItem;
+      }
+      default:
+        return item;
+    }
+  });
+
+  return didChange ? nextItems : items;
+}
+
 export function mergeInboxItem(items: InboxItem[], nextItem: InboxItem) {
   return items.map((item) => (item.id === nextItem.id ? nextItem : item));
 }
@@ -1358,6 +1435,43 @@ export function EmailInboxView({
     if (!threadId) return;
 
     const shouldUpdateSelectedThread = options?.updateSelectedThread ?? true;
+    const previousItems = inboxSnapshotRef.current;
+    const previousSelectedThread = selectedThread;
+    const optimisticItems = applyOptimisticThreadActionState(
+      previousItems,
+      threadId,
+      action,
+    );
+    const changedOptimistically = optimisticItems !== previousItems;
+
+    if (changedOptimistically) {
+      inboxSnapshotRef.current = optimisticItems;
+      setInboxItems(optimisticItems);
+      setQuarantineCount(
+        optimisticItems.filter((item) => item.status === "quarantine").length,
+      );
+    }
+
+    if (
+      shouldUpdateSelectedThread &&
+      previousSelectedThread &&
+      previousSelectedThread.id === threadId
+    ) {
+      setSelectedThread((current: any | null) => {
+        if (!current || current.id !== threadId) {
+          return current;
+        }
+
+        const [nextThread] = applyOptimisticThreadActionState(
+          [current as InboxItem],
+          threadId,
+          action,
+        );
+
+        return nextThread ?? current;
+      });
+    }
+
     setBusyState(action);
     try {
       const response = await fetch(`/api/email/threads/${threadId}/actions`, {
@@ -1370,14 +1484,10 @@ export function EmailInboxView({
       if (!response.ok) {
         throw new Error(payload.error || "Failed to apply thread action");
       }
-      await refreshInboxState();
       if (action === "mark_read" && shouldUpdateSelectedThread) {
-        const detailResponse = await fetch(
-          `/api/email/threads/${threadId}`,
-          {
-            credentials: "include",
-          },
-        );
+        const detailResponse = await fetch(`/api/email/threads/${threadId}`, {
+          credentials: "include",
+        });
         const detailPayload = await detailResponse.json();
 
         if (!detailResponse.ok) {
@@ -1386,10 +1496,33 @@ export function EmailInboxView({
 
         setSelectedThread(detailPayload);
       } else if (shouldUpdateSelectedThread) {
-        setSelectedThread(payload.id ? payload : selectedThread);
+        setSelectedThread((current: any | null) =>
+          payload?.id ? payload : current,
+        );
       }
+
+      void refreshInboxState().catch(() => {
+        // Keep the optimistic state instead of blocking the UI on a slow refresh.
+      });
+
       updateStatus(`Applied ${action.replace(/_/g, " ")}.`);
     } catch (error) {
+      if (changedOptimistically) {
+        inboxSnapshotRef.current = previousItems;
+        setInboxItems(previousItems);
+        setQuarantineCount(
+          previousItems.filter((item) => item.status === "quarantine").length,
+        );
+      }
+
+      if (
+        shouldUpdateSelectedThread &&
+        previousSelectedThread &&
+        previousSelectedThread.id === threadId
+      ) {
+        setSelectedThread(previousSelectedThread);
+      }
+
       updateStatus(
         error instanceof Error ? error.message : "Failed to apply action",
       );

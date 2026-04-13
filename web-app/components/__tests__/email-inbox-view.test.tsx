@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  applyOptimisticThreadActionState,
   EMAIL_INBOX_SORT_OPTIONS,
   applyOptimisticThreadReadState,
   buildEmailThreadPopoutUrl,
@@ -174,6 +175,53 @@ test("applyOptimisticThreadReadState marks the selected thread read immediately"
 
   assert.equal(updated[0]?.isUnread, false);
   assert.equal(updated[1]?.isUnread, true);
+});
+
+test("applyOptimisticThreadActionState hides deleted threads immediately", () => {
+  const updated = applyOptimisticThreadActionState(
+    [
+      {
+        id: "thread-1",
+        status: "active",
+        classification: "actionable",
+        isUnread: true,
+        alwaysDelete: false,
+      },
+      { id: "thread-2", status: "active", classification: "unknown" },
+    ] as any,
+    "thread-1",
+    "delete",
+  );
+
+  assert.equal(updated[0]?.status, "deleted");
+  assert.equal(updated[0]?.isUnread, false);
+  assert.equal(updated[0]?.classification, "spam");
+  assert.equal(updated[1]?.status, "active");
+});
+
+test("applyOptimisticThreadActionState marks archive actions as read immediately", () => {
+  const updated = applyOptimisticThreadActionState(
+    [
+      {
+        id: "thread-1",
+        status: "active",
+        classification: "actionable",
+        isUnread: true,
+      },
+    ] as any,
+    "thread-1",
+    "archive",
+  );
+
+  assert.equal(updated[0]?.status, "archived");
+  assert.equal(updated[0]?.isUnread, false);
+});
+
+test("applyOptimisticThreadActionState preserves the original array when the thread is missing", () => {
+  const items = [{ id: "thread-1", status: "active", isUnread: true }] as any;
+  const updated = applyOptimisticThreadActionState(items, "missing", "delete");
+
+  assert.equal(updated, items);
 });
 
 test("mergeInboxItem replaces the matching thread with the scanned result", () => {
