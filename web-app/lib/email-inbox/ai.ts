@@ -189,6 +189,148 @@ function clipReplyParagraph(value: string, maxLength = 280) {
   return `${normalized.slice(0, maxLength - 1).trimEnd()}...`;
 }
 
+function normalizeReplyRelevanceText(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractReplyKeywords(value: string | null | undefined) {
+  const stopWords = new Set([
+    "a",
+    "an",
+    "and",
+    "are",
+    "at",
+    "be",
+    "but",
+    "for",
+    "from",
+    "has",
+    "have",
+    "here",
+    "how",
+    "i",
+    "if",
+    "in",
+    "is",
+    "it",
+    "its",
+    "me",
+    "my",
+    "of",
+    "on",
+    "or",
+    "our",
+    "re",
+    "that",
+    "the",
+    "their",
+    "them",
+    "there",
+    "they",
+    "this",
+    "to",
+    "up",
+    "was",
+    "we",
+    "with",
+    "you",
+    "your",
+  ]);
+
+  return normalizeReplyRelevanceText(value)
+    .split(" ")
+    .filter((token) => token.length >= 4 && !stopWords.has(token));
+}
+
+function hasReplyKeywordOverlap(
+  left: string | null | undefined,
+  right: string | null | undefined,
+) {
+  const leftKeywords = new Set(extractReplyKeywords(left));
+  if (leftKeywords.size === 0) {
+    return false;
+  }
+
+  const matches = extractReplyKeywords(right).filter((token) =>
+    leftKeywords.has(token),
+  );
+
+  return matches.length >= 2;
+}
+
+function isGenericReplySummary(value: string | null | undefined) {
+  const normalized = normalizeReplyRelevanceText(value);
+
+  return (
+    normalized.startsWith("this email is about ") ||
+    normalized.startsWith("the sender ") ||
+    normalized.startsWith("this is an automated update ") ||
+    normalized.startsWith("this appears to be ")
+  );
+}
+
+function resolveReplyThreadSummary(input: {
+  subject: string;
+  latestInboundText: string;
+  threadSummary?: string | null;
+}) {
+  const normalizedInbound = normalizeReplyRelevanceText(input.latestInboundText);
+  const normalizedSummary = normalizeReplyRelevanceText(input.threadSummary);
+
+  if (
+    normalizedSummary &&
+    !isGenericReplySummary(input.threadSummary) &&
+    (normalizedInbound.includes(normalizedSummary) ||
+      normalizedSummary.includes(normalizedInbound) ||
+      hasReplyKeywordOverlap(input.threadSummary, input.latestInboundText) ||
+      hasReplyKeywordOverlap(input.threadSummary, input.subject))
+  ) {
+    return input.threadSummary?.trim() || "";
+  }
+
+  return (
+    extractPlainTextPreview(input.latestInboundText, 160) ||
+    normalizeSubject(input.subject) ||
+    "your message"
+  );
+}
+
+export function shouldUseProjectContextForReply(input: {
+  subject: string;
+  latestInboundText: string;
+  projectContext?: Record<string, unknown> | null;
+}) {
+  const context = (input.projectContext as {
+    project?: { name?: string; description?: string };
+    linkedTasks?: Array<{ name?: string }>;
+    activeTasks?: Array<{ name?: string; description?: string; isLinkedToThread?: boolean }>;
+    recentProjectComments?: Array<{ content?: string }>;
+  } | null) || { };
+
+  if ((context.linkedTasks || []).length > 0) {
+    return true;
+  }
+
+  if ((context.activeTasks || []).some((task) => task.isLinkedToThread)) {
+    return true;
+  }
+
+  const haystack = `${input.subject}\n${input.latestInboundText}`;
+  const contextTexts = [
+    context.project?.name,
+    context.project?.description,
+    ...(context.activeTasks || []).flatMap((task) => [task.name, task.description]),
+    ...(context.recentProjectComments || []).map((comment) => comment.content),
+  ].filter(Boolean);
+
+  return contextTexts.some((value) => hasReplyKeywordOverlap(value || "", haystack));
+}
+
 export function buildProjectReplyContextSnapshot(input: {
   projectExport: ProjectAiExport;
   linkedTaskIds?: string[];
@@ -258,17 +400,24 @@ export function buildHeuristicReplyDraft(
       .reverse()
       .find((entry) => entry.direction === "inbound") || null;
   const authorName = latestInbound?.authorName || latestInbound?.authorEmail;
+  const latestInboundText =
+    latestInbound?.content || latestInbound?.contentHtml || "";
   const subject =
     /^re:/i.test(input.subject || "") ? input.subject : `Re: ${input.subject}`;
-  const threadSummary =
-    input.threadAnalysis?.summaryText ||
-    extractPlainTextPreview(
-      latestInbound?.content || latestInbound?.contentHtml || "",
-      160,
-    ) ||
-    "your message";
+  const threadSummary = resolveReplyThreadSummary({
+    subject: input.subject,
+    latestInboundText,
+    threadSummary: input.threadAnalysis?.summaryText,
+  });
+  const relevantProjectContext = shouldUseProjectContextForReply({
+    subject: input.subject,
+    latestInboundText,
+    projectContext: input.projectContext,
+  })
+    ? input.projectContext
+    : null;
   const projectName = String(
-    (input.projectContext as { project?: { name?: string } } | null)?.project
+    (relevantProjectContext as { project?: { name?: string } } | null)?.project
       ?.name || "",
   ).trim();
   const projectLine = projectName
@@ -844,16 +993,39 @@ export async function generateReplyDraftWithAI(
   input: EmailReplyAIInput,
 ): Promise<EmailReplyAIOutput> {
   const apiKey = process.env.OPENAI_API_KEY;
-  const fallback = buildHeuristicReplyDraft(input);
-
-  if (!apiKey) {
-    return fallback;
-  }
-
   const latestInbound =
     [...input.conversation]
       .reverse()
       .find((entry) => entry.direction === "inbound") || null;
+  const latestInboundText =
+    latestInbound?.content || latestInbound?.contentHtml || "";
+  const relevantProjectContext = shouldUseProjectContextForReply({
+    subject: input.subject,
+    latestInboundText,
+    projectContext: input.projectContext,
+  })
+    ? input.projectContext
+    : null;
+  const normalizedThreadAnalysis = input.threadAnalysis
+    ? {
+        ...input.threadAnalysis,
+        summaryText: resolveReplyThreadSummary({
+          subject: input.subject,
+          latestInboundText,
+          threadSummary: input.threadAnalysis.summaryText,
+        }),
+      }
+    : null;
+  const normalizedInput: EmailReplyAIInput = {
+    ...input,
+    projectContext: relevantProjectContext,
+    threadAnalysis: normalizedThreadAnalysis,
+  };
+  const fallback = buildHeuristicReplyDraft(normalizedInput);
+
+  if (!apiKey) {
+    return fallback;
+  }
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -910,8 +1082,8 @@ If context is incomplete, acknowledge next steps without making unsupported comm
                 }
               : null,
             replySettings: input.replySettings || null,
-            threadAnalysis: input.threadAnalysis || null,
-            projectContext: input.projectContext || null,
+            threadAnalysis: normalizedThreadAnalysis,
+            projectContext: relevantProjectContext,
             fallback,
           }),
         },

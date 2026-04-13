@@ -953,6 +953,40 @@ export function EmailThreadModal({
                 </button>
               </div>
 
+              <div className="flex justify-end pt-1">
+                {pendingConfirmAction === "delete" ? (
+                  <div className="inline-flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => queueThreadAction("delete")}
+                      disabled={Boolean(busyState) || Boolean(queuedAction)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-red-800/60 bg-red-950/50 px-3 py-2 text-sm font-medium text-red-100 transition-colors hover:border-red-700 hover:text-white disabled:opacity-50"
+                    >
+                      <Check className="h-4 w-4" />
+                      Confirm Delete
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingConfirmAction(null)}
+                      disabled={Boolean(busyState) || Boolean(queuedAction)}
+                      className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleThreadAction("delete")}
+                    disabled={Boolean(busyState) || Boolean(queuedAction)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm font-medium text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete Email
+                  </button>
+                )}
+              </div>
+
               {queuedAction && isQueuedActionNoticeVisible ? (
                 <div className="flex items-center gap-3 rounded-xl border border-[rgb(var(--theme-primary-rgb))]/30 bg-[rgb(var(--theme-primary-rgb))]/10 px-3 py-2 text-sm text-zinc-200">
                   <span>

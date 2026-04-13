@@ -10,6 +10,7 @@ import {
 import {
   buildHeuristicReplyDraft,
   buildProjectReplyContextSnapshot,
+  shouldUseProjectContextForReply,
 } from "../email-inbox/ai";
 import { normalizeEmailReplySettings } from "../email-inbox/reply-settings";
 
@@ -180,6 +181,11 @@ test("buildHeuristicReplyDraft uses project context when available", () => {
       project: {
         name: "Client Launch",
       },
+      linkedTasks: [
+        {
+          name: "Finalize redesign rollout",
+        },
+      ],
     },
     threadAnalysis: {
       summaryText: "the redesign timeline",
@@ -212,6 +218,66 @@ test("buildHeuristicReplyDraft keeps short test emails concise", () => {
 
   assert.match(draft.contentText, /Thanks, got it\./);
   assert.doesNotMatch(draft.contentText, /follow up with the next concrete update/i);
+});
+
+test("buildHeuristicReplyDraft ignores stale thread summaries and unrelated projects", () => {
+  const draft = buildHeuristicReplyDraft({
+    mailboxEmail: "ops@example.com",
+    subject: "Re: couple things",
+    conversation: [
+      {
+        direction: "inbound",
+        authorName: "John",
+        authorEmail: "john@example.com",
+        content:
+          "Made a couple notes in the spreadsheet. Customer email logo not loading and credit card checkout month/year is doubled.",
+      },
+    ],
+    threadAnalysis: {
+      summaryText: "This email is about a billing or payment update.",
+    },
+    projectContext: {
+      project: {
+        name: "Blockchain",
+        description: "Wallet settlement and on-chain ledger work.",
+      },
+    },
+  });
+
+  assert.doesNotMatch(draft.contentText, /billing or payment update/i);
+  assert.doesNotMatch(draft.contentText, /Blockchain/);
+  assert.match(draft.contentText, /logo not loading/i);
+});
+
+test("shouldUseProjectContextForReply requires actual relevance when no linked tasks exist", () => {
+  assert.equal(
+    shouldUseProjectContextForReply({
+      subject: "Re: couple things",
+      latestInboundText:
+        "Customer email logo not loading and checkout month/year is doubled.",
+      projectContext: {
+        project: {
+          name: "Blockchain",
+          description: "Wallet settlement and on-chain ledger work.",
+        },
+      },
+    }),
+    false,
+  );
+
+  assert.equal(
+    shouldUseProjectContextForReply({
+      subject: "Re: checkout fixes",
+      latestInboundText: "Shipstation requested shipping method is missing.",
+      projectContext: {
+        linkedTasks: [{ name: "Fix checkout requested shipping method" }],
+        project: {
+          name: "NuEra Heat Checkout",
+        },
+      },
+    }),
+    true,
+  );
 });
 
 test("normalizeEmailReplySettings falls back to safe defaults", () => {
