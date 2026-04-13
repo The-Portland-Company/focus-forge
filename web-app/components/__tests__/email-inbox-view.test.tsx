@@ -161,22 +161,20 @@ test("filterReplyDraftsForView narrows drafts by status", () => {
 });
 
 test("sortReplyDraftsForView prefers the most recently updated drafts", () => {
-  const drafts = sortReplyDraftsForView(
-    [
-      {
-        id: "draft-1",
-        updatedAt: "2026-04-13T08:00:00.000Z",
-        createdAt: "2026-04-13T08:00:00.000Z",
-        scheduledFor: null,
-      },
-      {
-        id: "draft-2",
-        updatedAt: "2026-04-13T09:30:00.000Z",
-        createdAt: "2026-04-13T09:30:00.000Z",
-        scheduledFor: null,
-      },
-    ] as any,
-  );
+  const drafts = sortReplyDraftsForView([
+    {
+      id: "draft-1",
+      updatedAt: "2026-04-13T08:00:00.000Z",
+      createdAt: "2026-04-13T08:00:00.000Z",
+      scheduledFor: null,
+    },
+    {
+      id: "draft-2",
+      updatedAt: "2026-04-13T09:30:00.000Z",
+      createdAt: "2026-04-13T09:30:00.000Z",
+      scheduledFor: null,
+    },
+  ] as any);
 
   assert.deepEqual(
     drafts.map((draft) => draft.id),
@@ -187,6 +185,7 @@ test("sortReplyDraftsForView prefers the most recently updated drafts", () => {
 test("Quarantine and spam actions use different icons", () => {
   assert.equal(getThreadActionButtonIconName("quarantine"), "shield");
   assert.equal(getThreadActionButtonIconName("spam"), "shield-alert");
+  assert.equal(getThreadActionButtonIconName("delete"), "trash-2");
   assert.notEqual(
     getThreadActionButtonIconName("quarantine"),
     getThreadActionButtonIconName("spam"),

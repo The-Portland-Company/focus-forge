@@ -846,23 +846,31 @@ function mapReplyAddressList(value: unknown): EmailReplyAddress[] {
     .filter((entry) => entry.email);
 }
 
-function coerceReplyDraft(row: any, extra?: Partial<EmailReplyDraft>): EmailReplyDraft {
+function coerceReplyDraft(
+  row: any,
+  extra?: Partial<EmailReplyDraft>,
+): EmailReplyDraft {
   return {
     id: String(row.id),
     threadId: String(row.thread_id),
     mailboxId: String(row.mailbox_id),
     projectId: row.project_id ? String(row.project_id) : null,
-    createdByUserId: row.created_by_user_id ? String(row.created_by_user_id) : null,
+    createdByUserId: row.created_by_user_id
+      ? String(row.created_by_user_id)
+      : null,
     source: row.source === "ai" ? "ai" : "manual",
     status: row.status,
-    replyMode: row.reply_mode === "internal_note" ? "internal_note" : "reply_all",
+    replyMode:
+      row.reply_mode === "internal_note" ? "internal_note" : "reply_all",
     subject: String(row.subject || ""),
     contentText: row.content_text ?? null,
     contentHtml: row.content_html ?? null,
     signatureText: row.signature_text ?? null,
     to: mapReplyAddressList(row.to_json),
     cc: mapReplyAddressList(row.cc_json),
-    attachments: Array.isArray(row.attachments_json) ? row.attachments_json : [],
+    attachments: Array.isArray(row.attachments_json)
+      ? row.attachments_json
+      : [],
     scheduledFor: row.scheduled_for ?? null,
     sentAt: row.sent_at ?? null,
     lastError: row.last_error ?? null,
@@ -1919,7 +1927,8 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
 
   try {
     const syncResult = await fetchMailboxMessages(transportMailbox, {
-      lastSeenAt: syncState?.last_seen_message_at ?? mailbox.last_synced_at ?? null,
+      lastSeenAt:
+        syncState?.last_seen_message_at ?? mailbox.last_synced_at ?? null,
       syncCursor: syncState?.sync_cursor_json ?? null,
     });
     const messages = syncResult.messages;
@@ -1990,7 +1999,8 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       last_seen_message_at: syncResult.syncCursor.lastSeenAt,
       sync_cursor_json: buildMailboxSyncCursor({
         previousCursor: syncState?.sync_cursor_json ?? null,
-        fallbackLastSeenAt: syncState?.last_seen_message_at ?? mailbox.last_synced_at ?? null,
+        fallbackLastSeenAt:
+          syncState?.last_seen_message_at ?? mailbox.last_synced_at ?? null,
         messages,
         highestUid: syncResult.syncCursor.highestUid,
       }),
@@ -2165,7 +2175,12 @@ export async function getThreadAttachmentForUser(
     .eq("id", messageId)
     .maybeSingle();
 
-  if (!row?.id || !row.thread_id || !row.mailbox_id || !row.provider_message_id) {
+  if (
+    !row?.id ||
+    !row.thread_id ||
+    !row.mailbox_id ||
+    !row.provider_message_id
+  ) {
     throw new Error("Attachment not found");
   }
 
@@ -2361,7 +2376,9 @@ async function resolveThreadReplyEnvelope(params: {
   };
 }
 
-async function resolveReplyAttachmentPayloads(attachments: EmailReplyAttachment[]) {
+async function resolveReplyAttachmentPayloads(
+  attachments: EmailReplyAttachment[],
+) {
   const admin = getAdminClient();
 
   return Promise.all(
@@ -2468,7 +2485,8 @@ async function sendThreadReplyMessage(params: {
       direction: "outbound",
       provider_message_id: null,
       internet_message_id: info.messageId || null,
-      in_reply_to_message_id: envelope.latestMessage.internet_message_id ?? null,
+      in_reply_to_message_id:
+        envelope.latestMessage.internet_message_id ?? null,
       subject: params.subject,
       body_text: normalizedText,
       body_html: normalizedHtml,
@@ -2582,7 +2600,9 @@ export async function createReplyDraft(params: {
           mailbox,
         })
       : null;
-  const scheduledFor = params.scheduledFor ? new Date(params.scheduledFor).toISOString() : null;
+  const scheduledFor = params.scheduledFor
+    ? new Date(params.scheduledFor).toISOString()
+    : null;
   const nextStatus = params.status || (scheduledFor ? "scheduled" : "draft");
 
   if (params.replyMode === "internal_note" && nextStatus === "scheduled") {
@@ -2603,10 +2623,14 @@ export async function createReplyDraft(params: {
         ? thread.subject
         : `Re: ${thread.subject}`),
     content_text: params.contentText ?? null,
-    content_html: params.contentHtml ? normalizeRichText(params.contentHtml) : null,
+    content_html: params.contentHtml
+      ? normalizeRichText(params.contentHtml)
+      : null,
     signature_text: params.signatureText ?? null,
-    to_json: params.replyMode === "reply_all" ? params.to || envelope?.to || [] : [],
-    cc_json: params.replyMode === "reply_all" ? params.cc || envelope?.cc || [] : [],
+    to_json:
+      params.replyMode === "reply_all" ? params.to || envelope?.to || [] : [],
+    cc_json:
+      params.replyMode === "reply_all" ? params.cc || envelope?.cc || [] : [],
     attachments_json: params.attachments || [],
     scheduled_for: scheduledFor,
     last_error: null,
@@ -2722,7 +2746,9 @@ export async function updateReplyDraft(params: {
           ? draft.subject
           : String(params.subject || "").trim() || draft.subject,
       content_text:
-        params.contentText === undefined ? draft.content_text : params.contentText,
+        params.contentText === undefined
+          ? draft.content_text
+          : params.contentText,
       content_html:
         params.contentHtml === undefined
           ? draft.content_html
@@ -2784,11 +2810,13 @@ async function executeReplyDraftSend(draft: any) {
     throw new Error("Email thread not found");
   }
 
-  const mailbox = (await admin
-    .from("mailboxes")
-    .select("*")
-    .eq("id", draft.mailbox_id)
-    .maybeSingle()).data as MailboxTransportRow | null;
+  const mailbox = (
+    await admin
+      .from("mailboxes")
+      .select("*")
+      .eq("id", draft.mailbox_id)
+      .maybeSingle()
+  ).data as MailboxTransportRow | null;
 
   if (!mailbox) {
     throw new Error("Mailbox not found");
@@ -2862,7 +2890,9 @@ export async function sendReplyDraftNow(params: {
       .update({
         status: "failed",
         last_error:
-          error instanceof Error ? error.message : "Failed to send reply draft.",
+          error instanceof Error
+            ? error.message
+            : "Failed to send reply draft.",
         updated_at: new Date().toISOString(),
       })
       .eq("id", draft.id);
@@ -2930,8 +2960,12 @@ export async function listReplyDraftsForUser(
     ]);
 
   const mailboxMap = new Map(mailboxes.map((mailbox) => [mailbox.id, mailbox]));
-  const threadMap = new Map((threads || []).map((row: any) => [String(row.id), row]));
-  const projectMap = new Map((projects || []).map((row: any) => [String(row.id), row]));
+  const threadMap = new Map(
+    (threads || []).map((row: any) => [String(row.id), row]),
+  );
+  const projectMap = new Map(
+    (projects || []).map((row: any) => [String(row.id), row]),
+  );
   const senderMap = new Map<string, InboxParticipant>();
 
   (participants || []).forEach((row: any) => {
@@ -2942,9 +2976,13 @@ export async function listReplyDraftsForUser(
 
   return rows.map((row: any) => {
     const sender = senderMap.get(String(row.thread_id));
-    const mailbox = mailboxMap.get(String(row.mailbox_id)) as Mailbox | undefined;
+    const mailbox = mailboxMap.get(String(row.mailbox_id)) as
+      | Mailbox
+      | undefined;
     const project = row.project_id
-      ? (projectMap.get(String(row.project_id)) as { name?: string } | undefined)
+      ? (projectMap.get(String(row.project_id)) as
+          | { name?: string }
+          | undefined)
       : null;
     const threadRow = threadMap.get(String(row.thread_id)) as
       | { subject?: string | null }
@@ -2988,10 +3026,9 @@ export async function generateAiReplyForThread(params: {
   const linkedTaskIds = (taskLinks || [])
     .map((row: any) => String(row.task_id || ""))
     .filter(Boolean);
-  const projectExport =
-    thread.project_id
-      ? await getProjectAiExportForUser(String(thread.project_id), params.userId)
-      : null;
+  const projectExport = thread.project_id
+    ? await getProjectAiExportForUser(String(thread.project_id), params.userId)
+    : null;
   const projectContext = projectExport
     ? buildProjectReplyContextSnapshot({
         projectExport,
@@ -3083,7 +3120,9 @@ export async function processScheduledReplyDrafts() {
         .update({
           status: "failed",
           last_error:
-            error instanceof Error ? error.message : "Failed to send reply draft.",
+            error instanceof Error
+              ? error.message
+              : "Failed to send reply draft.",
           updated_at: new Date().toISOString(),
         })
         .eq("id", row.id);
@@ -3124,12 +3163,14 @@ export async function applyThreadAction(params: {
   const providerMessageIds = (messages || [])
     .map((message: any) => message.provider_message_id)
     .filter(Boolean);
+  const effectiveAction =
+    params.action === "always_delete_sender" ? "delete" : params.action;
 
-  if (params.action === "reprocess") {
+  if (effectiveAction === "reprocess") {
     return reprocessThread(params.threadId, params.userId);
   }
 
-  if (params.action === "approve") {
+  if (effectiveAction === "approve") {
     await admin
       .from("email_threads")
       .update({
@@ -3144,44 +3185,6 @@ export async function applyThreadAction(params: {
     return reprocessThread(params.threadId, params.userId);
   }
 
-  if (params.action === "always_delete_sender") {
-    const latestMetadata = messages?.[0]?.metadata_json || {};
-    const senderEmail = latestMetadata.from?.[0]?.email;
-    if (senderEmail) {
-      await admin.from("email_rules").insert({
-        mailbox_id: mailbox.id,
-        user_id: params.userId,
-        name: `Always delete ${senderEmail}`,
-        description: "Generated from quarantine action",
-        source: "user",
-        is_active: true,
-        priority: 10,
-        match_mode: "all",
-        conditions_json: [
-          { field: "sender_email", operator: "equals", value: senderEmail },
-        ],
-        actions_json: [{ type: "always_delete" }],
-        stop_processing: true,
-      });
-    }
-    await applyMailboxThreadAction({
-      mailbox,
-      providerMessageIds,
-      action: "delete",
-    });
-    await admin
-      .from("email_threads")
-      .update({
-        status: "deleted",
-        classification: "spam",
-        always_delete: true,
-        is_unread: false,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", params.threadId);
-    return { success: true };
-  }
-
   const statusUpdates: Record<string, string> = {
     quarantine: "quarantine",
     archive: "archived",
@@ -3189,7 +3192,7 @@ export async function applyThreadAction(params: {
     delete: "deleted",
   };
 
-  if (params.action === "mark_read") {
+  if (effectiveAction === "mark_read") {
     await applyMailboxThreadAction({
       mailbox,
       providerMessageIds,
@@ -3208,13 +3211,14 @@ export async function applyThreadAction(params: {
   await applyMailboxThreadAction({
     mailbox,
     providerMessageIds,
-    action: params.action as "archive" | "spam" | "delete",
+    action: effectiveAction as "archive" | "spam" | "delete",
   });
 
   await admin
     .from("email_threads")
     .update({
-      status: statusUpdates[params.action],
+      status: statusUpdates[effectiveAction],
+      always_delete: false,
       is_unread: false,
       updated_at: new Date().toISOString(),
     })

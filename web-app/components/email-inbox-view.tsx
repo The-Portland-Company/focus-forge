@@ -264,7 +264,12 @@ export type EmailInboxSortOption =
 
 export type EmailInboxFilterTab = "all" | "unread" | "read" | "spam";
 export type EmailReplyQueueTab = "threads" | "reply_queue";
-export type EmailReplyQueueFilter = "all" | "draft" | "scheduled" | "failed" | "sent";
+export type EmailReplyQueueFilter =
+  | "all"
+  | "draft"
+  | "scheduled"
+  | "failed"
+  | "sent";
 
 function getBrowserNotificationPermission():
   | NotificationPermission
@@ -474,6 +479,7 @@ export function getThreadActionButtonIconName(action: ThreadAction) {
       return "archive";
     case "spam":
       return "shield-alert";
+    case "delete":
     case "always_delete_sender":
       return "trash-2";
     default:
@@ -562,8 +568,7 @@ export function applyOptimisticThreadActionState(
           ...item,
           status: "deleted",
           classification: "spam",
-          alwaysDelete:
-            action === "always_delete_sender" ? true : item.alwaysDelete,
+          alwaysDelete: false,
           isUnread: false,
         };
         return nextItem;
@@ -784,7 +789,10 @@ export function EmailInboxView({
     [selectedProjectId, sortedInboxProjects],
   );
   const visibleReplyDrafts = useMemo(
-    () => sortReplyDraftsForView(filterReplyDraftsForView(replyDrafts, replyQueueFilter)),
+    () =>
+      sortReplyDraftsForView(
+        filterReplyDraftsForView(replyDrafts, replyQueueFilter),
+      ),
     [replyDrafts, replyQueueFilter],
   );
   const selectedReplyDraft = useMemo(
@@ -1360,18 +1368,18 @@ export function EmailInboxView({
   useEffect(() => {
     if (!isEmailInboxView(view)) return;
 
-      void (async () => {
-        try {
-          const result = await syncDueMailboxes(mailboxesRef.current);
-          if (result.syncedMailboxCount > 0 || result.changedThreadCount > 0) {
-            await refreshInboxStateRef.current?.({
-              allowBrowserNotifications: true,
-            });
-          }
-        } catch {
-          // Keep automatic refresh silent while the user is working in the inbox.
+    void (async () => {
+      try {
+        const result = await syncDueMailboxes(mailboxesRef.current);
+        if (result.syncedMailboxCount > 0 || result.changedThreadCount > 0) {
+          await refreshInboxStateRef.current?.({
+            allowBrowserNotifications: true,
+          });
         }
-      })();
+      } catch {
+        // Keep automatic refresh silent while the user is working in the inbox.
+      }
+    })();
 
     const interval = window.setInterval(() => {
       void (async () => {
@@ -2283,18 +2291,23 @@ export function EmailInboxView({
       contentHtml: replyContent,
       signatureText:
         replyMode === "reply_all"
-          ? selectedSignature?.content || selectedReplyDraft?.signatureText || null
+          ? selectedSignature?.content ||
+            selectedReplyDraft?.signatureText ||
+            null
           : null,
       attachments: buildReplyAttachmentPayload(),
     };
 
     if (selectedReplyDraftId) {
-      const response = await fetch(`/api/email/reply-drafts/${selectedReplyDraftId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch(
+        `/api/email/reply-drafts/${selectedReplyDraftId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        },
+      );
       const result = await response.json();
       if (!response.ok) {
         throw new Error(result.error || "Failed to update reply draft");
@@ -2302,12 +2315,15 @@ export function EmailInboxView({
       return result as EmailReplyDraft;
     }
 
-    const response = await fetch(`/api/email/threads/${selectedThreadId}/reply-drafts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(payload),
-    });
+    const response = await fetch(
+      `/api/email/threads/${selectedThreadId}/reply-drafts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      },
+    );
     const result = await response.json();
     if (!response.ok) {
       throw new Error(result.error || "Failed to save reply draft");
@@ -2379,12 +2395,17 @@ export function EmailInboxView({
     setBusyState("reply_schedule");
     try {
       const draft = await ensureComposerDraft();
-      const response = await fetch(`/api/email/reply-drafts/${draft.id}/schedule`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ scheduledFor: new Date(scheduledReplyAt).toISOString() }),
-      });
+      const response = await fetch(
+        `/api/email/reply-drafts/${draft.id}/schedule`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            scheduledFor: new Date(scheduledReplyAt).toISOString(),
+          }),
+        },
+      );
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload.error || "Failed to schedule reply");
@@ -3336,10 +3357,15 @@ export function EmailInboxView({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium text-white">
-                          {draft.senderName || draft.senderEmail || draft.threadSubject || "Reply draft"}
+                          {draft.senderName ||
+                            draft.senderEmail ||
+                            draft.threadSubject ||
+                            "Reply draft"}
                         </div>
                         <div className="truncate text-xs text-zinc-500">
-                          {draft.subject || draft.threadSubject || "Untitled reply"}
+                          {draft.subject ||
+                            draft.threadSubject ||
+                            "Untitled reply"}
                         </div>
                       </div>
                       <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-300">
@@ -3347,7 +3373,9 @@ export function EmailInboxView({
                       </div>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
-                      {draft.projectName ? <span>{draft.projectName}</span> : null}
+                      {draft.projectName ? (
+                        <span>{draft.projectName}</span>
+                      ) : null}
                       {draft.scheduledFor ? (
                         <span>
                           {new Date(draft.scheduledFor).toLocaleString()}
@@ -3355,7 +3383,11 @@ export function EmailInboxView({
                       ) : null}
                       {draft.aiMetadata["confidence"] ? (
                         <span>
-                          AI {Math.round(Number(draft.aiMetadata["confidence"]) * 100)}%
+                          AI{" "}
+                          {Math.round(
+                            Number(draft.aiMetadata["confidence"]) * 100,
+                          )}
+                          %
                         </span>
                       ) : null}
                     </div>
@@ -3467,8 +3499,8 @@ export function EmailInboxView({
                     {renderThreadActionButton("spam", {
                       icon: getThreadActionButtonIcon("spam"),
                     })}
-                    {renderThreadActionButton("always_delete_sender", {
-                      icon: getThreadActionButtonIcon("always_delete_sender"),
+                    {renderThreadActionButton("delete", {
+                      icon: getThreadActionButtonIcon("delete"),
                       destructive: true,
                     })}
                   </div>

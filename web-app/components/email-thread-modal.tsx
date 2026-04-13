@@ -191,9 +191,8 @@ export function EmailThreadModal({
     [selectedProjectId, sortedInboxProjects],
   );
   const primaryThreadEntry = getPrimaryThreadRenderEntry(thread?.conversation);
-  const primaryThreadAttachments = getDisplayableThreadAttachments(
-    primaryThreadEntry,
-  );
+  const primaryThreadAttachments =
+    getDisplayableThreadAttachments(primaryThreadEntry);
   const conversationEntries = getConversationEntriesExcludingPrimary(
     thread?.conversation,
   );
@@ -433,12 +432,15 @@ export function EmailThreadModal({
     };
 
     if (selectedReplyDraftId) {
-      const response = await fetch(`/api/email/reply-drafts/${selectedReplyDraftId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch(
+        `/api/email/reply-drafts/${selectedReplyDraftId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        },
+      );
 
       return parseApiResponse<EmailReplyDraft>(
         response,
@@ -446,12 +448,15 @@ export function EmailThreadModal({
       );
     }
 
-    const response = await fetch(`/api/email/threads/${threadId}/reply-drafts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(payload),
-    });
+    const response = await fetch(
+      `/api/email/threads/${threadId}/reply-drafts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      },
+    );
 
     return parseApiResponse<EmailReplyDraft>(response, "Failed to save draft");
   };
@@ -528,10 +533,13 @@ export function EmailThreadModal({
     setBusyState("reply_ai");
 
     try {
-      const response = await fetch(`/api/email/threads/${threadId}/reply/generate`, {
-        method: "POST",
-        credentials: "include",
-      });
+      const response = await fetch(
+        `/api/email/threads/${threadId}/reply/generate`,
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
 
       const payload = await parseApiResponse<EmailReplyDraft>(
         response,
@@ -756,7 +764,9 @@ export function EmailThreadModal({
                             "No message body available yet."}
                         </div>
                       )}
-                      <EmailThreadAttachments attachments={primaryThreadAttachments} />
+                      <EmailThreadAttachments
+                        attachments={primaryThreadAttachments}
+                      />
                     </div>
                   </div>
 
@@ -770,7 +780,7 @@ export function EmailThreadModal({
                     {renderThreadActionButton("spam", {
                       icon: <ShieldAlert className="h-4 w-4" />,
                     })}
-                    {renderThreadActionButton("always_delete_sender", {
+                    {renderThreadActionButton("delete", {
                       icon: <Trash2 className="h-4 w-4" />,
                       destructive: true,
                     })}
