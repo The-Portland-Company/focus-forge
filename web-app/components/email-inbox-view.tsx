@@ -121,6 +121,8 @@ import {
   listNewInboxItemsForNotification,
 } from "@/lib/push/email";
 import {
+  clampEmailDeleteUndoSeconds,
+  DEFAULT_THREAD_ACTION_QUEUE_SECONDS,
   getQueuedThreadActionMessage,
   getThreadActionLabel,
   requiresThreadActionConfirmation,
@@ -132,6 +134,15 @@ import {
   type EmailReplyAttachment,
 } from "@/lib/email-reply";
 import { hasRichTextContent, richTextToPlainText } from "@/lib/rich-text";
+import { useUserPreferences, useUserProfile } from "@/lib/supabase/hooks";
+import {
+  DEFAULT_EMAIL_REPLY_SETTINGS,
+  EMAIL_REPLY_CONCISENESS_OPTIONS,
+  EMAIL_REPLY_PERSONALITY_OPTIONS,
+  EMAIL_REPLY_TONE_OPTIONS,
+  normalizeEmailReplySettings,
+  type EmailReplySettings,
+} from "@/lib/email-inbox/reply-settings";
 import { cn } from "@/lib/utils";
 
 type EmailInboxViewProps = {
@@ -654,6 +665,10 @@ export function EmailInboxView({
   const [replyQueueFilter, setReplyQueueFilter] =
     useState<EmailReplyQueueFilter>("draft");
   const [scheduledReplyAt, setScheduledReplyAt] = useState("");
+  const [replyStyleOverrideEnabled, setReplyStyleOverrideEnabled] =
+    useState(false);
+  const [replyStyleOverrides, setReplyStyleOverrides] =
+    useState<EmailReplySettings>(DEFAULT_EMAIL_REPLY_SETTINGS);
   const [replyMode, setReplyMode] = useState<"reply_all" | "internal_note">(
     "reply_all",
   );
@@ -669,6 +684,8 @@ export function EmailInboxView({
   const [pendingConfirmAction, setPendingConfirmAction] =
     useState<ThreadAction | null>(null);
   const [queuedAction, setQueuedAction] = useState<ThreadAction | null>(null);
+  const [isQueuedActionNoticeVisible, setIsQueuedActionNoticeVisible] =
+    useState(false);
   const [editingProfile, setEditingProfile] = useState<SummaryProfile | null>(
     null,
   );
@@ -723,6 +740,11 @@ export function EmailInboxView({
     isDefault: false,
     settingsJson: DEFAULT_PROFILE_SETTINGS,
   });
+  const { profile } = useUserProfile();
+  const { preferences } = useUserPreferences();
+  const deleteUndoSeconds = clampEmailDeleteUndoSeconds(
+    profile?.email_delete_undo_seconds,
+  );
 
   const filteredInboxItems = useMemo(
     () =>
@@ -855,6 +877,12 @@ export function EmailInboxView({
   useEffect(() => {
     setBrowserNotificationPermission(getBrowserNotificationPermission());
   }, []);
+
+  useEffect(() => {
+    setReplyStyleOverrides(
+      normalizeEmailReplySettings(preferences?.email_reply_settings),
+    );
+  }, [preferences?.email_reply_settings]);
 
   useEffect(() => {
     publishDockBadgeCount(isEmailInboxView(view) ? unreadInboxCount : 0);
@@ -1880,6 +1908,7 @@ export function EmailInboxView({
       queuedActionTimeoutRef.current = null;
     }
     setQueuedAction(null);
+    setIsQueuedActionNoticeVisible(false);
   };
 
   const executeThreadAction = async (action: ThreadAction) => {
@@ -1887,15 +1916,22 @@ export function EmailInboxView({
   };
 
   const queueThreadAction = (action: ThreadAction) => {
+    const undoSeconds =
+      action === "delete"
+        ? deleteUndoSeconds
+        : DEFAULT_THREAD_ACTION_QUEUE_SECONDS;
+
     clearQueuedAction();
     setPendingConfirmAction(null);
     setQueuedAction(action);
-    setStatusMessage(getQueuedThreadActionMessage(action));
+    setIsQueuedActionNoticeVisible(true);
+    setStatusMessage(getQueuedThreadActionMessage(action, undoSeconds));
     queuedActionTimeoutRef.current = window.setTimeout(() => {
       queuedActionTimeoutRef.current = null;
       setQueuedAction(null);
+      setIsQueuedActionNoticeVisible(false);
       void executeThreadAction(action);
-    }, 5000);
+    }, undoSeconds * 1000);
   };
 
   const handleUndoQueuedAction = () => {
@@ -1905,6 +1941,10 @@ export function EmailInboxView({
     if (action) {
       updateStatus(`${getThreadActionLabel(action)} canceled.`);
     }
+  };
+
+  const handleDismissQueuedAction = () => {
+    setIsQueuedActionNoticeVisible(false);
   };
 
   const handleActionButtonClick = (action: ThreadAction) => {
@@ -2435,7 +2475,11 @@ export function EmailInboxView({
         `/api/email/threads/${selectedThreadId}/reply/generate`,
         {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           credentials: "include",
+          body: JSON.stringify({
+            override: replyStyleOverrideEnabled ? replyStyleOverrides : null,
+          }),
         },
       );
       const payload = await response.json();
@@ -3699,15 +3743,29 @@ export function EmailInboxView({
                 </div>
               </div>
 
-              {queuedAction ? (
+              {queuedAction && isQueuedActionNoticeVisible ? (
                 <div className="flex items-center gap-3 rounded-xl border border-[rgb(var(--theme-primary-rgb))]/30 bg-[rgb(var(--theme-primary-rgb))]/10 px-3 py-2 text-sm text-zinc-200">
-                  <span>{getQueuedThreadActionMessage(queuedAction)}</span>
+                  <span>
+                    {getQueuedThreadActionMessage(
+                      queuedAction,
+                      queuedAction === "delete"
+                        ? deleteUndoSeconds
+                        : DEFAULT_THREAD_ACTION_QUEUE_SECONDS,
+                    )}
+                  </span>
                   <button
                     type="button"
                     onClick={handleUndoQueuedAction}
                     className="rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:border-zinc-600"
                   >
                     Undo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDismissQueuedAction}
+                    className="rounded-md border border-zinc-700/80 bg-transparent px-2.5 py-1 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                  >
+                    Dismiss
                   </button>
                 </div>
               ) : null}
@@ -3733,6 +3791,20 @@ export function EmailInboxView({
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
                 <div className="mb-3 flex items-center justify-end gap-2">
                   <div className="flex items-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setReplyStyleOverrideEnabled((current) => !current)
+                      }
+                      className={cn(
+                        "inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-medium transition-colors",
+                        replyStyleOverrideEnabled
+                          ? "border-theme-primary bg-zinc-800 text-white"
+                          : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:text-white",
+                      )}
+                    >
+                      AI Style Override
+                    </button>
                     <Tooltip content="Generate AI reply" className="w-auto">
                       <button
                         type="button"
@@ -3828,6 +3900,96 @@ export function EmailInboxView({
                     </div>
                   </div>
                 </div>
+                {replyStyleOverrideEnabled ? (
+                  <div className="mb-3 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
+                    <div className="mb-3 text-xs uppercase tracking-wide text-zinc-500">
+                      Reply Style Override
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-3">
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium text-zinc-300">
+                          Conciseness
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {EMAIL_REPLY_CONCISENESS_OPTIONS.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                setReplyStyleOverrides((current) => ({
+                                  ...current,
+                                  conciseness: option.value,
+                                }))
+                              }
+                              className={cn(
+                                "rounded-full border px-3 py-1.5 text-xs transition-colors",
+                                replyStyleOverrides.conciseness === option.value
+                                  ? "border-theme-primary bg-zinc-800 text-white"
+                                  : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium text-zinc-300">
+                          Tone
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {EMAIL_REPLY_TONE_OPTIONS.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                setReplyStyleOverrides((current) => ({
+                                  ...current,
+                                  tone: option.value,
+                                }))
+                              }
+                              className={cn(
+                                "rounded-full border px-3 py-1.5 text-xs transition-colors",
+                                replyStyleOverrides.tone === option.value
+                                  ? "border-theme-primary bg-zinc-800 text-white"
+                                  : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium text-zinc-300">
+                          Personality
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {EMAIL_REPLY_PERSONALITY_OPTIONS.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                setReplyStyleOverrides((current) => ({
+                                  ...current,
+                                  personality: option.value,
+                                }))
+                              }
+                              className={cn(
+                                "rounded-full border px-3 py-1.5 text-xs transition-colors",
+                                replyStyleOverrides.personality === option.value
+                                  ? "border-theme-primary bg-zinc-800 text-white"
+                                  : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
                 <input
                   ref={replyFileInputRef}
                   type="file"

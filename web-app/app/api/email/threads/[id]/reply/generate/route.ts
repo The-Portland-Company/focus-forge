@@ -10,10 +10,15 @@ export async function POST(
   if ("errorResponse" in auth) return auth.errorResponse;
 
   try {
+    const body = await request.json().catch(() => ({}));
     const params = await props.params;
     const draft = await generateAiReplyForThread({
       userId: auth.user.id,
       threadId: params.id,
+      override:
+        body.override && typeof body.override === "object"
+          ? body.override
+          : undefined,
     });
 
     return NextResponse.json(draft, { status: 201 });

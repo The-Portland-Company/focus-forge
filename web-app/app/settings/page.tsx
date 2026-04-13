@@ -10,6 +10,7 @@ import {
   Flag,
   Check,
   Calendar,
+  Clock3,
   Copy,
   RefreshCw,
   KeyRound,
@@ -23,7 +24,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { OrganizationSettingsModal } from "@/components/organization-settings-modal";
 import { TodoistIntegration } from "@/components/todoist-integration";
 import { Database, EmailSignature, Organization } from "@/lib/types";
-import { useUserProfile } from "@/lib/supabase/hooks";
+import { useUserPreferences, useUserProfile } from "@/lib/supabase/hooks";
 import {
   applyTheme,
   getDatabaseThemePreset,
@@ -45,6 +46,18 @@ import {
   loadHideEmailSignaturesPreference,
   saveHideEmailSignaturesPreference,
 } from "@/lib/email-signature-display";
+import {
+  clampEmailDeleteUndoSeconds,
+  DEFAULT_EMAIL_DELETE_UNDO_SECONDS,
+} from "@/lib/email-inbox/thread-actions";
+import {
+  DEFAULT_EMAIL_REPLY_SETTINGS,
+  EMAIL_REPLY_CONCISENESS_OPTIONS,
+  EMAIL_REPLY_PERSONALITY_OPTIONS,
+  EMAIL_REPLY_TONE_OPTIONS,
+  normalizeEmailReplySettings,
+  type EmailReplySettings,
+} from "@/lib/email-inbox/reply-settings";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -62,29 +75,36 @@ export default function SettingsPage() {
   const [animationsEnabled, setAnimationsEnabled] = useState<boolean | null>(
     null,
   );
+  const [emailDeleteUndoSeconds, setEmailDeleteUndoSeconds] = useState<number>(
+    DEFAULT_EMAIL_DELETE_UNDO_SECONDS,
+  );
   const [saveStatus, setSaveStatus] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
-  const [personalAccessTokens, setPersonalAccessTokens] = useState<ApiKeyMeta[]>([]);
+  const [personalAccessTokens, setPersonalAccessTokens] = useState<
+    ApiKeyMeta[]
+  >([]);
   const [personalTokensLoading, setPersonalTokensLoading] = useState(false);
   const [personalTokensError, setPersonalTokensError] = useState<string | null>(
     null,
   );
   const [personalTokenName, setPersonalTokenName] = useState("");
   const [personalTokenExpiresAt, setPersonalTokenExpiresAt] = useState("");
-  const [personalTokenScopes, setPersonalTokenScopes] = useState<string[]>(["read"]);
+  const [personalTokenScopes, setPersonalTokenScopes] = useState<string[]>([
+    "read",
+  ]);
   const [personalTokenCreatedSecret, setPersonalTokenCreatedSecret] = useState<
     string | null
   >(null);
   const [createdPersonalTokenName, setCreatedPersonalTokenName] = useState("");
-  const [copiedPersonalTokenSecret, setCopiedPersonalTokenSecret] = useState(false);
+  const [copiedPersonalTokenSecret, setCopiedPersonalTokenSecret] =
+    useState(false);
   const [sectionFromUrl, setSectionFromUrl] = useState<string | null>(null);
   const [organizationFromUrl, setOrganizationFromUrl] = useState<string | null>(
     null,
   );
-  const [apiSectionAutoscrollHandled, setApiSectionAutoscrollHandled] = useState(
-    false,
-  );
+  const [apiSectionAutoscrollHandled, setApiSectionAutoscrollHandled] =
+    useState(false);
   const [selectedOrganization, setSelectedOrganization] =
     useState<Organization | null>(null);
   const [organizationSettingsInitialTab, setOrganizationSettingsInitialTab] =
@@ -106,6 +126,10 @@ export default function SettingsPage() {
     isDefault: false,
   });
   const { profile, loading: profileLoading, updateProfile } = useUserProfile();
+  const { preferences, updatePreferences } = useUserPreferences();
+  const [emailReplySettings, setEmailReplySettings] = useState<EmailReplySettings>(
+    DEFAULT_EMAIL_REPLY_SETTINGS,
+  );
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setSectionFromUrl(params.get("section"));
@@ -150,6 +174,12 @@ export default function SettingsPage() {
     if (!profile?.id) return;
     saveHideEmailSignaturesPreference(profile.id, hideEmailSignatures);
   }, [hideEmailSignatures, profile?.id]);
+
+  useEffect(() => {
+    setEmailReplySettings(
+      normalizeEmailReplySettings(preferences?.email_reply_settings),
+    );
+  }, [preferences?.email_reply_settings]);
 
   const isSuperOrAdmin = ["admin", "super_admin"].includes(
     String(profile?.role || ""),
@@ -438,7 +468,9 @@ export default function SettingsPage() {
     }
 
     setPersonalTokenScopes((prev) => {
-      const base = new Set(prev.includes("read") ? [...prev] : [...prev, "read"]);
+      const base = new Set(
+        prev.includes("read") ? [...prev] : [...prev, "read"],
+      );
       if (checked) {
         base.add(scope);
       } else {
@@ -459,10 +491,7 @@ export default function SettingsPage() {
   };
 
   useEffect(() => {
-    if (
-      sectionFromUrl === "organization-api-keys" &&
-      organizationFromUrl
-    ) {
+    if (sectionFromUrl === "organization-api-keys" && organizationFromUrl) {
       const org = database?.organizations?.find(
         (item) => item.id === organizationFromUrl,
       );
@@ -472,12 +501,17 @@ export default function SettingsPage() {
       }
     }
 
-      if (sectionFromUrl === "api-keys" && !apiSectionAutoscrollHandled) {
-        const anchor = document.getElementById("personal-access-keys");
-        anchor?.scrollIntoView({ behavior: "smooth", block: "start" });
-        setApiSectionAutoscrollHandled(true);
-      }
-  }, [sectionFromUrl, organizationFromUrl, database, apiSectionAutoscrollHandled]);
+    if (sectionFromUrl === "api-keys" && !apiSectionAutoscrollHandled) {
+      const anchor = document.getElementById("personal-access-keys");
+      anchor?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setApiSectionAutoscrollHandled(true);
+    }
+  }, [
+    sectionFromUrl,
+    organizationFromUrl,
+    database,
+    apiSectionAutoscrollHandled,
+  ]);
 
   // Load profile settings from Supabase
   useEffect(() => {
@@ -492,12 +526,16 @@ export default function SettingsPage() {
       );
       const userMemoji = profile.profile_memoji || null;
       const userPriorityColor = (profile as any).priority_color || "#22c55e"; // Default green
+      const userDeleteUndoSeconds = clampEmailDeleteUndoSeconds(
+        (profile as any).email_delete_undo_seconds,
+      );
 
       setProfileColor(userColor);
       setAnimationsEnabled(userAnimations);
       setThemePreset(userTheme);
       setProfileMemoji(userMemoji);
       setPriorityColor(userPriorityColor);
+      setEmailDeleteUndoSeconds(userDeleteUndoSeconds);
 
       // Apply complete theme immediately when profile loads
       applyTheme(userTheme, userColor, userAnimations);
@@ -509,7 +547,9 @@ export default function SettingsPage() {
     profileMemoji?: string | null;
     priorityColor?: string;
     animationsEnabled?: boolean;
+    emailDeleteUndoSeconds?: number;
     themePreset?: ThemePreset;
+    emailReplySettings?: EmailReplySettings;
   }) => {
     setSaveStatus("saving");
     try {
@@ -519,8 +559,7 @@ export default function SettingsPage() {
       const currentAnimations =
         updates.animationsEnabled ?? animationsEnabled ?? true;
       const prefersDark =
-        typeof window !== "undefined" &&
-        typeof window.matchMedia === "function"
+        typeof window !== "undefined" && typeof window.matchMedia === "function"
           ? window.matchMedia("(prefers-color-scheme: dark)").matches
           : false;
 
@@ -542,6 +581,10 @@ export default function SettingsPage() {
         if (updates.animationsEnabled !== undefined) {
           profileUpdates.animations_enabled = updates.animationsEnabled;
         }
+        if (updates.emailDeleteUndoSeconds !== undefined) {
+          profileUpdates.email_delete_undo_seconds =
+            clampEmailDeleteUndoSeconds(updates.emailDeleteUndoSeconds);
+        }
         if (updates.themePreset !== undefined) {
           profileUpdates.theme_preset = getDatabaseThemePreset(
             updates.themePreset,
@@ -549,17 +592,31 @@ export default function SettingsPage() {
           );
         }
 
-        const result = await updateProfile(profileUpdates);
-        const error = result?.error;
+        if (Object.keys(profileUpdates).length > 0) {
+          const result = await updateProfile(profileUpdates);
+          const error = result?.error;
 
-        if (!error) {
-          setSaveStatus("saved");
-          setTimeout(() => setSaveStatus("idle"), 2000);
-        } else {
-          setSaveStatus("error");
-          setTimeout(() => setSaveStatus("idle"), 3000);
+          if (error) {
+            setSaveStatus("error");
+            setTimeout(() => setSaveStatus("idle"), 3000);
+            return;
+          }
         }
       }
+
+      if (updates.emailReplySettings !== undefined) {
+        const result = await updatePreferences?.({
+          email_reply_settings: updates.emailReplySettings,
+        });
+        if (result?.error) {
+          setSaveStatus("error");
+          setTimeout(() => setSaveStatus("idle"), 3000);
+          return;
+        }
+      }
+
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
     } catch (error) {
       console.error("Error saving settings:", error);
       setSaveStatus("error");
@@ -573,9 +630,9 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-zinc-950 text-white">
       <div className="mx-auto w-full max-w-6xl p-8">
         <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => router.back()}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => router.back()}
               className="p-2 rounded-lg hover:bg-zinc-800 transition-colors"
             >
               <ChevronLeft className="w-5 h-5" />
@@ -686,6 +743,117 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <div className="mb-6 flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-medium mb-2 flex items-center gap-2">
+                      <Edit className="w-5 h-5" />
+                      AI Reply Style
+                    </h3>
+                    <p className="text-sm text-zinc-400">
+                      Set your default reply voice. These defaults are used for AI
+                      email replies and can be overridden on a single draft before
+                      generation.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-6 lg:grid-cols-3">
+                  <div className="space-y-3">
+                    <div className="text-sm font-medium text-white">
+                      Conciseness
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {EMAIL_REPLY_CONCISENESS_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={async () => {
+                            const next = {
+                              ...emailReplySettings,
+                              conciseness: option.value,
+                            };
+                            setEmailReplySettings(next);
+                            await handleAutoSave({ emailReplySettings: next });
+                          }}
+                          className={cn(
+                            "rounded-full border px-3 py-2 text-sm transition-colors",
+                            emailReplySettings.conciseness === option.value
+                              ? "border-theme-primary bg-zinc-800 text-white"
+                              : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:border-zinc-500",
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-zinc-500">
+                      {
+                        EMAIL_REPLY_CONCISENESS_OPTIONS.find(
+                          (option) =>
+                            option.value === emailReplySettings.conciseness,
+                        )?.description
+                      }
+                    </p>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="text-sm font-medium text-white">Tone</div>
+                    <div className="flex flex-wrap gap-2">
+                      {EMAIL_REPLY_TONE_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={async () => {
+                            const next = {
+                              ...emailReplySettings,
+                              tone: option.value,
+                            };
+                            setEmailReplySettings(next);
+                            await handleAutoSave({ emailReplySettings: next });
+                          }}
+                          className={cn(
+                            "rounded-full border px-3 py-2 text-sm transition-colors",
+                            emailReplySettings.tone === option.value
+                              ? "border-theme-primary bg-zinc-800 text-white"
+                              : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:border-zinc-500",
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="text-sm font-medium text-white">
+                      Personality
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {EMAIL_REPLY_PERSONALITY_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={async () => {
+                            const next = {
+                              ...emailReplySettings,
+                              personality: option.value,
+                            };
+                            setEmailReplySettings(next);
+                            await handleAutoSave({ emailReplySettings: next });
+                          }}
+                          className={cn(
+                            "rounded-full border px-3 py-2 text-sm transition-colors",
+                            emailReplySettings.personality === option.value
+                              ? "border-theme-primary bg-zinc-800 text-white"
+                              : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:border-zinc-500",
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
                 <div className="mb-6 flex items-start justify-between gap-4">
                   <div>
@@ -839,7 +1007,9 @@ export default function SettingsPage() {
                         }
                         rows={6}
                         className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme"
-                        placeholder={"Best,\nSpencer Hill\nThe Portland Company"}
+                        placeholder={
+                          "Best,\nSpencer Hill\nThe Portland Company"
+                        }
                       />
                     </label>
 
@@ -904,7 +1074,9 @@ export default function SettingsPage() {
                                 <button
                                   key={mailboxId}
                                   type="button"
-                                  onClick={() => toggleSignatureMailbox(mailboxId)}
+                                  onClick={() =>
+                                    toggleSignatureMailbox(mailboxId)
+                                  }
                                   className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-3 py-1 text-xs text-[rgb(var(--theme-primary-rgb))]"
                                 >
                                   {mailbox.name}
@@ -914,14 +1086,15 @@ export default function SettingsPage() {
                           </div>
                           <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900/60 p-2">
                             {filteredSignatureMailboxes.map((mailbox) => {
-                              const isSelected = signatureForm.mailboxIds.includes(
-                                mailbox.id,
-                              );
+                              const isSelected =
+                                signatureForm.mailboxIds.includes(mailbox.id);
                               return (
                                 <button
                                   key={mailbox.id}
                                   type="button"
-                                  onClick={() => toggleSignatureMailbox(mailbox.id)}
+                                  onClick={() =>
+                                    toggleSignatureMailbox(mailbox.id)
+                                  }
                                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                                     isSelected
                                       ? "bg-[rgb(var(--theme-primary-rgb))]/12 text-white"
@@ -929,7 +1102,9 @@ export default function SettingsPage() {
                                   }`}
                                 >
                                   <div className="min-w-0">
-                                    <div className="truncate">{mailbox.name}</div>
+                                    <div className="truncate">
+                                      {mailbox.name}
+                                    </div>
                                     <div className="truncate text-xs text-zinc-500">
                                       {mailbox.emailAddress}
                                     </div>
@@ -954,7 +1129,9 @@ export default function SettingsPage() {
                         {editingSignatureId ? (
                           <button
                             type="button"
-                            onClick={() => handleDeleteSignature(editingSignatureId)}
+                            onClick={() =>
+                              handleDeleteSignature(editingSignatureId)
+                            }
                             className="inline-flex items-center gap-2 rounded-lg border border-red-900/60 bg-red-950/30 px-3 py-2 text-sm text-red-200 transition-colors hover:bg-red-950/50"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -1019,6 +1196,71 @@ export default function SettingsPage() {
                     </p>
                   </div>
                 </label>
+              </div>
+
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
+                  <Clock3 className="w-5 h-5" />
+                  Email Delete Undo
+                </h3>
+                <p className="text-sm text-zinc-400 mb-6">
+                  Keep deleted emails undoable before the action finalizes.
+                </p>
+                <div className="space-y-4">
+                  <div className="flex flex-wrap gap-3">
+                    {[15, 30, 60, 120].map((seconds) => (
+                      <button
+                        key={seconds}
+                        type="button"
+                        onClick={async () => {
+                          setEmailDeleteUndoSeconds(seconds);
+                          await handleAutoSave({
+                            emailDeleteUndoSeconds: seconds,
+                          });
+                        }}
+                        className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
+                          emailDeleteUndoSeconds === seconds
+                            ? "border-theme-primary bg-zinc-800 text-white"
+                            : "border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:border-zinc-700"
+                        }`}
+                      >
+                        {seconds >= 60 && seconds % 60 === 0
+                          ? `${seconds / 60} min`
+                          : `${seconds}s`}
+                      </button>
+                    ))}
+                  </div>
+                  <label className="flex max-w-xs flex-col gap-2">
+                    <span className="text-sm font-medium text-white">
+                      Custom delay in seconds
+                    </span>
+                    <input
+                      type="number"
+                      min={5}
+                      max={3600}
+                      step={5}
+                      value={emailDeleteUndoSeconds}
+                      onChange={(e) => {
+                        setEmailDeleteUndoSeconds(
+                          clampEmailDeleteUndoSeconds(Number(e.target.value)),
+                        );
+                      }}
+                      onBlur={async (e) => {
+                        const value = clampEmailDeleteUndoSeconds(
+                          Number(e.target.value),
+                        );
+                        setEmailDeleteUndoSeconds(value);
+                        await handleAutoSave({
+                          emailDeleteUndoSeconds: value,
+                        });
+                      }}
+                      className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-white outline-none transition-colors focus:border-theme-primary"
+                    />
+                  </label>
+                  <p className="text-xs text-zinc-500">
+                    Range: 5 seconds to 60 minutes. Default: 60 seconds.
+                  </p>
+                </div>
               </div>
 
               {/* Priority Colors */}
@@ -1211,12 +1453,16 @@ export default function SettingsPage() {
 
           {/* Personal Access Tokens */}
           <div id="personal-access-keys">
-            <h2 className="text-xl font-semibold mb-6">Personal Access Tokens</h2>
+            <h2 className="text-xl font-semibold mb-6">
+              Personal Access Tokens
+            </h2>
             <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
               <div className="mb-5 rounded-2xl border border-emerald-800/50 bg-emerald-950/30 p-4 text-sm text-emerald-100">
                 <div className="font-medium">Focus: Time bootstrap</div>
                 <p className="mt-1 text-emerald-200/80">
-                  Create a PAT with the <code>admin</code> scope when you want AI or external tooling to generate Focus: Time organization tokens.
+                  Create a PAT with the <code>admin</code> scope when you want
+                  AI or external tooling to generate Focus: Time organization
+                  tokens.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-3">
                   <Link
@@ -1240,15 +1486,20 @@ export default function SettingsPage() {
                   <KeyRound className="w-5 h-5" />
                   Manage PATs
                 </h3>
-                <span className="text-xs text-zinc-500">Use for API access</span>
+                <span className="text-xs text-zinc-500">
+                  Use for API access
+                </span>
               </div>
               <p className="text-sm text-zinc-400 mt-1 mb-6">
-                Create a token to authenticate external scripts and integrations.
+                Create a token to authenticate external scripts and
+                integrations.
               </p>
 
               <div className="grid gap-3 md:grid-cols-[1.5fr_1fr_auto] items-end">
                 <div>
-                  <label className="block text-sm font-medium mb-2">Token Name</label>
+                  <label className="block text-sm font-medium mb-2">
+                    Token Name
+                  </label>
                   <input
                     type="text"
                     value={personalTokenName}
@@ -1281,7 +1532,10 @@ export default function SettingsPage() {
                 <p className="text-sm text-zinc-300 mb-2">Scopes</p>
                 <div className="flex flex-wrap gap-4">
                   {ALLOWED_API_SCOPES.map((scope) => (
-                    <label key={scope} className="flex items-center gap-2 text-sm">
+                    <label
+                      key={scope}
+                      className="flex items-center gap-2 text-sm"
+                    >
                       <input
                         type="checkbox"
                         checked={
@@ -1304,15 +1558,18 @@ export default function SettingsPage() {
               </div>
 
               {personalTokensError && (
-                <p className="text-sm text-red-300 mt-3">{personalTokensError}</p>
+                <p className="text-sm text-red-300 mt-3">
+                  {personalTokensError}
+                </p>
               )}
 
               {personalTokenCreatedSecret && (
                 <div className="mt-4 rounded border border-emerald-700/40 bg-emerald-900/20 p-3 text-sm text-emerald-200">
                   <div className="flex flex-wrap items-center gap-2 justify-between">
                     <p>
-                      New key created for <strong>{createdPersonalTokenName}</strong> — copy
-                      now and store it securely. It is not shown again.
+                      New key created for{" "}
+                      <strong>{createdPersonalTokenName}</strong> — copy now and
+                      store it securely. It is not shown again.
                     </p>
                     <button
                       type="button"
@@ -1334,7 +1591,9 @@ export default function SettingsPage() {
                 <p className="text-sm text-zinc-500 mt-3">Loading keys...</p>
               )}
               {personalAccessTokens.length === 0 && !personalTokensLoading ? (
-                <div className="text-sm text-zinc-500 mt-4">No personal access tokens yet.</div>
+                <div className="text-sm text-zinc-500 mt-4">
+                  No personal access tokens yet.
+                </div>
               ) : (
                 <div className="mt-4 grid gap-3">
                   {personalAccessTokens.map((token) => (
@@ -1353,10 +1612,12 @@ export default function SettingsPage() {
                             )}
                           </p>
                           <p className="text-xs text-zinc-400 mt-1">
-                            {token.scopes.join(", ")} · Expires: {token.expiresAt || "No expiry"}
+                            {token.scopes.join(", ")} · Expires:{" "}
+                            {token.expiresAt || "No expiry"}
                           </p>
                           <p className="text-xs text-zinc-500 mt-1">
-                            Created: {token.createdAt} · Last used: {token.lastUsedAt || "Never"}
+                            Created: {token.createdAt} · Last used:{" "}
+                            {token.lastUsedAt || "Never"}
                           </p>
                           <p className="text-xs font-mono text-zinc-500 mt-1">
                             {token.maskedKey}
@@ -1511,13 +1772,13 @@ export default function SettingsPage() {
                           </div>
                         </div>
                       </div>
-                    <button
-                      onClick={() => {
-                        setSelectedOrganization(org);
-                        setOrganizationSettingsInitialTab("details");
-                      }}
-                      className="p-2 hover:bg-zinc-700 rounded-lg transition-colors"
-                    >
+                      <button
+                        onClick={() => {
+                          setSelectedOrganization(org);
+                          setOrganizationSettingsInitialTab("details");
+                        }}
+                        className="p-2 hover:bg-zinc-700 rounded-lg transition-colors"
+                      >
                         <Edit className="w-4 h-4" />
                       </button>
                     </div>
@@ -1534,9 +1795,9 @@ export default function SettingsPage() {
       </div>
 
       {/* Organization Settings Modal */}
-        {selectedOrganization && database && (
-          <OrganizationSettingsModal
-            organization={selectedOrganization}
+      {selectedOrganization && database && (
+        <OrganizationSettingsModal
+          organization={selectedOrganization}
           projects={database.projects.filter(
             (p) => p.organizationId === selectedOrganization.id,
           )}

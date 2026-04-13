@@ -9,6 +9,10 @@ import {
   generateReplyDraftWithAI,
 } from "@/lib/email-inbox/ai";
 import {
+  mergeEmailReplySettings,
+  type EmailReplySettingsOverride,
+} from "@/lib/email-inbox/reply-settings";
+import {
   applyEmailRules,
   type EmailRuleContext,
 } from "@/lib/email-inbox/rules";
@@ -1484,6 +1488,20 @@ async function chooseSummaryProfile(
     profiles[0] ||
     null
   );
+}
+
+async function getUserEmailReplySettings(
+  userId: string,
+  override?: EmailReplySettingsOverride | null,
+) {
+  const admin = getAdminClient();
+  const { data } = await admin
+    .from("user_preferences")
+    .select("email_reply_settings")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  return mergeEmailReplySettings(data?.email_reply_settings, override);
 }
 
 async function createTasksForThreadInternal(params: {
@@ -3002,6 +3020,7 @@ export async function listReplyDraftsForUser(
 export async function generateAiReplyForThread(params: {
   userId: string;
   threadId: string;
+  override?: EmailReplySettingsOverride | null;
 }) {
   const admin = getAdminClient();
   const thread = await ensureThreadAccess(params.userId, params.threadId);
@@ -3035,6 +3054,10 @@ export async function generateAiReplyForThread(params: {
         linkedTaskIds,
       })
     : null;
+  const replySettings = await getUserEmailReplySettings(
+    params.userId,
+    params.override,
+  );
   const conversation = ((messageRows || []) as any[]).map((row: any) =>
     coerceConversationEntry({
       ...row,
@@ -3048,6 +3071,7 @@ export async function generateAiReplyForThread(params: {
     subject: String(thread.subject || ""),
     conversation,
     profile,
+    replySettings,
     threadAnalysis: {
       actionTitle: thread.action_title ?? null,
       summaryText: thread.summary_text ?? null,
@@ -3082,6 +3106,7 @@ export async function generateAiReplyForThread(params: {
       confidence: aiDraft.confidence,
       profileId: profile?.id ?? null,
       profileName: profile?.name ?? null,
+      replySettings,
     },
   });
 }

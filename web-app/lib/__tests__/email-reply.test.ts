@@ -11,6 +11,7 @@ import {
   buildHeuristicReplyDraft,
   buildProjectReplyContextSnapshot,
 } from "../email-inbox/ai";
+import { normalizeEmailReplySettings } from "../email-inbox/reply-settings";
 
 test("isInlineAttachmentEligible allows images and pdfs", () => {
   assert.equal(
@@ -188,4 +189,48 @@ test("buildHeuristicReplyDraft uses project context when available", () => {
   assert.match(draft.subject, /^Re:/);
   assert.match(draft.contentText, /Client Launch/);
   assert.match(draft.rationale, /project context/i);
+});
+
+test("buildHeuristicReplyDraft keeps short test emails concise", () => {
+  const draft = buildHeuristicReplyDraft({
+    mailboxEmail: "ops@example.com",
+    subject: "Test at 8:41AM",
+    conversation: [
+      {
+        direction: "inbound",
+        authorName: "Spencer",
+        authorEmail: "spencer@example.com",
+        content: "Test at 8:41AM",
+      },
+    ],
+    replySettings: {
+      conciseness: "brief",
+      tone: "friendly",
+      personality: "professional",
+    },
+  });
+
+  assert.match(draft.contentText, /Thanks, got it\./);
+  assert.doesNotMatch(draft.contentText, /follow up with the next concrete update/i);
+});
+
+test("normalizeEmailReplySettings falls back to safe defaults", () => {
+  assert.deepEqual(normalizeEmailReplySettings(null), {
+    conciseness: "brief",
+    tone: "friendly",
+    personality: "professional",
+  });
+
+  assert.deepEqual(
+    normalizeEmailReplySettings({
+      conciseness: "detailed",
+      tone: "direct",
+      personality: "confident",
+    }),
+    {
+      conciseness: "detailed",
+      tone: "direct",
+      personality: "confident",
+    },
+  );
 });

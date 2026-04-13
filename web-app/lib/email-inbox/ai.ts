@@ -4,6 +4,7 @@ import type {
   SummaryProfile,
 } from "@/lib/types";
 import type { ProjectAiExport } from "@/lib/project-ai-export";
+import type { EmailReplySettings } from "@/lib/email-inbox/reply-settings";
 import {
   extractPlainTextPreview,
   normalizeSubject,
@@ -53,6 +54,7 @@ export type EmailReplyAIInput = {
     }
   >;
   profile?: SummaryProfile | null;
+  replySettings?: EmailReplySettings;
   threadAnalysis?: {
     actionTitle?: string | null;
     summaryText?: string | null;
@@ -117,6 +119,60 @@ function formatReplyGreeting(authorName?: string | null) {
 
   const [firstToken] = normalized.split(/\s+/);
   return `Hi ${firstToken.replace(/[,:]+$/g, "")},`;
+}
+
+function getReplySignoff(settings?: EmailReplySettings) {
+  switch (settings?.tone) {
+    case "warm":
+      return "Warmly,";
+    case "direct":
+      return "Thanks,";
+    default:
+      return "Best,";
+  }
+}
+
+function shouldUseUltraBriefAcknowledgement(input: EmailReplyAIInput) {
+  const latestInbound =
+    [...input.conversation]
+      .reverse()
+      .find((entry) => entry.direction === "inbound") || null;
+  const inboundPreview = extractPlainTextPreview(
+    latestInbound?.content || latestInbound?.contentHtml || "",
+    80,
+  );
+  const normalizedInbound = inboundPreview.toLowerCase().replace(/\s+/g, " ").trim();
+  const normalizedSubject = normalizeSubject(input.subject).toLowerCase().trim();
+  const tokenCount = normalizedInbound.split(/\s+/).filter(Boolean).length;
+  const shortMessage = tokenCount > 0 && tokenCount <= 5;
+
+  return (
+    shortMessage ||
+    /^test\b/.test(normalizedInbound) ||
+    /^test\b/.test(normalizedSubject) ||
+    normalizedInbound === normalizedSubject ||
+    /^test\s+at\b/.test(normalizedInbound) ||
+    /^test\s+at\b/.test(normalizedSubject)
+  );
+}
+
+function buildAcknowledgementLine(settings?: EmailReplySettings) {
+  const tone = settings?.tone || "friendly";
+  const personality = settings?.personality || "professional";
+
+  if (tone === "direct") {
+    return "Received.";
+  }
+
+  if (personality === "confident") {
+    return "Got it, thank you.";
+  }
+
+  if (tone === "warm") {
+    return "Thanks, I got it.";
+  }
+
+  return "Thanks, got it.";
 }
 
 function clipReplyParagraph(value: string, maxLength = 280) {
@@ -218,15 +274,32 @@ export function buildHeuristicReplyDraft(
   const projectLine = projectName
     ? `I checked the current ${projectName} work items and I'm aligning my response with that latest context.`
     : "I reviewed the thread and I'm following up based on the latest context here.";
-  const contentText = [
-    formatReplyGreeting(authorName),
-    "",
-    `Thanks for the note about ${threadSummary}.`,
-    projectLine,
-    "I'll follow up with the next concrete update shortly.",
-    "",
-    "Best,",
-  ].join("\n");
+  const conciseness = input.replySettings?.conciseness || "brief";
+  const signoff = getReplySignoff(input.replySettings);
+
+  const contentText = shouldUseUltraBriefAcknowledgement(input)
+    ? [formatReplyGreeting(authorName), "", buildAcknowledgementLine(input.replySettings)].join(
+        "\n",
+      )
+    : conciseness === "brief"
+      ? [
+          formatReplyGreeting(authorName),
+          "",
+          projectName
+            ? `Thanks for the note. I checked the current ${projectName} context and will follow up with the next concrete update shortly.`
+            : `Thanks for the note about ${threadSummary}. I'll follow up with the next concrete update shortly.`,
+          "",
+          signoff,
+        ].join("\n")
+      : [
+          formatReplyGreeting(authorName),
+          "",
+          `Thanks for the note about ${threadSummary}.`,
+          projectLine,
+          "I'll follow up with the next concrete update shortly.",
+          "",
+          signoff,
+        ].join("\n");
 
   return {
     subject,
@@ -803,6 +876,8 @@ Return JSON only.
 Use the linked project context when it exists, but never invent deliverables, dates, approvals, or progress that are not present in the provided data.
 Keep the draft concise, professional, and easy for a human to edit.
 Do not include a signature.
+For very short inbound messages such as test notes, confirmations, or check-ins, reply with a very short acknowledgement instead of a padded status update.
+Honor the user's reply style preferences for conciseness, tone, and personality.
 If context is incomplete, acknowledge next steps without making unsupported commitments.`,
         },
         {
@@ -834,6 +909,7 @@ If context is incomplete, acknowledge next steps without making unsupported comm
                   settings: input.profile.settings,
                 }
               : null,
+            replySettings: input.replySettings || null,
             threadAnalysis: input.threadAnalysis || null,
             projectContext: input.projectContext || null,
             fallback,
