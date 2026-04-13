@@ -293,6 +293,53 @@ export interface EmailSignature {
   updatedAt: string;
 }
 
+export interface EmailReplyAddress {
+  email: string;
+  name?: string | null;
+}
+
+export interface EmailReplyDraftAttachment extends Attachment {
+  inline?: boolean;
+  publicUrl?: string | null;
+}
+
+export interface EmailReplyDraft {
+  id: string;
+  threadId: string;
+  mailboxId: string;
+  projectId?: string | null;
+  createdByUserId?: string | null;
+  source: "manual" | "ai";
+  status:
+    | "draft"
+    | "scheduled"
+    | "sending"
+    | "sent"
+    | "failed"
+    | "canceled";
+  replyMode: "reply_all" | "internal_note";
+  subject: string;
+  contentText?: string | null;
+  contentHtml?: string | null;
+  signatureText?: string | null;
+  to: EmailReplyAddress[];
+  cc: EmailReplyAddress[];
+  attachments: EmailReplyDraftAttachment[];
+  scheduledFor?: string | null;
+  sentAt?: string | null;
+  lastError?: string | null;
+  contextSnapshot: Record<string, unknown>;
+  aiMetadata: Record<string, unknown>;
+  mailboxName?: string | null;
+  mailboxEmailAddress?: string | null;
+  projectName?: string | null;
+  senderName?: string | null;
+  senderEmail?: string | null;
+  threadSubject?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface InboxTaskSuggestion {
   name: string;
   description?: string;

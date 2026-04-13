@@ -1,4 +1,9 @@
-import type { InboxTaskSuggestion, SummaryProfile } from "@/lib/types";
+import type {
+  ConversationEntry,
+  InboxTaskSuggestion,
+  SummaryProfile,
+} from "@/lib/types";
+import type { ProjectAiExport } from "@/lib/project-ai-export";
 import {
   extractPlainTextPreview,
   normalizeSubject,
@@ -36,6 +41,35 @@ export type EmailThreadAIOutput = {
   taskSuggestions: InboxTaskSuggestion[];
 };
 
+export type EmailReplyAIInput = {
+  mailboxEmail: string;
+  subject: string;
+  conversation: Array<
+    Pick<
+      ConversationEntry,
+      "direction" | "authorName" | "authorEmail" | "content" | "contentHtml"
+    > & {
+      createdAt?: string | null;
+    }
+  >;
+  profile?: SummaryProfile | null;
+  threadAnalysis?: {
+    actionTitle?: string | null;
+    summaryText?: string | null;
+    actionReason?: string | null;
+    taskSuggestions?: InboxTaskSuggestion[] | null;
+  } | null;
+  projectContext?: Record<string, unknown> | null;
+};
+
+export type EmailReplyAIOutput = {
+  subject: string;
+  contentText: string;
+  contentHtml: string;
+  rationale: string;
+  confidence: number;
+};
+
 export function formatAiGeneratedTaskName(name: string) {
   let formatted = name.trim();
 
@@ -58,6 +92,151 @@ export function formatAiGeneratedTaskName(name: string) {
   }
 
   return formatted;
+}
+
+function plainTextToHtml(value: string) {
+  const escaped = value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+  return escaped
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${paragraph.replace(/\n/g, "<br/>")}</p>`)
+    .join("");
+}
+
+function formatReplyGreeting(authorName?: string | null) {
+  const normalized = String(authorName || "").trim();
+
+  if (!normalized) {
+    return "Hello,";
+  }
+
+  const [firstToken] = normalized.split(/\s+/);
+  return `Hi ${firstToken.replace(/[,:]+$/g, "")},`;
+}
+
+function clipReplyParagraph(value: string, maxLength = 280) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}...`;
+}
+
+export function buildProjectReplyContextSnapshot(input: {
+  projectExport: ProjectAiExport;
+  linkedTaskIds?: string[];
+  maxTasks?: number;
+  maxComments?: number;
+}) {
+  const linkedTaskIds = new Set((input.linkedTaskIds || []).filter(Boolean));
+  const maxTasks = input.maxTasks ?? 8;
+  const maxComments = input.maxComments ?? 4;
+
+  const activeTasks = input.projectExport.tasks
+    .filter((task) => !task.completed)
+    .slice(0, maxTasks)
+    .map((task) => ({
+      id: task.id,
+      name: task.name,
+      priority: task.priority,
+      dueDate: task.dueDate,
+      assignedToName: task.assignedToName,
+      description: clipReplyParagraph(task.descriptionPlainText || "", 180),
+      sections: task.sections
+        .map((section) => section?.name)
+        .filter((value): value is string => Boolean(value)),
+      isLinkedToThread: linkedTaskIds.has(task.id),
+      recentComments: task.comments.slice(-2).map((comment) => ({
+        authorName: comment.authorName,
+        createdAt: comment.createdAt,
+        content: clipReplyParagraph(comment.contentPlainText || "", 180),
+      })),
+    }));
+
+  return {
+    project: {
+      id: input.projectExport.project.id,
+      name: input.projectExport.project.name,
+      description: clipReplyParagraph(
+        input.projectExport.project.descriptionPlainText || "",
+        240,
+      ),
+      summary: input.projectExport.summary,
+    },
+    linkedTasks: input.projectExport.tasks
+      .filter((task) => linkedTaskIds.has(task.id))
+      .map((task) => ({
+        id: task.id,
+        name: task.name,
+        completed: task.completed,
+        priority: task.priority,
+        dueDate: task.dueDate,
+      })),
+    activeTasks,
+    recentProjectComments: input.projectExport.projectComments
+      .slice(-maxComments)
+      .map((comment) => ({
+        authorName: comment.authorName,
+        createdAt: comment.createdAt,
+        content: clipReplyParagraph(comment.contentPlainText || "", 180),
+      })),
+  };
+}
+
+export function buildHeuristicReplyDraft(
+  input: EmailReplyAIInput,
+): EmailReplyAIOutput {
+  const latestInbound =
+    [...input.conversation]
+      .reverse()
+      .find((entry) => entry.direction === "inbound") || null;
+  const authorName = latestInbound?.authorName || latestInbound?.authorEmail;
+  const subject =
+    /^re:/i.test(input.subject || "") ? input.subject : `Re: ${input.subject}`;
+  const threadSummary =
+    input.threadAnalysis?.summaryText ||
+    extractPlainTextPreview(
+      latestInbound?.content || latestInbound?.contentHtml || "",
+      160,
+    ) ||
+    "your message";
+  const projectName = String(
+    (input.projectContext as { project?: { name?: string } } | null)?.project
+      ?.name || "",
+  ).trim();
+  const projectLine = projectName
+    ? `I checked the current ${projectName} work items and I'm aligning my response with that latest context.`
+    : "I reviewed the thread and I'm following up based on the latest context here.";
+  const contentText = [
+    formatReplyGreeting(authorName),
+    "",
+    `Thanks for the note about ${threadSummary}.`,
+    projectLine,
+    "I'll follow up with the next concrete update shortly.",
+    "",
+    "Best,",
+  ].join("\n");
+
+  return {
+    subject,
+    contentText,
+    contentHtml: plainTextToHtml(contentText),
+    rationale: projectName
+      ? "Generated from the thread plus current linked project context."
+      : "Generated from the thread conversation because no project was linked.",
+    confidence: projectName ? 0.72 : 0.56,
+  };
 }
 
 function flattenAiSummaryText(value: string | null | undefined) {
@@ -439,6 +618,24 @@ function getResponseSchema() {
   };
 }
 
+function getReplyResponseSchema() {
+  return {
+    name: "focus_forge_email_reply_draft",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        subject: { type: "string" },
+        contentText: { type: "string" },
+        rationale: { type: "string" },
+        confidence: { type: "number" },
+      },
+      required: ["subject", "contentText", "rationale", "confidence"],
+    },
+  };
+}
+
 export async function analyzeThreadWithAI(
   input: EmailThreadAIInput,
 ): Promise<EmailThreadAIOutput> {
@@ -565,6 +762,115 @@ ${
       fallback,
       input.preventSpamClassification,
     );
+  } catch {
+    return fallback;
+  }
+}
+
+export async function generateReplyDraftWithAI(
+  input: EmailReplyAIInput,
+): Promise<EmailReplyAIOutput> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const fallback = buildHeuristicReplyDraft(input);
+
+  if (!apiKey) {
+    return fallback;
+  }
+
+  const latestInbound =
+    [...input.conversation]
+      .reverse()
+      .find((entry) => entry.direction === "inbound") || null;
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4.1",
+      temperature: 0.2,
+      response_format: {
+        type: "json_schema",
+        json_schema: getReplyResponseSchema(),
+      },
+      messages: [
+        {
+          role: "system",
+          content: `You draft email replies for Focus: Forge.
+Return JSON only.
+Use the linked project context when it exists, but never invent deliverables, dates, approvals, or progress that are not present in the provided data.
+Keep the draft concise, professional, and easy for a human to edit.
+Do not include a signature.
+If context is incomplete, acknowledge next steps without making unsupported commitments.`,
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            mailboxEmail: input.mailboxEmail,
+            subject: input.subject,
+            latestInboundSender: latestInbound
+              ? {
+                  name: latestInbound.authorName || null,
+                  email: latestInbound.authorEmail || null,
+                }
+              : null,
+            conversation: input.conversation.map((entry) => ({
+              direction: entry.direction,
+              authorName: entry.authorName || null,
+              authorEmail: entry.authorEmail || null,
+              content: extractPlainTextPreview(
+                entry.content || entry.contentHtml || "",
+                500,
+              ),
+              createdAt: entry.createdAt || null,
+            })),
+            profile: input.profile
+              ? {
+                  name: input.profile.name,
+                  summaryStyle: input.profile.summaryStyle,
+                  instructionText: input.profile.instructionText,
+                  settings: input.profile.settings,
+                }
+              : null,
+            threadAnalysis: input.threadAnalysis || null,
+            projectContext: input.projectContext || null,
+            fallback,
+          }),
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    return fallback;
+  }
+
+  const payload = await response.json();
+  const content = payload?.choices?.[0]?.message?.content;
+  if (!content || typeof content !== "string") {
+    return fallback;
+  }
+
+  try {
+    const parsed = JSON.parse(content);
+    const contentText = String(parsed.contentText || "").trim();
+
+    if (!contentText) {
+      return fallback;
+    }
+
+    return {
+      subject:
+        String(parsed.subject || "").trim() ||
+        fallback.subject ||
+        input.subject,
+      contentText,
+      contentHtml: plainTextToHtml(contentText),
+      rationale: String(parsed.rationale || fallback.rationale || "").trim(),
+      confidence: Number(parsed.confidence ?? fallback.confidence),
+    };
   } catch {
     return fallback;
   }

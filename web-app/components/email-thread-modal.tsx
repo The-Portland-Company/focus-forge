@@ -3,12 +3,14 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
+  Bot,
   Check,
   ChevronDown,
   ExternalLink,
   FolderSearch,
   Loader2,
   MailCheck,
+  MailPlus,
   Search,
   SendHorizontal,
   ShieldAlert,
@@ -55,7 +57,12 @@ import {
   requiresThreadActionConfirmation,
   type ThreadAction,
 } from "@/lib/email-inbox/thread-actions";
-import type { ConversationEntry, InboxItem, Project } from "@/lib/types";
+import type {
+  ConversationEntry,
+  EmailReplyDraft,
+  InboxItem,
+  Project,
+} from "@/lib/types";
 
 type EmailThreadDetail = InboxItem & {
   conversation?: ConversationEntry[];
@@ -63,6 +70,7 @@ type EmailThreadDetail = InboxItem & {
     id: string;
     name: string;
   }>;
+  activeReplyDraft?: EmailReplyDraft | null;
   project_id?: string | null;
   projectId?: string | null;
 };
@@ -152,6 +160,10 @@ export function EmailThreadModal({
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
   const [replyContent, setReplyContent] = useState("");
+  const [selectedReplyDraftId, setSelectedReplyDraftId] = useState<
+    string | null
+  >(null);
+  const [scheduledReplyAt, setScheduledReplyAt] = useState("");
   const [replyMode, setReplyMode] = useState<"reply_all" | "internal_note">(
     "reply_all",
   );
@@ -209,6 +221,22 @@ export function EmailThreadModal({
       .then((payload) => {
         if (!cancelled) {
           setThread(payload);
+          if (payload.activeReplyDraft) {
+            setSelectedReplyDraftId(payload.activeReplyDraft.id);
+            setReplyMode(payload.activeReplyDraft.replyMode);
+            setReplyContent(
+              payload.activeReplyDraft.contentHtml ||
+                payload.activeReplyDraft.contentText ||
+                "",
+            );
+            setScheduledReplyAt(
+              payload.activeReplyDraft.scheduledFor
+                ? new Date(payload.activeReplyDraft.scheduledFor)
+                    .toISOString()
+                    .slice(0, 16)
+                : "",
+            );
+          }
         }
       })
       .catch((error) => {
@@ -234,6 +262,8 @@ export function EmailThreadModal({
     setIsProjectPickerOpen(false);
     setProjectSearchQuery("");
     setReplyContent("");
+    setSelectedReplyDraftId(null);
+    setScheduledReplyAt("");
     setReplyMode("reply_all");
     setPendingConfirmAction(null);
     setQueuedAction(null);
@@ -290,6 +320,22 @@ export function EmailThreadModal({
     try {
       const payload = await fetchThreadDetail(targetThreadId);
       setThread(payload);
+      if (payload.activeReplyDraft) {
+        setSelectedReplyDraftId(payload.activeReplyDraft.id);
+        setReplyMode(payload.activeReplyDraft.replyMode);
+        setReplyContent(
+          payload.activeReplyDraft.contentHtml ||
+            payload.activeReplyDraft.contentText ||
+            "",
+        );
+        setScheduledReplyAt(
+          payload.activeReplyDraft.scheduledFor
+            ? new Date(payload.activeReplyDraft.scheduledFor)
+                .toISOString()
+                .slice(0, 16)
+            : "",
+        );
+      }
     } catch (error) {
       setStatusMessage(
         error instanceof Error ? error.message : "Failed to load thread",
@@ -373,24 +419,59 @@ export function EmailThreadModal({
     }
   };
 
+  const ensureComposerDraft = async () => {
+    if (!threadId) {
+      throw new Error("Choose a thread before saving a draft.");
+    }
+
+    const payload = {
+      source: "manual",
+      replyMode,
+      subject: "",
+      contentText: replyContent,
+      contentHtml: replyContent,
+    };
+
+    if (selectedReplyDraftId) {
+      const response = await fetch(`/api/email/reply-drafts/${selectedReplyDraftId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+
+      return parseApiResponse<EmailReplyDraft>(
+        response,
+        "Failed to update reply draft",
+      );
+    }
+
+    const response = await fetch(`/api/email/threads/${threadId}/reply-drafts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    });
+
+    return parseApiResponse<EmailReplyDraft>(response, "Failed to save draft");
+  };
+
   const handleReply = async () => {
     if (!threadId || !replyContent.trim()) return;
 
     setBusyState("reply");
 
     try {
-      const response = await fetch(`/api/email/threads/${threadId}/reply`, {
+      const draft = await ensureComposerDraft();
+      const response = await fetch(`/api/email/reply-drafts/${draft.id}/send`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          content: replyContent,
-          mode: replyMode,
-        }),
       });
 
       await parseApiResponse(response, "Failed to send reply");
       setReplyContent("");
+      setSelectedReplyDraftId(null);
+      setScheduledReplyAt("");
       await refreshParent();
       await reloadThread(threadId);
       updateStatus(
@@ -399,6 +480,77 @@ export function EmailThreadModal({
     } catch (error) {
       updateStatus(
         error instanceof Error ? error.message : "Failed to send reply",
+      );
+    } finally {
+      setBusyState(null);
+    }
+  };
+
+  const handleScheduleReply = async () => {
+    if (!threadId || !replyContent.trim() || !scheduledReplyAt) return;
+
+    setBusyState("reply_schedule");
+
+    try {
+      const draft = await ensureComposerDraft();
+      const response = await fetch(
+        `/api/email/reply-drafts/${draft.id}/schedule`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            scheduledFor: new Date(scheduledReplyAt).toISOString(),
+          }),
+        },
+      );
+
+      const payload = await parseApiResponse<EmailReplyDraft>(
+        response,
+        "Failed to schedule reply",
+      );
+      setSelectedReplyDraftId(payload.id);
+      await refreshParent();
+      await reloadThread(threadId);
+      updateStatus("Reply scheduled.");
+    } catch (error) {
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to schedule reply",
+      );
+    } finally {
+      setBusyState(null);
+    }
+  };
+
+  const handleGenerateAiReply = async () => {
+    if (!threadId) return;
+
+    setBusyState("reply_ai");
+
+    try {
+      const response = await fetch(`/api/email/threads/${threadId}/reply/generate`, {
+        method: "POST",
+        credentials: "include",
+      });
+
+      const payload = await parseApiResponse<EmailReplyDraft>(
+        response,
+        "Failed to generate AI reply",
+      );
+      setSelectedReplyDraftId(payload.id);
+      setReplyMode(payload.replyMode);
+      setReplyContent(payload.contentHtml || payload.contentText || "");
+      setScheduledReplyAt(
+        payload.scheduledFor
+          ? new Date(payload.scheduledFor).toISOString().slice(0, 16)
+          : "",
+      );
+      await refreshParent();
+      await reloadThread(threadId);
+      updateStatus("AI reply drafted.");
+    } catch (error) {
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to generate AI reply",
       );
     } finally {
       setBusyState(null);
@@ -777,6 +929,22 @@ export function EmailThreadModal({
 
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
                 <div className="mb-3 flex items-center justify-end gap-2">
+                  <Tooltip content="Generate AI reply" className="w-auto">
+                    <button
+                      type="button"
+                      onClick={() => void handleGenerateAiReply()}
+                      disabled={Boolean(busyState) || !threadId}
+                      title="Generate AI reply"
+                      aria-label="Generate AI reply"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      {busyState === "reply_ai" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Bot className="h-4 w-4" />
+                      )}
+                    </button>
+                  </Tooltip>
                   <Tooltip content="Separate window" className="w-auto">
                     <button
                       type="button"
@@ -815,6 +983,11 @@ export function EmailThreadModal({
                       )}
                     </button>
                   </Tooltip>
+                  {selectedReplyDraftId ? (
+                    <div className="rounded-full border border-zinc-700 px-2 py-1 text-[10px] uppercase tracking-wide text-zinc-400">
+                      Draft active
+                    </div>
+                  ) : null}
                   <div className="relative pt-2">
                     <FloatingFieldLabel label="Reply Mode" />
                     <Select
@@ -835,7 +1008,7 @@ export function EmailThreadModal({
                     </Select>
                   </div>
                 </div>
-                <div className="relative">
+                <div className="space-y-3">
                   <textarea
                     value={replyContent}
                     onChange={(event) => setReplyContent(event.target.value)}
@@ -845,22 +1018,53 @@ export function EmailThreadModal({
                         ? "Write an internal note for linked Forge tasks…"
                         : "Reply to all participants…"
                     }
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 pr-16 text-sm text-white transition-[height] duration-200"
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white transition-[height] duration-200"
                   />
-                  <Tooltip content="Send" className="w-auto">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {replyMode === "reply_all" ? (
+                      <div className="relative min-w-[220px] flex-1 pt-2">
+                        <FloatingFieldLabel label="Send Later" />
+                        <input
+                          type="datetime-local"
+                          value={scheduledReplyAt}
+                          onChange={(event) =>
+                            setScheduledReplyAt(event.target.value)
+                          }
+                          className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-white"
+                        />
+                      </div>
+                    ) : null}
+                    {replyMode === "reply_all" ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleScheduleReply()}
+                        disabled={
+                          busyState === "reply_schedule" || !replyContent.trim()
+                        }
+                        className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                      >
+                        {busyState === "reply_schedule" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <MailPlus className="h-4 w-4" />
+                        )}
+                        <span>Schedule</span>
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={handleReply}
                       disabled={busyState === "reply" || !replyContent.trim()}
-                      className="absolute bottom-3 right-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-theme-gradient text-white shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
+                      className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-theme-gradient px-3 text-sm text-white shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
                     >
                       {busyState === "reply" ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <SendHorizontal className="h-4 w-4" />
                       )}
+                      <span>Send Now</span>
                     </button>
-                  </Tooltip>
+                  </div>
                 </div>
               </div>
 

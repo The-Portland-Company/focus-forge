@@ -1,11 +1,8 @@
-import type { Attachment } from "@/lib/types";
+import type { EmailReplyDraftAttachment } from "@/lib/types";
 import { richTextToPlainText } from "@/lib/rich-text";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
 
-export type EmailReplyAttachment = Attachment & {
-  inline?: boolean;
-  publicUrl?: string | null;
-};
+export type EmailReplyAttachment = EmailReplyDraftAttachment;
 
 const escapeHtml = (value: string) =>
   value

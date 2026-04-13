@@ -8,12 +8,16 @@ import {
   buildEmailThreadPopoutUrl,
   clampEmailDetailPanelWidth,
   filterInboxItemsForView,
+  filterReplyDraftsForView,
   getConversationEntryHeaderClassName,
+  getDockBadgeDocumentTitle,
   getEmailInboxSplitClassName,
   getSpamScanProgressPercent,
   getThreadActionButtonClassName,
   getThreadActionButtonIconName,
   mergeInboxItem,
+  normalizeDockBadgeCount,
+  sortReplyDraftsForView,
   sortInboxItemsForView,
 } from "../email-inbox-view";
 import { createRuleFormFromRule } from "../email-rules-panel";
@@ -91,6 +95,17 @@ test("buildEmailThreadPopoutUrl preserves the base route while forcing popout pa
   );
 });
 
+test("normalizeDockBadgeCount clamps invalid badge values to zero", () => {
+  assert.equal(normalizeDockBadgeCount(-1), 0);
+  assert.equal(normalizeDockBadgeCount(Number.NaN), 0);
+  assert.equal(normalizeDockBadgeCount(3.9), 3);
+});
+
+test("getDockBadgeDocumentTitle prefixes unread counts for desktop shells", () => {
+  assert.equal(getDockBadgeDocumentTitle(0), "Focus: Forge");
+  assert.equal(getDockBadgeDocumentTitle(12), "(12) Focus: Forge");
+});
+
 test("Email inbox sort options default to date received first", () => {
   assert.equal(EMAIL_INBOX_SORT_OPTIONS[0]?.value, "received_desc");
   assert.match(
@@ -128,6 +143,44 @@ test("sortInboxItemsForView orders inbox threads by newest received date first",
   assert.deepEqual(
     sorted.map((item) => item.id),
     ["newest", "fallback", "older"],
+  );
+});
+
+test("filterReplyDraftsForView narrows drafts by status", () => {
+  const drafts = [
+    { id: "draft-1", status: "draft" },
+    { id: "draft-2", status: "scheduled" },
+    { id: "draft-3", status: "failed" },
+  ] as any;
+
+  assert.deepEqual(
+    filterReplyDraftsForView(drafts, "scheduled").map((draft) => draft.id),
+    ["draft-2"],
+  );
+  assert.equal(filterReplyDraftsForView(drafts, "all").length, 3);
+});
+
+test("sortReplyDraftsForView prefers the most recently updated drafts", () => {
+  const drafts = sortReplyDraftsForView(
+    [
+      {
+        id: "draft-1",
+        updatedAt: "2026-04-13T08:00:00.000Z",
+        createdAt: "2026-04-13T08:00:00.000Z",
+        scheduledFor: null,
+      },
+      {
+        id: "draft-2",
+        updatedAt: "2026-04-13T09:30:00.000Z",
+        createdAt: "2026-04-13T09:30:00.000Z",
+        scheduledFor: null,
+      },
+    ] as any,
+  );
+
+  assert.deepEqual(
+    drafts.map((draft) => draft.id),
+    ["draft-2", "draft-1"],
   );
 });
 
