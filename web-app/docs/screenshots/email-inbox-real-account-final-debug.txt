@@ -1,0 +1,15 @@
+{
+  "url": "https://focusforge.theportlandcompany.com/email-inbox",
+  "className": "w-full min-w-0 rounded-xl px-4 py-3 text-left transition-colors border-0 bg-white/10 ring-0 shadow-none hover:bg-white/12",
+  "text": "From:\n'Aviral Pathak' via Agency\ntheportlandcompany, A different kind of agency email\nReview and respond to agency introduction from AtticBits Solutions\nUNREAD\nNEEDS PROJECT\nHi theportlandcompany I'm going to skip the part where I tell you we're \"passionate about innovation\" or \"committed to excellence.\" Here's the honest version: We started Atticbits Solutions because we...\nThe Portland Company\n0 linked tasks\n70% confidence",
+  "borderTopWidth": "0px",
+  "borderTopStyle": "solid",
+  "borderTopColor": "rgb(39, 39, 42)",
+  "outline": "rgba(255, 255, 255, 0.9) none 3px",
+  "boxShadow": "rgb(255, 255, 255) 0px 0px 0px 0px, rgba(59, 130, 246, 0.5) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+  "backgroundColor": "rgba(255, 255, 255, 0.1)",
+  "titleColor": "rgba(255, 255, 255, 0.9)",
+  "titleFontWeight": "600",
+  "previewColor": null,
+  "previewFontWeight": null
+}

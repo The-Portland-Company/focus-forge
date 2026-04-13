@@ -75,30 +75,9 @@ This will import all your projects, tasks, and organizations into the applicatio
 ├── lib/              # Utility functions and types
 ├── data/             # JSON database storage
 ├── documents/        # Import data directory
-├── mobile/          # Capacitor (iOS/Electron) setup
+├── ios-app/         # Native Swift iOS app
 └── scripts/          # Migration and utility scripts
 ```
-
-## Mobile (Capacitor)
-
-Use the shared web UI in native shells:
-
-```bash
-# iOS
-npm run mobile:dev
-npm run mobile:staging
-npm run mobile:prod
-
-# Electron
-npm run electron:dev
-npm run electron:staging
-npm run electron:prod
-```
-
-Env switching:
-- `CAPACITOR_SERVER=local|staging|production`
-- `CAPACITOR_LOCAL_URL` (defaults to `http://localhost:3244`)
-- `CAPACITOR_SERVER_URL` (overrides target)
 
 ## Key Features
 

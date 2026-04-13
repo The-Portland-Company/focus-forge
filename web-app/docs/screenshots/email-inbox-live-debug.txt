@@ -1,0 +1,60 @@
+FINAL_URL=https://focusforge.theportlandcompany.com/email-inbox
+TITLE=Focus: Forge
+BODY=
+D
+Demo
+Focus: Time
+00:00:00
+Search
+Today
+Email Inbox
+Inbox
+Quarantine
+Rules
+AI Lab
+Upcoming
+Calendar
+Favorites
+ORGANIZATIONS
+The Portland Company
+▶
+ARCHIVED PROJECTS
+▶
+PENDING INVITATIONS
+(5)
+Calendar Feed
+API Docs
+Email Inbox
+
+Email threads are pre-processed and rendered as work items.
+
+Alerts Blocked
+All mailboxes
+Connect Mailbox
+Sync All
+0 Messages
+Sort by
+Date received (Newest first)
+All
+Unread
+Read
+No inbox work yet.
+Select an email thread to inspect it.
+
+CONSOLE=
+[log] Auth state change: INITIAL_SESSION
+[response] 200 https://focusforge.theportlandcompany.com/api/auth/login
+[response] 200 https://focusforge.theportlandcompany.com/email-inbox?_rsc=vmuo9
+[response] 200 https://focusforge.theportlandcompany.com/api/database
+[response] 200 https://focusforge.theportlandcompany.com/email-ai-lab?_rsc=1prpy
+[response] 200 https://focusforge.theportlandcompany.com/email-rules?_rsc=1prpy
+[response] 200 https://focusforge.theportlandcompany.com/email-quarantine?_rsc=1prpy
+[response] 200 https://focusforge.theportlandcompany.com/email-inbox?_rsc=1prpy
+[response] 200 https://focusforge.theportlandcompany.com/api/calendar/token
+[response] 200 https://focusforge.theportlandcompany.com/api/v1/time/current
+[response] 200 https://focusforge.theportlandcompany.com/api/email/mailboxes
+[response] 200 https://focusforge.theportlandcompany.com/api/email/inbox
+[response] 200 https://focusforge.theportlandcompany.com/email-ai-lab?_rsc=6kmsj
+[response] 200 https://focusforge.theportlandcompany.com/email-rules?_rsc=6kmsj
+[response] 200 https://focusforge.theportlandcompany.com/email-quarantine?_rsc=6kmsj
+[response] 200 https://focusforge.theportlandcompany.com/email-inbox?_rsc=6kmsj

@@ -7,6 +7,7 @@ import {
 } from "../email-thread-modal";
 import { getThreadProjectId } from "../../lib/email-thread-projects";
 import {
+  clampEmailDeleteUndoSeconds,
   getQueuedThreadActionMessage,
   getThreadActionLabel,
   requiresThreadActionConfirmation,
@@ -50,9 +51,23 @@ test("thread action confirmation only applies to destructive inbox actions", () 
 });
 
 test("queued thread action messaging uses the user-facing action label", () => {
-  assert.equal(getThreadActionLabel("always_delete_sender"), "Always Delete Sender");
+  assert.equal(
+    getThreadActionLabel("always_delete_sender"),
+    "Always Delete Sender",
+  );
   assert.equal(
     getQueuedThreadActionMessage("archive"),
-    "Archive queued. Undo before it runs.",
+    "Archive queued. Undo within 5 seconds.",
   );
+  assert.equal(
+    getQueuedThreadActionMessage("delete", 60),
+    "Delete queued. Undo within 1 minute.",
+  );
+});
+
+test("delete undo duration is clamped to supported profile limits", () => {
+  assert.equal(clampEmailDeleteUndoSeconds(undefined), 60);
+  assert.equal(clampEmailDeleteUndoSeconds(1), 5);
+  assert.equal(clampEmailDeleteUndoSeconds(75.6), 76);
+  assert.equal(clampEmailDeleteUndoSeconds(9999), 3600);
 });

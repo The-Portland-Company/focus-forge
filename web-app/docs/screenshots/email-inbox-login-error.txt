@@ -1,0 +1,14 @@
+URL=https://focusforge.theportlandcompany.com/auth/login?from=%2Femail-inbox
+TITLE=Focus: Forge
+
+Welcome back
+
+Sign in to your account
+
+Email
+Password
+Forgot password?
+Invalid login credentials
+Sign in
+
+Don't have an account? Create one

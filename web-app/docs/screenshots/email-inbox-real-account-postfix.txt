@@ -1,0 +1,316 @@
+FINAL_URL=https://focusforge.theportlandcompany.com/email-inbox
+TITLE=Focus: Forge
+BODY=
+S
+Spencer
+Focus: Time
+00:00:00
+Search
+Today
+Email Inbox
+13
+Inbox
+Quarantine
+13
+Rules
+AI Lab
+Upcoming
+Calendar
+Favorites
+ORGANIZATIONS
+The Portland Company
+Buy Some Lamps
+Pacific Tales
+Politogy
+VillageX
+Personal
+Property
+Handyman Hill
+Solar Installation Company
+▶
+ARCHIVED PROJECTS
+▶
+PENDING INVITATIONS
+(7)
+Calendar Feed
+API Docs
+Email Inbox
+
+Email threads are pre-processed and rendered as work items.
+
+Alerts Blocked
+All mailboxes
+Connect Mailbox
+Sync All
+110 Messages
+Sort by
+Date received (Newest first)
+All
+Unread
+Read
+From:
+'Sentry' via Agency
+FINANCE-FOCUS-FI-K - TypeError: Load failed (backend-production-991c0.up.railway.app)
+Investigate and resolve TypeError: Load failed on FocusFi expenses page
+NEEDS PROJECT
+Details https://the portland company.sentry.io/issues/7399352282/?referrer=alert email&alert type=email&alert timestamp=1775755089743&alert rule id=16285725&notification uuid=062e43af b8dd 4c86 bca3 3...
+The Portland Company
+0 linked tasks
+97% confidence
+From:
+no-reply@politogyvrm.com
+User login: Rebecca Green
+Review context: User login: Rebecca Green
+NEEDS PROJECT
+User login User ID: 47a8556a 3839 4b10 bbeb 9e0ad993a7f8 Email: rjgreenpol@outlook.com Phone: Not provided Full name: Rebecca Green Username: rjgreenpol Occurred at: 2026 04 09T15:18:24.919Z Organizat...
+The Portland Company
+0 linked tasks
+58% confidence
+From:
+'Aviral Pathak' via Agency
+theportlandcompany, A different kind of agency email
+Review and respond to agency introduction from Atticbits Solutions
+UNREAD
+NEEDS PROJECT
+Hi theportlandcompany I'm going to skip the part where I tell you we're "passionate about innovation" or "committed to excellence." Here's the honest version: We started Atticbits Solutions because we...
+The Portland Company
+0 linked tasks
+70% confidence
+From:
+John Clemens
+Website
+Provide update on spreadsheet items (lines 20 and 21) for Nu Era Heating
+Good Morning Can I get an update on where we are on the latest items on the spreadsheet? Line 20 and 21? Thanks, John John Clemens [cid:cbef232a f5ed 43bb be97 dac199356b5e] www.NuEraHeat.com
+The Portland Company
+Nu Era Heating
+2 linked tasks
+92% confidence
+From:
+Kyle Workman
+Your request re: email deliverability solution
+Respond to Sinch regarding email deliverability solution inquiry
+UNREAD
+NEEDS PROJECT
+Hi Spencer, Thanks for choosing Sinch to find a solution for improving email deliverability. Many companies find it challenging to ensure important messages actually reach the inbox as they grow. Our...
+The Portland Company
+0 linked tasks
+85% confidence
+From:
+Scott Davis
+Quick question for Spencer
+Evaluate backlink provider offer
+UNREAD
+NEEDS PROJECT
+Hi Spencer, I generate relevant backlinks from legit websites to help SEOs boost their client sites. I currently collaborate with in house outreach teams, different link providers, and as the exclusiv...
+The Portland Company
+House
+1 linked task
+80% confidence
+From:
+'Cloudflare Notifications' via Operations
+[Cloudflare - 02026329] The nameservers were repointed 4+ hours ago, they can be verified via command line as active, yet CloudFlare is not acknowledging them.
+Review Cloudflare case closure and determine next steps
+UNREAD
+NEEDS PROJECT
+Hello Spencer, Thank you for contacting Cloudflare! The case number 02026329 is now Closed. However, you can still ask questions about this issue if you need additional assistance: If you would like t...
+The Portland Company
+RV
+1 linked task
+60% confidence
+From:
+Shelly Czopek
+proposal
+Prepare and send proposal to Shelly and David Czopek
+NEEDS PROJECT
+Hi Spencer, Nice talking with you today. I think the call dropped. I will look forward to your proposal. Thanks, Shelly and David Czopek Sent from my iPhone
+The Portland Company
+0 linked tasks
+70% confidence
+From:
+Joel Crawford
+Re: Old NuEra website
+Investigate WooCommerce-Shipstation connection issue for Nu Era Heating
+ok, i think this is a video of the problem. I don't have a microphone, but it just wont connect to our woo store https://www.loom.com/share/62998b0def114fed8923701c23ba0abe On Tue, Apr 7, 2026 at 3:20...
+The Portland Company
+Nu Era Heating
+3 linked tasks
+95% confidence
+From:
+The Portland Company
+[Test] Payment receipt for invoice #CB243528 from The Portland Company
+Review test payment receipt for invoice #CB243528
+Hello Spencer Hill, This is a test copy of the payment receipt for invoice CB243528. Invoice: cb243528 83d9 42cd afa8 35361a930b89 Original customer: Kimberly Bell Description: Starter arrears from Oc...
+The Portland Company
+Property
+1 linked task
+85% confidence
+From:
+1Password
+Your subscription payment failed (The Portland Company).
+Update payment details for 1Password subscription (The Portland Company)
+We couldn’t process your payment. Don’t worry – we’ll try again on April 10, 2026. If you’re in the US, you can now use bank debit (ACH) as a payment option. Update your payment details to continue us...
+The Portland Company
+Administrative
+2 linked tasks
+95% confidence
+From:
+GitHub
+[GitHub] A third-party GitHub Application has been added to your account
+Review third-party GitHub application authorization
+NEEDS PROJECT
+Hey s3w47m88! A third party GitHub Application (blacksmith.sh) with the following permissions: View your email addresses Was recently authorized to access your account. Visit https://github.com/settin...
+The Portland Company
+0 linked tasks
+70% confidence
+From:
+Chris Meade
+Invitation to exclusive founder-only events in Bend
+Review and respond to Founders Club invitation
+Spencer, I'm reaching out to you directly to ask if you'd be interested in joining The Founders Club. Looks like you're building something really cool with AI enhanced web, mobile, and blockchain solu...
+The Portland Company
+Blockchain
+2 linked tasks
+80% confidence
+From:
+The Portland Company
+Invoice paid: cb243528
+Acknowledge and record payment for Invoice cb243528
+A customer completed an invoice payment through the hosted invoice page. Invoice: cb243528 83d9 42cd afa8 35361a930b89 Customer: Oasis Property Services Email: kim.bell@oasispropertyservices.net Descr...
+The Portland Company
+Property
+2 linked tasks
+92% confidence
+From:
+'Stripe' via Operations
+Payment of $210.00 from kim.bell@oasispropertyservices.net for The Portland Company
+Acknowledge and process Stripe payment from kim.bell@oasispropertyservices.net
+Congratulations, The Portland Company! You've just received a payment through Stripe. Payment $210.00 (https://dashboard.stripe.com/b/acct 1BqpbqDKuoeVnvXg?destination=%2Fpayments%2Fpi 3TJfUMDKuoeVnvX...
+The Portland Company
+Oasis Property Management - Kim Bell
+2 linked tasks
+95% confidence
+From:
+Jasmine Long
+Re: family office investors investment $2-35 million for The Portland Company - A Digital Marketing Agency
+Evaluate and respond to investment inquiry for The Portland Company
+Hi Spencer, I wanted to reconnect about my earlier note about the 2 million up to 35 million in financing for The Portland Company A Digital Marketing Agency backed by our family office partner. Would...
+The Portland Company
+TPC
+2 linked tasks
+80% confidence
+From:
+Aikido Security
+The-Portland-Company: Aikido detected a new critical issue
+Investigate and resolve critical end-of-life issue detected by Aikido for TheVillage.x
+Login New critical Issue! Apr 7, 2026 3:33 pm A new critical end of life issue was detected that affects TheVillage.x. Aikido has determined that this issue is critical and should be addressed. View c...
+The Portland Company
+VillageX.app
+3 linked tasks
+95% confidence
+From:
+'PayPal Communications' via Advertising
+We're making some changes to our PayPal legal agreements
+No action needed: PayPal legal agreement update notification
+ARCHIVED
+SPENCER HILL, YOU CAN VIEW THE CHANGES ON OUR WEBSITE. Hello, Spencer Hill PayPal [https://www.paypalobjects.com/digitalassets/c/system triggered email/n/layout/images/ppe/pp logo x2.png] We're making...
+The Portland Company
+0 linked tasks
+98% confidence
+From:
+Focus Forge
+Ben has created a Task on Politogy: VRM
+Update button and toggle backgrounds in Politogy: VRM Tech Check
+Title: Launch Now Toggle should be green background Created at: Apr 6, 2026, 8:06PM PT The launch now button should be green background. Toggle for schedule, should be yellow background. Details: Task...
+The Portland Company
+Politogy: VRM
+2 linked tasks
+95% confidence
+From:
+'Chase' via Agency
+We canceled your payment
+Review Chase secure message: Payment canceled
+[https://www.chase.com/content/dam/email/images/blue left.jpg] Chase Logo [https://www.chase.com/content/dam/email/images/chase logo h rgb.png] Sign in to read your new secure message [https://www.cha...
+The Portland Company
+Personal
+1 linked task
+95% confidence
+From:
+Erik Wahlstrom
+CC: Spencer Hill <spencerhill@theportlandcompany.com>, Keenan Orlando <keenan.orlando@micamp.com>
+RE: Politogy VRM
+Clarify and respond to Politogy VRM fee inquiry
+Please type your reply above this line You are registered as a CC on this request (209856). Reply to this email to add a comment to the request. Derek Mantei, Apr 6, 2026, 3:25 PM MST…
+The Portland Company
+Politogy: VRM
+2 linked tasks
+95% confidence
+From:
+Gaige Kartchner
+Re: Unexpected Charge
+Investigate and respond to unexpected charge inquiry
+Hey Spencer, For most issues you will reach out to merchant support as they have real time access to look up specifics on your MID. Their phone number is 800 396 0246 or you can reach them via email @...
+The Portland Company
+Administrative
+1 linked task
+85% confidence
+From:
+Focus Forge
+Rebecca Green has created a Task on Politogy: VRM
+Investigate and resolve missing address field in ENDVBM Circulator Form (Politogy: VRM)
+Title: ENDVBM Circulator Form missed capturing address of respondent Created at: Apr 6, 2026, 2:42PM PT on 3/29/2026. We're about to advertise this form and its resources tonight and we need to unders...
+The Portland Company
+Politogy: VRM
+2 linked tasks
+95% confidence
+From:
+GitHub
+Request to install blacksmith.sh in The-Portland-Company
+Review and process GitHub app installation request for blacksmith.sh
+NEEDS PROJECT
+Hello there! You’re receiving this email because @lelandsmith has requested the installation of blacksmith.sh at your organization The Portland Company. To review the request, please click or paste in...
+The Portland Company
+0 linked tasks
+70% confidence
+From:
+'Postmark' via Operations
+Weekly Digest for VillageX.app
+Archive Postmark weekly digest for VillageX.app
+ARCHIVED
+Server VillageX.app sent 9 and didn't parse any emails last week. ActiveCampaign Postmark [https://newsletter.postmarkapp.com/assets/images/pm logo@2x.png] https://postmarkapp.com VillageX.app [https:...
+The Portland Company
+VillageX.app
+0 linked tasks
+98% confidence
+From:
+Gemini
+Notes: “Ben + Leland + Spencer - Finish SMS/Email” Apr 6, 2026
+Action: Address SMS/Email issues and financial tasks from meeting notes
+NEEDS PROJECT
+Notes from “Ben + Leland + Spencer Finish SMS/Email” These notes have been sent to invited guests in your organization. Open meeting notes The content was auto generated on April 6, 2026, 10:20 AM PDT...
+The Portland Company
+0 linked tasks
+70% confidence
+From:
+Ricky Klontz
+Re: API Choices
+Proceed with API integration for selected vendors
+Yes, no problem. Let's go with these three to start: Dickssportinggoods.com Nike.com Golfgalaxy.com On Mon, Apr 6, 2026 at 11:30 AM Spencer Hill wrote: Ah, ok. Then I think we need to get a selection...
+The Portland Company
+Omega Athletics
+2 linked tasks
+95% confidence
+From:
+'Chase' via Agency
+You received money with Zelle®
+Acknowledge and record Zelle payment received
+[https://www.chase.com/content/dam/email/images/blue left.jpg] [https://www.chase.com/content/dam/email/images/chase logo h rgb.jpg] [https://www.chase.com/content/dam/email/images/whiteph.jpg] Zelle®...
+The Portland Company
+Personal
+2 linked tasks
+95% confidence
+From:
+'Account Management Team' via Agency
+Your Verification Code - Chase QuickPay® with Zelle®
+Verify email address with Chase QuickPay® using provided code
+NEEDS PROJECT
+Your V
