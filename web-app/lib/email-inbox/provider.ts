@@ -52,6 +52,16 @@ export type NormalizedMailboxMessage = {
   attachments: NormalizedMailboxAttachment[];
 };
 
+export type MailboxSyncCursor = {
+  highestUid: number | null;
+  lastSeenAt: string | null;
+};
+
+export type FetchMailboxMessagesResult = {
+  messages: NormalizedMailboxMessage[];
+  syncCursor: MailboxSyncCursor;
+};
+
 function getMailboxPassword(mailbox: MailboxTransportRow) {
   const credentials = decryptMailboxCredentials(mailbox.credentials_encrypted);
   const password = credentials.password;
@@ -117,6 +127,57 @@ function normalizeDate(value: string | Date | undefined | null) {
   return parsed.toISOString();
 }
 
+export function normalizeMailboxSyncCursor(value: unknown): MailboxSyncCursor {
+  const raw =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+
+  const highestUidValue = Number(raw.highestUid);
+  const highestUid =
+    Number.isFinite(highestUidValue) && highestUidValue > 0
+      ? Math.floor(highestUidValue)
+      : null;
+
+  const lastSeenAt =
+    typeof raw.lastSeenAt === "string" && normalizeDate(raw.lastSeenAt)
+      ? normalizeDate(raw.lastSeenAt)
+      : null;
+
+  return {
+    highestUid,
+    lastSeenAt,
+  };
+}
+
+export function buildMailboxSyncCursor(params: {
+  previousCursor?: unknown;
+  fallbackLastSeenAt?: string | null;
+  messages?: Array<Pick<NormalizedMailboxMessage, "receivedAt" | "sentAt">>;
+  highestUid?: number | null;
+}): MailboxSyncCursor {
+  const previousCursor = normalizeMailboxSyncCursor(params.previousCursor);
+  let lastSeenAt =
+    previousCursor.lastSeenAt ?? normalizeDate(params.fallbackLastSeenAt) ?? null;
+
+  for (const message of params.messages || []) {
+    const candidate = normalizeDate(message.receivedAt || message.sentAt || null);
+    if (candidate && (!lastSeenAt || candidate > lastSeenAt)) {
+      lastSeenAt = candidate;
+    }
+  }
+
+  const highestUid =
+    Number.isFinite(params.highestUid) && Number(params.highestUid) > 0
+      ? Math.max(previousCursor.highestUid || 0, Math.floor(Number(params.highestUid)))
+      : previousCursor.highestUid;
+
+  return {
+    highestUid: highestUid || null,
+    lastSeenAt,
+  };
+}
+
 function normalizeAttachments(
   attachments: Array<{
     filename?: string | null;
@@ -170,9 +231,13 @@ function normalizeParsedMailboxMessage(params: {
 
 export async function fetchMailboxMessages(
   mailbox: MailboxTransportRow,
-  lastSeenAt?: string | null,
-) {
+  options?: {
+    lastSeenAt?: string | null;
+    syncCursor?: unknown;
+  },
+): Promise<FetchMailboxMessagesResult> {
   const password = getMailboxPassword(mailbox);
+  const previousCursor = normalizeMailboxSyncCursor(options?.syncCursor);
   const client = new ImapFlow({
     host: mailbox.imap_host,
     port: Number(mailbox.imap_port || 993),
@@ -187,30 +252,51 @@ export async function fetchMailboxMessages(
   const lock = await client.getMailboxLock(mailbox.sync_folder || "INBOX");
 
   try {
-    const searchCriteria = lastSeenAt
-      ? { since: new Date(lastSeenAt) }
-      : { all: true };
-    const searchResult = await client.search(searchCriteria as any);
-    const uids = Array.isArray(searchResult) ? searchResult : [];
-    const recentUids = [...uids].sort((a, b) => a - b).slice(-50);
-    const messages: NormalizedMailboxMessage[] = [];
+    let highestUid = previousCursor.highestUid;
+    const messagePromises: Array<Promise<NormalizedMailboxMessage>> = [];
+    const rangeStart =
+      previousCursor.highestUid && previousCursor.highestUid > 0
+        ? previousCursor.highestUid + 1
+        : null;
 
-    if (recentUids.length === 0) {
-      return messages;
+    const fetchSequence =
+      rangeStart && Number.isFinite(rangeStart) ? `${rangeStart}:*` : null;
+
+    const fallbackSearchCriteria = options?.lastSeenAt
+      ? { since: new Date(options.lastSeenAt) }
+      : { all: true };
+    const fallbackUids = fetchSequence
+      ? null
+      : await client.search(fallbackSearchCriteria as any);
+    const fetchTarget = fetchSequence
+      ? fetchSequence
+      : [...(Array.isArray(fallbackUids) ? fallbackUids : [])]
+          .sort((a, b) => a - b)
+          .slice(-50);
+
+    if (Array.isArray(fetchTarget) && fetchTarget.length === 0) {
+      return {
+        messages: [],
+        syncCursor: buildMailboxSyncCursor({
+          previousCursor,
+          fallbackLastSeenAt: options?.lastSeenAt ?? null,
+        }),
+      };
     }
 
-    for await (const message of client.fetch(recentUids, {
+    for await (const message of client.fetch(fetchTarget as any, {
       uid: true,
       source: true,
       flags: true,
       internalDate: true,
-    })) {
+    }, fetchSequence ? { uid: true } : undefined)) {
       if (!message.source) {
         continue;
       }
 
-      messages.push(
-        await normalizeParsedMailboxMessage({
+      highestUid = Math.max(highestUid || 0, Number(message.uid || 0));
+      messagePromises.push(
+        normalizeParsedMailboxMessage({
           uid: message.uid,
           source: message.source,
           flags: message.flags || null,
@@ -219,7 +305,17 @@ export async function fetchMailboxMessages(
       );
     }
 
-    return messages;
+    const messages = await Promise.all(messagePromises);
+
+    return {
+      messages,
+      syncCursor: buildMailboxSyncCursor({
+        previousCursor,
+        fallbackLastSeenAt: options?.lastSeenAt ?? null,
+        messages,
+        highestUid,
+      }),
+    };
   } finally {
     lock.release();
     await client.logout();

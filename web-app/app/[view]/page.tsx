@@ -87,6 +87,8 @@ import {
 } from "@/lib/project-bulk-selection";
 import { shouldShowInboxItemInToday } from "@/lib/email-inbox/shared";
 
+const EMAIL_BACKGROUND_SYNC_INTERVAL_MS = 15 * 1000;
+
 export default function ViewPage() {
   const params = useParams();
   const router = useRouter();
@@ -328,6 +330,48 @@ export default function ViewPage() {
       window.clearTimeout(timeoutId);
     }
   };
+
+  useEffect(() => {
+    if (!user || isEmailThreadPopout) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const runBackgroundEmailSync = async () => {
+      try {
+        const response = await fetch("/api/email/mailboxes/sync-due", {
+          method: "POST",
+          credentials: "include",
+        });
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || cancelled) {
+          return;
+        }
+
+        const changedThreadCount = Number(payload?.changedThreadCount || 0);
+        const syncedMailboxCount = Number(payload?.syncedMailboxCount || 0);
+
+        if (changedThreadCount > 0 || syncedMailboxCount > 0) {
+          await fetchData();
+        }
+      } catch {
+        // Keep background inbox sync silent during normal app usage.
+      }
+    };
+
+    void runBackgroundEmailSync();
+
+    const interval = window.setInterval(() => {
+      void runBackgroundEmailSync();
+    }, EMAIL_BACKGROUND_SYNC_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [isEmailThreadPopout, user, view]);
 
   const clearUndoTimers = () => {
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
