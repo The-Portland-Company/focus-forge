@@ -329,6 +329,10 @@ export function filterInboxItemsForView(params: {
       return item.status === "quarantine";
     }
 
+    if (params.view === "email-trash") {
+      return item.status === "deleted";
+    }
+
     if (item.status === "deleted") {
       return false;
     }
@@ -644,6 +648,9 @@ export function EmailInboxView({
   onRefresh,
   currentUserId,
 }: EmailInboxViewProps) {
+  const isInboxView = view === "email-inbox";
+  const isTrashView = view === "email-trash";
+  const isQuarantineView = view === "email-quarantine";
   const [selectedMailboxId, setSelectedMailboxId] = useState<string>("all");
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [selectedThread, setSelectedThread] = useState<any | null>(null);
@@ -693,6 +700,8 @@ export function EmailInboxView({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [pendingConfirmAction, setPendingConfirmAction] =
     useState<ThreadAction | null>(null);
+  const [isEmptyTrashConfirmVisible, setIsEmptyTrashConfirmVisible] =
+    useState(false);
   const [queuedAction, setQueuedAction] = useState<ThreadAction | null>(null);
   const [isQueuedActionNoticeVisible, setIsQueuedActionNoticeVisible] =
     useState(false);
@@ -785,6 +794,10 @@ export function EmailInboxView({
   const unreadInboxCount = useMemo(
     () => visibleInboxItems.filter((item) => item.isUnread).length,
     [visibleInboxItems],
+  );
+  const trashedThreadCount = useMemo(
+    () => filteredInboxItems.filter((item) => item.status === "deleted").length,
+    [filteredInboxItems],
   );
   const spamScanProgressPercent = useMemo(
     () =>
@@ -1655,6 +1668,67 @@ export function EmailInboxView({
       }
       updateStatus(
         error instanceof Error ? error.message : "Failed to create mailbox",
+      );
+    } finally {
+      setBusyState(null);
+    }
+  };
+
+  const handleEmptyTrashPermanently = async () => {
+    setBusyState("empty_trash");
+    const mailboxId = selectedMailboxId === "all" ? null : selectedMailboxId;
+    const previousItems = inboxSnapshotRef.current;
+
+    try {
+      const response = await fetch("/api/email/trash/empty", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ mailboxId }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to empty trash");
+      }
+
+      const nextItems = previousItems.filter((item) => {
+        if (item.status !== "deleted") {
+          return true;
+        }
+
+        if (mailboxId && item.mailboxId !== mailboxId) {
+          return true;
+        }
+
+        return false;
+      });
+
+      applyInboxSnapshot({
+        nextMailboxes: mailboxesRef.current,
+        nextItems,
+        allowBrowserNotifications: false,
+      });
+
+      if (
+        selectedThread?.status === "deleted" &&
+        (!mailboxId || selectedThread.mailboxId === mailboxId)
+      ) {
+        setSelectedThread(null);
+      }
+
+      setIsEmptyTrashConfirmVisible(false);
+      void refreshInboxState().catch(() => {
+        // Keep the optimistic purge visible when the follow-up refresh fails.
+      });
+      updateStatus(
+        payload.deletedThreadCount > 0
+          ? `Permanently deleted ${payload.deletedThreadCount} trash thread${payload.deletedThreadCount === 1 ? "" : "s"}.`
+          : "Trash is already empty.",
+      );
+    } catch (error) {
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to empty trash",
       );
     } finally {
       setBusyState(null);
@@ -2731,15 +2805,64 @@ export function EmailInboxView({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">
-            {view === "email-quarantine" ? "Quarantine" : "Email Inbox"}
+            {isQuarantineView
+              ? "Quarantine"
+              : isTrashView
+                ? "Trash"
+                : "Email Inbox"}
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
-            {view === "email-quarantine"
+            {isQuarantineView
               ? "Review suspected spam and decide what Fluid should do next."
-              : "Email threads are pre-processed and rendered as work items."}
+              : isTrashView
+                ? "Review deleted threads and permanently empty the selected trash mailbox."
+                : "Email threads are pre-processed and rendered as work items."}
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {isTrashView ? (
+            isEmptyTrashConfirmVisible ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleEmptyTrashPermanently()}
+                  disabled={busyState === "empty_trash"}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-800/60 bg-red-950/50 px-3 text-sm font-medium text-red-100 transition-colors hover:border-red-700 hover:text-white disabled:opacity-50"
+                >
+                  {busyState === "empty_trash" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  Empty All Permanently
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEmptyTrashConfirmVisible(false)}
+                  disabled={busyState === "empty_trash"}
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsEmptyTrashConfirmVisible(true)}
+                disabled={
+                  trashedThreadCount === 0 || busyState === "empty_trash"
+                }
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-900/50 bg-red-950/30 px-3 text-sm font-medium text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
+              >
+                {busyState === "empty_trash" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                Empty All Permanently
+              </button>
+            )
+          ) : null}
           <Tooltip
             content={
               browserNotificationPermission === "granted"
@@ -3092,13 +3215,15 @@ export function EmailInboxView({
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-400">
                 <div className="inline-flex items-center gap-2">
-                  {view === "email-quarantine" ? (
+                  {isQuarantineView ? (
                     <ShieldAlert className="h-4 w-4 text-amber-400" />
+                  ) : isTrashView ? (
+                    <Trash2 className="h-4 w-4 text-red-300" />
                   ) : (
                     <Mail className="h-4 w-4" />
                   )}
                 </div>
-                {view !== "email-quarantine" ? (
+                {!isQuarantineView ? (
                   <div className="inline-flex items-center gap-1.5 text-xs font-medium">
                     <Tooltip content="Unread" className="w-auto" side="bottom">
                       <span className="cursor-default text-[rgb(var(--theme-primary-rgb))]">
@@ -3115,9 +3240,13 @@ export function EmailInboxView({
                 ) : null}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-3">
-                {view === "email-quarantine" ? (
+                {isQuarantineView ? (
                   <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
                     {quarantineCount} quarantined
+                  </div>
+                ) : isTrashView ? (
+                  <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                    {trashedThreadCount} in trash
                   </div>
                 ) : null}
                 <div className="relative w-full sm:w-[240px]">
@@ -3165,37 +3294,41 @@ export function EmailInboxView({
                 </div>
               </div>
             </div>
-            {view !== "email-quarantine" ? (
+            {!isQuarantineView ? (
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
-                    {[
-                      { id: "threads", label: "Threads" },
-                      { id: "reply_queue", label: "Reply Queue" },
-                    ].map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() =>
-                          setReplyQueueTab(tab.id as EmailReplyQueueTab)
-                        }
-                        className={
-                          replyQueueTab === tab.id
-                            ? "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
-                            : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
-                        }
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-                  {replyQueueTab === "threads" ? (
+                  {isInboxView ? (
+                    <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
+                      {[
+                        { id: "threads", label: "Threads" },
+                        { id: "reply_queue", label: "Reply Queue" },
+                      ].map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() =>
+                            setReplyQueueTab(tab.id as EmailReplyQueueTab)
+                          }
+                          className={
+                            replyQueueTab === tab.id
+                              ? "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
+                              : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
+                          }
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {!isInboxView || replyQueueTab === "threads" ? (
                     <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
                       {[
                         { id: "all", label: "All" },
                         { id: "unread", label: "Unread" },
                         { id: "read", label: "Read" },
-                        { id: "spam", label: "Spam" },
+                        ...(!isTrashView
+                          ? [{ id: "spam", label: "Spam" }]
+                          : []),
                       ].map((tab) => (
                         <button
                           key={tab.id}
@@ -3329,7 +3462,7 @@ export function EmailInboxView({
                 </div>
               </div>
             ) : null}
-            {view !== "email-quarantine" && spamScanProgress ? (
+            {isInboxView && spamScanProgress ? (
               <div className="mb-3 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
@@ -3354,7 +3487,7 @@ export function EmailInboxView({
                 </div>
               </div>
             ) : null}
-            {replyQueueTab === "threads" ? (
+            {!isInboxView || replyQueueTab === "threads" ? (
               <EmailWorkList
                 items={visibleInboxItems}
                 mailboxes={mailboxes}
@@ -3385,9 +3518,11 @@ export function EmailInboxView({
                   handleInboxItemThreadAction(item, action)
                 }
                 emptyLabel={
-                  view === "email-quarantine"
+                  isQuarantineView
                     ? "No suspicious email is waiting for review."
-                    : "No inbox work yet."
+                    : isTrashView
+                      ? "Trash is empty."
+                      : "No inbox work yet."
                 }
               />
             ) : visibleReplyDrafts.length === 0 ? (
@@ -3512,7 +3647,7 @@ export function EmailInboxView({
                     ) : null}
                   </div>
                   <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
-                    {view === "email-quarantine" ? (
+                    {isTrashView ? null : isQuarantineView ? (
                       <>
                         <Tooltip
                           content="Mark Not Spam"
@@ -3547,16 +3682,22 @@ export function EmailInboxView({
                         icon: getThreadActionButtonIcon("quarantine"),
                       })
                     )}
-                    {renderThreadActionButton("archive", {
-                      icon: getThreadActionButtonIcon("archive"),
-                    })}
-                    {renderThreadActionButton("spam", {
-                      icon: getThreadActionButtonIcon("spam"),
-                    })}
-                    {renderThreadActionButton("delete", {
-                      icon: getThreadActionButtonIcon("delete"),
-                      destructive: true,
-                    })}
+                    {isTrashView
+                      ? null
+                      : renderThreadActionButton("archive", {
+                          icon: getThreadActionButtonIcon("archive"),
+                        })}
+                    {isTrashView
+                      ? null
+                      : renderThreadActionButton("spam", {
+                          icon: getThreadActionButtonIcon("spam"),
+                        })}
+                    {isTrashView
+                      ? null
+                      : renderThreadActionButton("delete", {
+                          icon: getThreadActionButtonIcon("delete"),
+                          destructive: true,
+                        })}
                   </div>
                 </div>
                 <div className="mt-4 min-w-0 space-y-3">
@@ -3753,39 +3894,41 @@ export function EmailInboxView({
                 </div>
               </div>
 
-              <div className="flex justify-end pt-1">
-                {pendingConfirmAction === "delete" ? (
-                  <div className="inline-flex items-center gap-2">
+              {!isTrashView ? (
+                <div className="flex justify-end pt-1">
+                  {pendingConfirmAction === "delete" ? (
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => queueThreadAction("delete")}
+                        disabled={Boolean(busyState) || Boolean(queuedAction)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-red-800/60 bg-red-950/50 px-3 py-2 text-sm font-medium text-red-100 transition-colors hover:border-red-700 hover:text-white disabled:opacity-50"
+                      >
+                        <Check className="h-4 w-4" />
+                        Confirm Delete
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingConfirmAction(null)}
+                        disabled={Boolean(busyState) || Boolean(queuedAction)}
+                        className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
                     <button
                       type="button"
-                      onClick={() => queueThreadAction("delete")}
+                      onClick={() => handleActionButtonClick("delete")}
                       disabled={Boolean(busyState) || Boolean(queuedAction)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-red-800/60 bg-red-950/50 px-3 py-2 text-sm font-medium text-red-100 transition-colors hover:border-red-700 hover:text-white disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm font-medium text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
                     >
-                      <Check className="h-4 w-4" />
-                      Confirm Delete
+                      <Trash2 className="h-4 w-4" />
+                      Delete Email
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingConfirmAction(null)}
-                      disabled={Boolean(busyState) || Boolean(queuedAction)}
-                      className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => handleActionButtonClick("delete")}
-                    disabled={Boolean(busyState) || Boolean(queuedAction)}
-                    className="inline-flex items-center gap-2 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm font-medium text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Delete Email
-                  </button>
-                )}
-              </div>
+                  )}
+                </div>
+              ) : null}
 
               {queuedAction && isQueuedActionNoticeVisible ? (
                 <div className="flex items-center gap-3 rounded-xl border border-[rgb(var(--theme-primary-rgb))]/30 bg-[rgb(var(--theme-primary-rgb))]/10 px-3 py-2 text-sm text-zinc-200">

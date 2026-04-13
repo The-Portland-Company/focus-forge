@@ -9,6 +9,7 @@ import type {
 
 export const EMAIL_INBOX_VIEWS = new Set([
   "email-inbox",
+  "email-trash",
   "email-quarantine",
   "email-rules",
   "email-ai-lab",

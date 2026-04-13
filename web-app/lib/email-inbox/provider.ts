@@ -158,10 +158,14 @@ export function buildMailboxSyncCursor(params: {
 }): MailboxSyncCursor {
   const previousCursor = normalizeMailboxSyncCursor(params.previousCursor);
   let lastSeenAt =
-    previousCursor.lastSeenAt ?? normalizeDate(params.fallbackLastSeenAt) ?? null;
+    previousCursor.lastSeenAt ??
+    normalizeDate(params.fallbackLastSeenAt) ??
+    null;
 
   for (const message of params.messages || []) {
-    const candidate = normalizeDate(message.receivedAt || message.sentAt || null);
+    const candidate = normalizeDate(
+      message.receivedAt || message.sentAt || null,
+    );
     if (candidate && (!lastSeenAt || candidate > lastSeenAt)) {
       lastSeenAt = candidate;
     }
@@ -169,7 +173,10 @@ export function buildMailboxSyncCursor(params: {
 
   const highestUid =
     Number.isFinite(params.highestUid) && Number(params.highestUid) > 0
-      ? Math.max(previousCursor.highestUid || 0, Math.floor(Number(params.highestUid)))
+      ? Math.max(
+          previousCursor.highestUid || 0,
+          Math.floor(Number(params.highestUid)),
+        )
       : previousCursor.highestUid;
 
   return {
@@ -284,12 +291,16 @@ export async function fetchMailboxMessages(
       };
     }
 
-    for await (const message of client.fetch(fetchTarget as any, {
-      uid: true,
-      source: true,
-      flags: true,
-      internalDate: true,
-    }, fetchSequence ? { uid: true } : undefined)) {
+    for await (const message of client.fetch(
+      fetchTarget as any,
+      {
+        uid: true,
+        source: true,
+        flags: true,
+        internalDate: true,
+      },
+      fetchSequence ? { uid: true } : undefined,
+    )) {
       if (!message.source) {
         continue;
       }
@@ -436,8 +447,12 @@ export async function fetchMailboxAttachmentByProviderMessageId(
       }
 
       return {
-        filename: attachment.filename ? String(attachment.filename) : "attachment",
-        contentType: attachment.contentType ? String(attachment.contentType) : null,
+        filename: attachment.filename
+          ? String(attachment.filename)
+          : "attachment",
+        contentType: attachment.contentType
+          ? String(attachment.contentType)
+          : null,
         contentDisposition:
           attachment.contentDisposition === "inline" ? "inline" : "attachment",
         content: Buffer.isBuffer(attachment.content)
@@ -524,6 +539,37 @@ async function withImapClient<T>(
   }
 }
 
+async function resolveTrashMailboxPath(client: ImapFlow) {
+  const listedMailboxes = await client.list().catch(() => []);
+
+  for (const mailbox of listedMailboxes) {
+    if (mailbox.specialUse === "\\Trash") {
+      return mailbox.path;
+    }
+  }
+
+  const candidateNames = new Set([
+    "trash",
+    "deleted items",
+    "deleted messages",
+    "deleted",
+    "[gmail]/trash",
+  ]);
+
+  for (const mailbox of listedMailboxes) {
+    const normalizedPath = mailbox.path.trim().toLowerCase();
+    const normalizedName = mailbox.name.trim().toLowerCase();
+    if (
+      candidateNames.has(normalizedPath) ||
+      candidateNames.has(normalizedName)
+    ) {
+      return mailbox.path;
+    }
+  }
+
+  return null;
+}
+
 export async function applyMailboxThreadAction(params: {
   mailbox: MailboxTransportRow;
   providerMessageIds: string[];
@@ -569,4 +615,43 @@ export async function applyMailboxThreadAction(params: {
       await client.messageDelete(uidRange, { uid: true });
     }
   });
+}
+
+export async function emptyMailboxTrash(mailbox: MailboxTransportRow) {
+  const client = new ImapFlow({
+    host: mailbox.imap_host,
+    port: Number(mailbox.imap_port || 993),
+    secure: Boolean(mailbox.imap_secure),
+    auth: {
+      user: mailbox.login_username,
+      pass: getMailboxPassword(mailbox),
+    },
+  });
+
+  await client.connect();
+
+  try {
+    const trashPath = await resolveTrashMailboxPath(client);
+    if (!trashPath) {
+      return { emptied: false, deletedMessageCount: 0 };
+    }
+
+    const lock = await client.getMailboxLock(trashPath);
+
+    try {
+      const openedMailbox = client.mailbox;
+      const deletedMessageCount = Number(
+        openedMailbox ? openedMailbox.exists : 0,
+      );
+      if (deletedMessageCount > 0) {
+        await client.messageDelete("1:*");
+      }
+
+      return { emptied: true, deletedMessageCount };
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout();
+  }
 }

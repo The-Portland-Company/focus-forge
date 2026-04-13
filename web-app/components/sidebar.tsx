@@ -318,18 +318,21 @@ export function Sidebar({
           throw new Error("No running timer to stop.");
         }
 
-        const response = await fetch(`/api/v1/time/entries/${currentTimerEntryId}`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            organizationId: timerForm.organizationId,
-            projectId: timerForm.projectId || null,
-            title: timerForm.title.trim() || "Focus: Time",
-            description: timerForm.description.trim() || null,
-            endedAt: new Date().toISOString(),
-          }),
-        });
+        const response = await fetch(
+          `/api/v1/time/entries/${currentTimerEntryId}`,
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              organizationId: timerForm.organizationId,
+              projectId: timerForm.projectId || null,
+              title: timerForm.title.trim() || "Focus: Time",
+              description: timerForm.description.trim() || null,
+              endedAt: new Date().toISOString(),
+            }),
+          },
+        );
         const payload = await response.json();
         if (!response.ok) {
           throw new Error(payload.error?.message || "Failed to stop timer.");
@@ -444,7 +447,8 @@ export function Sidebar({
       data.tasks.filter((task) => {
         if (task.completed) return false;
 
-        const dueDate = (task as { due_date?: string }).due_date || task.dueDate;
+        const dueDate =
+          (task as { due_date?: string }).due_date || task.dueDate;
         if (!dueDate) return false;
 
         return (
@@ -458,7 +462,9 @@ export function Sidebar({
       false,
     );
 
-    const todayEmailCount = data.inboxItems.filter(shouldShowInboxItemInToday).length;
+    const todayEmailCount = data.inboxItems.filter(
+      shouldShowInboxItemInToday,
+    ).length;
 
     return activeTodayTasks.length + todayEmailCount;
   }, [data.inboxItems, data.tasks]);
@@ -471,6 +477,17 @@ export function Sidebar({
     return {
       total: visibleInboxItems.length,
       unread: visibleInboxItems.filter((item) => item.isUnread).length,
+    };
+  }, [data.inboxItems]);
+
+  const trashItemsCount = useMemo(() => {
+    const deletedItems = data.inboxItems.filter(
+      (item) => item.status === "deleted",
+    );
+
+    return {
+      total: deletedItems.length,
+      unread: deletedItems.filter((item) => item.isUnread).length,
     };
   }, [data.inboxItems]);
 
@@ -651,7 +668,9 @@ export function Sidebar({
                 <Clock className="w-4 h-4" />
               </Link>
             </Tooltip>
-            <Tooltip content={currentTimerStartedAt ? "Stop timer" : "Start timer"}>
+            <Tooltip
+              content={currentTimerStartedAt ? "Stop timer" : "Start timer"}
+            >
               <button
                 type="button"
                 onClick={() =>
@@ -689,7 +708,9 @@ export function Sidebar({
               </span>
               <span className="font-mono text-xs">{currentTimerElapsed}</span>
             </Link>
-            <Tooltip content={currentTimerStartedAt ? "Stop timer" : "Start timer"}>
+            <Tooltip
+              content={currentTimerStartedAt ? "Stop timer" : "Start timer"}
+            >
               <button
                 type="button"
                 onClick={() =>
@@ -839,6 +860,21 @@ export function Sidebar({
                 {data.quarantineCount > 0 ? (
                   <span className="text-[10px] text-zinc-400">
                     {data.quarantineCount}
+                  </span>
+                ) : null}
+              </Link>
+              <Link
+                href="/email-trash"
+                className={`flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
+                  currentView === "email-trash"
+                    ? "bg-zinc-800 text-white"
+                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                }`}
+              >
+                <span>Trash</span>
+                {trashItemsCount.total > 0 ? (
+                  <span className="text-[10px] text-zinc-400">
+                    {trashItemsCount.unread}/{trashItemsCount.total}
                   </span>
                 ) : null}
               </Link>
@@ -1674,7 +1710,9 @@ export function Sidebar({
         <DialogContent className="border-zinc-800 bg-zinc-950 text-white sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {timerModalMode === "stop" ? "Stop Focus: Time" : "Start Focus: Time"}
+              {timerModalMode === "stop"
+                ? "Stop Focus: Time"
+                : "Start Focus: Time"}
             </DialogTitle>
             <DialogDescription className="text-zinc-400">
               {timerModalMode === "stop"

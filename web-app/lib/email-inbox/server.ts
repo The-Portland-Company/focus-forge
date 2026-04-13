@@ -39,8 +39,9 @@ import {
 import { encryptMailboxCredentials } from "@/lib/email-inbox/crypto";
 import {
   buildMailboxSyncCursor,
-  fetchMailboxAttachmentByProviderMessageId,
   applyMailboxThreadAction,
+  emptyMailboxTrash,
+  fetchMailboxAttachmentByProviderMessageId,
   fetchMailboxMessageByProviderMessageId,
   fetchMailboxMessageReadStates,
   fetchMailboxMessages,
@@ -3250,6 +3251,85 @@ export async function applyThreadAction(params: {
     .eq("id", params.threadId);
 
   return { success: true };
+}
+
+export async function emptyTrashForUser(params: {
+  userId: string;
+  mailboxId?: string | null;
+}) {
+  const admin = getAdminClient();
+  const mailboxes = params.mailboxId
+    ? [
+        (await ensureMailboxManage(
+          params.userId,
+          params.mailboxId,
+        )) as MailboxTransportRow,
+      ]
+    : await Promise.all(
+        (await listMailboxesForUser(params.userId)).map((mailbox) =>
+          ensureMailboxManage(params.userId, mailbox.id).then(
+            (row) => row as MailboxTransportRow,
+          ),
+        ),
+      );
+
+  const mailboxIds = mailboxes.map((mailbox) => mailbox.id);
+  if (mailboxIds.length === 0) {
+    return {
+      success: true,
+      deletedThreadCount: 0,
+      mailboxCount: 0,
+    };
+  }
+
+  const { data: deletedThreads, error } = await admin
+    .from("email_threads")
+    .select("id,mailbox_id")
+    .in("mailbox_id", mailboxIds)
+    .eq("status", "deleted");
+
+  if (error) {
+    throw new Error(error.message || "Failed to load trash threads");
+  }
+
+  const threadsByMailbox = ((deletedThreads || []) as any[]).reduce(
+    (map: Map<string, string[]>, row: any) => {
+      const mailboxId = String(row.mailbox_id);
+      const current = map.get(mailboxId) || [];
+      current.push(String(row.id));
+      map.set(mailboxId, current);
+      return map;
+    },
+    new Map<string, string[]>(),
+  );
+
+  let deletedThreadCount = 0;
+
+  for (const mailbox of mailboxes) {
+    const threadIds = threadsByMailbox.get(mailbox.id) || [];
+    if (threadIds.length === 0) {
+      continue;
+    }
+
+    await emptyMailboxTrash(mailbox);
+
+    const { error: deleteError, count } = await admin
+      .from("email_threads")
+      .delete({ count: "exact" })
+      .in("id", threadIds);
+
+    if (deleteError) {
+      throw new Error(deleteError.message || "Failed to clear trash");
+    }
+
+    deletedThreadCount += Number(count || threadIds.length);
+  }
+
+  return {
+    success: true,
+    deletedThreadCount,
+    mailboxCount: threadsByMailbox.size,
+  };
 }
 
 export async function createSpamExceptionRuleForThread(

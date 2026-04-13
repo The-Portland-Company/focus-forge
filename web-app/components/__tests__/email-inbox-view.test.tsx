@@ -20,6 +20,7 @@ import {
   sortReplyDraftsForView,
   sortInboxItemsForView,
 } from "../email-inbox-view";
+import { formatEmailDeleteUndoDuration } from "../../lib/email-inbox/thread-actions";
 import { createRuleFormFromRule } from "../email-rules-panel";
 import {
   filterInboxProjects,
@@ -192,6 +193,12 @@ test("Quarantine and spam actions use different icons", () => {
   );
 });
 
+test("delete undo duration formatter renders minutes for whole-minute values", () => {
+  assert.equal(formatEmailDeleteUndoDuration(60), "1 minute");
+  assert.equal(formatEmailDeleteUndoDuration(120), "2 minutes");
+  assert.equal(formatEmailDeleteUndoDuration(45), "45 seconds");
+});
+
 test("thread action buttons render as fixed-size icon buttons", () => {
   const standardClasses = getThreadActionButtonClassName();
   const destructiveClasses = getThreadActionButtonClassName({
@@ -330,6 +337,40 @@ test("filterInboxItemsForView returns only spam-marked inbox items on the spam t
   assert.deepEqual(
     filtered.map((item) => item.id),
     ["thread-2", "thread-3"],
+  );
+});
+
+test("filterInboxItemsForView returns only deleted threads on the trash view", () => {
+  const filtered = filterInboxItemsForView({
+    inboxItems: [
+      {
+        id: "thread-1",
+        mailboxId: "mailbox-1",
+        status: "active",
+        classification: "unknown",
+      },
+      {
+        id: "thread-2",
+        mailboxId: "mailbox-1",
+        status: "deleted",
+        classification: "spam",
+      },
+      {
+        id: "thread-3",
+        mailboxId: "mailbox-2",
+        status: "deleted",
+        classification: "spam",
+      },
+    ] as any,
+    selectedMailboxId: "mailbox-1",
+    filterTab: "all",
+    retainedSpamThreadIds: [],
+    view: "email-trash",
+  });
+
+  assert.deepEqual(
+    filtered.map((item) => item.id),
+    ["thread-2"],
   );
 });
 
