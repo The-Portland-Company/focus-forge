@@ -58,6 +58,12 @@ import {
   normalizeEmailReplySettings,
   type EmailReplySettings,
 } from "@/lib/email-inbox/reply-settings";
+import {
+  DEFAULT_EMAIL_HTML_RENDER_MODE,
+  EMAIL_HTML_RENDER_MODE_OPTIONS,
+  normalizeEmailHtmlRenderMode,
+  type EmailHtmlRenderMode,
+} from "@/lib/email-html-render-mode";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -130,6 +136,8 @@ export default function SettingsPage() {
   const [emailReplySettings, setEmailReplySettings] = useState<EmailReplySettings>(
     DEFAULT_EMAIL_REPLY_SETTINGS,
   );
+  const [defaultEmailHtmlRenderMode, setDefaultEmailHtmlRenderMode] =
+    useState<EmailHtmlRenderMode>(DEFAULT_EMAIL_HTML_RENDER_MODE);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setSectionFromUrl(params.get("section"));
@@ -180,6 +188,14 @@ export default function SettingsPage() {
       normalizeEmailReplySettings(preferences?.email_reply_settings),
     );
   }, [preferences?.email_reply_settings]);
+
+  useEffect(() => {
+    setDefaultEmailHtmlRenderMode(
+      normalizeEmailHtmlRenderMode(
+        preferences?.default_email_html_render_mode,
+      ),
+    );
+  }, [preferences?.default_email_html_render_mode]);
 
   const isSuperOrAdmin = ["admin", "super_admin"].includes(
     String(profile?.role || ""),
@@ -550,6 +566,7 @@ export default function SettingsPage() {
     emailDeleteUndoSeconds?: number;
     themePreset?: ThemePreset;
     emailReplySettings?: EmailReplySettings;
+    defaultEmailHtmlRenderMode?: EmailHtmlRenderMode;
   }) => {
     setSaveStatus("saving");
     try {
@@ -604,10 +621,20 @@ export default function SettingsPage() {
         }
       }
 
-      if (updates.emailReplySettings !== undefined) {
-        const result = await updatePreferences?.({
-          email_reply_settings: updates.emailReplySettings,
-        });
+      if (
+        updates.emailReplySettings !== undefined ||
+        updates.defaultEmailHtmlRenderMode !== undefined
+      ) {
+        const preferenceUpdates: Record<string, unknown> = {};
+        if (updates.emailReplySettings !== undefined) {
+          preferenceUpdates.email_reply_settings = updates.emailReplySettings;
+        }
+        if (updates.defaultEmailHtmlRenderMode !== undefined) {
+          preferenceUpdates.default_email_html_render_mode =
+            updates.defaultEmailHtmlRenderMode;
+        }
+
+        const result = await updatePreferences?.(preferenceUpdates);
         if (result?.error) {
           setSaveStatus("error");
           setTimeout(() => setSaveStatus("idle"), 3000);
@@ -851,6 +878,46 @@ export default function SettingsPage() {
                       ))}
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <div className="mb-6 flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-medium mb-2 flex items-center gap-2">
+                      <Mail className="w-5 h-5" />
+                      Email HTML Rendering
+                    </h3>
+                    <p className="text-sm text-zinc-400">
+                      Choose how inbound HTML emails render by default in thread
+                      detail. You can still switch modes while viewing a message.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {EMAIL_HTML_RENDER_MODE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={async () => {
+                        setDefaultEmailHtmlRenderMode(option.value);
+                        await handleAutoSave({
+                          defaultEmailHtmlRenderMode: option.value,
+                        });
+                      }}
+                      className={cn(
+                        "rounded-xl border px-4 py-3 text-left transition-colors",
+                        defaultEmailHtmlRenderMode === option.value
+                          ? "border-theme-primary bg-zinc-800 text-white"
+                          : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:border-zinc-500",
+                      )}
+                    >
+                      <div className="text-sm font-medium">{option.label}</div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {option.description}
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
 

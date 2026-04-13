@@ -1262,18 +1262,24 @@ export type Database = {
       user_preferences: {
         Row: {
           created_at: string | null
+          default_email_html_render_mode: string
+          email_reply_settings: Json
           expanded_organizations: Json | null
           updated_at: string | null
           user_id: string
         }
         Insert: {
           created_at?: string | null
+          default_email_html_render_mode?: string
+          email_reply_settings?: Json
           expanded_organizations?: Json | null
           updated_at?: string | null
           user_id: string
         }
         Update: {
           created_at?: string | null
+          default_email_html_render_mode?: string
+          email_reply_settings?: Json
           expanded_organizations?: Json | null
           updated_at?: string | null
           user_id?: string

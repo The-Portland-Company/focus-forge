@@ -18,7 +18,9 @@ import {
   BellRing,
   Bot,
   Check,
+  CircleHelp,
   ChevronDown,
+  Copy,
   Expand,
   ExternalLink,
   FileText,
@@ -144,6 +146,11 @@ import {
   normalizeEmailReplySettings,
   type EmailReplySettings,
 } from "@/lib/email-inbox/reply-settings";
+import {
+  getEmailHtmlRenderModeToggleLabel,
+  normalizeEmailHtmlRenderMode,
+  type EmailHtmlRenderMode,
+} from "@/lib/email-html-render-mode";
 import { cn } from "@/lib/utils";
 
 type EmailInboxViewProps = {
@@ -178,6 +185,399 @@ const EMAIL_INBOX_FILTER_BAR_STORAGE_KEY =
   "focus-forge.email-inbox.filter-bar-collapsed";
 const DOCK_BADGE_EVENT_NAME = "focus-forge:dock-badge-count-change";
 const APP_TITLE = "Focus: Forge";
+
+type EmailInboxSearchHelpToken = {
+  value: string;
+  description: string;
+};
+
+type EmailInboxSearchHelpDefinition = {
+  label: string;
+  fullPrefix: string;
+  shortPrefix: string;
+  description: string;
+  example: string;
+  aliases: string[];
+  tokens?: EmailInboxSearchHelpToken[];
+};
+
+type ParsedInboxSearchQuery = {
+  broadTerms: string[];
+  fieldTerms: Record<string, string[]>;
+  isHelpMode: boolean;
+};
+
+export const EMAIL_INBOX_SEARCH_HELP_DEFINITIONS: EmailInboxSearchHelpDefinition[] =
+  [
+    {
+      label: "Sender",
+      fullPrefix: "from:",
+      shortPrefix: "f:",
+      aliases: ["from", "f"],
+      description:
+        "Search sender first name, last name, display name, and email.",
+      example: "from:spencer",
+    },
+    {
+      label: "Recipient",
+      fullPrefix: "to:",
+      shortPrefix: "t:",
+      aliases: ["to", "t"],
+      description:
+        "Search mailbox and direct recipient names or email addresses.",
+      example: "to:ops",
+    },
+    {
+      label: "Subject",
+      fullPrefix: "subject:",
+      shortPrefix: "s:",
+      aliases: ["subject", "s"],
+      description: "Search subject line only.",
+      example: "subject:invoice",
+    },
+    {
+      label: "Body",
+      fullPrefix: "body:",
+      shortPrefix: "b:",
+      aliases: ["body", "b"],
+      description: "Search preview text and AI summary text only.",
+      example: "body:contract",
+    },
+    {
+      label: "Project",
+      fullPrefix: "project:",
+      shortPrefix: "p:",
+      aliases: ["project", "p"],
+      description: "Search linked project names only.",
+      example: "project:vrm",
+    },
+    {
+      label: "Mailbox",
+      fullPrefix: "mailbox:",
+      shortPrefix: "m:",
+      aliases: ["mailbox", "m"],
+      description: "Search mailbox name, display name, and mailbox email only.",
+      example: "mailbox:ceo",
+    },
+    {
+      label: "Email",
+      fullPrefix: "email:",
+      shortPrefix: "e:",
+      aliases: ["email", "e"],
+      description: "Search any participant or mailbox email address.",
+      example: "email:spencer@",
+    },
+    {
+      label: "Name",
+      fullPrefix: "name:",
+      shortPrefix: "n:",
+      aliases: ["name", "n"],
+      description: "Search participant names only.",
+      example: "name:shelby",
+    },
+    {
+      label: "CC",
+      fullPrefix: "cc:",
+      shortPrefix: "c:",
+      aliases: ["cc", "c"],
+      description: "Search CC participant names and email addresses only.",
+      example: "cc:finance",
+    },
+    {
+      label: "Action",
+      fullPrefix: "action:",
+      shortPrefix: "a:",
+      aliases: ["action", "a"],
+      description: "Search AI action title only.",
+      example: "action:reply",
+    },
+    {
+      label: "State",
+      fullPrefix: "is:",
+      shortPrefix: "i:",
+      aliases: ["is", "i"],
+      description: "Filter by thread state instead of text matching.",
+      example: "is:unread",
+      tokens: [
+        { value: "unread", description: "Only unread threads." },
+        { value: "read", description: "Only read threads." },
+        { value: "spam", description: "Only spam-classified threads." },
+        {
+          value: "quarantine",
+          description: "Only quarantined threads.",
+        },
+        { value: "deleted", description: "Only deleted threads." },
+      ],
+    },
+    {
+      label: "Has",
+      fullPrefix: "has:",
+      shortPrefix: "h:",
+      aliases: ["has", "h"],
+      description: "Filter for thread relationships or content that exists.",
+      example: "has:project",
+      tokens: [
+        { value: "project", description: "Thread already linked to a project." },
+        { value: "tasks", description: "Thread already linked to one or more tasks." },
+        {
+          value: "attachments",
+          description: "Thread has loaded attachment metadata.",
+        },
+      ],
+    },
+    {
+      label: "Received",
+      fullPrefix: "received:",
+      shortPrefix: "r:",
+      aliases: ["received", "r"],
+      description: "Filter by received date keywords like today or yesterday.",
+      example: "received:today",
+    },
+    {
+      label: "Before",
+      fullPrefix: "before:",
+      shortPrefix: "bf:",
+      aliases: ["before", "bf"],
+      description: "Only threads received before a date.",
+      example: "before:2026-04-01",
+    },
+    {
+      label: "After",
+      fullPrefix: "after:",
+      shortPrefix: "af:",
+      aliases: ["after", "af"],
+      description: "Only threads received after a date.",
+      example: "after:2026-04-01",
+    },
+    {
+      label: "Thread ID",
+      fullPrefix: "id:",
+      shortPrefix: "#:",
+      aliases: ["id", "#"],
+      description: "Match a specific thread id.",
+      example: "id:thread-123",
+    },
+  ];
+
+function splitSearchWords(value: string) {
+  return value
+    .toLocaleLowerCase()
+    .split(/[^a-z0-9@._+-]+/i)
+    .filter(Boolean);
+}
+
+function matchesSearchTerm(term: string, values: Array<string | null | undefined>) {
+  const normalizedTerm = term.trim().toLocaleLowerCase();
+
+  if (!normalizedTerm) {
+    return true;
+  }
+
+  return values.some((value) => {
+    const normalizedValue = value?.trim().toLocaleLowerCase();
+
+    if (!normalizedValue) {
+      return false;
+    }
+
+    if (normalizedTerm.length <= 1) {
+      return splitSearchWords(normalizedValue).some((word) =>
+        word.startsWith(normalizedTerm),
+      );
+    }
+
+    return normalizedValue.includes(normalizedTerm);
+  });
+}
+
+function tokenizeInboxSearchQuery(query: string) {
+  const tokens: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < query.length; index += 1) {
+    const character = query[index];
+
+    if (character === '"') {
+      inQuotes = !inQuotes;
+      current += character;
+      continue;
+    }
+
+    if (!inQuotes && /\s/.test(character)) {
+      if (current.trim()) {
+        tokens.push(current.trim());
+      }
+      current = "";
+      continue;
+    }
+
+    current += character;
+  }
+
+  if (current.trim()) {
+    tokens.push(current.trim());
+  }
+
+  return tokens;
+}
+
+function normalizeSearchTokenValue(value: string) {
+  const trimmed = value.trim();
+
+  if (
+    trimmed.length >= 2 &&
+    trimmed.startsWith('"') &&
+    trimmed.endsWith('"')
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+
+  return trimmed;
+}
+
+function getEmailInboxSearchHelpAliasMap() {
+  return EMAIL_INBOX_SEARCH_HELP_DEFINITIONS.reduce<Record<string, string>>(
+    (map, definition) => {
+      definition.aliases.forEach((alias) => {
+        map[alias] = definition.aliases[0] || alias;
+      });
+      return map;
+    },
+    {},
+  );
+}
+
+const EMAIL_INBOX_SEARCH_ALIAS_MAP = getEmailInboxSearchHelpAliasMap();
+
+export function isEmailInboxSearchHelpQuery(query: string) {
+  const trimmed = query.trim();
+  return trimmed === "/" || trimmed.startsWith("/help");
+}
+
+export function getEmailInboxSearchHelpFilter(query: string) {
+  if (!isEmailInboxSearchHelpQuery(query)) {
+    return "";
+  }
+
+  const trimmed = query.trim();
+  if (trimmed === "/") {
+    return "";
+  }
+
+  return trimmed.replace(/^\/help\b/i, "").trim();
+}
+
+export function filterEmailInboxSearchHelpDefinitions(
+  definitions: EmailInboxSearchHelpDefinition[],
+  query: string,
+) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+
+  if (!normalizedQuery) {
+    return definitions;
+  }
+
+  return definitions.filter((definition) => {
+    const tokenValues = (definition.tokens || []).map((token) => token.value);
+    return [
+      definition.label,
+      definition.fullPrefix,
+      definition.shortPrefix,
+      definition.description,
+      definition.example,
+      ...definition.aliases,
+      ...tokenValues,
+    ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
+  });
+}
+
+export function buildEmailInboxSearchInsertion(params: {
+  currentQuery: string;
+  prefix: string;
+  tokenValue?: string;
+}) {
+  const insertion = `${params.prefix}${params.tokenValue || ""} `;
+  const trimmed = params.currentQuery.trim();
+
+  if (!trimmed || isEmailInboxSearchHelpQuery(params.currentQuery)) {
+    return insertion;
+  }
+
+  return /\s$/.test(params.currentQuery)
+    ? `${params.currentQuery}${insertion}`
+    : `${params.currentQuery} ${insertion}`;
+}
+
+export function getEmailInboxSearchHelpCopyText(params: {
+  prefix: string;
+  example: string;
+  tokenValue?: string;
+}) {
+  return params.tokenValue
+    ? `${params.prefix}${params.tokenValue}`
+    : params.example;
+}
+
+export function parseEmailInboxSearchQuery(query: string): ParsedInboxSearchQuery {
+  if (isEmailInboxSearchHelpQuery(query)) {
+    return {
+      broadTerms: [],
+      fieldTerms: {},
+      isHelpMode: true,
+    };
+  }
+
+  return tokenizeInboxSearchQuery(query).reduce<ParsedInboxSearchQuery>(
+    (result, token) => {
+      const prefixMatch = token.match(/^([^:\s]+):(.*)$/);
+
+      if (
+        prefixMatch?.[1] &&
+        Object.prototype.hasOwnProperty.call(
+          EMAIL_INBOX_SEARCH_ALIAS_MAP,
+          prefixMatch[1].toLocaleLowerCase(),
+        )
+      ) {
+        const canonicalField =
+          EMAIL_INBOX_SEARCH_ALIAS_MAP[prefixMatch[1].toLocaleLowerCase()];
+        const normalizedValue = normalizeSearchTokenValue(prefixMatch[2] || "");
+
+        if (normalizedValue) {
+          result.fieldTerms[canonicalField] = [
+            ...(result.fieldTerms[canonicalField] || []),
+            normalizedValue,
+          ];
+        }
+
+        return result;
+      }
+
+      if (token.startsWith("#")) {
+        const normalizedValue = normalizeSearchTokenValue(token.slice(1));
+        if (normalizedValue) {
+          result.fieldTerms["#"] = [
+            ...(result.fieldTerms["#"] || []),
+            normalizedValue,
+          ];
+        }
+        return result;
+      }
+
+      const normalizedToken = normalizeSearchTokenValue(token);
+      if (normalizedToken) {
+        result.broadTerms.push(normalizedToken);
+      }
+
+      return result;
+    },
+    {
+      broadTerms: [],
+      fieldTerms: {},
+      isHelpMode: false,
+    },
+  );
+}
 
 export function normalizeDockBadgeCount(count: number) {
   if (!Number.isFinite(count) || count <= 0) {
@@ -374,6 +774,15 @@ export function filterInboxItemsBySearchQuery(params: {
     return params.items;
   }
 
+  const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+
+  const matchesWordPrefix = (value: string, queryToken: string) => {
+    const normalizedValue = value.toLocaleLowerCase();
+    const compactWords = normalizedValue.split(/[^a-z0-9@._+-]+/i);
+
+    return compactWords.some((word) => word.startsWith(queryToken));
+  };
+
   return params.items.filter((item) => {
     const mailbox = params.mailboxes.find(
       (candidate) => candidate.id === item.mailboxId,
@@ -381,10 +790,12 @@ export function filterInboxItemsBySearchQuery(params: {
     const project = params.projects.find(
       (candidate) => candidate.id === item.projectId,
     );
-    const haystack = [
+    const primaryFields = [
       item.subject,
       item.normalizedSubject,
       item.actionTitle,
+    ].filter((value): value is string => Boolean(value?.trim()));
+    const secondaryFields = [
       item.previewText,
       item.summaryText,
       item.mailboxName,
@@ -397,12 +808,18 @@ export function filterInboxItemsBySearchQuery(params: {
         participant.displayName,
         participant.emailAddress,
       ]),
-    ]
-      .filter((value): value is string => Boolean(value?.trim()))
-      .join(" ")
-      .toLocaleLowerCase();
+    ].filter((value): value is string => Boolean(value?.trim()));
 
-    return haystack.includes(normalizedQuery);
+    return queryTokens.every((queryToken) => {
+      if (queryToken.length <= 1) {
+        return primaryFields.some((value) => matchesWordPrefix(value, queryToken));
+      }
+
+      const searchableFields = [...primaryFields, ...secondaryFields];
+      return searchableFields.some((value) =>
+        value.toLocaleLowerCase().includes(queryToken),
+      );
+    });
   });
 }
 
@@ -733,6 +1150,8 @@ export function EmailInboxView({
     useState(false);
   const [replyStyleOverrides, setReplyStyleOverrides] =
     useState<EmailReplySettings>(DEFAULT_EMAIL_REPLY_SETTINGS);
+  const [emailHtmlRenderMode, setEmailHtmlRenderMode] =
+    useState<EmailHtmlRenderMode>("preserve");
   const [replyMode, setReplyMode] = useState<"reply_all" | "internal_note">(
     "reply_all",
   );
@@ -965,6 +1384,12 @@ export function EmailInboxView({
       normalizeEmailReplySettings(preferences?.email_reply_settings),
     );
   }, [preferences?.email_reply_settings]);
+
+  useEffect(() => {
+    setEmailHtmlRenderMode(
+      normalizeEmailHtmlRenderMode(preferences?.default_email_html_render_mode),
+    );
+  }, [preferences?.default_email_html_render_mode]);
 
   useEffect(() => {
     publishDockBadgeCount(isEmailInboxView(view) ? unreadInboxCount : 0);
@@ -3863,11 +4288,24 @@ export function EmailInboxView({
                   </div>
                 </div>
                 <div className="mt-4 min-w-0 space-y-3">
-                  <div className="inline-flex min-w-0 items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
-                    <Mail className="h-3.5 w-3.5" />
-                    <span className="truncate">
-                      {formatEmailSubject(selectedThread.subject)}
-                    </span>
+                  <div className="flex min-w-0 items-center justify-between gap-3">
+                    <div className="inline-flex min-w-0 items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                      <Mail className="h-3.5 w-3.5" />
+                      <span className="truncate">
+                        {formatEmailSubject(selectedThread.subject)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEmailHtmlRenderMode((current) =>
+                          current === "preserve" ? "simplified" : "preserve",
+                        )
+                      }
+                      className="inline-flex shrink-0 items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                    >
+                      {getEmailHtmlRenderModeToggleLabel(emailHtmlRenderMode)}
+                    </button>
                   </div>
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
                     {selectedThreadShowsSecondaryActionTitle &&
@@ -3892,7 +4330,13 @@ export function EmailInboxView({
                       <EmailSignatureContent
                         html={selectedThreadPrimaryEntry?.contentHtml}
                         text={selectedThreadPrimaryEntry?.content}
+                        contentKind={
+                          selectedThreadPrimaryEntry?.type === "internal_note"
+                            ? "rich_text"
+                            : "email"
+                        }
                         hideSignatures={hideEmailSignatures}
+                        renderMode={emailHtmlRenderMode}
                         contentClassName="break-words text-sm leading-6 text-zinc-200"
                         signatureClassName="break-words text-sm leading-6 text-zinc-200 opacity-90"
                       />
@@ -4704,7 +5148,13 @@ export function EmailInboxView({
                               <EmailSignatureContent
                                 html={entry.contentHtml}
                                 text={entry.content}
+                                contentKind={
+                                  entry.type === "internal_note"
+                                    ? "rich_text"
+                                    : "email"
+                                }
                                 hideSignatures={hideEmailSignatures}
+                                renderMode={emailHtmlRenderMode}
                                 contentClassName={cn(
                                   "break-words text-sm leading-6 text-zinc-300",
                                   isCurrentUserEntry && "text-right",

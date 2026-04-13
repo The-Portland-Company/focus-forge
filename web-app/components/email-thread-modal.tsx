@@ -68,6 +68,11 @@ import {
   normalizeEmailReplySettings,
   type EmailReplySettings,
 } from "@/lib/email-inbox/reply-settings";
+import {
+  getEmailHtmlRenderModeToggleLabel,
+  normalizeEmailHtmlRenderMode,
+  type EmailHtmlRenderMode,
+} from "@/lib/email-html-render-mode";
 import type {
   ConversationEntry,
   EmailReplyDraft,
@@ -180,6 +185,8 @@ export function EmailThreadModal({
     useState(false);
   const [replyStyleOverrides, setReplyStyleOverrides] =
     useState<EmailReplySettings>(DEFAULT_EMAIL_REPLY_SETTINGS);
+  const [emailHtmlRenderMode, setEmailHtmlRenderMode] =
+    useState<EmailHtmlRenderMode>("preserve");
   const [replyMode, setReplyMode] = useState<"reply_all" | "internal_note">(
     "reply_all",
   );
@@ -225,6 +232,12 @@ export function EmailThreadModal({
       normalizeEmailReplySettings(preferences?.email_reply_settings),
     );
   }, [preferences?.email_reply_settings]);
+
+  useEffect(() => {
+    setEmailHtmlRenderMode(
+      normalizeEmailHtmlRenderMode(preferences?.default_email_html_render_mode),
+    );
+  }, [preferences?.default_email_html_render_mode]);
 
   useEffect(() => {
     if (!open || !threadId) {
@@ -783,6 +796,23 @@ export function EmailThreadModal({
                       {formatEmailSubject(thread.subject)}
                     </h2>
                     <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                          <MailCheck className="h-3.5 w-3.5" />
+                          <span>Email Body</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEmailHtmlRenderMode((current) =>
+                              current === "preserve" ? "simplified" : "preserve",
+                            )
+                          }
+                          className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                        >
+                          {getEmailHtmlRenderModeToggleLabel(emailHtmlRenderMode)}
+                        </button>
+                      </div>
                       <div className="mb-3 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
                         <Sparkles className="h-3.5 w-3.5" />
                         <span>AI Summary:</span>
@@ -800,7 +830,13 @@ export function EmailThreadModal({
                         <EmailSignatureContent
                           html={primaryThreadEntry?.contentHtml}
                           text={primaryThreadEntry?.content}
+                          contentKind={
+                            primaryThreadEntry?.type === "internal_note"
+                              ? "rich_text"
+                              : "email"
+                          }
                           hideSignatures={hideEmailSignatures}
+                          renderMode={emailHtmlRenderMode}
                           contentClassName="break-words text-sm leading-6 text-zinc-200"
                           signatureClassName="break-words text-sm leading-6 text-zinc-200 opacity-90"
                         />
@@ -1316,7 +1352,11 @@ export function EmailThreadModal({
                             <EmailSignatureContent
                               html={entry.contentHtml}
                               text={entry.content}
+                              contentKind={
+                                entry.type === "internal_note" ? "rich_text" : "email"
+                              }
                               hideSignatures={hideEmailSignatures}
+                              renderMode={emailHtmlRenderMode}
                               contentClassName="break-words text-sm leading-6 text-zinc-300"
                               signatureClassName="break-words text-sm leading-6 text-zinc-300 opacity-90"
                             />

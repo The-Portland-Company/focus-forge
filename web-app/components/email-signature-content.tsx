@@ -2,14 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { EmailHtmlContent } from "@/components/ui/email-html-content";
 import { RichTextContent } from "@/components/ui/rich-text-content";
+import type { EmailHtmlRenderMode } from "@/lib/email-html-render-mode";
 import { extractEmailSignatureContentParts } from "@/lib/email-signature-display";
 import { cn } from "@/lib/utils";
 
 type EmailSignatureContentProps = {
   html?: string | null;
   text?: string | null;
+  contentKind?: "email" | "rich_text";
   hideSignatures?: boolean;
+  renderMode?: EmailHtmlRenderMode;
   contentClassName?: string;
   collapsedClassName?: string;
   signatureClassName?: string;
@@ -18,7 +22,9 @@ type EmailSignatureContentProps = {
 export function EmailSignatureContent({
   html,
   text,
+  contentKind = "email",
   hideSignatures = true,
+  renderMode = "preserve",
   contentClassName,
   collapsedClassName,
   signatureClassName,
@@ -39,6 +45,10 @@ export function EmailSignatureContent({
     className?: string,
   ) => {
     if (contentHtml) {
+      if (contentKind === "email" && renderMode === "preserve") {
+        return <EmailHtmlContent html={contentHtml} className={className} />;
+      }
+
       return <RichTextContent html={contentHtml} className={className} />;
     }
 
