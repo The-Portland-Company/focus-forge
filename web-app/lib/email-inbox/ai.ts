@@ -311,19 +311,18 @@ export function shouldUseProjectContextForReply(input: {
     activeTasks?: Array<{ name?: string; description?: string; isLinkedToThread?: boolean }>;
     recentProjectComments?: Array<{ content?: string }>;
   } | null) || { };
-
-  if ((context.linkedTasks || []).length > 0) {
-    return true;
-  }
-
-  if ((context.activeTasks || []).some((task) => task.isLinkedToThread)) {
-    return true;
-  }
-
   const haystack = `${input.subject}\n${input.latestInboundText}`;
+  const linkedTaskTexts = (context.linkedTasks || []).flatMap((task) => [
+    task.name,
+  ]);
+  const linkedActiveTaskTexts = (context.activeTasks || [])
+    .filter((task) => task.isLinkedToThread)
+    .flatMap((task) => [task.name, task.description]);
   const contextTexts = [
     context.project?.name,
     context.project?.description,
+    ...linkedTaskTexts,
+    ...linkedActiveTaskTexts,
     ...(context.activeTasks || []).flatMap((task) => [task.name, task.description]),
     ...(context.recentProjectComments || []).map((comment) => comment.content),
   ].filter(Boolean);

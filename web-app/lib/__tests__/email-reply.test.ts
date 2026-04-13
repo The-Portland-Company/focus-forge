@@ -174,7 +174,7 @@ test("buildHeuristicReplyDraft uses project context when available", () => {
         direction: "inbound",
         authorName: "Jordan",
         authorEmail: "jordan@example.com",
-        content: "Can you share where the redesign stands?",
+        content: "Can you share where the redesign rollout stands?",
       },
     ],
     projectContext: {
@@ -277,6 +277,22 @@ test("shouldUseProjectContextForReply requires actual relevance when no linked t
       },
     }),
     true,
+  );
+
+  assert.equal(
+    shouldUseProjectContextForReply({
+      subject: "Re: couple things",
+      latestInboundText:
+        "Customer email logo not loading and checkout month/year is doubled.",
+      projectContext: {
+        linkedTasks: [{ name: "Review blockchain settlement ledger" }],
+        project: {
+          name: "Blockchain",
+          description: "Wallet settlement and on-chain ledger work.",
+        },
+      },
+    }),
+    false,
   );
 });
 
