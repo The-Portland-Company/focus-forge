@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-const { spawn } = require('child_process');
+const http = require('node:http');
+const next = require('next');
+const { startEmailLiveSyncWorker } = require('./email-live-sync-worker.js');
 
-// Railway deployment configuration
-const PORT = process.env.PORT || 3244;
+const PORT = Number(process.env.PORT || 3244);
 const HOST = '0.0.0.0';
 
 console.log('=== Railway Next.js Server Startup ===');
@@ -13,32 +14,81 @@ console.log('Node Version:', process.version);
 console.log('Environment:', process.env.NODE_ENV);
 console.log('======================================');
 
-// Start Next.js server with correct binding
-const server = spawn('npx', ['next', 'start', '--hostname', HOST, '--port', PORT], {
-  stdio: 'inherit',
-  env: {
-    ...process.env,
-    NODE_ENV: 'production'
+let stopEmailWorker = null;
+let server = null;
+let shuttingDown = false;
+
+async function shutdown(signal) {
+  if (shuttingDown) {
+    return;
   }
-});
 
-server.on('error', (error) => {
-  console.error('Failed to start server:', error);
-  process.exit(1);
-});
+  shuttingDown = true;
+  console.log(`Received ${signal}, shutting down gracefully`);
 
-server.on('close', (code) => {
-  console.log(`Server process exited with code ${code}`);
-  process.exit(code);
-});
+  if (stopEmailWorker) {
+    await stopEmailWorker().catch((error) => {
+      console.error('Failed to stop email live sync worker:', error);
+    });
+  }
 
-// Handle termination signals
+  if (!server) {
+    process.exit(0);
+    return;
+  }
+
+  server.close((error) => {
+    if (error) {
+      console.error('Failed to close HTTP server:', error);
+      process.exit(1);
+      return;
+    }
+
+    process.exit(0);
+  });
+}
+
+async function main() {
+  const app = next({
+    dev: false,
+    hostname: HOST,
+    port: PORT,
+  });
+  const handle = app.getRequestHandler();
+
+  await app.prepare();
+  stopEmailWorker = await startEmailLiveSyncWorker({
+    exitOnShutdown: false,
+    registerSignalHandlers: false,
+  });
+
+  server = http.createServer((request, response) => {
+    void handle(request, response).catch((error) => {
+      console.error('Unhandled Next.js request error:', error);
+      response.statusCode = 500;
+      response.end('Internal Server Error');
+    });
+  });
+
+  server.on('error', (error) => {
+    console.error('HTTP server error:', error);
+    process.exit(1);
+  });
+
+  server.listen(PORT, HOST, () => {
+    console.log(`Server listening on http://${HOST}:${PORT}`);
+  });
+}
+
 process.on('SIGTERM', () => {
-  console.log('Received SIGTERM, shutting down gracefully');
-  server.kill('SIGTERM');
+  void shutdown('SIGTERM');
 });
 
 process.on('SIGINT', () => {
-  console.log('Received SIGINT, shutting down gracefully');
-  server.kill('SIGINT');
+  void shutdown('SIGINT');
+});
+
+main().catch((error) => {
+  console.error('Failed to start application:', error);
+  process.exit(1);
 });
