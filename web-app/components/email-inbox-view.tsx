@@ -768,20 +768,18 @@ export function filterInboxItemsBySearchQuery(params: {
   mailboxes: Mailbox[];
   projects: Database["projects"];
 }) {
-  const normalizedQuery = params.query.trim().toLocaleLowerCase();
+  const parsedQuery = parseEmailInboxSearchQuery(params.query);
 
-  if (!normalizedQuery) {
+  if (parsedQuery.isHelpMode) {
     return params.items;
   }
 
-  const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
-
-  const matchesWordPrefix = (value: string, queryToken: string) => {
-    const normalizedValue = value.toLocaleLowerCase();
-    const compactWords = normalizedValue.split(/[^a-z0-9@._+-]+/i);
-
-    return compactWords.some((word) => word.startsWith(queryToken));
-  };
+  if (
+    parsedQuery.broadTerms.length === 0 &&
+    Object.keys(parsedQuery.fieldTerms).length === 0
+  ) {
+    return params.items;
+  }
 
   return params.items.filter((item) => {
     const mailbox = params.mailboxes.find(
@@ -809,16 +807,143 @@ export function filterInboxItemsBySearchQuery(params: {
         participant.emailAddress,
       ]),
     ].filter((value): value is string => Boolean(value?.trim()));
+    const receivedAt =
+      item.latestInboundAt || item.latestMessageAt || item.createdAt || null;
+    const receivedDate = receivedAt ? new Date(receivedAt) : null;
+    const senderParticipants = (item.participants || []).filter(
+      (participant) => participant.participantRole === "from",
+    );
+    const toParticipants = (item.participants || []).filter(
+      (participant) => participant.participantRole === "to",
+    );
+    const ccParticipants = (item.participants || []).filter(
+      (participant) => participant.participantRole === "cc",
+    );
+    const participantNames = (participants: typeof item.participants = []) =>
+      (participants || []).flatMap((participant) => [
+        participant.displayName,
+        ...String(participant.displayName || "")
+          .split(/\s+/)
+          .filter(Boolean),
+      ]);
+    const participantEmails = (participants: typeof item.participants = []) =>
+      (participants || []).map((participant) => participant.emailAddress);
+    const hasAttachments = Boolean(
+      (item.conversation || []).some((entry) => (entry.attachments || []).length > 0),
+    );
+    const fieldMatchers: Record<string, (value: string) => boolean> = {
+      from: (value) =>
+        matchesSearchTerm(value, [
+          ...participantNames(senderParticipants),
+          ...participantEmails(senderParticipants),
+        ]),
+      to: (value) =>
+        matchesSearchTerm(value, [
+          mailbox?.name,
+          mailbox?.displayName,
+          mailbox?.emailAddress,
+          item.mailboxName,
+          item.mailboxEmailAddress,
+          ...participantNames(toParticipants),
+          ...participantEmails(toParticipants),
+        ]),
+      subject: (value) =>
+        matchesSearchTerm(value, [item.subject, item.normalizedSubject]),
+      body: (value) => matchesSearchTerm(value, [item.previewText, item.summaryText]),
+      project: (value) => matchesSearchTerm(value, [project?.name]),
+      mailbox: (value) =>
+        matchesSearchTerm(value, [
+          mailbox?.name,
+          mailbox?.displayName,
+          mailbox?.emailAddress,
+          item.mailboxName,
+          item.mailboxEmailAddress,
+        ]),
+      email: (value) =>
+        matchesSearchTerm(value, [
+          mailbox?.emailAddress,
+          item.mailboxEmailAddress,
+          ...participantEmails(item.participants),
+        ]),
+      name: (value) => matchesSearchTerm(value, participantNames(item.participants)),
+      cc: (value) =>
+        matchesSearchTerm(value, [
+          ...participantNames(ccParticipants),
+          ...participantEmails(ccParticipants),
+        ]),
+      action: (value) => matchesSearchTerm(value, [item.actionTitle]),
+      is: (value) => {
+        const normalizedValue = value.toLocaleLowerCase();
+        if (normalizedValue === "unread") return Boolean(item.isUnread);
+        if (normalizedValue === "read") return !item.isUnread;
+        if (normalizedValue === "spam") {
+          return item.status === "spam" || item.classification === "spam";
+        }
+        if (normalizedValue === "quarantine") return item.status === "quarantine";
+        if (normalizedValue === "deleted") return item.status === "deleted";
+        return false;
+      },
+      has: (value) => {
+        const normalizedValue = value.toLocaleLowerCase();
+        if (normalizedValue === "project") return Boolean(item.projectId);
+        if (normalizedValue === "tasks") return item.derivedTaskCount > 0;
+        if (normalizedValue === "attachments") return hasAttachments;
+        return false;
+      },
+      received: (value) => {
+        if (!receivedDate || Number.isNaN(receivedDate.getTime())) {
+          return false;
+        }
+        const normalizedValue = value.toLocaleLowerCase();
+        const receivedDay = receivedDate.toISOString().slice(0, 10);
+        const now = new Date();
+        const today = now.toISOString().slice(0, 10);
+        const yesterdayDate = new Date(now);
+        yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+        const yesterday = yesterdayDate.toISOString().slice(0, 10);
 
-    return queryTokens.every((queryToken) => {
-      if (queryToken.length <= 1) {
-        return primaryFields.some((value) => matchesWordPrefix(value, queryToken));
+        if (normalizedValue === "today") return receivedDay === today;
+        if (normalizedValue === "yesterday") return receivedDay === yesterday;
+        return receivedDay === normalizedValue;
+      },
+      before: (value) => {
+        if (!receivedDate || Number.isNaN(receivedDate.getTime())) {
+          return false;
+        }
+        const comparison = new Date(value);
+        return !Number.isNaN(comparison.getTime()) && receivedDate < comparison;
+      },
+      after: (value) => {
+        if (!receivedDate || Number.isNaN(receivedDate.getTime())) {
+          return false;
+        }
+        const comparison = new Date(value);
+        return !Number.isNaN(comparison.getTime()) && receivedDate > comparison;
+      },
+      id: (value) => matchesSearchTerm(value, [item.id]),
+      "#": (value) => matchesSearchTerm(value, [item.id]),
+    };
+
+    const broadMatches = parsedQuery.broadTerms.every((term) =>
+      matchesSearchTerm(
+        term,
+        term.trim().length <= 1
+          ? primaryFields
+          : [...primaryFields, ...secondaryFields],
+      ),
+    );
+
+    if (!broadMatches) {
+      return false;
+    }
+
+    return Object.entries(parsedQuery.fieldTerms).every(([field, values]) => {
+      const matchesField = fieldMatchers[field];
+      if (!matchesField) {
+        return false;
       }
 
-      const searchableFields = [...primaryFields, ...secondaryFields];
-      return searchableFields.some((value) =>
-        value.toLocaleLowerCase().includes(queryToken),
-      );
+      return values.some((value) => matchesField(value));
     });
   });
 }
@@ -1181,6 +1306,10 @@ export function EmailInboxView({
   const [inboxFilterTab, setInboxFilterTab] =
     useState<EmailInboxFilterTab>("all");
   const [inboxSearchQuery, setInboxSearchQuery] = useState("");
+  const [isSearchHelpDialogOpen, setIsSearchHelpDialogOpen] = useState(false);
+  const [copiedSearchHelpValue, setCopiedSearchHelpValue] = useState<
+    string | null
+  >(null);
   const [isFilterBarCollapsed, setIsFilterBarCollapsed] = useState(false);
   const [alwaysShowSummary, setAlwaysShowSummary] = useState(false);
   const [alwaysShowExcerpt, setAlwaysShowExcerpt] = useState(false);
@@ -1209,9 +1338,11 @@ export function EmailInboxView({
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
   const projectSearchInputRef = useRef<HTMLInputElement | null>(null);
   const replyFileInputRef = useRef<HTMLInputElement | null>(null);
+  const inboxSearchInputRef = useRef<HTMLInputElement | null>(null);
   const replyAttachmentsRef = useRef<ComposerAttachment[]>([]);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const queuedActionTimeoutRef = useRef<number | null>(null);
+  const copiedSearchHelpTimeoutRef = useRef<number | null>(null);
   const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
   const mailboxesRef = useRef<Mailbox[]>(data.mailboxes);
   const refreshInboxStateRef = useRef<
@@ -1303,6 +1434,22 @@ export function EmailInboxView({
   const filteredInlineInboxProjects = useMemo(
     () => filterInboxProjects(sortedInboxProjects, inlineProjectSearchQuery),
     [inlineProjectSearchQuery, sortedInboxProjects],
+  );
+  const isSearchHelpMode = useMemo(
+    () => isEmailInboxSearchHelpQuery(inboxSearchQuery),
+    [inboxSearchQuery],
+  );
+  const searchHelpFilter = useMemo(
+    () => getEmailInboxSearchHelpFilter(inboxSearchQuery),
+    [inboxSearchQuery],
+  );
+  const filteredSearchHelpDefinitions = useMemo(
+    () =>
+      filterEmailInboxSearchHelpDefinitions(
+        EMAIL_INBOX_SEARCH_HELP_DEFINITIONS,
+        searchHelpFilter,
+      ),
+    [searchHelpFilter],
   );
   const selectedProjectId = getThreadProjectId(selectedThread);
   const selectedProject = useMemo(
@@ -1549,6 +1696,58 @@ export function EmailInboxView({
     );
   };
 
+  const focusInboxSearchInput = () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      const input = inboxSearchInputRef.current;
+      if (!input) {
+        return;
+      }
+
+      input.focus();
+      const cursorPosition = input.value.length;
+      input.setSelectionRange(cursorPosition, cursorPosition);
+    });
+  };
+
+  const handleInsertInboxSearchHelp = (params: {
+    prefix: string;
+    tokenValue?: string;
+  }) => {
+    setInboxSearchQuery((current) =>
+      buildEmailInboxSearchInsertion({
+        currentQuery: current,
+        prefix: params.prefix,
+        tokenValue: params.tokenValue,
+      }),
+    );
+    focusInboxSearchInput();
+  };
+
+  const handleCopyInboxSearchHelp = async (params: {
+    prefix: string;
+    example: string;
+    tokenValue?: string;
+  }) => {
+    const text = getEmailInboxSearchHelpCopyText(params);
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedSearchHelpValue(text);
+      if (copiedSearchHelpTimeoutRef.current !== null) {
+        window.clearTimeout(copiedSearchHelpTimeoutRef.current);
+      }
+      copiedSearchHelpTimeoutRef.current = window.setTimeout(() => {
+        setCopiedSearchHelpValue(null);
+      }, 1200);
+    } catch {
+      setStatusMessage("Could not copy search syntax.");
+    }
+  };
+
   const handleSelectThread = (item: InboxItem) => {
     setSelectedThreadId(item.id);
 
@@ -1636,6 +1835,9 @@ export function EmailInboxView({
     return () => {
       if (queuedActionTimeoutRef.current !== null) {
         window.clearTimeout(queuedActionTimeoutRef.current);
+      }
+      if (copiedSearchHelpTimeoutRef.current !== null) {
+        window.clearTimeout(copiedSearchHelpTimeoutRef.current);
       }
       replyAttachmentsRef.current.forEach((attachment) => {
         if (attachment.previewUrl) {
@@ -3794,6 +3996,16 @@ export function EmailInboxView({
                       {visibleInboxItems.length === 1 ? "" : "es"}
                     </div>
                   ) : null}
+                  <Tooltip content="Search help" className="w-auto" side="bottom">
+                    <button
+                      type="button"
+                      onClick={() => setIsSearchHelpDialogOpen(true)}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-300 transition-colors hover:text-white"
+                      aria-label="Open search help"
+                    >
+                      <CircleHelp className="h-4 w-4" />
+                    </button>
+                  </Tooltip>
                   <button
                     type="button"
                     onClick={() =>
@@ -3825,6 +4037,7 @@ export function EmailInboxView({
                       <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                       <div className="pointer-events-none absolute left-9 top-1/2 z-10 h-5 w-px -translate-y-1/2 bg-zinc-700" />
                       <Input
+                        ref={inboxSearchInputRef}
                         value={inboxSearchQuery}
                         onChange={(event) =>
                           setInboxSearchQuery(event.target.value)
@@ -3844,6 +4057,144 @@ export function EmailInboxView({
                         </button>
                       ) : null}
                     </div>
+                    {isSearchHelpMode ? (
+                      <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-2">
+                        <div className="mb-2 flex items-center justify-between gap-3 px-2 pt-1">
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                              Search Help
+                            </div>
+                            <div className="text-xs text-zinc-400">
+                              Type like caveman. Click to insert. Click copy to steal syntax.
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsSearchHelpDialogOpen(true)}
+                            className="inline-flex h-8 items-center gap-2 rounded-lg border border-zinc-800 px-2 text-xs text-zinc-400 transition-colors hover:text-white"
+                          >
+                            <CircleHelp className="h-3.5 w-3.5" />
+                            Full help
+                          </button>
+                        </div>
+                        <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                          {filteredSearchHelpDefinitions.map((definition) => (
+                            <div
+                              key={definition.fullPrefix}
+                              className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleInsertInboxSearchHelp({
+                                      prefix: definition.fullPrefix,
+                                    })
+                                  }
+                                  className="min-w-0 flex-1 text-left"
+                                >
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-sm font-medium text-white">
+                                      {definition.label}
+                                    </span>
+                                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-300">
+                                      {definition.fullPrefix}
+                                    </span>
+                                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-500">
+                                      {definition.shortPrefix}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 text-xs text-zinc-400">
+                                    {definition.description}
+                                  </div>
+                                  <div className="mt-2 text-xs text-[rgb(var(--theme-primary-rgb))]">
+                                    {definition.example}
+                                  </div>
+                                </button>
+                                <div className="flex shrink-0 items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleInsertInboxSearchHelp({
+                                        prefix: definition.fullPrefix,
+                                      })
+                                    }
+                                    className="inline-flex h-8 items-center rounded-lg border border-zinc-800 px-2 text-xs text-zinc-300 transition-colors hover:text-white"
+                                  >
+                                    Insert
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void handleCopyInboxSearchHelp({
+                                        prefix: definition.fullPrefix,
+                                        example: definition.example,
+                                      })
+                                    }
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 transition-colors hover:text-white"
+                                    aria-label={`Copy ${definition.label} search syntax`}
+                                  >
+                                    {copiedSearchHelpValue === definition.example ? (
+                                      <Check className="h-4 w-4" />
+                                    ) : (
+                                      <Copy className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                              {definition.tokens?.length ? (
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {definition.tokens.map((token) => (
+                                    <div
+                                      key={`${definition.fullPrefix}${token.value}`}
+                                      className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/80 px-2 py-1"
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleInsertInboxSearchHelp({
+                                            prefix: definition.fullPrefix,
+                                            tokenValue: token.value,
+                                          })
+                                        }
+                                        className="text-xs text-zinc-300 transition-colors hover:text-white"
+                                      >
+                                        {definition.fullPrefix}
+                                        {token.value}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void handleCopyInboxSearchHelp({
+                                            prefix: definition.fullPrefix,
+                                            example: definition.example,
+                                            tokenValue: token.value,
+                                          })
+                                        }
+                                        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+                                        aria-label={`Copy ${definition.label} token ${token.value}`}
+                                      >
+                                        {copiedSearchHelpValue ===
+                                        `${definition.fullPrefix}${token.value}` ? (
+                                          <Check className="h-3 w-3" />
+                                        ) : (
+                                          <Copy className="h-3 w-3" />
+                                        )}
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          ))}
+                          {filteredSearchHelpDefinitions.length === 0 ? (
+                            <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-3 py-4 text-sm text-zinc-500">
+                              No search help matches that helper query.
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="relative">
                       <FloatingFieldLabel label="Mailbox" />
                       <Mail className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
@@ -5205,6 +5556,117 @@ export function EmailInboxView({
       {statusMessage ? (
         <div className="text-sm text-zinc-400">{statusMessage}</div>
       ) : null}
+
+      <Dialog
+        open={isSearchHelpDialogOpen}
+        onOpenChange={setIsSearchHelpDialogOpen}
+      >
+        <DialogContent className="max-h-[92vh] w-[min(96vw,1100px)] max-w-[96vw] overflow-y-auto border-zinc-800 bg-zinc-950 p-0 text-white">
+          <div className="border-b border-zinc-800 px-6 py-5">
+            <DialogTitle className="text-xl text-white">
+              Search Help
+            </DialogTitle>
+            <DialogDescription className="mt-2 text-zinc-400">
+              Plain text hunt everywhere. Prefix text hunt one field. Tiny cave
+              brain still find big email.
+            </DialogDescription>
+            <div className="mt-4 grid gap-2 text-xs text-zinc-400 md:grid-cols-2">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-3 py-2">
+                Plain text = broad search
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-3 py-2">
+                Spaces = AND
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-3 py-2">
+                Same field repeated = OR inside field
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-3 py-2">
+                Quotes keep phrase together
+              </div>
+            </div>
+          </div>
+          <div className="space-y-3 px-6 py-5">
+            {EMAIL_INBOX_SEARCH_HELP_DEFINITIONS.map((definition) => (
+              <div
+                key={definition.fullPrefix}
+                className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-sm font-semibold text-white">
+                        {definition.label}
+                      </div>
+                      <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-300">
+                        {definition.fullPrefix}
+                      </div>
+                      <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-500">
+                        {definition.shortPrefix}
+                      </div>
+                    </div>
+                    <div className="mt-2 text-sm text-zinc-400">
+                      {definition.description}
+                    </div>
+                    <div className="mt-2 rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 font-mono text-xs text-[rgb(var(--theme-primary-rgb))]">
+                      {definition.example}
+                    </div>
+                    {definition.tokens?.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {definition.tokens.map((token) => (
+                          <button
+                            key={`${definition.fullPrefix}${token.value}`}
+                            type="button"
+                            onClick={() =>
+                              handleInsertInboxSearchHelp({
+                                prefix: definition.fullPrefix,
+                                tokenValue: token.value,
+                              })
+                            }
+                            className="rounded-full border border-zinc-800 bg-zinc-950/80 px-3 py-1 text-xs text-zinc-300 transition-colors hover:text-white"
+                          >
+                            {definition.fullPrefix}
+                            {token.value}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleInsertInboxSearchHelp({
+                          prefix: definition.fullPrefix,
+                        })
+                      }
+                      className="inline-flex h-9 items-center rounded-lg border border-zinc-800 px-3 text-sm text-zinc-300 transition-colors hover:text-white"
+                    >
+                      Insert
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleCopyInboxSearchHelp({
+                          prefix: definition.fullPrefix,
+                          example: definition.example,
+                        })
+                      }
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 transition-colors hover:text-white"
+                      aria-label={`Copy ${definition.label} search example`}
+                    >
+                      {copiedSearchHelpValue === definition.example ? (
+                        <Check className="h-4 w-4" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <EmailSpamReviewModal
         open={isSpamReviewOpen}

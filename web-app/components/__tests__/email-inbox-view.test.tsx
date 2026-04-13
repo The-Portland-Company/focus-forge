@@ -7,12 +7,18 @@ import {
   applyOptimisticThreadReadState,
   buildEmailThreadPopoutUrl,
   clampEmailDetailPanelWidth,
+  buildEmailInboxSearchInsertion,
   filterInboxItemsBySearchQuery,
+  filterEmailInboxSearchHelpDefinitions,
   filterInboxItemsForView,
   filterReplyDraftsForView,
+  getEmailInboxSearchHelpCopyText,
+  getEmailInboxSearchHelpFilter,
   getConversationEntryHeaderClassName,
   getDockBadgeDocumentTitle,
   getEmailInboxSplitClassName,
+  isEmailInboxSearchHelpQuery,
+  parseEmailInboxSearchQuery,
   getSpamScanProgressPercent,
   getThreadActionButtonClassName,
   getThreadActionButtonIconName,
@@ -215,6 +221,426 @@ test("filterInboxItemsBySearchQuery matches sender, mailbox, and project text", 
       projects: projects as any,
     }).map((item) => item.id),
     ["thread-1"],
+  );
+});
+
+test("filterInboxItemsBySearchQuery keeps one-character searches focused on subject text", () => {
+  const items = [
+    {
+      id: "thread-1",
+      subject: "Test message",
+      mailboxId: "mailbox-1",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Shelby Riley",
+          emailAddress: "shelby@example.com",
+        },
+      ],
+      previewText: "Reviewing the new roadmap",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+    },
+    {
+      id: "thread-2",
+      subject: "Invoice",
+      mailboxId: "mailbox-2",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Finance Bot",
+          emailAddress: "billing@example.com",
+        },
+      ],
+      previewText: "Attached invoice",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+    },
+  ] as any;
+
+  const mailboxes = [
+    {
+      id: "mailbox-1",
+      name: "The Portland Company",
+      emailAddress: "team@example.com",
+    },
+    {
+      id: "mailbox-2",
+      name: "The Portland Company",
+      emailAddress: "ops@example.com",
+    },
+  ] as any;
+
+  assert.deepEqual(
+    filterInboxItemsBySearchQuery({
+      items,
+      query: "t",
+      mailboxes,
+      projects: [] as any,
+    }).map((item) => item.id),
+    ["thread-1"],
+  );
+});
+
+test("filterInboxItemsBySearchQuery keeps broad search across sender, mailbox, and body fields", () => {
+  const items = [
+    {
+      id: "thread-1",
+      subject: "Quarterly planning",
+      mailboxId: "mailbox-1",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Spencer Hill",
+          emailAddress: "spencer@example.com",
+        },
+      ],
+      previewText: "Budget review",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+    },
+    {
+      id: "thread-2",
+      subject: "Invoice",
+      mailboxId: "mailbox-2",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Finance Bot",
+          emailAddress: "billing@example.com",
+        },
+      ],
+      previewText: "Send to Spencer now",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+      mailboxName: "Ops Spencer",
+    },
+  ] as any;
+
+  const mailboxes = [
+    { id: "mailbox-1", name: "CEO Inbox", emailAddress: "ceo@example.com" },
+    { id: "mailbox-2", name: "Billing", emailAddress: "billing@example.com" },
+  ] as any;
+
+  assert.deepEqual(
+    filterInboxItemsBySearchQuery({
+      items,
+      query: "spencer",
+      mailboxes,
+      projects: [] as any,
+    }).map((item) => item.id),
+    ["thread-1", "thread-2"],
+  );
+});
+
+test("filterInboxItemsBySearchQuery supports from-only field search", () => {
+  const items = [
+    {
+      id: "thread-1",
+      subject: "Quarterly planning",
+      mailboxId: "mailbox-1",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Spencer Hill",
+          emailAddress: "spencer@example.com",
+        },
+      ],
+      previewText: "Budget review",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+    },
+    {
+      id: "thread-2",
+      subject: "Invoice",
+      mailboxId: "mailbox-2",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Finance Bot",
+          emailAddress: "billing@example.com",
+        },
+      ],
+      previewText: "Send to Spencer now",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+      mailboxName: "Spencer Inbox",
+    },
+  ] as any;
+
+  assert.deepEqual(
+    filterInboxItemsBySearchQuery({
+      items,
+      query: "from:spencer",
+      mailboxes: [] as any,
+      projects: [] as any,
+    }).map((item) => item.id),
+    ["thread-1"],
+  );
+});
+
+test("filterInboxItemsBySearchQuery supports to-only field search", () => {
+  const items = [
+    {
+      id: "thread-1",
+      subject: "Quarterly planning",
+      mailboxId: "mailbox-1",
+      mailboxName: "Operations Team",
+      mailboxEmailAddress: "ops@example.com",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Spencer Hill",
+          emailAddress: "spencer@example.com",
+        },
+      ],
+      previewText: "Budget review",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+    },
+    {
+      id: "thread-2",
+      subject: "Invoice",
+      mailboxId: "mailbox-2",
+      mailboxName: "Billing",
+      mailboxEmailAddress: "billing@example.com",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Finance Bot",
+          emailAddress: "billing@example.com",
+        },
+      ],
+      previewText: "Attached invoice",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+    },
+  ] as any;
+
+  assert.deepEqual(
+    filterInboxItemsBySearchQuery({
+      items,
+      query: "to:ops",
+      mailboxes: [] as any,
+      projects: [] as any,
+    }).map((item) => item.id),
+    ["thread-1"],
+  );
+});
+
+test("filterInboxItemsBySearchQuery supports mixed broad and field terms", () => {
+  const items = [
+    {
+      id: "thread-1",
+      subject: "Invoice for Q2",
+      mailboxId: "mailbox-1",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Spencer Hill",
+          emailAddress: "spencer@example.com",
+        },
+      ],
+      previewText: "Attached invoice",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+    },
+    {
+      id: "thread-2",
+      subject: "Quarterly update",
+      mailboxId: "mailbox-1",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Spencer Hill",
+          emailAddress: "spencer@example.com",
+        },
+      ],
+      previewText: "No invoice here",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+    },
+  ] as any;
+
+  assert.deepEqual(
+    filterInboxItemsBySearchQuery({
+      items,
+      query: "from:spencer invoice",
+      mailboxes: [] as any,
+      projects: [] as any,
+    }).map((item) => item.id),
+    ["thread-1", "thread-2"],
+  );
+});
+
+test("filterInboxItemsBySearchQuery treats repeated field terms as OR", () => {
+  const items = [
+    {
+      id: "thread-1",
+      subject: "Invoice",
+      mailboxId: "mailbox-1",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Spencer Hill",
+          emailAddress: "spencer@example.com",
+        },
+      ],
+      previewText: "Attached invoice",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+    },
+    {
+      id: "thread-2",
+      subject: "Invoice",
+      mailboxId: "mailbox-1",
+      participants: [
+        {
+          participantRole: "from",
+          displayName: "Shelby Riley",
+          emailAddress: "shelby@example.com",
+        },
+      ],
+      previewText: "Attached invoice",
+      summaryText: null,
+      actionTitle: null,
+      projectId: null,
+    },
+  ] as any;
+
+  assert.deepEqual(
+    filterInboxItemsBySearchQuery({
+      items,
+      query: "from:spencer from:shelby",
+      mailboxes: [] as any,
+      projects: [] as any,
+    }).map((item) => item.id),
+    ["thread-1", "thread-2"],
+  );
+});
+
+test("filterInboxItemsBySearchQuery supports structured state and has filters", () => {
+  const items = [
+    {
+      id: "thread-1",
+      subject: "Invoice",
+      mailboxId: "mailbox-1",
+      status: "spam",
+      classification: "spam",
+      isUnread: true,
+      projectId: "project-1",
+      derivedTaskCount: 2,
+      conversation: [
+        {
+          attachments: [{ id: "att-1" }],
+        },
+      ],
+    },
+    {
+      id: "thread-2",
+      subject: "Update",
+      mailboxId: "mailbox-1",
+      status: "active",
+      classification: "actionable",
+      isUnread: false,
+      projectId: null,
+      derivedTaskCount: 0,
+      conversation: [],
+    },
+  ] as any;
+
+  assert.deepEqual(
+    filterInboxItemsBySearchQuery({
+      items,
+      query: "is:spam has:project has:tasks has:attachments",
+      mailboxes: [] as any,
+      projects: [] as any,
+    }).map((item) => item.id),
+    ["thread-1"],
+  );
+});
+
+test("parseEmailInboxSearchQuery preserves quoted field phrases", () => {
+  const parsed = parseEmailInboxSearchQuery('subject:"weekly report" from:spencer');
+
+  assert.deepEqual(parsed.fieldTerms.subject, ["weekly report"]);
+  assert.deepEqual(parsed.fieldTerms.from, ["spencer"]);
+});
+
+test("search help helpers detect help mode and filter text", () => {
+  assert.equal(isEmailInboxSearchHelpQuery("/help from"), true);
+  assert.equal(getEmailInboxSearchHelpFilter("/help from"), "from");
+  assert.equal(isEmailInboxSearchHelpQuery("from:spencer"), false);
+  assert.equal(
+    filterEmailInboxSearchHelpDefinitions(
+      [
+        {
+          label: "Sender",
+          fullPrefix: "from:",
+          shortPrefix: "f:",
+          aliases: ["from", "f"],
+          description: "sender",
+          example: "from:spencer",
+        },
+        {
+          label: "Project",
+          fullPrefix: "project:",
+          shortPrefix: "p:",
+          aliases: ["project", "p"],
+          description: "project",
+          example: "project:vrm",
+        },
+      ] as any,
+      "from",
+    ).length,
+    1,
+  );
+});
+
+test("search help insertion replaces help mode and appends otherwise", () => {
+  assert.equal(
+    buildEmailInboxSearchInsertion({
+      currentQuery: "/help from",
+      prefix: "from:",
+    }),
+    "from: ",
+  );
+  assert.equal(
+    buildEmailInboxSearchInsertion({
+      currentQuery: "invoice",
+      prefix: "from:",
+      tokenValue: "spencer",
+    }),
+    "invoice from:spencer ",
+  );
+});
+
+test("search help copy text prefers exact token when present", () => {
+  assert.equal(
+    getEmailInboxSearchHelpCopyText({
+      prefix: "is:",
+      example: "is:unread",
+      tokenValue: "spam",
+    }),
+    "is:spam",
+  );
+  assert.equal(
+    getEmailInboxSearchHelpCopyText({
+      prefix: "from:",
+      example: "from:spencer",
+    }),
+    "from:spencer",
   );
 });
 
