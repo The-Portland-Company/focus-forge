@@ -109,6 +109,91 @@ test("extractEmailSignatureContentParts splits plain text signatures", () => {
   assert.match(parts.signatureText || "", /Managing Partner/);
 });
 
+test("extractEmailSignatureContentParts collapses html signatures and prior replies below them", () => {
+  const html = [
+    "<p>No requested shipping method is there.</p>",
+    "<p>This is required to be able to ship via customer paid for UPS ground.</p>",
+    "<p>Thanks-</p>",
+    "<p>John</p>",
+    "<p>John Clemens</p>",
+    "<p><img src=\"https://example.com/nuera-logo.png\" alt=\"NuEra\" /></p>",
+    "<p><a href=\"https://www.NuEraHeat.com\">www.NuEraHeat.com</a></p>",
+    "<p><strong>From:</strong> Spencer Hill &lt;spencerhill@theportlandcompany.com&gt;</p>",
+    "<p><strong>Sent:</strong> Friday, April 10, 2026 4:00 PM</p>",
+    "<p><strong>To:</strong> John Clemens &lt;john@nueraheat.com&gt;</p>",
+    "<p><strong>Subject:</strong> Re: couple things</p>",
+    "<p>Okay, updates made. Give it a shot.</p>",
+  ].join("");
+
+  const parts = extractEmailSignatureContentParts({ html });
+
+  assert.equal(parts.hasSignature, true);
+  assert.doesNotMatch(parts.bodyHtml || "", /Thanks-/);
+  assert.match(parts.bodyHtml || "", /No requested shipping method/);
+  assert.match(parts.signatureHtml || "", /Thanks-/);
+  assert.match(parts.signatureHtml || "", /NuEraHeat\.com/);
+  assert.match(parts.signatureHtml || "", /Subject:/);
+  assert.match(parts.signatureHtml || "", /Okay, updates made/);
+});
+
+test("extractEmailSignatureContentParts collapses plain text signatures and prior replies below them", () => {
+  const text = [
+    "No requested shipping method is there.",
+    "This is required to be able to ship via customer paid for UPS ground.",
+    "",
+    "Thanks-",
+    "John",
+    "John Clemens",
+    "www.NuEraHeat.com",
+    "From: Spencer Hill <spencerhill@theportlandcompany.com>",
+    "Sent: Friday, April 10, 2026 4:00 PM",
+    "To: John Clemens <john@nueraheat.com>",
+    "Subject: Re: couple things",
+    "",
+    "Okay, updates made. Give it a shot.",
+  ].join("\n");
+
+  const parts = extractEmailSignatureContentParts({ text });
+
+  assert.equal(parts.hasSignature, true);
+  assert.doesNotMatch(parts.bodyText || "", /Thanks-/);
+  assert.match(parts.bodyText || "", /No requested shipping method/);
+  assert.match(parts.signatureText || "", /Thanks-/);
+  assert.match(parts.signatureText || "", /From:/);
+  assert.match(parts.signatureText || "", /Okay, updates made/);
+});
+
+test("extractEmailSignatureContentParts collapses on-wrote reply tails", () => {
+  const text = [
+    "Quick update below.",
+    "",
+    "Best -",
+    "Spencer",
+    "",
+    "On Fri, Apr 10, 2026 at 4:00 PM John Clemens <john@nueraheat.com> wrote:",
+    "> Can you update the footer?",
+  ].join("\n");
+
+  const parts = extractEmailSignatureContentParts({ text });
+
+  assert.equal(parts.hasSignature, true);
+  assert.match(parts.bodyText || "", /Quick update below/);
+  assert.match(parts.signatureText || "", /On Fri, Apr 10, 2026/);
+});
+
+test("extractEmailSignatureContentParts does not strip in-body thanks", () => {
+  const text = [
+    "Thanks for sending this over.",
+    "We need pricing and the next available install date.",
+  ].join("\n");
+
+  const parts = extractEmailSignatureContentParts({ text });
+
+  assert.equal(parts.hasSignature, false);
+  assert.equal(parts.signatureText, null);
+  assert.match(parts.bodyText || "", /Thanks for sending this over/);
+});
+
 test("extractEmailSignatureContentParts leaves normal body content alone", () => {
   const html =
     "<p>Can you share pricing and a call time next week?</p><p>We need to move quickly.</p>";

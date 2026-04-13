@@ -11,6 +11,12 @@ type EmailSignatureContentParts = {
   hasSignature: boolean;
 };
 
+type VisibleLine = {
+  raw: string;
+  normalized: string;
+  sourceIndex: number;
+};
+
 const HTML_SIGNATURE_REGEXES = [
   /<div[^>]+class=["'][^"']*gmail_signature[^"']*["'][^>]*>/i,
   /<div[^>]+data-smartmail=["']gmail_signature["'][^>]*>/i,
@@ -18,56 +24,53 @@ const HTML_SIGNATURE_REGEXES = [
   /<table[^>]+class=["'][^"']*signature[^"']*["'][^>]*>/i,
 ];
 
-const SIGNATURE_MARKERS = [
+const DIRECT_SIGNATURE_MARKERS = new Set([
   "follow us!",
-  "sincerely,",
-  "best,",
-  "regards,",
-  "cheers,",
-  "thanks,",
-  "thank you,",
   "sent from my iphone",
   "sent from my ipad",
   "sent from my android",
   "sent with proton mail",
   "managing partner,",
+]);
+
+const SIGN_OFF_MARKERS = new Set([
+  "sincerely",
+  "sincerely,",
+  "best",
+  "best,",
+  "best -",
+  "best-",
+  "regards",
+  "regards,",
+  "regards -",
+  "regards-",
+  "cheers",
+  "cheers,",
+  "cheers -",
+  "cheers-",
+  "thanks",
+  "thanks,",
+  "thanks -",
+  "thanks-",
+  "thank you",
+  "thank you,",
+  "thank you -",
+  "thank you-",
+]);
+
+const QUOTED_REPLY_SINGLE_LINE_REGEXES = [
+  /^on .+ wrote:$/i,
+  /^begin forwarded message:?$/i,
+  /^-+\s*original message\s*-+$/i,
+  /^original message:?$/i,
 ];
 
-function getSignatureSearchStart(content: string) {
-  return Math.min(
-    Math.max(12, Math.floor(content.length * 0.05)),
-    Math.max(24, content.length - 24),
-  );
-}
-
-function buildVisibleTextIndexMap(content: string) {
-  let visibleText = "";
-  const htmlIndexes: number[] = [];
-  let insideTag = false;
-
-  for (let index = 0; index < content.length; index += 1) {
-    const character = content[index];
-
-    if (character === "<") {
-      insideTag = true;
-      continue;
-    }
-
-    if (character === ">") {
-      insideTag = false;
-      continue;
-    }
-
-    if (insideTag) {
-      continue;
-    }
-
-    visibleText += character.toLowerCase();
-    htmlIndexes.push(index);
-  }
-
-  return { visibleText, htmlIndexes };
-}
+const QUOTED_REPLY_HEADER_REGEX = /^(from|sent|to|cc|subject):\s+/i;
+const CONTACT_LINE_REGEX =
+  /(https?:\/\/|www\.|@[a-z0-9.-]+\.[a-z]{2,}|(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4})/i;
+const ROLE_LINE_REGEX =
+  /\b(partner|founder|president|owner|manager|director|coordinator|sales|support|marketing|operations|account|team|office|company|llc|inc|ltd|corp)\b/i;
+const NAME_LINE_REGEX = /^[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,3}$/;
 
 function getRelevantHtmlContent(content: string) {
   const bodyMatch = /<body\b[^>]*>/i.exec(content);
@@ -96,7 +99,11 @@ function stripInvisibleHtmlBlocks(content: string) {
 }
 
 function rewindHtmlSignatureIndex(content: string, index: number) {
-  const tagMatches = [...content.slice(0, index).matchAll(/<(p|div|table|tr|td|section)\b[^>]*>/gi)];
+  const tagMatches = [
+    ...content
+      .slice(0, index)
+      .matchAll(/<(p|div|table|tr|td|section|blockquote)\b[^>]*>/gi),
+  ];
 
   if (tagMatches.length === 0) {
     return index;
@@ -104,6 +111,246 @@ function rewindHtmlSignatureIndex(content: string, index: number) {
 
   const lastTag = tagMatches[tagMatches.length - 1];
   return typeof lastTag.index === "number" ? lastTag.index : index;
+}
+
+function appendVisibleCharacter(
+  visibleText: string[],
+  sourceIndexes: number[],
+  character: string,
+  sourceIndex: number,
+) {
+  visibleText.push(character);
+  sourceIndexes.push(sourceIndex);
+}
+
+function appendVisibleNewline(
+  visibleText: string[],
+  sourceIndexes: number[],
+  sourceIndex: number,
+) {
+  if (visibleText.length === 0 || visibleText[visibleText.length - 1] === "\n") {
+    return;
+  }
+
+  visibleText.push("\n");
+  sourceIndexes.push(sourceIndex);
+}
+
+function buildVisibleTextWithSourceMap(
+  content: string,
+  hasHtml: boolean,
+): { visibleText: string; sourceIndexes: number[] } {
+  if (!hasHtml) {
+    return {
+      visibleText: content,
+      sourceIndexes: Array.from({ length: content.length }, (_, index) => index),
+    };
+  }
+
+  const visibleText: string[] = [];
+  const sourceIndexes: number[] = [];
+  let index = 0;
+
+  while (index < content.length) {
+    const character = content[index];
+
+    if (character !== "<") {
+      appendVisibleCharacter(visibleText, sourceIndexes, character, index);
+      index += 1;
+      continue;
+    }
+
+    const tagEnd = content.indexOf(">", index);
+    if (tagEnd === -1) {
+      break;
+    }
+
+    const tagContent = content.slice(index + 1, tagEnd).trim().toLowerCase();
+    const tagName = tagContent
+      .replace(/^\//, "")
+      .split(/\s+/, 1)[0]
+      .replace(/\/$/, "");
+
+    if (
+      tagName === "br" ||
+      tagName === "p" ||
+      tagName === "div" ||
+      tagName === "li" ||
+      tagName === "tr" ||
+      tagName === "table" ||
+      tagName === "section" ||
+      tagName === "blockquote" ||
+      tagName === "ul" ||
+      tagName === "ol" ||
+      /^h[1-6]$/.test(tagName)
+    ) {
+      appendVisibleNewline(visibleText, sourceIndexes, index);
+    }
+
+    index = tagEnd + 1;
+  }
+
+  return { visibleText: visibleText.join(""), sourceIndexes };
+}
+
+function extractVisibleLines(
+  content: string,
+  hasHtml: boolean,
+): { lines: VisibleLine[]; contentLength: number } {
+  const { visibleText, sourceIndexes } = buildVisibleTextWithSourceMap(
+    content,
+    hasHtml,
+  );
+  const rawLines = visibleText.split(/\n+/);
+  const lines: VisibleLine[] = [];
+  let cursor = 0;
+
+  for (const rawLine of rawLines) {
+    const lineStart = cursor;
+    cursor += rawLine.length + 1;
+
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const leadingWhitespace = rawLine.search(/\S/);
+    const sourceIndex =
+      leadingWhitespace >= 0 &&
+      lineStart + leadingWhitespace < sourceIndexes.length
+        ? sourceIndexes[lineStart + leadingWhitespace]
+        : sourceIndexes[Math.min(lineStart, sourceIndexes.length - 1)] ?? 0;
+
+    lines.push({
+      raw: trimmed,
+      normalized: trimmed.replace(/\s+/g, " ").trim().toLowerCase(),
+      sourceIndex,
+    });
+  }
+
+  return { lines, contentLength: content.length };
+}
+
+function isDirectSignatureMarker(line: VisibleLine) {
+  return DIRECT_SIGNATURE_MARKERS.has(line.normalized);
+}
+
+function isSignOffMarker(line: VisibleLine) {
+  return SIGN_OFF_MARKERS.has(line.normalized);
+}
+
+function isQuotedReplyLine(line: VisibleLine) {
+  return (
+    QUOTED_REPLY_HEADER_REGEX.test(line.raw) ||
+    QUOTED_REPLY_SINGLE_LINE_REGEXES.some((regex) => regex.test(line.raw))
+  );
+}
+
+function isLikelyNameLine(line: VisibleLine) {
+  return (
+    line.raw.length <= 48 &&
+    !CONTACT_LINE_REGEX.test(line.raw) &&
+    !ROLE_LINE_REGEX.test(line.raw) &&
+    NAME_LINE_REGEX.test(line.raw)
+  );
+}
+
+function isLikelySignatureSupportLine(line: VisibleLine) {
+  return (
+    isLikelyNameLine(line) ||
+    CONTACT_LINE_REGEX.test(line.raw) ||
+    ROLE_LINE_REGEX.test(line.raw)
+  );
+}
+
+function hasQuotedReplyCluster(lines: VisibleLine[], index: number) {
+  if (QUOTED_REPLY_SINGLE_LINE_REGEXES.some((regex) => regex.test(lines[index].raw))) {
+    return true;
+  }
+
+  let headerCount = 0;
+
+  for (let offset = index; offset < lines.length && offset < index + 6; offset += 1) {
+    if (QUOTED_REPLY_HEADER_REGEX.test(lines[offset].raw)) {
+      headerCount += 1;
+    }
+  }
+
+  return headerCount >= 2;
+}
+
+function hasSignatureEvidenceBelow(lines: VisibleLine[], index: number) {
+  let supportCount = 0;
+
+  for (let offset = index + 1; offset < lines.length && offset <= index + 6; offset += 1) {
+    const line = lines[offset];
+
+    if (isQuotedReplyLine(line)) {
+      return true;
+    }
+
+    if (isLikelySignatureSupportLine(line)) {
+      supportCount += 1;
+      if (supportCount >= 1 && isLikelyNameLine(line)) {
+        return true;
+      }
+      if (supportCount >= 2) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function findVisibleBoundaryIndex(
+  content: string,
+  hasHtml: boolean,
+): { sourceIndex: number; rewindToBlock: boolean } | null {
+  const { lines, contentLength } = extractVisibleLines(content, hasHtml);
+  if (lines.length < 2) {
+    return null;
+  }
+
+  const minimumLineIndex = Math.max(1, Math.floor(lines.length * 0.25));
+  const minimumSourceIndex = Math.floor(contentLength * 0.15);
+  let boundary: { sourceIndex: number; rewindToBlock: boolean } | null = null;
+
+  for (let index = lines.length - 1; index >= minimumLineIndex; index -= 1) {
+    const line = lines[index];
+    if (line.sourceIndex < minimumSourceIndex) {
+      continue;
+    }
+
+    if (isQuotedReplyLine(line) && hasQuotedReplyCluster(lines, index)) {
+      boundary = { sourceIndex: line.sourceIndex, rewindToBlock: hasHtml };
+      continue;
+    }
+
+    if (isDirectSignatureMarker(line)) {
+      boundary = { sourceIndex: line.sourceIndex, rewindToBlock: hasHtml };
+      continue;
+    }
+
+    if (isSignOffMarker(line) && hasSignatureEvidenceBelow(lines, index)) {
+      boundary = { sourceIndex: line.sourceIndex, rewindToBlock: hasHtml };
+    }
+  }
+
+  return boundary;
+}
+
+function findExplicitHtmlSignatureIndex(content: string) {
+  let foundIndex = -1;
+
+  for (const regex of HTML_SIGNATURE_REGEXES) {
+    const match = regex.exec(content);
+    if (match && typeof match.index === "number") {
+      foundIndex = foundIndex === -1 ? match.index : Math.min(foundIndex, match.index);
+    }
+  }
+
+  return foundIndex;
 }
 
 function findSignatureMarkerIndex(content: string) {
@@ -114,61 +361,33 @@ function findSignatureMarkerIndex(content: string) {
   const searchableContent = hasHtml
     ? stripInvisibleHtmlBlocks(relevantHtml.content)
     : relevantHtml.content;
-  const normalized = searchableContent.toLowerCase();
-  const minIndex = hasHtml
-    ? Math.min(512, Math.max(24, normalized.length - 24))
-    : getSignatureSearchStart(normalized);
-  let foundIndex = -1;
-  let foundViaExplicitSignatureTag = false;
 
-  for (const regex of HTML_SIGNATURE_REGEXES) {
-    const match = regex.exec(searchableContent);
-    if (match && match.index >= minIndex) {
-      foundIndex =
-        foundIndex === -1 ? match.index : Math.min(foundIndex, match.index);
-      foundViaExplicitSignatureTag = true;
-    }
+  const explicitHtmlIndex = hasHtml
+    ? findExplicitHtmlSignatureIndex(searchableContent)
+    : -1;
+  const visibleBoundary = findVisibleBoundaryIndex(searchableContent, hasHtml);
+
+  const candidates = [
+    explicitHtmlIndex >= 0
+      ? { sourceIndex: explicitHtmlIndex, rewindToBlock: false }
+      : null,
+    visibleBoundary,
+  ].filter(Boolean) as Array<{ sourceIndex: number; rewindToBlock: boolean }>;
+
+  if (candidates.length === 0) {
+    return -1;
   }
 
-  for (const marker of SIGNATURE_MARKERS) {
-    const markerIndex = normalized.indexOf(marker, minIndex);
-    if (markerIndex >= 0) {
-      foundIndex =
-        foundIndex === -1 ? markerIndex : Math.min(foundIndex, markerIndex);
-    }
-  }
+  const winner = candidates.reduce((best, current) =>
+    current.sourceIndex < best.sourceIndex ? current : best,
+  );
 
-  if (hasHtml) {
-    const { visibleText, htmlIndexes } =
-      buildVisibleTextIndexMap(searchableContent);
-    const visibleMinIndex = getSignatureSearchStart(visibleText);
+  const sourceIndex =
+    hasHtml && winner.rewindToBlock
+      ? rewindHtmlSignatureIndex(searchableContent, winner.sourceIndex)
+      : winner.sourceIndex;
 
-    for (const marker of SIGNATURE_MARKERS) {
-      const markerIndex = visibleText.indexOf(marker, visibleMinIndex);
-
-      if (markerIndex >= 0) {
-        const htmlIndex = htmlIndexes[markerIndex];
-
-        if (typeof htmlIndex === "number") {
-          foundIndex =
-            foundIndex === -1 ? htmlIndex : Math.min(foundIndex, htmlIndex);
-        }
-      }
-    }
-  }
-
-  if (
-    foundIndex >= 0 &&
-    !foundViaExplicitSignatureTag &&
-    hasHtml
-  ) {
-    return (
-      relevantHtml.offset +
-      rewindHtmlSignatureIndex(searchableContent, foundIndex)
-    );
-  }
-
-  return foundIndex >= 0 ? relevantHtml.offset + foundIndex : foundIndex;
+  return relevantHtml.offset + sourceIndex;
 }
 
 function normalizeContentPart(value?: string | null) {
