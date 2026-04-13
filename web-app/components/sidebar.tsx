@@ -832,10 +832,10 @@ export function Sidebar({
                 </span>
               ) : null}
             </Link>
-            <div className="mt-1 space-y-1 border-t border-zinc-800 pt-1">
+            <div className="mt-0.5 space-y-0.5 border-t border-zinc-800 pt-0.5">
               <Link
                 href="/email-inbox"
-                className={`flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
+                className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
                   currentView === "email-inbox"
                     ? "bg-zinc-800 text-white"
                     : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
@@ -850,7 +850,7 @@ export function Sidebar({
               </Link>
               <Link
                 href="/email-quarantine"
-                className={`flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
+                className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
                   currentView === "email-quarantine"
                     ? "bg-zinc-800 text-white"
                     : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
@@ -865,7 +865,7 @@ export function Sidebar({
               </Link>
               <Link
                 href="/email-trash"
-                className={`flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
+                className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
                   currentView === "email-trash"
                     ? "bg-zinc-800 text-white"
                     : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
@@ -880,7 +880,7 @@ export function Sidebar({
               </Link>
               <Link
                 href="/email-rules"
-                className={`block rounded-md px-2 py-1.5 text-sm transition-colors ${
+                className={`block rounded-md px-2 py-1 text-sm transition-colors ${
                   currentView === "email-rules"
                     ? "bg-zinc-800 text-white"
                     : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
@@ -890,7 +890,7 @@ export function Sidebar({
               </Link>
               <Link
                 href="/email-ai-lab"
-                className={`block rounded-md px-2 py-1.5 text-sm transition-colors ${
+                className={`block rounded-md px-2 py-1 text-sm transition-colors ${
                   currentView === "email-ai-lab"
                     ? "bg-zinc-800 text-white"
                     : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
