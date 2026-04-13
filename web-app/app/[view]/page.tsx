@@ -270,9 +270,14 @@ export default function ViewPage() {
   const fetchData = async () => {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+    const shouldDeferInboxItems = view.startsWith("email-");
 
     try {
-      const response = await fetch("/api/database", {
+      const databaseUrl = shouldDeferInboxItems
+        ? "/api/database?includeInboxItems=false"
+        : "/api/database";
+
+      const response = await fetch(databaseUrl, {
         credentials: "include",
         signal: controller.signal,
       });

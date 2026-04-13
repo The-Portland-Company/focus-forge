@@ -13,6 +13,9 @@ import {
 
 export async function GET(request: NextRequest) {
   try {
+    const includeInboxItems =
+      request.nextUrl.searchParams.get("includeInboxItems") !== "false";
+
     // Check authentication first
     const authClient = await createClient();
     const {
@@ -226,7 +229,9 @@ export async function GET(request: NextRequest) {
       [mailboxes, inboxItems, emailRules, summaryProfiles, ruleStats] =
         await Promise.all([
           listMailboxesForUser(session.user.id),
-          listInboxItemsForUser(session.user.id),
+          includeInboxItems
+            ? listInboxItemsForUser(session.user.id)
+            : Promise.resolve([]),
           listRulesForUser(session.user.id),
           listSummaryProfilesForUser(session.user.id),
           getRuleStatsForUser(session.user.id),

@@ -1656,6 +1656,22 @@ export function EmailInboxView({
   }, [data.inboxItems, data.mailboxes]);
 
   useEffect(() => {
+    if (!isEmailInboxView(view)) {
+      return;
+    }
+
+    if (data.inboxItems.length > 0) {
+      return;
+    }
+
+    void refreshInboxState().catch((error) => {
+      setStatusMessage(
+        error instanceof Error ? error.message : "Failed to load inbox",
+      );
+    });
+  }, [data.inboxItems.length, view]);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
