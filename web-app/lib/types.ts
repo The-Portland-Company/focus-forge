@@ -11,6 +11,7 @@ export interface User {
   profileMemoji?: string | null;
   priorityColor?: string; // Custom priority color (default: green)
   animationsEnabled?: boolean;
+  emailDeleteUndoSeconds?: number;
   createdAt: string;
   updatedAt: string;
   status?: "active" | "pending";
@@ -310,13 +311,7 @@ export interface EmailReplyDraft {
   projectId?: string | null;
   createdByUserId?: string | null;
   source: "manual" | "ai";
-  status:
-    | "draft"
-    | "scheduled"
-    | "sending"
-    | "sent"
-    | "failed"
-    | "canceled";
+  status: "draft" | "scheduled" | "sending" | "sent" | "failed" | "canceled";
   replyMode: "reply_all" | "internal_note";
   subject: string;
   contentText?: string | null;

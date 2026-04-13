@@ -181,10 +181,12 @@ export class SupabaseAdapter implements DatabaseAdapter {
     const payload: Record<string, unknown> = {};
     if (input.name !== undefined) payload.name = String(input.name).trim();
     if (input.color !== undefined) payload.color = input.color;
-    if (input.description !== undefined) payload.description = input.description;
+    if (input.description !== undefined)
+      payload.description = input.description;
     if (input.archived !== undefined) payload.archived = input.archived;
     if (input.order !== undefined) payload.order_index = input.order;
-    if (input.order_index !== undefined) payload.order_index = input.order_index;
+    if (input.order_index !== undefined)
+      payload.order_index = input.order_index;
     return payload;
   }
 
@@ -204,7 +206,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
       throw existingMembershipsError;
     }
 
-    const existingRows = (existingMemberships || []) as OrganizationMembershipRow[];
+    const existingRows = (existingMemberships ||
+      []) as OrganizationMembershipRow[];
     const existingOwnerIds = existingRows
       .filter((row) => Boolean(row.is_owner))
       .map((row) => row.user_id);
@@ -295,7 +298,11 @@ export class SupabaseAdapter implements DatabaseAdapter {
     }
 
     if (updates?.memberIds !== undefined || updates?.ownerId !== undefined) {
-      await this.syncOrganizationMembers(id, updates?.memberIds, updates?.ownerId);
+      await this.syncOrganizationMembers(
+        id,
+        updates?.memberIds,
+        updates?.ownerId,
+      );
     }
 
     return data;
@@ -316,20 +323,25 @@ export class SupabaseAdapter implements DatabaseAdapter {
     const payload: Record<string, unknown> = {};
     if (input.name !== undefined) payload.name = String(input.name).trim();
     if (input.color !== undefined) payload.color = input.color;
-    if (input.description !== undefined) payload.description = input.description;
-    if (input.devnotesMeta !== undefined) payload.devnotes_meta = input.devnotesMeta;
-    if (input.devnotes_meta !== undefined) payload.devnotes_meta = input.devnotes_meta;
+    if (input.description !== undefined)
+      payload.description = input.description;
+    if (input.devnotesMeta !== undefined)
+      payload.devnotes_meta = input.devnotesMeta;
+    if (input.devnotes_meta !== undefined)
+      payload.devnotes_meta = input.devnotes_meta;
     if (input.archived !== undefined) payload.archived = input.archived;
     if (input.budget !== undefined) payload.budget = input.budget;
     if (input.deadline !== undefined) payload.deadline = input.deadline;
     if (input.isFavorite !== undefined) payload.is_favorite = input.isFavorite;
-    if (input.is_favorite !== undefined) payload.is_favorite = input.is_favorite;
+    if (input.is_favorite !== undefined)
+      payload.is_favorite = input.is_favorite;
     if (input.organizationId !== undefined)
       payload.organization_id = input.organizationId;
     if (input.organization_id !== undefined)
       payload.organization_id = input.organization_id;
     if (input.order !== undefined) payload.order_index = input.order;
-    if (input.order_index !== undefined) payload.order_index = input.order_index;
+    if (input.order_index !== undefined)
+      payload.order_index = input.order_index;
     if (input.todoistId !== undefined) payload.todoist_id = input.todoistId;
     if (input.todoist_id !== undefined) payload.todoist_id = input.todoist_id;
     return payload;
@@ -453,11 +465,13 @@ export class SupabaseAdapter implements DatabaseAdapter {
       explicitProjects = (explicitProjectRows || []) as ProjectScopeRow[];
     }
 
-    const { fullyVisibleOrganizationIds, explicitProjectIds: explicitlyVisibleIds } =
-      resolveVisibleProjectIds({
-        orgMemberships: (orgMembershipsRaw || []) as UserOrganizationScopeRow[],
-        explicitProjects,
-      });
+    const {
+      fullyVisibleOrganizationIds,
+      explicitProjectIds: explicitlyVisibleIds,
+    } = resolveVisibleProjectIds({
+      orgMemberships: (orgMembershipsRaw || []) as UserOrganizationScopeRow[],
+      explicitProjects,
+    });
 
     if (organizationId) {
       if (fullyVisibleOrganizationIds.has(organizationId)) {
@@ -1096,6 +1110,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       profileMemoji: data.profile_memoji,
       animationsEnabled: data.animations_enabled,
       priorityColor: data.priority_color,
+      emailDeleteUndoSeconds: data.email_delete_undo_seconds,
       role: data.role,
     };
   }
@@ -1117,6 +1132,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       supabaseUpdates.animations_enabled = updates.animationsEnabled;
     if (updates.priorityColor !== undefined)
       supabaseUpdates.priority_color = updates.priorityColor;
+    if (updates.emailDeleteUndoSeconds !== undefined)
+      supabaseUpdates.email_delete_undo_seconds =
+        updates.emailDeleteUndoSeconds;
     if (updates.role !== undefined) supabaseUpdates.role = updates.role;
 
     const { data, error } = await supabase
@@ -1138,6 +1156,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       profileMemoji: data.profile_memoji,
       animationsEnabled: data.animations_enabled,
       priorityColor: data.priority_color,
+      emailDeleteUndoSeconds: data.email_delete_undo_seconds,
       role: data.role,
     };
   }

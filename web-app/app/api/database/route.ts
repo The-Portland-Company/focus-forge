@@ -216,6 +216,7 @@ export async function GET(request: NextRequest) {
         profileMemoji: null,
         animationsEnabled: true,
         priorityColor: null,
+        emailDeleteUndoSeconds: 60,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -323,6 +324,7 @@ export async function GET(request: NextRequest) {
             profileMemoji: profile.profile_memoji || null,
             animationsEnabled: profile.animations_enabled ?? true,
             priorityColor: profile.priority_color || null,
+            emailDeleteUndoSeconds: profile.email_delete_undo_seconds ?? 60,
             status: profile.status || "active",
             invitedAt: profile.invited_at || null,
             inviteToken: profile.invite_token || null,
