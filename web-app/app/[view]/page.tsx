@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  type ReactNode,
+} from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -86,6 +93,7 @@ import {
   setBulkSelectionForTaskIds,
 } from "@/lib/project-bulk-selection";
 import { shouldShowInboxItemInToday } from "@/lib/email-inbox/shared";
+import { mergeDatabasePayload } from "@/lib/database-state";
 
 const EMAIL_BACKGROUND_SYNC_INTERVAL_MS = 15 * 1000;
 
@@ -235,10 +243,6 @@ export default function ViewPage() {
   });
 
   useEffect(() => {
-    fetchData();
-  }, []);
-
-  useEffect(() => {
     setBulkSelectMode(false);
     setSelectedTaskIds(new Set());
     setLastSelectedTaskId(null);
@@ -267,74 +271,86 @@ export default function ViewPage() {
     };
   }, []);
 
-  const fetchData = async () => {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 15000);
-    const shouldDeferInboxItems = view.startsWith("email-");
+  const fetchData = useCallback(
+    async (options?: { includeInboxItems?: boolean }) => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+      const includeInboxItems =
+        options?.includeInboxItems ?? !view.startsWith("email-");
 
-    try {
-      const databaseUrl = shouldDeferInboxItems
-        ? "/api/database?includeInboxItems=false"
-        : "/api/database";
+      try {
+        const databaseUrl = includeInboxItems
+          ? "/api/database"
+          : "/api/database?includeInboxItems=false";
 
-      const response = await fetch(databaseUrl, {
-        credentials: "include",
-        signal: controller.signal,
-      });
-      const contentType = response.headers.get("content-type") || "";
-      const data = contentType.includes("application/json")
-        ? await response.json()
-        : null;
-
-      if (response.status === 401) {
-        const loginParams = new URLSearchParams({
-          from: `/${view}`,
+        const response = await fetch(databaseUrl, {
+          credentials: "include",
+          signal: controller.signal,
         });
-        router.replace(`/auth/login?${loginParams.toString()}`);
-        return;
-      }
+        const contentType = response.headers.get("content-type") || "";
+        const data = contentType.includes("application/json")
+          ? await response.json()
+          : null;
 
-      if (!response.ok) {
-        console.error("Database API request failed:", response.status, data);
-        setDatabase((prev) => prev ?? createEmptyDatabase());
-        return;
-      }
-
-      if (!data) {
-        console.error("Database API returned a non-JSON response");
-        setDatabase((prev) => prev ?? createEmptyDatabase());
-        return;
-      }
-
-      // Check if the response has an error
-      if (data.error) {
-        console.error("Database API error:", data.error);
-        setDatabase((prev) => prev ?? createEmptyDatabase());
-        return;
-      }
-
-      // Validate that the data has the expected structure
-      if (data && data.tasks && data.projects && data.organizations) {
-        setDatabase(data);
-
-        // Apply theme for file-based database (AuthContext handles Supabase)
-        if (data.users?.[0]?.profileColor) {
-          applyUserTheme(
-            data.users[0].profileColor,
-            data.users[0].animationsEnabled ?? true,
-          );
+        if (response.status === 401) {
+          const loginParams = new URLSearchParams({
+            from: `/${view}`,
+          });
+          router.replace(`/auth/login?${loginParams.toString()}`);
+          return;
         }
-      } else {
-        console.error("Invalid database structure:", data);
+
+        if (!response.ok) {
+          console.error("Database API request failed:", response.status, data);
+          setDatabase((prev) => prev ?? createEmptyDatabase());
+          return;
+        }
+
+        if (!data) {
+          console.error("Database API returned a non-JSON response");
+          setDatabase((prev) => prev ?? createEmptyDatabase());
+          return;
+        }
+
+        // Check if the response has an error
+        if (data.error) {
+          console.error("Database API error:", data.error);
+          setDatabase((prev) => prev ?? createEmptyDatabase());
+          return;
+        }
+
+        // Validate that the data has the expected structure
+        if (data && data.tasks && data.projects && data.organizations) {
+          setDatabase((previous) =>
+            mergeDatabasePayload(previous, data, {
+              preserveInboxItems: !includeInboxItems,
+            }),
+          );
+
+          // Apply theme for file-based database (AuthContext handles Supabase)
+          if (data.users?.[0]?.profileColor) {
+            applyUserTheme(
+              data.users[0].profileColor,
+              data.users[0].animationsEnabled ?? true,
+            );
+          }
+        } else {
+          console.error("Invalid database structure:", data);
+          setDatabase((prev) => prev ?? createEmptyDatabase());
+        }
+      } catch (error) {
+        console.error("Error fetching database:", error);
         setDatabase((prev) => prev ?? createEmptyDatabase());
+      } finally {
+        window.clearTimeout(timeoutId);
       }
-    } catch (error) {
-      console.error("Error fetching database:", error);
-      setDatabase((prev) => prev ?? createEmptyDatabase());
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-  };
+    },
+    [router, view],
+  );
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
 
   useEffect(() => {
     if (!user || isEmailThreadPopout) {
@@ -359,7 +375,7 @@ export default function ViewPage() {
         const syncedMailboxCount = Number(payload?.syncedMailboxCount || 0);
 
         if (changedThreadCount > 0 || syncedMailboxCount > 0) {
-          await fetchData();
+          await fetchData({ includeInboxItems: true });
         }
       } catch {
         // Keep background inbox sync silent during normal app usage.
@@ -376,7 +392,7 @@ export default function ViewPage() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [isEmailThreadPopout, user, view]);
+  }, [fetchData, isEmailThreadPopout, user, view]);
 
   const clearUndoTimers = () => {
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
