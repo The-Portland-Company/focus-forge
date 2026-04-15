@@ -335,6 +335,31 @@ export interface EmailReplyDraft {
   updatedAt: string;
 }
 
+export interface EmailOutboundDraft {
+  id: string;
+  threadId?: string | null;
+  mailboxId: string;
+  projectId?: string | null;
+  createdByUserId?: string | null;
+  status: "draft" | "scheduled" | "sending" | "sent" | "failed" | "canceled";
+  subject: string;
+  contentText?: string | null;
+  contentHtml?: string | null;
+  signatureText?: string | null;
+  to: EmailReplyAddress[];
+  cc: EmailReplyAddress[];
+  bcc: EmailReplyAddress[];
+  attachments: EmailReplyDraftAttachment[];
+  scheduledFor?: string | null;
+  sentAt?: string | null;
+  lastError?: string | null;
+  mailboxName?: string | null;
+  mailboxEmailAddress?: string | null;
+  projectName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface InboxTaskSuggestion {
   name: string;
   description?: string;
@@ -376,6 +401,7 @@ export interface InboxItem {
   latestMessageAt?: string | null;
   latestInboundAt?: string | null;
   latestOutboundAt?: string | null;
+  origin?: "inbound" | "outbound" | "mixed";
   isUnread?: boolean;
   workDueDate?: string | null;
   workDueTime?: string | null;
@@ -475,6 +501,7 @@ export interface Database {
   summaryProfiles: SummaryProfile[];
   ruleStats: RuleStats;
   quarantineCount: number;
+  sentCount?: number;
   tags: Tag[];
   sections: Section[];
   taskSections: TaskSection[];

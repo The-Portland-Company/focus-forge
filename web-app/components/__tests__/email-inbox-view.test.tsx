@@ -871,6 +871,43 @@ test("filterInboxItemsForView returns only deleted threads on the trash view", (
   );
 });
 
+test("filterInboxItemsForView keeps outbound and mixed threads in the sent view only", () => {
+  const filtered = filterInboxItemsForView({
+    inboxItems: [
+      {
+        id: "thread-1",
+        mailboxId: "mailbox-1",
+        status: "active",
+        classification: "unknown",
+        origin: "inbound",
+      },
+      {
+        id: "thread-2",
+        mailboxId: "mailbox-1",
+        status: "resolved",
+        classification: "waiting",
+        origin: "outbound",
+      },
+      {
+        id: "thread-3",
+        mailboxId: "mailbox-1",
+        status: "resolved",
+        classification: "waiting",
+        origin: "mixed",
+      },
+    ] as any,
+    selectedMailboxId: "all",
+    filterTab: "all",
+    retainedSpamThreadIds: [],
+    view: "email-sent",
+  });
+
+  assert.deepEqual(
+    filtered.map((item) => item.id),
+    ["thread-2", "thread-3"],
+  );
+});
+
 test("createRuleFormFromRule hydrates the rule editor with an editable not-spam rule", () => {
   const form = createRuleFormFromRule({
     id: "rule-1",

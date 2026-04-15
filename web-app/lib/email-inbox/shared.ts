@@ -9,6 +9,7 @@ import type {
 
 export const EMAIL_INBOX_VIEWS = new Set([
   "email-inbox",
+  "email-sent",
   "email-trash",
   "email-quarantine",
   "email-rules",
@@ -166,6 +167,7 @@ export function sortInboxItems(items: InboxItem[]) {
 
 export function shouldShowInboxItemInToday(item: InboxItem) {
   return (
+    item.origin !== "outbound" &&
     item.status !== "resolved" &&
     item.status !== "archived" &&
     item.status !== "deleted" &&

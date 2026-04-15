@@ -60,6 +60,7 @@ import {
 } from "@/lib/push/email";
 import type {
   ConversationEntry,
+  EmailOutboundDraft,
   EmailReplyAddress,
   EmailReplyDraft,
   EmailRule,
@@ -359,6 +360,22 @@ async function ensureReplyDraftAccess(userId: string, draftId: string) {
   return draft;
 }
 
+async function ensureOutboundDraftAccess(userId: string, draftId: string) {
+  const admin = getAdminClient();
+  const { data: draft } = await admin
+    .from("email_outbound_drafts")
+    .select("*")
+    .eq("id", draftId)
+    .maybeSingle();
+
+  if (!draft) {
+    throw new Error("Outbound draft not found");
+  }
+
+  await ensureMailboxAccess(userId, String(draft.mailbox_id));
+  return draft;
+}
+
 async function getLatestThreadMessage(threadId: string) {
   const admin = getAdminClient();
   const { data: latestMessage } = await admin
@@ -546,7 +563,15 @@ async function findThreadForMessage(mailbox: any, message: any) {
       .in("internet_message_id", referenceIds);
 
     if (referenced && referenced.length > 0) {
-      return referenced[0].thread_id;
+      const { data: referencedThread } = await admin
+        .from("email_threads")
+        .select("id,origin")
+        .eq("id", referenced[0].thread_id)
+        .maybeSingle();
+
+      if (referencedThread?.id) {
+        return referencedThread;
+      }
     }
   }
 
@@ -560,13 +585,13 @@ async function findThreadForMessage(mailbox: any, message: any) {
 
   const { data: existing } = await admin
     .from("email_threads")
-    .select("id")
+    .select("id,origin")
     .eq("mailbox_id", mailbox.id)
     .eq("thread_key", threadKey)
     .maybeSingle();
 
   if (existing?.id) {
-    return existing.id;
+    return existing;
   }
 
   const threadPayload = {
@@ -576,6 +601,7 @@ async function findThreadForMessage(mailbox: any, message: any) {
     owner_user_id: mailbox.owner_user_id,
     provider_thread_id: null,
     thread_key: threadKey,
+    origin: "inbound",
     status: "active",
     classification: "unknown",
     resolution_state: "open",
@@ -601,13 +627,13 @@ async function findThreadForMessage(mailbox: any, message: any) {
   if (createError && isUniqueViolation(createError)) {
     const { data: retriedExisting, error: retryError } = await admin
       .from("email_threads")
-      .select("id")
+      .select("id,origin")
       .eq("mailbox_id", mailbox.id)
       .eq("thread_key", threadKey)
       .maybeSingle();
 
     if (retriedExisting?.id) {
-      return retriedExisting.id;
+      return retriedExisting;
     }
     throw new Error(retryError?.message || createError.message);
   }
@@ -615,7 +641,10 @@ async function findThreadForMessage(mailbox: any, message: any) {
     throw new Error(createError?.message || "Failed to create email thread");
   }
 
-  return created?.id;
+  return {
+    id: created.id,
+    origin: "inbound",
+  };
 }
 
 async function persistParticipants(
@@ -664,7 +693,8 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
     };
   }
 
-  const threadId = await findThreadForMessage(mailbox, message);
+  const thread = await findThreadForMessage(mailbox, message);
+  const threadId = String(thread.id);
   const senderContact = message.from?.[0]
     ? await upsertContact(mailbox, message.from[0])
     : null;
@@ -753,6 +783,7 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
         message.receivedAt || message.sentAt || new Date().toISOString(),
       latest_inbound_at:
         message.receivedAt || message.sentAt || new Date().toISOString(),
+      origin: thread.origin === "outbound" ? "mixed" : thread.origin || "inbound",
       updated_at: new Date().toISOString(),
     })
     .eq("id", threadId);
@@ -813,6 +844,10 @@ function mapThreadToInboxItem(params: {
     latestMessageAt: params.row.latest_message_at ?? null,
     latestInboundAt: params.row.latest_inbound_at ?? null,
     latestOutboundAt: params.row.latest_outbound_at ?? null,
+    origin:
+      params.row.origin === "outbound" || params.row.origin === "mixed"
+        ? params.row.origin
+        : "inbound",
     isUnread: Boolean(params.row.is_unread),
     workDueDate: params.row.work_due_date ?? null,
     workDueTime: params.row.work_due_time ?? null,
@@ -885,6 +920,80 @@ function coerceReplyDraft(
     updatedAt: row.updated_at,
     ...extra,
   };
+}
+
+function coerceOutboundDraft(
+  row: any,
+  extra?: Partial<EmailOutboundDraft>,
+): EmailOutboundDraft {
+  return {
+    id: String(row.id),
+    threadId: row.thread_id ? String(row.thread_id) : null,
+    mailboxId: String(row.mailbox_id),
+    projectId: row.project_id ? String(row.project_id) : null,
+    createdByUserId: row.created_by_user_id
+      ? String(row.created_by_user_id)
+      : null,
+    status: row.status,
+    subject: String(row.subject || ""),
+    contentText: row.content_text ?? null,
+    contentHtml: row.content_html ?? null,
+    signatureText: row.signature_text ?? null,
+    to: mapReplyAddressList(row.to_json),
+    cc: mapReplyAddressList(row.cc_json),
+    bcc: mapReplyAddressList(row.bcc_json),
+    attachments: Array.isArray(row.attachments_json)
+      ? row.attachments_json
+      : [],
+    scheduledFor: row.scheduled_for ?? null,
+    sentAt: row.sent_at ?? null,
+    lastError: row.last_error ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...extra,
+  };
+}
+
+function normalizeAddressList(value: EmailReplyAddress[] | undefined) {
+  return mapReplyAddressList(value || []);
+}
+
+function buildOutboundThreadKey(params: {
+  mailboxId: string;
+  subject?: string | null;
+  primaryRecipientEmail?: string | null;
+}) {
+  return buildThreadKey({
+    mailboxId: params.mailboxId,
+    subject: params.subject,
+    fromEmail: params.primaryRecipientEmail,
+  });
+}
+
+function validateOutboundDraftForSend(draft: {
+  subject?: string | null;
+  content_text?: string | null;
+  content_html?: string | null;
+  to_json?: unknown;
+}) {
+  const to = mapReplyAddressList(draft.to_json);
+
+  if (to.length === 0) {
+    throw new Error("Add at least one To recipient.");
+  }
+
+  if (!String(draft.subject || "").trim()) {
+    throw new Error("Add a subject before sending.");
+  }
+
+  if (
+    !String(draft.content_html || "").trim() &&
+    !String(draft.content_text || "").trim()
+  ) {
+    throw new Error("Add email content before sending.");
+  }
+
+  return { to };
 }
 
 async function getActiveReplyDraftForThread(threadId: string) {
@@ -2231,7 +2340,7 @@ export async function assignProjectToThread(
     .from("email_threads")
     .update({
       project_id: projectId,
-      status: "active",
+      status: thread.origin === "outbound" ? thread.status : "active",
       needs_project: false,
       updated_at: new Date().toISOString(),
     })
@@ -2919,6 +3028,250 @@ export async function sendReplyDraftNow(params: {
   }
 }
 
+async function executeOutboundDraftSend(draft: any) {
+  const admin = getAdminClient();
+  const mailbox = (await admin
+    .from("mailboxes")
+    .select("*")
+    .eq("id", draft.mailbox_id)
+    .maybeSingle()).data as MailboxTransportRow | null;
+
+  if (!mailbox) {
+    throw new Error("Mailbox not found");
+  }
+
+  const { to } = validateOutboundDraftForSend(draft);
+  const cc = mapReplyAddressList(draft.cc_json);
+  const bcc = mapReplyAddressList(draft.bcc_json);
+  const attachmentPayloads = await resolveReplyAttachmentPayloads(
+    Array.isArray(draft.attachments_json) ? draft.attachments_json : [],
+  );
+  const subject = String(draft.subject || "").trim();
+  const contentHtml = String(draft.content_html || draft.content_text || "");
+  const signatureText = draft.signature_text || null;
+  const normalizedHtml = buildReplyHtml({
+    contentHtml,
+    signatureText,
+    attachments: attachmentPayloads,
+  });
+  const normalizedText = buildReplyPlainText({
+    contentHtml,
+    signatureText,
+    attachments: attachmentPayloads,
+  });
+
+  const info = await sendMailboxReply({
+    mailbox,
+    to: to.map((entry) => entry.email),
+    cc: cc.map((entry) => entry.email),
+    bcc: bcc.map((entry) => entry.email),
+    subject,
+    text: normalizedText,
+    html: normalizedHtml,
+    attachments: attachmentPayloads.map((attachment) => ({
+      filename: attachment.name,
+      content: attachment.buffer,
+      contentType: attachment.mimeType || null,
+      contentDisposition: attachment.inline ? "inline" : "attachment",
+    })),
+  });
+
+  const timestamp = new Date().toISOString();
+  const threadKey = buildOutboundThreadKey({
+    mailboxId: String(mailbox.id),
+    subject,
+    primaryRecipientEmail: to[0]?.email || null,
+  });
+
+  const { data: insertedThread, error: threadInsertError } = await admin
+    .from("email_threads")
+    .insert({
+      mailbox_id: mailbox.id,
+      project_id: draft.project_id ?? null,
+      summary_profile_id: (mailbox as any).summary_profile_id ?? null,
+      owner_user_id: draft.created_by_user_id || (mailbox as any).owner_user_id,
+      provider_thread_id: null,
+      thread_key: threadKey,
+      origin: "outbound",
+      status: "resolved",
+      classification: "waiting",
+      resolution_state: "open",
+      action_title: subject || "Sent email",
+      subject,
+      normalized_subject: normalizeSubject(subject),
+      preview_text: extractPlainTextPreview(normalizedText, 240),
+      is_unread: false,
+      latest_message_at: timestamp,
+      latest_outbound_at: timestamp,
+      latest_inbound_at: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    })
+    .select("*")
+    .single();
+
+  let threadRow = insertedThread;
+  if (threadInsertError && isUniqueViolation(threadInsertError)) {
+    const { data: existingThread, error: threadLookupError } = await admin
+      .from("email_threads")
+      .select("*")
+      .eq("mailbox_id", mailbox.id)
+      .eq("thread_key", threadKey)
+      .maybeSingle();
+
+    if (!existingThread?.id) {
+      throw new Error(
+        threadLookupError?.message || threadInsertError.message,
+      );
+    }
+
+    const { data: updatedThread, error: threadUpdateError } = await admin
+      .from("email_threads")
+      .update({
+        project_id: draft.project_id ?? existingThread.project_id ?? null,
+        origin:
+          existingThread.origin === "inbound" ? "mixed" : existingThread.origin,
+        status: "resolved",
+        classification: "waiting",
+        resolution_state: "open",
+        action_title: subject || "Sent email",
+        subject,
+        normalized_subject: normalizeSubject(subject),
+        preview_text: extractPlainTextPreview(normalizedText, 240),
+        is_unread: false,
+        latest_message_at: timestamp,
+        latest_outbound_at: timestamp,
+        updated_at: timestamp,
+      })
+      .eq("id", existingThread.id)
+      .select("*")
+      .single();
+
+    if (threadUpdateError || !updatedThread) {
+      throw threadUpdateError || new Error("Failed to update outbound thread.");
+    }
+    threadRow = updatedThread;
+  } else if (threadInsertError || !insertedThread) {
+    throw threadInsertError || new Error("Failed to create outbound thread.");
+  }
+
+  const { data: insertedMessage, error: messageInsertError } = await admin
+    .from("email_messages")
+    .insert({
+      thread_id: threadRow.id,
+      mailbox_id: mailbox.id,
+      direction: "outbound",
+      provider_message_id: null,
+      internet_message_id: info.messageId || null,
+      in_reply_to_message_id: null,
+      subject,
+      body_text: normalizedText,
+      body_html: normalizedHtml,
+      sent_at: timestamp,
+      raw_headers: {},
+      metadata_json: {
+        from: [
+          {
+            email: mailbox.email_address,
+            name: mailbox.display_name || null,
+          },
+        ],
+        to,
+        cc,
+        bcc,
+      },
+    })
+    .select("*")
+    .single();
+
+  if (messageInsertError || !insertedMessage?.id) {
+    throw messageInsertError || new Error("Failed to store outbound email.");
+  }
+
+  await persistParticipants(String(threadRow.id), insertedMessage.id, mailbox, {
+    from: [
+      {
+        email: mailbox.email_address,
+        name: mailbox.display_name || null,
+      },
+    ],
+    to,
+    cc,
+    bcc,
+  });
+
+  const { data: updatedDraft } = await admin
+    .from("email_outbound_drafts")
+    .update({
+      status: "sent",
+      sent_at: timestamp,
+      last_error: null,
+      scheduled_for: null,
+      updated_at: timestamp,
+    })
+    .eq("id", draft.id)
+    .select("*")
+    .single();
+
+  return updatedDraft
+    ? coerceOutboundDraft(updatedDraft, {
+        threadId: String(threadRow.id),
+      })
+    : null;
+}
+
+export async function scheduleOutboundDraft(params: {
+  userId: string;
+  draftId: string;
+  scheduledFor: string;
+}) {
+  const timestamp = new Date(params.scheduledFor);
+  if (Number.isNaN(timestamp.getTime())) {
+    throw new Error("Choose a valid scheduled send time.");
+  }
+
+  return updateOutboundDraft({
+    userId: params.userId,
+    draftId: params.draftId,
+    scheduledFor: timestamp.toISOString(),
+    status: "scheduled",
+  });
+}
+
+export async function sendOutboundDraftNow(params: {
+  userId: string;
+  draftId: string;
+}) {
+  const admin = getAdminClient();
+  const draft = await ensureOutboundDraftAccess(params.userId, params.draftId);
+
+  await admin
+    .from("email_outbound_drafts")
+    .update({
+      status: "sending",
+      last_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", draft.id);
+
+  try {
+    return await executeOutboundDraftSend(draft);
+  } catch (error) {
+    await admin
+      .from("email_outbound_drafts")
+      .update({
+        status: "failed",
+        last_error:
+          error instanceof Error
+            ? error.message
+            : "Failed to send outbound draft.",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", draft.id);
+    throw error;
+  }
+}
+
 export async function listReplyDraftsForUser(
   userId: string,
   options: {
@@ -3015,6 +3368,235 @@ export async function listReplyDraftsForUser(
       senderEmail: sender?.emailAddress || null,
       threadSubject: threadRow?.subject || null,
     });
+  });
+}
+
+export async function listOutboundDraftsForUser(
+  userId: string,
+  options: {
+    status?: string;
+    mailboxId?: string;
+    projectId?: string;
+  } = {},
+) {
+  const admin = getAdminClient();
+  const mailboxes = await listMailboxesForUser(userId);
+  const mailboxIds = mailboxes.map((mailbox) => mailbox.id);
+
+  if (mailboxIds.length === 0) {
+    return [];
+  }
+
+  let query = admin
+    .from("email_outbound_drafts")
+    .select("*")
+    .in("mailbox_id", mailboxIds)
+    .order("scheduled_for", { ascending: true, nullsFirst: false })
+    .order("updated_at", { ascending: false });
+
+  if (options.status) {
+    query = query.eq("status", options.status);
+  }
+  if (options.mailboxId) {
+    query = query.eq("mailbox_id", options.mailboxId);
+  }
+  if (options.projectId) {
+    query = query.eq("project_id", options.projectId);
+  }
+
+  const { data: rows } = await query;
+  if (!rows || rows.length === 0) {
+    return [];
+  }
+
+  const mailboxMap = new Map(mailboxes.map((mailbox) => [mailbox.id, mailbox]));
+  const projectIds = rows
+    .map((row: any) => String(row.project_id || ""))
+    .filter(Boolean);
+  const { data: projects } =
+    projectIds.length > 0
+      ? await admin.from("projects").select("id,name").in("id", projectIds)
+      : { data: [] as any[] };
+  const projectMap = new Map(
+    (projects || []).map((row: any) => [String(row.id), row]),
+  );
+
+  return rows.map((row: any) => {
+    const mailbox = mailboxMap.get(String(row.mailbox_id));
+    const project = row.project_id
+      ? projectMap.get(String(row.project_id))
+      : null;
+
+    return coerceOutboundDraft(row, {
+      mailboxName: mailbox?.name || null,
+      mailboxEmailAddress: mailbox?.emailAddress || null,
+      projectName: (project as any)?.name || null,
+    });
+  });
+}
+
+export async function createOutboundDraft(params: {
+  userId: string;
+  mailboxId: string;
+  projectId?: string | null;
+  subject?: string | null;
+  contentText?: string | null;
+  contentHtml?: string | null;
+  signatureText?: string | null;
+  attachments?: EmailReplyAttachment[];
+  to?: EmailReplyAddress[];
+  cc?: EmailReplyAddress[];
+  bcc?: EmailReplyAddress[];
+  status?: EmailOutboundDraft["status"];
+  scheduledFor?: string | null;
+}) {
+  const admin = getAdminClient();
+  const mailbox = (await ensureMailboxAccess(
+    params.userId,
+    params.mailboxId,
+  )) as MailboxTransportRow;
+
+  if (params.projectId) {
+    await ensureProjectAccess(params.userId, params.projectId);
+  }
+
+  const scheduledFor = params.scheduledFor
+    ? new Date(params.scheduledFor).toISOString()
+    : null;
+  const nextStatus = params.status || (scheduledFor ? "scheduled" : "draft");
+
+  const { data: inserted, error } = await admin
+    .from("email_outbound_drafts")
+    .insert({
+      mailbox_id: mailbox.id,
+      project_id: params.projectId ?? null,
+      created_by_user_id: params.userId,
+      status: nextStatus,
+      subject: String(params.subject || "").trim(),
+      content_text: params.contentText ?? null,
+      content_html: params.contentHtml
+        ? normalizeRichText(params.contentHtml)
+        : null,
+      signature_text: params.signatureText ?? null,
+      to_json: normalizeAddressList(params.to),
+      cc_json: normalizeAddressList(params.cc),
+      bcc_json: normalizeAddressList(params.bcc),
+      attachments_json: params.attachments || [],
+      scheduled_for: scheduledFor,
+      last_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .select("*")
+    .single();
+
+  if (error || !inserted) {
+    throw error || new Error("Failed to save outbound draft.");
+  }
+
+  const project = params.projectId
+    ? await ensureProjectAccess(params.userId, params.projectId)
+    : null;
+
+  return coerceOutboundDraft(inserted, {
+    mailboxName: mailbox.display_name || mailbox.email_address,
+    mailboxEmailAddress: mailbox.email_address,
+    projectName: project?.name || null,
+  });
+}
+
+export async function updateOutboundDraft(params: {
+  userId: string;
+  draftId: string;
+  mailboxId?: string;
+  projectId?: string | null;
+  subject?: string | null;
+  contentText?: string | null;
+  contentHtml?: string | null;
+  signatureText?: string | null;
+  attachments?: EmailReplyAttachment[];
+  to?: EmailReplyAddress[];
+  cc?: EmailReplyAddress[];
+  bcc?: EmailReplyAddress[];
+  scheduledFor?: string | null;
+  status?: EmailOutboundDraft["status"];
+}) {
+  const admin = getAdminClient();
+  const draft = await ensureOutboundDraftAccess(params.userId, params.draftId);
+  const nextMailboxId = params.mailboxId || String(draft.mailbox_id);
+  const mailbox = (await ensureMailboxAccess(
+    params.userId,
+    nextMailboxId,
+  )) as MailboxTransportRow;
+
+  if (params.projectId) {
+    await ensureProjectAccess(params.userId, params.projectId);
+  }
+
+  const nextStatus = params.status || draft.status;
+  const scheduledFor =
+    params.scheduledFor === undefined
+      ? draft.scheduled_for
+      : params.scheduledFor
+        ? new Date(params.scheduledFor).toISOString()
+        : null;
+
+  const { data: updated, error } = await admin
+    .from("email_outbound_drafts")
+    .update({
+      mailbox_id: mailbox.id,
+      project_id:
+        params.projectId === undefined ? draft.project_id : params.projectId,
+      subject:
+        params.subject === undefined
+          ? draft.subject
+          : String(params.subject || "").trim(),
+      content_text:
+        params.contentText === undefined
+          ? draft.content_text
+          : params.contentText,
+      content_html:
+        params.contentHtml === undefined
+          ? draft.content_html
+          : params.contentHtml
+            ? normalizeRichText(params.contentHtml)
+            : null,
+      signature_text:
+        params.signatureText === undefined
+          ? draft.signature_text
+          : params.signatureText,
+      attachments_json:
+        params.attachments === undefined
+          ? draft.attachments_json
+          : params.attachments,
+      to_json:
+        params.to === undefined ? draft.to_json : normalizeAddressList(params.to),
+      cc_json:
+        params.cc === undefined ? draft.cc_json : normalizeAddressList(params.cc),
+      bcc_json:
+        params.bcc === undefined
+          ? draft.bcc_json
+          : normalizeAddressList(params.bcc),
+      scheduled_for: scheduledFor,
+      status: nextStatus,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.draftId)
+    .select("*")
+    .single();
+
+  if (error || !updated) {
+    throw error || new Error("Failed to update outbound draft.");
+  }
+
+  const projectId = updated.project_id ? String(updated.project_id) : null;
+  const project = projectId
+    ? await ensureProjectAccess(params.userId, projectId)
+    : null;
+
+  return coerceOutboundDraft(updated, {
+    mailboxName: mailbox.display_name || mailbox.email_address,
+    mailboxEmailAddress: mailbox.email_address,
+    projectName: project?.name || null,
   });
 }
 
@@ -3149,6 +3731,56 @@ export async function processScheduledReplyDrafts() {
             error instanceof Error
               ? error.message
               : "Failed to send reply draft.",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", row.id);
+    }
+  }
+
+  return {
+    processedCount: (rows || []).length,
+    sentCount,
+    failedCount,
+  };
+}
+
+export async function processScheduledOutboundDrafts() {
+  const admin = getAdminClient();
+  const now = new Date().toISOString();
+  const { data: rows } = await admin
+    .from("email_outbound_drafts")
+    .select("*")
+    .eq("status", "scheduled")
+    .lte("scheduled_for", now)
+    .order("scheduled_for", { ascending: true })
+    .limit(100);
+
+  let sentCount = 0;
+  let failedCount = 0;
+
+  for (const row of rows || []) {
+    await admin
+      .from("email_outbound_drafts")
+      .update({
+        status: "sending",
+        last_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", row.id);
+
+    try {
+      await executeOutboundDraftSend(row);
+      sentCount += 1;
+    } catch (error) {
+      failedCount += 1;
+      await admin
+        .from("email_outbound_drafts")
+        .update({
+          status: "failed",
+          last_error:
+            error instanceof Error
+              ? error.message
+              : "Failed to send outbound draft.",
           updated_at: new Date().toISOString(),
         })
         .eq("id", row.id);

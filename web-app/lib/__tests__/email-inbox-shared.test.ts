@@ -65,6 +65,25 @@ test("shouldShowInboxItemInToday keeps undated inbox work visible", () => {
     }),
     false,
   );
+
+  assert.equal(
+    shouldShowInboxItemInToday({
+      id: "thread-3",
+      mailboxId: "mailbox-1",
+      status: "resolved",
+      classification: "waiting",
+      resolutionState: "open",
+      origin: "outbound",
+      actionTitle: "Sent quote",
+      subject: "Quote follow-up",
+      needsProject: false,
+      alwaysDelete: false,
+      derivedTaskCount: 0,
+      createdAt: "2026-03-29T10:00:00.000Z",
+      updatedAt: "2026-03-29T10:00:00.000Z",
+    }),
+    false,
+  );
 });
 
 test("extractMailboxErrorMessage prefers provider response text", () => {

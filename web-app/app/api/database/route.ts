@@ -76,6 +76,7 @@ export async function GET(request: NextRequest) {
     let summaryProfiles: any[] = [];
     let ruleStats: any = { active: 0, quarantine: 0, alwaysDelete: 0 };
     let quarantineCount = 0;
+    let sentCount = 0;
     let userProfile: any = null;
     const orgMemberMap = new Map<string, string[]>();
     const orgOwnerMap = new Map<string, string>();
@@ -239,6 +240,11 @@ export async function GET(request: NextRequest) {
       quarantineCount = inboxItems.filter(
         (item: any) => item.status === "quarantine",
       ).length;
+      sentCount = inboxItems.filter((item: any) =>
+        item.status !== "deleted" &&
+        item.status !== "quarantine" &&
+        (item.origin === "outbound" || item.origin === "mixed")
+      ).length;
     } catch (error) {
       console.error("Error fetching email inbox data:", error);
     }
@@ -380,6 +386,7 @@ export async function GET(request: NextRequest) {
       summaryProfiles,
       ruleStats,
       quarantineCount,
+      sentCount,
       tags,
       sections,
       reminders: [],

@@ -56,6 +56,7 @@ import {
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
+import { EmailOutboundComposerModal } from "@/components/email-outbound-composer-modal";
 import { EmailSignatureContent } from "@/components/email-signature-content";
 import { EmailSpamReviewModal } from "@/components/email-spam-review-modal";
 import { EmailThreadAttachments } from "@/components/email-thread-attachments";
@@ -736,12 +737,24 @@ export function filterInboxItemsForView(params: {
       return item.status === "deleted";
     }
 
+    if (params.view === "email-sent") {
+      if (item.status === "deleted" || item.status === "quarantine") {
+        return false;
+      }
+
+      return item.origin === "outbound" || item.origin === "mixed";
+    }
+
     if (item.status === "deleted") {
       return false;
     }
 
     if (item.status === "quarantine") {
       return params.retainedSpamThreadIds.includes(item.id);
+    }
+
+    if (item.origin === "outbound") {
+      return false;
     }
 
     return true;
@@ -1238,6 +1251,7 @@ export function EmailInboxView({
   currentUserId,
 }: EmailInboxViewProps) {
   const isInboxView = view === "email-inbox";
+  const isSentView = view === "email-sent";
   const isTrashView = view === "email-trash";
   const isQuarantineView = view === "email-quarantine";
   const [selectedMailboxId, setSelectedMailboxId] = useState<string>("all");
@@ -1335,6 +1349,7 @@ export function EmailInboxView({
   const [isDesktopSplitLayout, setIsDesktopSplitLayout] = useState(false);
   const [isThreadModalOpen, setIsThreadModalOpen] = useState(false);
   const [isReplyDragActive, setIsReplyDragActive] = useState(false);
+  const [isOutboundComposerOpen, setIsOutboundComposerOpen] = useState(false);
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
   const projectSearchInputRef = useRef<HTMLInputElement | null>(null);
   const replyFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -2077,6 +2092,29 @@ export function EmailInboxView({
     }
 
     setReplyDrafts(Array.isArray(payload) ? payload : []);
+  };
+
+  const handleOutboundComposerSent = async (result: {
+    mailboxId: string;
+    threadId?: string | null;
+  }) => {
+    await refreshInboxState();
+    await onRefresh?.();
+
+    if (typeof window !== "undefined") {
+      const url = new URL("/email-sent", window.location.origin);
+      url.searchParams.set("selectedMailbox", result.mailboxId || "all");
+      if (result.threadId) {
+        url.searchParams.set("threadId", result.threadId);
+      }
+      window.location.assign(url.toString());
+    }
+  };
+
+  const handleOutboundComposerScheduled = async () => {
+    await refreshInboxState();
+    await onRefresh?.();
+    updateStatus("Email scheduled.");
   };
 
   const applyDraftToComposer = (draft: EmailReplyDraft | null) => {
@@ -3530,6 +3568,8 @@ export function EmailInboxView({
           <h1 className="text-2xl font-bold">
             {isQuarantineView
               ? "Quarantine"
+              : isSentView
+                ? "Sent"
               : isTrashView
                 ? "Trash"
                 : "Email Inbox"}
@@ -3537,6 +3577,8 @@ export function EmailInboxView({
           <p className="mt-1 text-sm text-zinc-500">
             {isQuarantineView
               ? "Review suspected spam and decide what Fluid should do next."
+              : isSentView
+                ? "Review outbound threads and keep follow-ups organized."
               : isTrashView
                 ? "Review deleted threads and permanently empty the selected trash mailbox."
                 : "Email threads are pre-processed and rendered as work items."}
@@ -3585,6 +3627,19 @@ export function EmailInboxView({
                 Empty All Permanently
               </button>
             )
+          ) : null}
+          {!isTrashView && !isQuarantineView ? (
+            <Tooltip content="New Email" className="w-auto" side="bottom">
+              <button
+                type="button"
+                onClick={() => setIsOutboundComposerOpen(true)}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+                aria-label="New Email"
+              >
+                <SendHorizontal className="h-4 w-4" />
+                <span>New Email</span>
+              </button>
+            </Tooltip>
           ) : null}
           <Tooltip
             content={
@@ -4271,7 +4326,7 @@ export function EmailInboxView({
                               { id: "all", label: "All" },
                               { id: "unread", label: "Unread" },
                               { id: "read", label: "Read" },
-                              ...(!isTrashView
+                              ...(!isTrashView && !isSentView
                                 ? [{ id: "spam", label: "Spam" }]
                                 : []),
                             ].map((tab) => (
@@ -4472,6 +4527,8 @@ export function EmailInboxView({
                 emptyLabel={
                   isQuarantineView
                     ? "No suspicious email is waiting for review."
+                    : isSentView
+                      ? "No sent email matches your current filters."
                     : isTrashView
                       ? "Trash is empty."
                       : inboxSearchQuery.trim()
@@ -5676,6 +5733,21 @@ export function EmailInboxView({
         rules={data.emailRules}
         mailboxFilterId={selectedMailboxId}
         onRefresh={onRefresh}
+      />
+
+      <EmailOutboundComposerModal
+        open={isOutboundComposerOpen}
+        mailboxes={mailboxes}
+        projects={data.projects}
+        signatures={emailSignatures}
+        selectedMailboxId={selectedMailboxId}
+        onOpenChange={setIsOutboundComposerOpen}
+        onSent={(result) => {
+          void handleOutboundComposerSent(result);
+        }}
+        onScheduled={() => {
+          void handleOutboundComposerScheduled();
+        }}
       />
 
       <Dialog

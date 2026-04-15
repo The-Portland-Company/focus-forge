@@ -1964,6 +1964,7 @@ export default function ViewPage() {
   const renderContent = () => {
     if (
       view === "email-inbox" ||
+      view === "email-sent" ||
       view === "email-trash" ||
       view === "email-quarantine" ||
       view === "email-rules" ||

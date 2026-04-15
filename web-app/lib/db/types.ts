@@ -9,6 +9,7 @@ export interface Database {
   summaryProfiles: any[];
   ruleStats: any;
   quarantineCount: number;
+  sentCount?: number;
   tags: any[];
   sections: any[];
   taskSections: any[];

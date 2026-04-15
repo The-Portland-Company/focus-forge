@@ -471,12 +471,29 @@ export function Sidebar({
 
   const inboxItemsCount = useMemo(() => {
     const visibleInboxItems = data.inboxItems.filter(
-      (item) => item.status !== "quarantine" && item.status !== "deleted",
+      (item) =>
+        item.status !== "quarantine" &&
+        item.status !== "deleted" &&
+        item.origin !== "outbound",
     );
 
     return {
       total: visibleInboxItems.length,
       unread: visibleInboxItems.filter((item) => item.isUnread).length,
+    };
+  }, [data.inboxItems]);
+
+  const sentItemsCount = useMemo(() => {
+    const sentItems = data.inboxItems.filter(
+      (item) =>
+        item.status !== "quarantine" &&
+        item.status !== "deleted" &&
+        (item.origin === "outbound" || item.origin === "mixed"),
+    );
+
+    return {
+      total: sentItems.length,
+      unread: sentItems.filter((item) => item.isUnread).length,
     };
   }, [data.inboxItems]);
 
@@ -875,6 +892,21 @@ export function Sidebar({
                 {trashItemsCount.total > 0 ? (
                   <span className="text-[10px] text-zinc-400">
                     {trashItemsCount.unread}/{trashItemsCount.total}
+                  </span>
+                ) : null}
+              </Link>
+              <Link
+                href="/email-sent"
+                className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
+                  currentView === "email-sent"
+                    ? "bg-zinc-800 text-white"
+                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                }`}
+              >
+                <span>Sent</span>
+                {sentItemsCount.total > 0 ? (
+                  <span className="text-[10px] text-zinc-400">
+                    {sentItemsCount.unread}/{sentItemsCount.total}
                   </span>
                 ) : null}
               </Link>
