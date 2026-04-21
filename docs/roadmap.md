@@ -1,0 +1,21 @@
+# Native Parity Roadmap
+
+- Native Parity
+  - Shared Contract
+    - [x] Document web app as source of truth in `docs/native-alignment-spec.md`
+    - [ ] Keep desktop feature inventory current as web behavior changes
+    - [ ] Keep native section naming and hierarchy aligned to desktop
+  - iOS App
+    - [x] Add Liquid Glass theme foundation with system dark/light default
+    - [x] Align root shell and sign-in styling to native contract
+    - [ ] Add settings and admin hub parity
+    - [ ] Add project and organization detail parity
+    - [ ] Add richer task metadata parity
+    - [ ] Add favorites, Focus Time, and calendar parity
+  - macOS App
+    - [x] Scaffold native macOS app repo with XcodeGen
+    - [x] Add sidebar shell and Liquid Glass theme foundation
+    - [ ] Add full desktop section shells and shared feature model
+    - [ ] Add task, project, and organization parity
+    - [ ] Add email, Focus Time, and calendar parity
+    - [ ] Add settings and admin parity
