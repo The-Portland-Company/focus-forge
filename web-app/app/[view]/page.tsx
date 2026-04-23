@@ -2224,6 +2224,7 @@ export default function ViewPage() {
         tasks,
         allTasks: database.tasks,
         projects: database.projects,
+        tags: database.tags,
         currentUserId: user?.id,
         priorityColor: userPriorityColor,
         showCompleted: database.settings?.showCompletedTasks ?? true,
@@ -2753,8 +2754,10 @@ export default function ViewPage() {
         return (
           task.name.toLowerCase().includes(query) ||
           richTextToPlainText(task.description).toLowerCase().includes(query) ||
-          (task.tags &&
-            task.tags.some((tag) => tag.toLowerCase().includes(query)))
+          (task.tagBadges &&
+            task.tagBadges.some((tag) =>
+              tag.name.toLowerCase().includes(query),
+            ))
         );
       });
 
@@ -2847,6 +2850,7 @@ export default function ViewPage() {
                     tasks={filteredTasks}
                     allTasks={database.tasks}
                     projects={database.projects}
+                    tags={database.tags}
                     currentUserId={currentUserId}
                     priorityColor={userPriorityColor}
                     showCompleted={
@@ -3447,10 +3451,6 @@ export default function ViewPage() {
                 <Plus className="w-4 h-4" />
                 Task
               </button>
-              <span className="text-sm text-zinc-400">
-                {projectTasks.filter((t) => !t.completed).length} active,{" "}
-                {projectTasks.filter((t) => t.completed).length} completed
-              </span>
             </div>
           </div>
 
@@ -3743,6 +3743,7 @@ export default function ViewPage() {
                 tasks={visibleUnassignedTasks}
                 allTasks={database.tasks}
                 projects={database.projects}
+                tags={database.tags}
                 currentUserId={currentUserId}
                 priorityColor={userPriorityColor}
                 showCompleted={database.settings?.showCompletedTasks ?? true}

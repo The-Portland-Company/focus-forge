@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import {
   extractDevnotesMeta,
   normalizeProjectContentFields,
+  normalizeTaskContentFields,
   stripDevnotesMeta,
 } from "../devnotes-meta";
 
@@ -37,5 +38,16 @@ test("normalizeProjectContentFields prefers explicit devnotesMeta and cleans des
   assert.deepEqual(normalized, {
     description: "Project summary",
     devnotesMeta: "[DEVNOTES_META:explicit]",
+  });
+});
+
+test("normalizeTaskContentFields cleans task descriptions the same way", () => {
+  const normalized = normalizeTaskContentFields({
+    description: "Task summary\n\n[DEVNOTES_META:task-token]",
+  });
+
+  assert.deepEqual(normalized, {
+    description: "Task summary",
+    devnotesMeta: "[DEVNOTES_META:task-token]",
   });
 });

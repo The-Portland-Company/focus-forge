@@ -34,6 +34,22 @@ export function normalizeProjectContentFields(input: {
   devnotesMeta?: string | null;
   devnotes_meta?: string | null;
 }) {
+  return normalizeDevnotesContentFields(input);
+}
+
+export function normalizeTaskContentFields(input: {
+  description?: string | null;
+  devnotesMeta?: string | null;
+  devnotes_meta?: string | null;
+}) {
+  return normalizeDevnotesContentFields(input);
+}
+
+function normalizeDevnotesContentFields(input: {
+  description?: string | null;
+  devnotesMeta?: string | null;
+  devnotes_meta?: string | null;
+}) {
   const embeddedMeta = extractDevnotesMeta(input.description);
   const explicitMeta =
     typeof input.devnotesMeta === "string"

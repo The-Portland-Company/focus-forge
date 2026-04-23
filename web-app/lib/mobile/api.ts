@@ -206,6 +206,7 @@ export const getVisibleMobileUserIds = async (targetUserId: string) => {
 
 export const normalizeTaskInput = (payload: Record<string, unknown>) => {
   const fieldMap: Record<string, string> = {
+    devnotesMeta: 'devnotes_meta',
     projectId: 'project_id',
     dueDate: 'due_date',
     dueTime: 'due_time',
@@ -236,6 +237,7 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
   const allowedFields = new Set([
     'name',
     'description',
+    'devnotes_meta',
     'due_date',
     'due_time',
     'priority',

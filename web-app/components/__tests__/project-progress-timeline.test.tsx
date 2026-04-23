@@ -60,8 +60,8 @@ test("renders summary stats and timeline date range", () => {
     />,
   );
 
-  assert.match(html, /Completion:/);
-  assert.match(html, /Completed:/);
   assert.match(html, /Total:/);
+  assert.match(html, /Incomplete:/);
+  assert.match(html, /Completed:/);
   assert.match(html, /2026-01-10 to 2026-01-12/);
 });

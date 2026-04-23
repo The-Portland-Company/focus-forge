@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { SupabaseAdapter } from "@/lib/db/supabase-adapter";
 import { sendTaskLifecycleNotifications } from "@/lib/task-notifications";
+import { normalizeRichText } from "@/lib/rich-text-sanitize";
+import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
 
 export async function GET(
   request: NextRequest,
@@ -9,14 +12,19 @@ export async function GET(
   try {
     const params = await props.params;
     const supabase = await createClient();
+    const {
+      data: { session },
+      error: authError,
+    } = await supabase.auth.getSession();
 
-    const { data: task, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .eq("id", params.id)
-      .single();
+    if (authError || !session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    if (error || !task) {
+    const adapter = new SupabaseAdapter(supabase, session.user.id);
+    const task = await adapter.getTask(params.id).catch(() => null);
+
+    if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
@@ -52,98 +60,33 @@ export async function PUT(
       .select("id,name,description,assigned_to")
       .eq("id", params.id)
       .maybeSingle();
-
-    // Filter updates to only include valid database fields
-    const dbUpdates: any = {};
-    if (updates.due_date !== undefined) {
-      dbUpdates.due_date = updates.due_date;
-    }
-    if (updates.dueDate !== undefined) {
-      dbUpdates.due_date = updates.dueDate;
-    }
-    if (updates.due_time !== undefined) dbUpdates.due_time = updates.due_time;
-    if (updates.dueTime !== undefined) dbUpdates.due_time = updates.dueTime;
-    if (updates.priority !== undefined) dbUpdates.priority = updates.priority;
-    if (updates.completed !== undefined)
-      dbUpdates.completed = updates.completed;
-    if (updates.completed_at !== undefined)
-      dbUpdates.completed_at = updates.completed_at;
-    if (updates.completedAt !== undefined)
-      dbUpdates.completed_at = updates.completedAt;
-    if (updates.assigned_to !== undefined)
-      dbUpdates.assigned_to = updates.assigned_to;
-    if (updates.assignedTo !== undefined)
-      dbUpdates.assigned_to = updates.assignedTo;
-    if (updates.project_id !== undefined)
-      dbUpdates.project_id = updates.project_id;
-    if (updates.projectId !== undefined)
-      dbUpdates.project_id = updates.projectId;
-    if (updates.name !== undefined) dbUpdates.name = updates.name;
-    if (updates.description !== undefined)
-      dbUpdates.description = updates.description;
-    if (updates.indent !== undefined) dbUpdates.indent = updates.indent;
-    if (updates.deadline !== undefined) dbUpdates.deadline = updates.deadline;
-    if (updates.recurring_pattern !== undefined)
-      dbUpdates.recurring_pattern = updates.recurring_pattern;
-    if (updates.recurringPattern !== undefined)
-      dbUpdates.recurring_pattern = updates.recurringPattern;
-    if (updates.is_recurring !== undefined)
-      dbUpdates.is_recurring = updates.is_recurring;
-    if (updates.isRecurring !== undefined)
-      dbUpdates.is_recurring = updates.isRecurring;
-    if (updates.parent_id !== undefined)
-      dbUpdates.parent_id = updates.parent_id;
-    if (updates.parentId !== undefined) dbUpdates.parent_id = updates.parentId;
-    if (updates.section_id !== undefined)
-      dbUpdates.section_id = updates.section_id;
-    if (updates.sectionId !== undefined)
-      dbUpdates.section_id = updates.sectionId;
-    if (updates.start_date !== undefined)
-      dbUpdates.start_date = updates.start_date;
-    if (updates.startDate !== undefined)
-      dbUpdates.start_date = updates.startDate;
-    if (updates.start_time !== undefined)
-      dbUpdates.start_time = updates.start_time;
-    if (updates.startTime !== undefined)
-      dbUpdates.start_time = updates.startTime;
-    if (updates.end_date !== undefined) dbUpdates.end_date = updates.end_date;
-    if (updates.endDate !== undefined) dbUpdates.end_date = updates.endDate;
-    if (updates.end_time !== undefined) dbUpdates.end_time = updates.end_time;
-    if (updates.endTime !== undefined) dbUpdates.end_time = updates.endTime;
-
-    // Add updated_at timestamp
-    dbUpdates.updated_at = new Date().toISOString();
-
-    console.log(`Updating task ${params.id} with:`, dbUpdates);
+    const adapter = new SupabaseAdapter(supabase, session.user.id);
+    const normalizedTaskContent =
+      updates?.description !== undefined ||
+      updates?.devnotesMeta !== undefined ||
+      updates?.devnotes_meta !== undefined
+        ? normalizeTaskContentFields({
+            description:
+              updates?.description !== undefined
+                ? normalizeRichText(updates.description)
+                : undefined,
+            devnotesMeta: updates?.devnotesMeta,
+            devnotes_meta: updates?.devnotes_meta,
+          })
+        : null;
+    const payload = {
+      ...updates,
+      ...(normalizedTaskContent
+        ? {
+            description: normalizedTaskContent.description,
+            devnotes_meta: normalizedTaskContent.devnotesMeta,
+          }
+        : {}),
+      updated_at: new Date().toISOString(),
+    };
 
     try {
-      const { data: updatedTask, error } = await supabase
-        .from("tasks")
-        .update(dbUpdates)
-        .eq("id", params.id)
-        .select()
-        .single();
-
-      if (error) {
-        console.error(
-          "PUT /api/tasks/[id] Supabase error:",
-          JSON.stringify(error, null, 2),
-        );
-        if (error.code === "PGRST116") {
-          return NextResponse.json(
-            { error: "Task not found" },
-            { status: 404 },
-          );
-        }
-        return NextResponse.json(
-          {
-            error: "Failed to update task",
-            details: error.message,
-          },
-          { status: 500 },
-        );
-      }
-
+      const updatedTask = await adapter.updateTask(params.id, payload);
       if (!updatedTask) {
         return NextResponse.json({ error: "Task not found" }, { status: 404 });
       }

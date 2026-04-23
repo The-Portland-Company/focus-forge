@@ -64,6 +64,7 @@ CREATE TABLE tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   description TEXT,
+  devnotes_meta TEXT,
   due_date DATE,
   due_time TIME,
   priority INTEGER DEFAULT 4 CHECK (priority BETWEEN 1 AND 4),

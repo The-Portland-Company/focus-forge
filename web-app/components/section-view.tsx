@@ -1,40 +1,50 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from 'react'
-import { ChevronRight, ChevronDown, Edit, Trash2, Plus, GripVertical } from 'lucide-react'
-import { Section, Task, Database } from '@/lib/types'
-import { TaskList } from './task-list'
+import { useState, useEffect } from "react";
+import {
+  ChevronRight,
+  ChevronDown,
+  Edit,
+  Trash2,
+  Plus,
+  GripVertical,
+} from "lucide-react";
+import { Section, Task, Database } from "@/lib/types";
+import { TaskList } from "./task-list";
 
 interface SectionViewProps {
-  section: Section
-  tasks: Task[]
-  allTasks: Task[]
-  database: Database
-  level?: number
-  priorityColor?: string
-  currentUserId?: string
-  completedAccordionKey?: string
-  revealActionsOnHover?: boolean
-  dueDateLayout?: "inline" | "below" | "right"
-  bulkSelectMode?: boolean
-  selectedTaskIds?: Set<string>
-  loadingTaskIds?: Set<string>
-  animatingOutTaskIds?: Set<string>
-  optimisticCompletedIds?: Set<string>
-  enableDueDateQuickEdit?: boolean
-  onTaskUpdate?: (taskId: string, updates: Partial<Task>) => Promise<void> | void
-  onTaskToggle: (taskId: string) => void
-  onTaskEdit: (task: Task) => void
-  onTaskDelete: (taskId: string) => void
-  onTaskSelect?: (taskId: string, event?: React.MouseEvent) => void
-  onSectionEdit: (section: Section) => void
-  onSectionDelete: (sectionId: string) => void
-  onAddTask: (section: Section) => void
-  onAddSection: (parentId: string) => void
-  onAddSectionAfter?: (section: Section) => void
-  onTaskDrop: (taskId: string, sectionId: string) => void
-  onSectionReorder: (sectionId: string, newOrder: number) => void
-  userId: string
+  section: Section;
+  tasks: Task[];
+  allTasks: Task[];
+  database: Database;
+  level?: number;
+  priorityColor?: string;
+  currentUserId?: string;
+  completedAccordionKey?: string;
+  revealActionsOnHover?: boolean;
+  dueDateLayout?: "inline" | "below" | "right";
+  bulkSelectMode?: boolean;
+  selectedTaskIds?: Set<string>;
+  loadingTaskIds?: Set<string>;
+  animatingOutTaskIds?: Set<string>;
+  optimisticCompletedIds?: Set<string>;
+  enableDueDateQuickEdit?: boolean;
+  onTaskUpdate?: (
+    taskId: string,
+    updates: Partial<Task>,
+  ) => Promise<void> | void;
+  onTaskToggle: (taskId: string) => void;
+  onTaskEdit: (task: Task) => void;
+  onTaskDelete: (taskId: string) => void;
+  onTaskSelect?: (taskId: string, event?: React.MouseEvent) => void;
+  onSectionEdit: (section: Section) => void;
+  onSectionDelete: (sectionId: string) => void;
+  onAddTask: (section: Section) => void;
+  onAddSection: (parentId: string) => void;
+  onAddSectionAfter?: (section: Section) => void;
+  onTaskDrop: (taskId: string, sectionId: string) => void;
+  onSectionReorder: (sectionId: string, newOrder: number) => void;
+  userId: string;
 }
 
 export function SectionView({
@@ -66,85 +76,92 @@ export function SectionView({
   onAddSectionAfter,
   onTaskDrop,
   onSectionReorder,
-  userId
+  userId,
 }: SectionViewProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
-  
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
   // Load collapsed state from user preferences
   useEffect(() => {
     const preference = database.userSectionPreferences?.find(
-      pref => pref.userId === userId && pref.sectionId === section.id
-    )
+      (pref) => pref.userId === userId && pref.sectionId === section.id,
+    );
     if (preference) {
-      setIsCollapsed(preference.isCollapsed)
+      setIsCollapsed(preference.isCollapsed);
     }
-  }, [database.userSectionPreferences, userId, section.id])
-  
+  }, [database.userSectionPreferences, userId, section.id]);
+
   // Get tasks for this section
-  const sectionTasks = tasks.filter(task => {
-    const taskSections = database.taskSections?.filter(ts => ts.taskId === task.id) || []
-    return taskSections.some(ts => ts.sectionId === section.id) || task.sectionId === section.id || (task as any).section_id === section.id
-  })
-  
+  const sectionTasks = tasks.filter((task) => {
+    const taskSections =
+      database.taskSections?.filter((ts) => ts.taskId === task.id) || [];
+    return (
+      taskSections.some((ts) => ts.sectionId === section.id) ||
+      task.sectionId === section.id ||
+      (task as any).section_id === section.id
+    );
+  });
+
   // Get child sections
-  const childSections = database.sections?.filter(s => s.parentId === section.id)
-    .sort((a, b) => (a.order || 0) - (b.order || 0)) || []
-  
+  const childSections =
+    database.sections
+      ?.filter((s) => s.parentId === section.id)
+      .sort((a, b) => (a.order || 0) - (b.order || 0)) || [];
+
   const handleToggleCollapse = async () => {
-    const newCollapsed = !isCollapsed
-    setIsCollapsed(newCollapsed)
-    
+    const newCollapsed = !isCollapsed;
+    setIsCollapsed(newCollapsed);
+
     // Save preference
     try {
-      await fetch('/api/user-section-preferences', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      await fetch("/api/user-section-preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId,
           sectionId: section.id,
-          isCollapsed: newCollapsed
-        })
-      })
+          isCollapsed: newCollapsed,
+        }),
+      });
     } catch (error) {
-      console.error('Failed to save section preference:', error)
+      console.error("Failed to save section preference:", error);
     }
-  }
-  
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setDragOver(true)
-  }
-  
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
+
   const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setDragOver(false)
-  }
-  
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  };
+
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setDragOver(false)
-    
-    const taskId = e.dataTransfer.getData('taskId')
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+
+    const taskId = e.dataTransfer.getData("taskId");
     if (taskId) {
-      onTaskDrop(taskId, section.id)
+      onTaskDrop(taskId, section.id);
     }
-  }
-  
+  };
+
   return (
-    <div 
-      className={`${level > 0 ? 'ml-6' : ''} group/section`}
+    <div
+      className={`${level > 0 ? "ml-6" : ""} group/section`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       {/* Section Header */}
-      <div 
+      <div
         className={`flex items-center gap-2 p-2 rounded-lg hover:bg-zinc-800/50 group transition-all cursor-pointer ${
-          dragOver ? 'bg-zinc-800/50 ring-2 ring-[var(--theme-primary)]' : ''
+          dragOver ? "bg-zinc-800/50 ring-2 ring-[var(--theme-primary)]" : ""
         }`}
         onClick={handleToggleCollapse}
       >
@@ -155,7 +172,7 @@ export function SectionView({
             <ChevronDown className="w-4 h-4 text-zinc-400" />
           )}
         </button>
-        
+
         <div className="flex items-center gap-2 flex-1">
           <span className="text-lg">{section.icon}</span>
           <div
@@ -163,16 +180,14 @@ export function SectionView({
             style={{ backgroundColor: section.color }}
           />
           <span className="font-medium text-white">{section.name}</span>
-          <span className="text-sm text-zinc-500">
-            ({sectionTasks.length})
-          </span>
+          <span className="text-sm text-zinc-500">({sectionTasks.length})</span>
         </div>
-        
+
         <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
           <button
             onClick={(e) => {
-              e.stopPropagation()
-              onAddTask(section)
+              e.stopPropagation();
+              onAddTask(section);
             }}
             className="p-1 hover:bg-zinc-700 rounded transition-colors"
             title="Add task"
@@ -181,8 +196,8 @@ export function SectionView({
           </button>
           <button
             onClick={(e) => {
-              e.stopPropagation()
-              onSectionEdit(section)
+              e.stopPropagation();
+              onSectionEdit(section);
             }}
             className="p-1 hover:bg-zinc-700 rounded transition-colors"
             title="Edit section"
@@ -191,8 +206,8 @@ export function SectionView({
           </button>
           <button
             onClick={(e) => {
-              e.stopPropagation()
-              onSectionDelete(section.id)
+              e.stopPropagation();
+              onSectionDelete(section.id);
             }}
             className="p-1 hover:bg-zinc-700 rounded transition-colors text-red-400"
             title="Delete section"
@@ -202,7 +217,7 @@ export function SectionView({
           <GripVertical className="w-4 h-4 text-zinc-500 cursor-move" />
         </div>
       </div>
-      
+
       {/* Section Content */}
       {!isCollapsed && (
         <div className="ml-6 mt-2">
@@ -212,7 +227,7 @@ export function SectionView({
               {section.description}
             </p>
           )}
-          
+
           {/* Tasks in this section */}
           {sectionTasks.length > 0 && (
             <div className="mb-4">
@@ -220,10 +235,15 @@ export function SectionView({
                 tasks={sectionTasks}
                 allTasks={allTasks}
                 projects={database.projects}
+                tags={database.tags}
                 currentUserId={currentUserId}
                 priorityColor={priorityColor}
                 showCompleted={database.settings?.showCompletedTasks ?? true}
-                completedAccordionKey={completedAccordionKey ? `${completedAccordionKey}-section-${section.id}` : undefined}
+                completedAccordionKey={
+                  completedAccordionKey
+                    ? `${completedAccordionKey}-section-${section.id}`
+                    : undefined
+                }
                 revealActionsOnHover={revealActionsOnHover}
                 dueDateLayout={dueDateLayout}
                 uniformDueBadgeWidth={dueDateLayout === "inline"}
@@ -264,9 +284,9 @@ export function SectionView({
               </button>
             </div>
           </div>
-          
+
           {/* Child sections */}
-          {childSections.map(childSection => (
+          {childSections.map((childSection) => (
             <SectionView
               key={childSection.id}
               section={childSection}
@@ -303,5 +323,5 @@ export function SectionView({
         </div>
       )}
     </div>
-  )
+  );
 }

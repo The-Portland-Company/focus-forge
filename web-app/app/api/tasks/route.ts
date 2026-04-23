@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { SupabaseAdapter } from "@/lib/db/supabase-adapter";
 import { sendTaskLifecycleNotifications } from "@/lib/task-notifications";
+import { normalizeRichText } from "@/lib/rich-text-sanitize";
+import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
 
 export async function GET() {
   try {
@@ -52,9 +54,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const normalizedTaskContent =
+      taskData?.description !== undefined ||
+      taskData?.devnotesMeta !== undefined ||
+      taskData?.devnotes_meta !== undefined
+        ? normalizeTaskContentFields({
+            description:
+              taskData?.description !== undefined
+                ? normalizeRichText(taskData.description)
+                : undefined,
+            devnotesMeta: taskData?.devnotesMeta,
+            devnotes_meta: taskData?.devnotes_meta,
+          })
+        : null;
+
     // Add the creator ID to the task data
     const taskDataWithCreator = {
       ...taskData,
+      description: normalizedTaskContent
+        ? normalizedTaskContent.description
+        : taskData.description,
+      devnotes_meta: normalizedTaskContent
+        ? normalizedTaskContent.devnotesMeta
+        : taskData.devnotes_meta,
       createdBy: dbUser.id,
     };
 

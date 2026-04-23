@@ -19,6 +19,7 @@ type TaskWithSnakeCase = Task & {
   due_date?: string;
   created_at?: string;
   completed_at?: string;
+  updated_at?: string;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -59,6 +60,10 @@ function taskCreatedAt(task: TaskWithSnakeCase): string | undefined {
 
 function taskCompletedAt(task: TaskWithSnakeCase): string | undefined {
   return task.completed_at || task.completedAt;
+}
+
+function taskUpdatedAt(task: TaskWithSnakeCase): string | undefined {
+  return task.updated_at || task.updatedAt;
 }
 
 function clampPercent(value: number): number {
@@ -106,7 +111,14 @@ export function buildProjectProgressTimeline(
 
   const completedDayStamps = filteredTasks
     .filter((task) => task.completed)
-    .map((task) => toDate(taskCompletedAt(task)))
+    .map((task) => {
+      return (
+        toDate(taskCompletedAt(task)) ||
+        toDate(taskUpdatedAt(task)) ||
+        toDate(taskCreatedAt(task)) ||
+        todayDate
+      );
+    })
     .filter((value): value is Date => value !== null)
     .map(startOfLocalDay)
     .map((date) => date.getTime())

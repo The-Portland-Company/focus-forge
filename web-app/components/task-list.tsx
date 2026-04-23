@@ -34,6 +34,7 @@ interface TaskListProps {
   tasks: Task[];
   allTasks?: Task[]; // For dependency checking
   projects?: Project[]; // For showing project names
+  tags?: Task["tagBadges"];
   currentUserId?: string; // For hiding "me" avatar
   priorityColor?: string; // User's custom priority color (defaults to green)
   showCompleted?: boolean;
@@ -158,6 +159,7 @@ export function TaskList({
   tasks,
   allTasks,
   projects,
+  tags,
   currentUserId,
   priorityColor,
   showCompleted = false,
@@ -181,6 +183,7 @@ export function TaskList({
   const priorityColors = priorityColor
     ? generatePriorityColors(priorityColor)
     : getDefaultPriorityColors();
+  const tagsById = new Map((tags || []).map((tag) => [tag.id, tag] as const));
   const [hoveredTask, setHoveredTask] = useState<string | null>(null);
   const [showCompletedTasks, setShowCompletedTasks] = useState(showCompleted);
   // Initialize with all parent task IDs so accordions start collapsed
@@ -420,6 +423,18 @@ export function TaskList({
     const isLoading = loadingTaskIds?.has(task.id);
     const isAnimatingOut = animatingOutTaskIds?.has(task.id);
     const isOptimisticCompleted = optimisticCompletedIds?.has(task.id);
+    const taskTagBadges = task.tagBadges?.length
+      ? task.tagBadges
+      : (task.tags || []).reduce<NonNullable<Task["tagBadges"]>>(
+          (acc, tagId) => {
+            const tag = tagsById.get(tagId);
+            if (tag) {
+              acc.push(tag);
+            }
+            return acc;
+          },
+          [],
+        );
     const isCompleted = task.completed || isOptimisticCompleted;
     const dueDate = (task as any).due_date || task.dueDate;
     const dueDateOnly = dueDate
@@ -840,6 +855,36 @@ export function TaskList({
                       Priority {task.priority}
                     </span>
                   </span>
+                ) : null}
+
+                {taskTagBadges.length > 0 ? (
+                  <div className="flex items-center gap-1.5 max-w-[220px] overflow-hidden">
+                    {taskTagBadges.slice(0, 3).map((tag) => (
+                      <span
+                        key={tag.id}
+                        className="inline-flex max-w-[88px] items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] truncate"
+                        style={{
+                          color: tag.color,
+                          borderColor: `${tag.color}66`,
+                          backgroundColor: `${tag.color}1a`,
+                        }}
+                        title={tag.name}
+                      >
+                        {tag.name}
+                      </span>
+                    ))}
+                    {taskTagBadges.length > 3 ? (
+                      <span
+                        className="text-[10px] text-zinc-500"
+                        title={taskTagBadges
+                          .slice(3)
+                          .map((tag) => tag.name)
+                          .join(", ")}
+                      >
+                        +{taskTagBadges.length - 3}
+                      </span>
+                    ) : null}
+                  </div>
                 ) : null}
 
                 {dueDateLayout === "right" && dueDateBadge}

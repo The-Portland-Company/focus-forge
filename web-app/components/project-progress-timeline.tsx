@@ -76,6 +76,11 @@ export function ProjectProgressTimeline({
 
   const points = timeline.points;
   const latestPoint = points[points.length - 1];
+  const totalTasks = tasks.length;
+  const completedTasks = tasks.filter((task) => task.completed).length;
+  const incompleteTasks = Math.max(0, totalTasks - completedTasks);
+  const completionPct =
+    totalTasks === 0 ? 0 : Number(((completedTasks / totalTasks) * 100).toFixed(1));
   const tickIndices = useMemo(() => getTickIndices(points.length), [points.length]);
   const linePath = useMemo(() => buildPath(points), [points]);
 
@@ -114,13 +119,13 @@ export function ProjectProgressTimeline({
         </h2>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-zinc-200">
-            Completion: {latestPoint ? `${latestPoint.completionPct.toFixed(1)}%` : "0.0%"}
+            Total: {totalTasks}
           </span>
           <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-zinc-200">
-            Completed: {latestPoint?.completedCount ?? 0}
+            Incomplete: {incompleteTasks}
           </span>
           <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-zinc-200">
-            Total: {latestPoint?.totalCount ?? 0}
+            Completed: {completedTasks}
           </span>
         </div>
       </div>
@@ -222,7 +227,12 @@ export function ProjectProgressTimeline({
               }}
             >
               <div className="font-medium">{toDisplayDate(activePoint.date)}</div>
-              <div>{activePoint.completionPct.toFixed(1)}% complete</div>
+              <div>
+                {activePoint.completionPct.toFixed(1)}% complete
+                {activePoint.date === latestPoint?.date
+                  ? ` (${completionPct.toFixed(1)}% current)`
+                  : ""}
+              </div>
               <div>
                 {activePoint.completedCount}/{activePoint.totalCount} tasks
               </div>

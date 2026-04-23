@@ -72,6 +72,7 @@ export interface Task {
   id: string;
   name: string;
   description?: string;
+  devnotesMeta?: string | null;
   dueDate?: string;
   dueTime?: string;
   priority: 1 | 2 | 3 | 4;
@@ -83,6 +84,7 @@ export interface Task {
   assignedToName?: string;
   createdBy?: string; // User who created this task
   tags: string[];
+  tagBadges?: Tag[];
   completed: boolean;
   completedAt?: string;
   createdAt: string;

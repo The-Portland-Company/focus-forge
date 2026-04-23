@@ -9,6 +9,8 @@ import {
   verifyMobileAccessTokenOrPat,
 } from "@/lib/mobile/api";
 import { sendTaskLifecycleNotifications } from "@/lib/task-notifications";
+import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
+import { normalizeRichText } from "@/lib/rich-text-sanitize";
 
 export async function GET(request: NextRequest) {
   try {
@@ -69,6 +71,22 @@ export async function POST(request: NextRequest) {
 
     const raw = await request.json();
     const payload = normalizeTaskInput(raw);
+    const normalizedTaskContent =
+      payload.description !== undefined ||
+      payload.devnotes_meta !== undefined ||
+      raw?.devnotesMeta !== undefined
+        ? normalizeTaskContentFields({
+            description:
+              typeof payload.description === "string"
+                ? normalizeRichText(payload.description)
+                : undefined,
+            devnotesMeta: raw?.devnotesMeta,
+            devnotes_meta:
+              typeof payload.devnotes_meta === "string"
+                ? payload.devnotes_meta
+                : undefined,
+          })
+        : null;
 
     if (!payload.name || typeof payload.name !== "string") {
       return NextResponse.json(
@@ -82,6 +100,12 @@ export async function POST(request: NextRequest) {
 
     const newTask = await adapter.createTask({
       ...payload,
+      ...(normalizedTaskContent
+        ? {
+            description: normalizedTaskContent.description,
+            devnotes_meta: normalizedTaskContent.devnotesMeta,
+          }
+        : {}),
       created_at: payload.created_at || now,
       updated_at: now,
       completed: payload.completed ?? false,

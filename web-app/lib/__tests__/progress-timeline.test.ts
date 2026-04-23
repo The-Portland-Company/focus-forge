@@ -131,13 +131,19 @@ test("computes daily completion percentages over time", () => {
   assert.equal(day3?.completionPct, 50);
 });
 
-test("ignores invalid created/completed dates safely", () => {
+test("falls back to today when a completed task has no valid completion timestamps", () => {
   const tasks: Task[] = [
-    makeTask({ id: "t1", createdAt: "not-a-date" as unknown as string }),
+    makeTask({
+      id: "t1",
+      createdAt: "not-a-date" as unknown as string,
+      updatedAt: "still-not-a-date" as unknown as string,
+    }),
     makeTask({
       id: "t2",
       completed: true,
+      createdAt: "still-not-a-date" as unknown as string,
       completedAt: "still-not-a-date",
+      updatedAt: "still-not-a-date" as unknown as string,
     }),
   ];
 
@@ -148,7 +154,33 @@ test("ignores invalid created/completed dates safely", () => {
   );
   const last = result.points[result.points.length - 1];
 
-  assert.equal(last.totalCount, 1);
-  assert.equal(last.completedCount, 0);
+  assert.equal(last.totalCount, 0);
+  assert.equal(last.completedCount, 1);
   assert.equal(last.completionPct, 0);
+});
+
+test("falls back to updatedAt when a completed task is missing completedAt", () => {
+  const tasks: Task[] = [
+    makeTask({
+      id: "t1",
+      completed: true,
+      createdAt: "2026-01-10T12:00:00.000Z",
+      updatedAt: "2026-01-12T12:00:00.000Z",
+    }),
+    makeTask({
+      id: "t2",
+      createdAt: "2026-01-10T12:00:00.000Z",
+    }),
+  ];
+
+  const result = buildProjectProgressTimeline(
+    project,
+    tasks,
+    new Date("2026-01-12T12:00:00.000Z"),
+  );
+  const last = result.points[result.points.length - 1];
+
+  assert.equal(last.totalCount, 2);
+  assert.equal(last.completedCount, 1);
+  assert.equal(last.completionPct, 50);
 });

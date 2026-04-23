@@ -101,6 +101,7 @@ export function mapTaskFromDb(row: RecordShape) {
     id: row.id,
     name: row.name,
     description: row.description ?? null,
+    devnotesMeta: row.devnotes_meta ?? null,
     dueDate: row.due_date ?? null,
     dueTime: row.due_time ?? null,
     priority: row.priority ?? null,
@@ -137,6 +138,7 @@ export function mapTaskToDb(input: RecordShape) {
   return pickDefined({
     name: input.name,
     description: input.description,
+    devnotes_meta: input.devnotesMeta ?? input.devnotes_meta,
     due_date: input.dueDate,
     due_time: input.dueTime,
     priority: input.priority,

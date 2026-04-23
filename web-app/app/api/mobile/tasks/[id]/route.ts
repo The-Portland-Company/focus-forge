@@ -8,6 +8,8 @@ import {
 } from "@/lib/mobile/api";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { sendTaskLifecycleNotifications } from "@/lib/task-notifications";
+import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
+import { normalizeRichText } from "@/lib/rich-text-sanitize";
 
 export async function PATCH(
   request: NextRequest,
@@ -25,6 +27,22 @@ export async function PATCH(
     const params = await props.params;
     const raw = await request.json();
     const payload = normalizeTaskInput(raw);
+    const normalizedTaskContent =
+      payload.description !== undefined ||
+      payload.devnotes_meta !== undefined ||
+      raw?.devnotesMeta !== undefined
+        ? normalizeTaskContentFields({
+            description:
+              typeof payload.description === "string"
+                ? normalizeRichText(payload.description)
+                : undefined,
+            devnotesMeta: raw?.devnotesMeta,
+            devnotes_meta:
+              typeof payload.devnotes_meta === "string"
+                ? payload.devnotes_meta
+                : undefined,
+          })
+        : null;
     const admin = getAdminClient();
     const { data: existingTask } = await admin
       .from("tasks")
@@ -35,6 +53,12 @@ export async function PATCH(
     const adapter = await getMobileAdapterForUser(auth.user.id);
     const updated = await adapter.updateTask(params.id, {
       ...payload,
+      ...(normalizedTaskContent
+        ? {
+            description: normalizedTaskContent.description,
+            devnotes_meta: normalizedTaskContent.devnotesMeta,
+          }
+        : {}),
       updated_at: new Date().toISOString(),
     });
 

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { Database, DatabaseAdapter } from "./types";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
 
 type OrganizationInput = {
   name?: string;
@@ -718,6 +719,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       return {
         ...task,
         // Map snake_case to camelCase for frontend compatibility
+        devnotesMeta: task.devnotes_meta,
         projectId: task.project_id,
         dueDate: task.due_date,
         dueTime: task.due_time,
@@ -740,6 +742,15 @@ export class SupabaseAdapter implements DatabaseAdapter {
         endDate: task.end_date,
         endTime: task.end_time,
         tags: task.tags?.map((t: any) => t.tag.id) || [],
+        tagBadges:
+          task.tags
+            ?.map((t: any) => t.tag)
+            .filter(
+              (tag: any) =>
+                tag &&
+                typeof tag.id === "string" &&
+                typeof tag.name === "string",
+            ) || [],
         reminders: task.reminders || [],
         attachments: task.attachments || [],
         files: task.attachments || [], // Compatibility with file-based system
@@ -788,6 +799,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
     return {
       ...data,
       // Map snake_case to camelCase for frontend compatibility
+      devnotesMeta: data.devnotes_meta,
       projectId: data.project_id,
       dueDate: data.due_date,
       dueTime: data.due_time,
@@ -810,6 +822,13 @@ export class SupabaseAdapter implements DatabaseAdapter {
       endDate: data.end_date,
       endTime: data.end_time,
       tags: data.tags?.map((t: any) => t.tag.id) || [],
+      tagBadges:
+        data.tags
+          ?.map((t: any) => t.tag)
+          .filter(
+            (tag: any) =>
+              tag && typeof tag.id === "string" && typeof tag.name === "string",
+          ) || [],
       reminders: data.reminders || [],
       attachments: data.attachments || [],
       files: data.attachments || [],
@@ -820,11 +839,37 @@ export class SupabaseAdapter implements DatabaseAdapter {
     const supabase = this.supabase;
     // Extract relational fields handled separately
     const { tags, reminders, attachments, files, ...rawTaskData } = task;
+    const normalizedTaskContent = normalizeTaskContentFields({
+      description:
+        rawTaskData.description === undefined
+          ? undefined
+          : rawTaskData.description,
+      devnotesMeta:
+        rawTaskData.devnotesMeta === undefined
+          ? undefined
+          : rawTaskData.devnotesMeta,
+      devnotes_meta:
+        rawTaskData.devnotes_meta === undefined
+          ? undefined
+          : rawTaskData.devnotes_meta,
+    });
+    if (rawTaskData.description !== undefined) {
+      rawTaskData.description = normalizedTaskContent.description;
+    }
+    if (
+      rawTaskData.devnotesMeta !== undefined ||
+      rawTaskData.devnotes_meta !== undefined ||
+      normalizedTaskContent.devnotesMeta
+    ) {
+      rawTaskData.devnotes_meta = normalizedTaskContent.devnotesMeta;
+      delete rawTaskData.devnotesMeta;
+    }
 
     // Only these columns exist on the tasks table
     const allowedColumns = new Set([
       "name",
       "description",
+      "devnotes_meta",
       "due_date",
       "due_time",
       "priority",
@@ -862,6 +907,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
     // Map camelCase fields to snake_case for Supabase
     const fieldMap: Record<string, string> = {
+      devnotesMeta: "devnotes_meta",
       projectId: "project_id",
       dueDate: "due_date",
       dueTime: "due_time",
@@ -942,11 +988,37 @@ export class SupabaseAdapter implements DatabaseAdapter {
   async updateTask(id: string, updates: any) {
     const supabase = this.supabase;
     const { tags, reminders, attachments, files, ...rawTaskData } = updates;
+    const normalizedTaskContent = normalizeTaskContentFields({
+      description:
+        rawTaskData.description === undefined
+          ? undefined
+          : rawTaskData.description,
+      devnotesMeta:
+        rawTaskData.devnotesMeta === undefined
+          ? undefined
+          : rawTaskData.devnotesMeta,
+      devnotes_meta:
+        rawTaskData.devnotes_meta === undefined
+          ? undefined
+          : rawTaskData.devnotes_meta,
+    });
+    if (rawTaskData.description !== undefined) {
+      rawTaskData.description = normalizedTaskContent.description;
+    }
+    if (
+      rawTaskData.devnotesMeta !== undefined ||
+      rawTaskData.devnotes_meta !== undefined ||
+      normalizedTaskContent.devnotesMeta
+    ) {
+      rawTaskData.devnotes_meta = normalizedTaskContent.devnotesMeta;
+      delete rawTaskData.devnotesMeta;
+    }
 
     // Filter to only valid task columns
     const allowedColumns = new Set([
       "name",
       "description",
+      "devnotes_meta",
       "due_date",
       "due_time",
       "priority",
@@ -983,6 +1055,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
     ]);
 
     const fieldMap: Record<string, string> = {
+      devnotesMeta: "devnotes_meta",
       timeEstimate: "time_estimate",
       startDate: "start_date",
       startTime: "start_time",
