@@ -48,7 +48,11 @@ test("renders empty state when project has no tasks", () => {
 
 test("renders summary stats and timeline date range", () => {
   const tasks = [
-    makeTask({ id: "t1", completed: true, completedAt: "2026-01-11T12:00:00.000Z" }),
+    makeTask({
+      id: "t1",
+      completed: true,
+      completedAt: "2026-01-11T12:00:00.000Z",
+    }),
     makeTask({ id: "t2", createdAt: "2026-01-11T12:00:00.000Z" }),
   ];
 
@@ -89,4 +93,24 @@ test("renders estimate-weighted summary when tasks have estimates", () => {
   assert.match(html, /Estimated work/);
   assert.match(html, /Done: 1h 30m/);
   assert.match(html, /Remaining: 30m/);
+});
+
+test("renders an accessible current progress bar scoped to the project", () => {
+  const tasks = [
+    makeTask({ id: "t1", completed: true, completedAt: "2026-01-11T12:00:00.000Z" }),
+    makeTask({ id: "t2" }),
+    makeTask({ id: "other", projectId: "proj-2", completed: true }),
+  ];
+
+  const html = renderToStaticMarkup(
+    <ProjectProgressTimeline
+      project={project}
+      tasks={tasks}
+      today={new Date("2026-01-12T12:00:00.000Z")}
+    />,
+  );
+
+  assert.match(html, /role="progressbar"/);
+  assert.match(html, /aria-valuenow="50"/);
+  assert.match(html, /Tasks: 1\/2/);
 });

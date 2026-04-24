@@ -81,6 +81,10 @@ function formatWork(value: number, usesTimeEstimates: boolean): string {
   return `${minutes}m`;
 }
 
+function getTaskProjectId(task: Task): string | undefined {
+  return (task as Task & { project_id?: string }).project_id || task.projectId;
+}
+
 export function ProjectProgressTimeline({
   project,
   tasks,
@@ -95,12 +99,17 @@ export function ProjectProgressTimeline({
 
   const points = timeline.points;
   const latestPoint = points[points.length - 1];
-  const totalTasks = tasks.length;
-  const completedTasks = tasks.filter((task) => task.completed).length;
+  const projectTasks = useMemo(
+    () => tasks.filter((task) => getTaskProjectId(task) === project.id),
+    [project.id, tasks],
+  );
+  const totalTasks = projectTasks.length;
+  const completedTasks = projectTasks.filter((task) => task.completed).length;
   const completedWork = latestPoint?.completedWork ?? completedTasks;
   const totalWork = latestPoint?.totalWork ?? totalTasks;
   const remainingWork = Math.max(0, totalWork - completedWork);
   const completionPct = latestPoint?.completionPct ?? 0;
+  const progressBarPct = Math.min(100, Math.max(0, completionPct));
   const tickIndices = useMemo(() => getTickIndices(points.length), [points.length]);
   const linePath = useMemo(() => buildPath(points), [points]);
 
@@ -159,6 +168,26 @@ export function ProjectProgressTimeline({
         </p>
       ) : (
         <div className="relative">
+          <div className="mb-3">
+            <div className="mb-1 flex items-center justify-between text-xs text-zinc-400">
+              <span>Current progress</span>
+              <span>{progressBarPct.toFixed(1)}%</span>
+            </div>
+            <div
+              className="h-2 overflow-hidden rounded-full bg-zinc-800"
+              role="progressbar"
+              aria-label={`Current project completion for ${project.name}`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Number(progressBarPct.toFixed(1))}
+            >
+              <div
+                className="h-full rounded-full bg-[rgb(var(--theme-primary-rgb))] transition-[width] duration-300 ease-out"
+                style={{ width: `${progressBarPct}%` }}
+              />
+            </div>
+          </div>
+
           <svg
             viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
             className="h-32 w-full"
