@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
   Archive,
@@ -30,20 +31,13 @@ import {
   ChevronUp,
   ChevronDown,
   CalendarDays,
+  FileText,
+  Columns3,
+  LayoutList,
 } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 import { TimeTrackingView } from "@/components/time-tracking-view";
-import {
-  filterTasksByBlockedStatus,
-  isTaskBlocked,
-} from "@/lib/dependency-utils";
-import { AddTaskModal } from "@/components/add-task-modal";
-import { BulkEditModal } from "@/components/bulk-edit-modal";
-import { EditTaskModal } from "@/components/edit-task-modal";
-import { AddProjectModal } from "@/components/add-project-modal";
-import { EditProjectModal } from "@/components/edit-project-modal";
-import { AddOrganizationModal } from "@/components/add-organization-modal";
-import { OrganizationSettingsModal } from "@/components/organization-settings-modal";
+import { getBlockedTaskIds } from "@/lib/dependency-utils";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { TaskList } from "@/components/task-list";
 import { KanbanView } from "@/components/kanban-view";
@@ -52,11 +46,6 @@ import { Database, Task, Project, Organization, Section } from "@/lib/types";
 import { SectionView } from "@/components/section-view";
 import { AddSectionModal } from "@/components/add-section-modal";
 import { AddSectionDivider } from "@/components/add-section-divider";
-import { ProjectNotesModal } from "@/components/project-notes-modal";
-import { AiPlannerFloatingChat } from "@/components/ai-planner-floating-chat";
-import { EmailInboxView } from "@/components/email-inbox-view";
-import { EmailSpamReviewModal } from "@/components/email-spam-review-modal";
-import { EmailThreadModal } from "@/components/email-thread-modal";
 import { EmailWorkList } from "@/components/email-work-list";
 import { Tooltip } from "@/components/tooltip";
 import { format } from "date-fns";
@@ -70,9 +59,9 @@ import {
 } from "@/lib/date-utils";
 import { applyUserTheme } from "@/lib/theme-utils";
 import { parseRecurringPattern, getNextDueDate } from "@/lib/recurring-utils";
-import { TodoistQuickSyncModal } from "@/components/todoist-quick-sync-modal";
 import { ProjectProgressTimeline } from "@/components/project-progress-timeline";
 import { ProjectAiExportControls } from "@/components/project-ai-export-controls";
+import { ProjectSectionBoard } from "@/components/project-section-board";
 import {
   ProjectWorkTabs,
   type ProjectWorkTab,
@@ -100,6 +89,385 @@ import { shouldShowInboxItemInToday } from "@/lib/email-inbox/shared";
 import { mergeDatabasePayload } from "@/lib/database-state";
 
 const EMAIL_BACKGROUND_SYNC_INTERVAL_MS = 15 * 1000;
+const DATABASE_CORE_CACHE_VERSION = 1;
+const DATABASE_CORE_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+const PROJECT_SECTION_LAYOUT_STORAGE_KEY = "focus-forge:project-section-layout";
+
+const getDatabaseCoreCacheKey = (userId?: string | null) =>
+  `focus-forge:database-core:v${DATABASE_CORE_CACHE_VERSION}:${userId || "anonymous"}`;
+
+const shouldIncludeInboxItemsForInitialView = (view: string) =>
+  view === "today";
+
+const readCachedDatabaseCore = (userId?: string | null): Database | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(getDatabaseCoreCacheKey(userId));
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as {
+      cachedAt?: number;
+      data?: Database;
+    };
+    if (
+      !parsed.cachedAt ||
+      !parsed.data ||
+      Date.now() - parsed.cachedAt > DATABASE_CORE_CACHE_MAX_AGE_MS
+    ) {
+      window.sessionStorage.removeItem(getDatabaseCoreCacheKey(userId));
+      return null;
+    }
+
+    return parsed.data;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedDatabaseCore = (
+  userId: string | null | undefined,
+  data: Database,
+) => {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(
+      getDatabaseCoreCacheKey(userId),
+      JSON.stringify({
+        cachedAt: Date.now(),
+        data: {
+          ...data,
+          inboxItems: [],
+          quarantineCount: 0,
+          sentCount: 0,
+        },
+      }),
+    );
+  } catch {
+    // Session storage is a best-effort cache.
+  }
+};
+
+const AddTaskModal = dynamic(
+  () => import("@/components/add-task-modal").then((mod) => mod.AddTaskModal),
+  { ssr: false },
+);
+const BulkEditModal = dynamic(
+  () => import("@/components/bulk-edit-modal").then((mod) => mod.BulkEditModal),
+  { ssr: false },
+);
+const EditTaskModal = dynamic(
+  () => import("@/components/edit-task-modal").then((mod) => mod.EditTaskModal),
+  { ssr: false },
+);
+const AddProjectModal = dynamic(
+  () =>
+    import("@/components/add-project-modal").then((mod) => mod.AddProjectModal),
+  { ssr: false },
+);
+const EditProjectModal = dynamic(
+  () =>
+    import("@/components/edit-project-modal").then(
+      (mod) => mod.EditProjectModal,
+    ),
+  { ssr: false },
+);
+const AddOrganizationModal = dynamic(
+  () =>
+    import("@/components/add-organization-modal").then(
+      (mod) => mod.AddOrganizationModal,
+    ),
+  { ssr: false },
+);
+const OrganizationSettingsModal = dynamic(
+  () =>
+    import("@/components/organization-settings-modal").then(
+      (mod) => mod.OrganizationSettingsModal,
+    ),
+  { ssr: false },
+);
+const ProjectNotesModal = dynamic(
+  () =>
+    import("@/components/project-notes-modal").then(
+      (mod) => mod.ProjectNotesModal,
+    ),
+  { ssr: false },
+);
+const AiPlannerFloatingChat = dynamic(
+  () =>
+    import("@/components/ai-planner-floating-chat").then(
+      (mod) => mod.AiPlannerFloatingChat,
+    ),
+  { ssr: false },
+);
+const EmailInboxView = dynamic(
+  () =>
+    import("@/components/email-inbox-view").then((mod) => mod.EmailInboxView),
+  { ssr: false },
+);
+const EmailSpamReviewModal = dynamic(
+  () =>
+    import("@/components/email-spam-review-modal").then(
+      (mod) => mod.EmailSpamReviewModal,
+    ),
+  { ssr: false },
+);
+const EmailThreadModal = dynamic(
+  () =>
+    import("@/components/email-thread-modal").then(
+      (mod) => mod.EmailThreadModal,
+    ),
+  { ssr: false },
+);
+const TodoistQuickSyncModal = dynamic(
+  () =>
+    import("@/components/todoist-quick-sync-modal").then(
+      (mod) => mod.TodoistQuickSyncModal,
+    ),
+  { ssr: false },
+);
+
+const getTaskAssignedTo = (task: Task) =>
+  ((task as any).assigned_to as string | undefined) || task.assignedTo || null;
+
+const getTaskTagIds = (task: Task) => {
+  const tagIds = new Set<string>();
+  (task.tags || []).forEach((tagId) => tagIds.add(tagId));
+  (task.tagBadges || []).forEach((tag) => tagIds.add(tag.id));
+  return tagIds;
+};
+
+const getTaskTagNames = (task: Task, tags: Database["tags"]) => {
+  const tagNames = new Set<string>();
+  const tagsById = new Map(tags.map((tag) => [tag.id, tag.name] as const));
+
+  (task.tags || []).forEach((tagId) => {
+    const tagName = tagsById.get(tagId);
+    if (tagName) tagNames.add(tagName);
+  });
+  (task.tagBadges || []).forEach((tag) => tagNames.add(tag.name));
+
+  return Array.from(tagNames);
+};
+
+const taskMatchesTagFilter = (task: Task, tagFilter: string) =>
+  tagFilter === "all" || getTaskTagIds(task).has(tagFilter);
+
+const getVisibleTaskRows = () => {
+  if (typeof document === "undefined") return [];
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(
+      '[data-task-row="true"][data-task-id]',
+    ),
+  ).filter((row) => row.offsetParent !== null);
+};
+
+function ProjectTagFilter({
+  tags,
+  value,
+  onChange,
+}: {
+  tags: Database["tags"];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const selectedTag = tags.find((tag) => tag.id === value);
+  const filteredTags = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return tags;
+    return tags.filter((tag) =>
+      tag.name.toLowerCase().includes(normalizedQuery),
+    );
+  }, [query, tags]);
+
+  const selectValue = (nextValue: string) => {
+    onChange(nextValue);
+    setQuery("");
+    setOpen(false);
+  };
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          className="flex h-10 w-full items-center justify-between rounded-lg border border-zinc-700 bg-zinc-800 px-3 text-left text-sm text-white transition-colors hover:border-zinc-600"
+        >
+          <span className="truncate">
+            {selectedTag ? `Tag: ${selectedTag.name}` : "Tag: All"}
+          </span>
+          <Search className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          align="start"
+          sideOffset={6}
+          className="z-50 w-[260px] rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl"
+        >
+          <div className="relative mb-2">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search tags..."
+              className="h-9 w-full rounded-md border border-zinc-700 bg-zinc-800 py-2 pl-8 pr-8 text-sm text-white placeholder-zinc-500 outline-none focus:ring-2 ring-theme"
+              autoFocus
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-zinc-300"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+
+          <div className="max-h-64 overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => selectValue("all")}
+              className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm transition-colors ${
+                value === "all"
+                  ? "bg-[rgb(var(--theme-primary-rgb))]/15 text-white"
+                  : "text-zinc-300 hover:bg-zinc-800 hover:text-white"
+              }`}
+            >
+              <span>Tag: All</span>
+              {value === "all" ? (
+                <span className="text-[rgb(var(--theme-primary-rgb))]">
+                  Selected
+                </span>
+              ) : null}
+            </button>
+            {filteredTags.map((tag) => (
+              <button
+                key={tag.id}
+                type="button"
+                onClick={() => selectValue(tag.id)}
+                className={`flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-sm transition-colors ${
+                  value === tag.id
+                    ? "bg-[rgb(var(--theme-primary-rgb))]/15 text-white"
+                    : "text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                }`}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: tag.color }}
+                  />
+                  <span className="truncate">{tag.name}</span>
+                </span>
+                {value === tag.id ? (
+                  <span className="text-[rgb(var(--theme-primary-rgb))]">
+                    Selected
+                  </span>
+                ) : null}
+              </button>
+            ))}
+            {filteredTags.length === 0 ? (
+              <div className="px-2 py-3 text-sm text-zinc-500">
+                No tags found.
+              </div>
+            ) : null}
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+const taskShortcutGroups = [
+  {
+    title: "Navigate",
+    shortcuts: [
+      ["j", "Next task"],
+      ["k", "Previous task"],
+      ["Enter / o", "Open task"],
+      ["/", "Search"],
+    ],
+  },
+  {
+    title: "Task Actions",
+    shortcuts: [
+      ["n", "New task"],
+      ["x", "Complete task"],
+      ["m", "Assign to me"],
+      ["M", "Unassign from me"],
+      ["t", "Assign to me for today"],
+      ["T", "Assign to me for tomorrow"],
+      ["r", "Remove from Today"],
+      ["R", "Unassign me and remove from Today"],
+    ],
+  },
+  {
+    title: "Help",
+    shortcuts: [
+      ["? / Cmd + /", "Show shortcuts"],
+      ["Esc", "Close shortcuts"],
+    ],
+  },
+];
+
+function ShortcutHelpModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
+      onMouseDown={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded-xl border border-zinc-700 bg-zinc-950 p-5 text-white shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Task Shortcuts</h2>
+            <p className="text-sm text-zinc-500">
+              Shortcuts apply when no text field or modal is active.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white"
+            aria-label="Close shortcuts"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          {taskShortcutGroups.map((group) => (
+            <div key={group.title}>
+              <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                {group.title}
+              </div>
+              <div className="space-y-1.5">
+                {group.shortcuts.map(([keys, label]) => (
+                  <div
+                    key={keys}
+                    className="flex items-center justify-between gap-3 rounded-lg bg-zinc-900 px-3 py-2"
+                  >
+                    <span className="text-sm text-zinc-300">{label}</span>
+                    <kbd className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs font-semibold text-zinc-100">
+                      {keys}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ViewPage() {
   const params = useParams();
@@ -186,15 +554,20 @@ export default function ViewPage() {
   const [projectAssigneeFilter, setProjectAssigneeFilter] = useState("all");
   const [projectCreatorFilter, setProjectCreatorFilter] = useState("all");
   const [projectPriorityFilter, setProjectPriorityFilter] = useState("all");
+  const [projectTagFilter, setProjectTagFilter] = useState("all");
   const [projectStatusFilter, setProjectStatusFilter] = useState<
     "active" | "completed" | "all"
   >("active");
+  const [projectSectionLayout, setProjectSectionLayout] = useState<
+    "list" | "board"
+  >("list");
   const [dueDateLayout, setDueDateLayout] = useState<
     "inline" | "below" | "right"
   >("inline");
   const [lastSelectedTaskId, setLastSelectedTaskId] = useState<string | null>(
     null,
   );
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [loadingTaskIds, setLoadingTaskIds] = useState<Set<string>>(new Set());
   const [animatingOutTaskIds, setAnimatingOutTaskIds] = useState<Set<string>>(
     new Set(),
@@ -226,6 +599,49 @@ export default function ViewPage() {
     string | null
   >(null);
   const [projectWorkTab, setProjectWorkTab] = useState<ProjectWorkTab>("tasks");
+  const focusedTaskIdRef = useRef<string | null>(null);
+  const focusedTaskRowRef = useRef<HTMLElement | null>(null);
+  const loadedProjectInboxIdsRef = useRef<Set<string>>(new Set());
+  const loadingProjectInboxIdsRef = useRef<Set<string>>(new Set());
+  const normalizedAuthEmail = (user?.email || "").trim().toLowerCase();
+  const currentUserProfile =
+    user && database?.users
+      ? database.users.find(
+          (databaseUser) =>
+            databaseUser.id === user.id ||
+            databaseUser.authId === user.id ||
+            (normalizedAuthEmail &&
+              (databaseUser.email || "").trim().toLowerCase() ===
+                normalizedAuthEmail),
+        )
+      : null;
+  const resolvedCurrentUser =
+    currentUserProfile || database?.users?.[0] || null;
+  const currentUserId = resolvedCurrentUser?.id || user?.id || undefined;
+  const currentUserRole = resolvedCurrentUser?.role || null;
+  const currentUserDisplayName =
+    resolvedCurrentUser?.name ||
+    [resolvedCurrentUser?.firstName, resolvedCurrentUser?.lastName]
+      .filter(Boolean)
+      .join(" ");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const savedLayout = window.localStorage.getItem(
+      PROJECT_SECTION_LAYOUT_STORAGE_KEY,
+    );
+    if (savedLayout === "list" || savedLayout === "board") {
+      setProjectSectionLayout(savedLayout);
+    }
+  }, []);
+
+  const updateProjectSectionLayout = useCallback((layout: "list" | "board") => {
+    setProjectSectionLayout(layout);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(PROJECT_SECTION_LAYOUT_STORAGE_KEY, layout);
+    }
+  }, []);
 
   const createEmptyDatabase = (): Database => ({
     users: [],
@@ -251,6 +667,12 @@ export default function ViewPage() {
     setBulkSelectMode(false);
     setSelectedTaskIds(new Set());
     setLastSelectedTaskId(null);
+    focusedTaskIdRef.current = null;
+    if (focusedTaskRowRef.current) {
+      focusedTaskRowRef.current.removeAttribute("data-task-row-focused");
+      focusedTaskRowRef.current.removeAttribute("aria-selected");
+      focusedTaskRowRef.current = null;
+    }
     setSelectedTodayEmailId(null);
   }, [view]);
 
@@ -277,16 +699,30 @@ export default function ViewPage() {
   }, []);
 
   const fetchData = useCallback(
-    async (options?: { includeInboxItems?: boolean }) => {
+    async (options?: {
+      includeEmailData?: boolean;
+      includeInboxItems?: boolean;
+    }) => {
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 15000);
       const includeInboxItems =
-        options?.includeInboxItems ?? !view.startsWith("email-");
+        options?.includeInboxItems ??
+        shouldIncludeInboxItemsForInitialView(view);
+      const includeEmailData =
+        options?.includeEmailData ??
+        (includeInboxItems || view.startsWith("email-"));
 
       try {
-        const databaseUrl = includeInboxItems
-          ? "/api/database"
-          : "/api/database?includeInboxItems=false";
+        const databaseParams = new URLSearchParams();
+        if (!includeInboxItems) {
+          databaseParams.set("includeInboxItems", "false");
+        }
+        if (!includeEmailData) {
+          databaseParams.set("includeEmailData", "false");
+        }
+        const databaseUrl = databaseParams.size
+          ? `/api/database?${databaseParams.toString()}`
+          : "/api/database";
 
         const response = await fetch(databaseUrl, {
           credentials: "include",
@@ -326,9 +762,14 @@ export default function ViewPage() {
 
         // Validate that the data has the expected structure
         if (data && data.tasks && data.projects && data.organizations) {
+          if (!includeEmailData) {
+            writeCachedDatabaseCore(user?.id, data as Database);
+          }
+
           setDatabase((previous) =>
             mergeDatabasePayload(previous, data, {
               preserveInboxItems: !includeInboxItems,
+              preserveEmailData: !includeEmailData,
             }),
           );
 
@@ -350,12 +791,73 @@ export default function ViewPage() {
         window.clearTimeout(timeoutId);
       }
     },
-    [router, view],
+    [router, user?.id, view],
   );
 
   useEffect(() => {
+    if (!shouldIncludeInboxItemsForInitialView(view)) {
+      const cachedDatabase = readCachedDatabaseCore(user?.id);
+      if (cachedDatabase) {
+        setDatabase((previous) => previous ?? cachedDatabase);
+      }
+    }
+
     void fetchData();
-  }, [fetchData]);
+  }, [fetchData, user?.id, view]);
+
+  const loadProjectInboxItems = useCallback(
+    async (projectId: string, options: { force?: boolean } = {}) => {
+      if (!projectId) return;
+      if (
+        !options.force &&
+        (loadedProjectInboxIdsRef.current.has(projectId) ||
+          loadingProjectInboxIdsRef.current.has(projectId))
+      ) {
+        return;
+      }
+
+      loadingProjectInboxIdsRef.current.add(projectId);
+      try {
+        const response = await fetch(
+          `/api/email/inbox?projectId=${encodeURIComponent(projectId)}`,
+          { credentials: "include" },
+        );
+        if (!response.ok) return;
+
+        const projectInboxItems =
+          (await response.json()) as Database["inboxItems"];
+        loadedProjectInboxIdsRef.current.add(projectId);
+        setDatabase((previous) => {
+          if (!previous) return previous;
+
+          const projectItemIds = new Set(
+            projectInboxItems.map((item) => item.id),
+          );
+          return {
+            ...previous,
+            inboxItems: [
+              ...previous.inboxItems.filter(
+                (item) =>
+                  item.projectId !== projectId && !projectItemIds.has(item.id),
+              ),
+              ...projectInboxItems,
+            ],
+          };
+        });
+      } catch (error) {
+        console.error("Error fetching project inbox items:", error);
+      } finally {
+        loadingProjectInboxIdsRef.current.delete(projectId);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!view.startsWith("project-") || !database) return;
+
+    void loadProjectInboxItems(view.replace("project-", ""));
+  }, [database, loadProjectInboxItems, view]);
 
   useEffect(() => {
     if (!user || isEmailThreadPopout) {
@@ -1633,6 +2135,75 @@ export default function ViewPage() {
     }
   };
 
+  const handleTaskDropToUnassigned = async (taskId: string) => {
+    if (!database) return;
+
+    const movedAt = new Date().toISOString();
+    const task = database.tasks.find((candidate) => candidate.id === taskId);
+    const existingSectionIds = new Set(
+      database.taskSections
+        .filter((taskSection) => taskSection.taskId === taskId)
+        .map((taskSection) => taskSection.sectionId),
+    );
+    const directSectionId = task?.sectionId || (task as any)?.section_id;
+    if (directSectionId) {
+      existingSectionIds.add(directSectionId);
+    }
+
+    setDatabase((prev) => {
+      if (!prev) return prev;
+
+      return {
+        ...prev,
+        tasks: prev.tasks.map((candidate) =>
+          candidate.id === taskId
+            ? ({
+                ...candidate,
+                sectionId: null,
+                updatedAt: movedAt,
+                section_id: null,
+                updated_at: movedAt,
+              } as any)
+            : candidate,
+        ),
+        taskSections: prev.taskSections.filter(
+          (taskSection) => taskSection.taskId !== taskId,
+        ),
+      };
+    });
+
+    try {
+      const taskUpdateResponse = await fetch(`/api/tasks/${taskId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ sectionId: null }),
+      });
+
+      if (!taskUpdateResponse.ok) {
+        const taskUpdateError = await taskUpdateResponse.text();
+        throw new Error(`Failed to clear task section: ${taskUpdateError}`);
+      }
+
+      await Promise.all(
+        Array.from(existingSectionIds).map((sectionId) =>
+          fetch(
+            `/api/task-sections?taskId=${encodeURIComponent(taskId)}&sectionId=${encodeURIComponent(sectionId)}`,
+            {
+              method: "DELETE",
+              credentials: "include",
+            },
+          ),
+        ),
+      );
+
+      await fetchData();
+    } catch (error) {
+      console.error("Error removing task from section:", error);
+      await fetchData();
+    }
+  };
+
   const handleSectionReorder = async (sectionId: string, newOrder: number) => {
     try {
       const response = await fetch(`/api/sections/${sectionId}`, {
@@ -1664,6 +2235,440 @@ export default function ViewPage() {
     setAddTaskDefaults({ projectId, sectionId });
     setShowAddTask(true);
   };
+
+  const focusTaskRow = useCallback(
+    (taskId: string, options?: { row?: HTMLElement; scroll?: boolean }) => {
+      if (focusedTaskRowRef.current) {
+        focusedTaskRowRef.current.removeAttribute("data-task-row-focused");
+        focusedTaskRowRef.current.removeAttribute("aria-selected");
+      }
+
+      focusedTaskIdRef.current = taskId;
+      const nextRow =
+        options?.row ||
+        getVisibleTaskRows().find((row) => row.dataset.taskId === taskId) ||
+        null;
+      focusedTaskRowRef.current = nextRow;
+
+      if (!nextRow) return;
+
+      nextRow.setAttribute("data-task-row-focused", "true");
+      nextRow.setAttribute("aria-selected", "true");
+      if (options?.scroll !== false) {
+        nextRow.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const focusedTaskId = focusedTaskIdRef.current;
+    if (focusedTaskId) {
+      focusTaskRow(focusedTaskId, { scroll: false });
+    }
+  }, [database, focusTaskRow]);
+
+  const applyTaskShortcutUpdate = useCallback(
+    async (
+      taskId: string,
+      updates: Record<string, unknown>,
+      successMessage: string,
+    ) => {
+      const now = new Date().toISOString();
+      const persistUpdates = {
+        ...updates,
+        updatedAt: now,
+        updated_at: now,
+      };
+
+      setDatabase((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tasks: prev.tasks.map((task) => {
+            if (task.id !== taskId) return task;
+
+            const updatesAny = persistUpdates as any;
+            const hasAssignedTo =
+              Object.prototype.hasOwnProperty.call(updatesAny, "assignedTo") ||
+              Object.prototype.hasOwnProperty.call(updatesAny, "assigned_to");
+            const hasDueDate =
+              Object.prototype.hasOwnProperty.call(updatesAny, "dueDate") ||
+              Object.prototype.hasOwnProperty.call(updatesAny, "due_date");
+            const hasDueTime =
+              Object.prototype.hasOwnProperty.call(updatesAny, "dueTime") ||
+              Object.prototype.hasOwnProperty.call(updatesAny, "due_time");
+
+            const nextAssignedTo = hasAssignedTo
+              ? (updatesAny.assignedTo ?? updatesAny.assigned_to ?? null)
+              : getTaskAssignedTo(task);
+            const nextDueDate = hasDueDate
+              ? (updatesAny.dueDate ?? updatesAny.due_date ?? null)
+              : ((task as any).due_date ?? task.dueDate ?? null);
+            const nextDueTime = hasDueTime
+              ? (updatesAny.dueTime ?? updatesAny.due_time ?? null)
+              : ((task as any).due_time ?? task.dueTime ?? null);
+
+            return {
+              ...task,
+              ...updates,
+              assignedTo: nextAssignedTo ?? undefined,
+              assigned_to: nextAssignedTo,
+              assignedToName:
+                hasAssignedTo && nextAssignedTo === currentUserId
+                  ? currentUserDisplayName
+                  : hasAssignedTo
+                    ? undefined
+                    : task.assignedToName,
+              assignedToColor:
+                hasAssignedTo && !nextAssignedTo
+                  ? undefined
+                  : (task as any).assignedToColor,
+              assignedToMemoji:
+                hasAssignedTo && !nextAssignedTo
+                  ? undefined
+                  : (task as any).assignedToMemoji,
+              dueDate: nextDueDate ?? undefined,
+              due_date: nextDueDate,
+              dueTime: nextDueTime ?? undefined,
+              due_time: nextDueTime,
+              updatedAt: now,
+              updated_at: now,
+            } as any;
+          }),
+        };
+      });
+
+      try {
+        const response = await fetch(`/api/tasks/${taskId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(persistUpdates),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "");
+          throw new Error(errorText || "Failed to update task.");
+        }
+
+        showInfo("Task updated", successMessage);
+        await fetchData();
+      } catch (error) {
+        console.error("Error applying task shortcut:", error);
+        showError(
+          "Shortcut failed",
+          error instanceof Error ? error.message : "Unable to update task.",
+        );
+        await fetchData();
+      }
+    },
+    [currentUserDisplayName, currentUserId, fetchData, showError, showInfo],
+  );
+
+  useEffect(() => {
+    if (!database || isEmailThreadPopout) return;
+
+    const shortcutsBlocked =
+      showShortcutHelp ||
+      showAddTask ||
+      showEditTask ||
+      showAddProject ||
+      showAddOrganization ||
+      showEditOrganization ||
+      showEditProject ||
+      showAddSection ||
+      showBulkEditModal ||
+      showProjectNotesModal ||
+      showAutoSectionConfirm ||
+      showRescheduleConfirm ||
+      showTodoistSync ||
+      showTodaySpamReview ||
+      Boolean(selectedTodayEmailId) ||
+      confirmDelete.show ||
+      taskDeleteConfirm.show;
+
+    if (shortcutsBlocked) return;
+
+    const isEditableTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      if (target.isContentEditable) return true;
+      return Boolean(
+        target.closest(
+          "input, textarea, select, [contenteditable='true'], [role='textbox']",
+        ),
+      );
+    };
+
+    const getFocusedVisibleTaskId = () => {
+      const rows = getVisibleTaskRows();
+      const focusedTaskId = focusedTaskIdRef.current;
+      if (!rows.length || !focusedTaskId) return null;
+      return rows.some((row) => row.dataset.taskId === focusedTaskId)
+        ? focusedTaskId
+        : null;
+    };
+
+    const getFocusedTask = () => {
+      const activeTaskId = getFocusedVisibleTaskId();
+      if (!activeTaskId) return null;
+      return database.tasks.find((candidate) => candidate.id === activeTaskId);
+    };
+
+    const moveFocus = (direction: 1 | -1) => {
+      const rows = getVisibleTaskRows();
+      if (!rows.length) return;
+
+      const focusedTaskId = focusedTaskIdRef.current;
+      const currentIndex = focusedTaskId
+        ? rows.findIndex((row) => row.dataset.taskId === focusedTaskId)
+        : -1;
+      const nextIndex =
+        currentIndex === -1
+          ? direction > 0
+            ? 0
+            : rows.length - 1
+          : Math.min(Math.max(currentIndex + direction, 0), rows.length - 1);
+      const nextRow = rows[nextIndex];
+      const nextTaskId = nextRow?.dataset.taskId;
+      if (nextTaskId) focusTaskRow(nextTaskId, { row: nextRow });
+    };
+
+    const updateFocusedTask = (
+      updates: Record<string, unknown>,
+      label: string,
+    ) => {
+      const focusedTask = getFocusedTask();
+      if (!focusedTask) {
+        showInfo("No task focused", "Use j or k to focus a task first.");
+        return;
+      }
+      if (!currentUserId) {
+        showError("No active user", "Could not resolve your user account.");
+        return;
+      }
+      void applyTaskShortcutUpdate(focusedTask.id, updates, label);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        !isEditableTarget(event.target) &&
+        (event.key === "?" ||
+          ((event.metaKey || event.ctrlKey) && event.key === "/"))
+      ) {
+        event.preventDefault();
+        setShowShortcutHelp(true);
+        return;
+      }
+
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        isEditableTarget(event.target)
+      ) {
+        return;
+      }
+
+      if (event.key === "j") {
+        event.preventDefault();
+        moveFocus(1);
+        return;
+      }
+
+      if (event.key === "k") {
+        event.preventDefault();
+        moveFocus(-1);
+        return;
+      }
+
+      if (event.key === "Enter" || event.key === "o") {
+        const task = getFocusedTask();
+        if (task) {
+          event.preventDefault();
+          handleTaskEdit(task);
+        }
+        return;
+      }
+
+      if (event.key === "x") {
+        const task = getFocusedTask();
+        if (!task) return;
+        event.preventDefault();
+        void handleTaskToggle(task.id);
+        return;
+      }
+
+      if (event.key === "n") {
+        event.preventDefault();
+        openAddTask(
+          view.startsWith("project-")
+            ? view.replace("project-", "")
+            : undefined,
+        );
+        return;
+      }
+
+      if (event.key === "/") {
+        event.preventDefault();
+        const searchInput =
+          document.querySelector<HTMLInputElement>(
+            "[data-task-search-input='true']",
+          ) ||
+          document.querySelector<HTMLInputElement>(
+            "input[placeholder*='Search']",
+          );
+        searchInput?.focus();
+        searchInput?.select();
+        return;
+      }
+
+      if (event.key === "m") {
+        event.preventDefault();
+        updateFocusedTask(
+          {
+            assignedTo: currentUserId,
+            assigned_to: currentUserId,
+          },
+          "Assigned to you.",
+        );
+        return;
+      }
+
+      if (event.key === "M") {
+        const task = getFocusedTask();
+        event.preventDefault();
+        if (!task) {
+          showInfo("No task focused", "Use j or k to focus a task first.");
+          return;
+        }
+        if (!currentUserId || getTaskAssignedTo(task) !== currentUserId) {
+          showInfo("Not assigned to you", "This task is not assigned to you.");
+          return;
+        }
+        void applyTaskShortcutUpdate(
+          task.id,
+          {
+            assignedTo: null,
+            assigned_to: null,
+          },
+          "Unassigned from you.",
+        );
+        return;
+      }
+
+      if (event.key === "t" || event.key === "T") {
+        event.preventDefault();
+        const dueDate =
+          event.key === "T"
+            ? (() => {
+                const tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                return getLocalDateString(tomorrow);
+              })()
+            : getLocalDateString();
+
+        updateFocusedTask(
+          {
+            assignedTo: currentUserId,
+            assigned_to: currentUserId,
+            dueDate,
+            due_date: dueDate,
+          },
+          event.key === "T"
+            ? "Assigned to you for tomorrow."
+            : "Assigned to you for today.",
+        );
+        return;
+      }
+
+      if (event.key === "r") {
+        event.preventDefault();
+        updateFocusedTask(
+          {
+            dueDate: null,
+            due_date: null,
+            dueTime: null,
+            due_time: null,
+          },
+          "Removed from Today.",
+        );
+        return;
+      }
+
+      if (event.key === "R") {
+        const task = getFocusedTask();
+        event.preventDefault();
+        if (!task) {
+          showInfo("No task focused", "Use j or k to focus a task first.");
+          return;
+        }
+        if (!currentUserId || getTaskAssignedTo(task) !== currentUserId) {
+          showInfo("Not assigned to you", "This task is not assigned to you.");
+          return;
+        }
+        void applyTaskShortcutUpdate(
+          task.id,
+          {
+            assignedTo: null,
+            assigned_to: null,
+            dueDate: null,
+            due_date: null,
+            dueTime: null,
+            due_time: null,
+          },
+          "Unassigned from you and removed from Today.",
+        );
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    applyTaskShortcutUpdate,
+    confirmDelete.show,
+    currentUserId,
+    database,
+    focusTaskRow,
+    handleTaskEdit,
+    handleTaskToggle,
+    isEmailThreadPopout,
+    openAddTask,
+    selectedTodayEmailId,
+    showAddOrganization,
+    showAddProject,
+    showAddSection,
+    showAddTask,
+    showAutoSectionConfirm,
+    showBulkEditModal,
+    showEditOrganization,
+    showEditProject,
+    showEditTask,
+    showError,
+    showInfo,
+    showShortcutHelp,
+    showProjectNotesModal,
+    showRescheduleConfirm,
+    showTodaySpamReview,
+    showTodoistSync,
+    taskDeleteConfirm.show,
+    view,
+  ]);
+
+  useEffect(() => {
+    if (!showShortcutHelp) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setShowShortcutHelp(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showShortcutHelp]);
 
   const handleAutoOrganizeUnassignedTasks = async (projectId: string) => {
     try {
@@ -1709,16 +2714,17 @@ export default function ViewPage() {
     const projectTasks = database.tasks.filter(
       (t) => ((t as any).project_id || t.projectId) === projectId,
     );
+    const taskIdsWithSections = new Set(
+      (database.taskSections || []).map((taskSection) => taskSection.taskId),
+    );
     const projectSections =
       database.sections
         ?.filter((s) => s.projectId === projectId && !s.parentId)
         .sort((a, b) => (a.order || 0) - (b.order || 0)) || [];
 
     const unassignedTasks = projectTasks.filter((task) => {
-      const taskSections =
-        database.taskSections?.filter((ts) => ts.taskId === task.id) || [];
       return (
-        taskSections.length === 0 &&
+        !taskIdsWithSections.has(task.id) &&
         !task.sectionId &&
         !(task as any).section_id
       );
@@ -1733,37 +2739,41 @@ export default function ViewPage() {
     };
   }, [database, view]);
 
+  const blockedTaskIds = useMemo(
+    () => (database ? getBlockedTaskIds(database.tasks) : new Set<string>()),
+    [database],
+  );
+
   const visibleProjectTaskIdsForSelection = useMemo(() => {
     if (!database || !projectViewData || !view.startsWith("project-")) {
       return [];
     }
 
-    const currentProjectUserId = user?.id || database.users[0]?.id || "";
+    const currentProjectUserId = currentUserId || "";
     const projectSearchValue = projectTaskSearchQuery.trim().toLowerCase();
 
     return projectViewData.projectTasks
       .filter((task) => {
+        const assignedTo = getTaskAssignedTo(task);
+
         if (projectStatusFilter === "active" && task.completed) return false;
         if (projectStatusFilter === "completed" && !task.completed)
           return false;
 
-        if (
-          projectAssigneeFilter === "assigned" &&
-          !task.assignedTo &&
-          !(task as any).assigned_to
-        ) {
+        if (projectAssigneeFilter === "assigned" && !assignedTo) {
+          return false;
+        }
+        if (projectAssigneeFilter === "unassigned" && assignedTo) {
+          return false;
+        }
+        if (projectAssigneeFilter === "me" && assignedTo !== currentUserId) {
           return false;
         }
         if (
-          projectAssigneeFilter === "unassigned" &&
-          (task.assignedTo || (task as any).assigned_to)
-        ) {
-          return false;
-        }
-        if (
-          !["all", "assigned", "unassigned"].includes(projectAssigneeFilter) &&
-          (task.assignedTo || (task as any).assigned_to) !==
-            projectAssigneeFilter
+          !["all", "assigned", "unassigned", "me"].includes(
+            projectAssigneeFilter,
+          ) &&
+          assignedTo !== projectAssigneeFilter
         ) {
           return false;
         }
@@ -1793,7 +2803,11 @@ export default function ViewPage() {
           return false;
         }
 
-        if (!showBlockedTasks && isTaskBlocked(task, database.tasks)) {
+        if (!taskMatchesTagFilter(task, projectTagFilter)) {
+          return false;
+        }
+
+        if (!showBlockedTasks && blockedTaskIds.has(task.id)) {
           return false;
         }
 
@@ -1803,6 +2817,7 @@ export default function ViewPage() {
           task.assignedToName,
           database.users.find((candidate) => candidate.id === creatorId)?.name,
           database.users.find((candidate) => candidate.id === creatorId)?.email,
+          ...getTaskTagNames(task, database.tags),
         ]
           .filter(Boolean)
           .join(" ")
@@ -1823,11 +2838,13 @@ export default function ViewPage() {
     projectAssigneeFilter,
     projectCreatorFilter,
     projectPriorityFilter,
+    projectTagFilter,
     projectStatusFilter,
     projectTaskSearchQuery,
     projectViewData,
+    blockedTaskIds,
     showBlockedTasks,
-    user?.id,
+    currentUserId,
     view,
   ]);
 
@@ -1852,7 +2869,7 @@ export default function ViewPage() {
 
   if (!database) {
     return (
-      <div className="h-screen bg-zinc-950 flex">
+      <div className="h-screen app-shell-background flex">
         <SkeletonSidebar />
         <main className="flex-1 text-white overflow-y-auto">
           <SkeletonViewContent view={view} />
@@ -1891,14 +2908,13 @@ export default function ViewPage() {
   };
 
   const getCurrentUserId = () => {
-    // Get the first user as the current user (in a real app this would come from auth)
-    return database?.users[0]?.id || null;
+    return currentUserId || null;
   };
 
   // Get current user's priority color preference
   const getCurrentUserPriorityColor = () => {
-    if (!database?.users || !user?.id) return undefined;
-    const currentUser = database.users.find((u) => u.id === user.id);
+    if (!database?.users || !currentUserId) return undefined;
+    const currentUser = database.users.find((u) => u.id === currentUserId);
     return (
       (currentUser as any)?.priorityColor ||
       (currentUser as any)?.priority_color ||
@@ -1907,15 +2923,6 @@ export default function ViewPage() {
   };
 
   const userPriorityColor = getCurrentUserPriorityColor();
-  const resolvedCurrentUser =
-    (user?.id
-      ? database?.users?.find((databaseUser) => databaseUser.id === user.id)
-      : null) ||
-    database?.users?.[0] ||
-    null;
-  const currentUserId = user?.id || resolvedCurrentUser?.id || undefined;
-  const currentUserRole = resolvedCurrentUser?.role || null;
-
   const filterTasks = (tasks: Task[]) => {
     if (filterAssignedTo === "all") {
       return tasks;
@@ -1925,28 +2932,28 @@ export default function ViewPage() {
 
     if (filterAssignedTo === "me-unassigned" && currentUserId) {
       return tasks.filter((task) => {
-        const assignedTo = (task as any).assigned_to || task.assignedTo;
+        const assignedTo = getTaskAssignedTo(task);
         return assignedTo === currentUserId || !assignedTo;
       });
     }
 
     if (filterAssignedTo === "me" && currentUserId) {
       return tasks.filter((task) => {
-        const assignedTo = (task as any).assigned_to || task.assignedTo;
+        const assignedTo = getTaskAssignedTo(task);
         return assignedTo === currentUserId;
       });
     }
 
     if (filterAssignedTo === "unassigned") {
       return tasks.filter((task) => {
-        const assignedTo = (task as any).assigned_to || task.assignedTo;
+        const assignedTo = getTaskAssignedTo(task);
         return !assignedTo;
       });
     }
 
     // Filter by specific user ID
     return tasks.filter((task) => {
-      const assignedTo = (task as any).assigned_to || task.assignedTo;
+      const assignedTo = getTaskAssignedTo(task);
       return assignedTo === filterAssignedTo;
     });
   };
@@ -1961,6 +2968,7 @@ export default function ViewPage() {
       task.assignedToName,
       database?.users.find((user) => user.id === getTaskCreatorId(task))?.name,
       database?.users.find((user) => user.id === getTaskCreatorId(task))?.email,
+      ...(database ? getTaskTagNames(task, database.tags) : []),
     ]
       .filter(Boolean)
       .join(" ")
@@ -2030,10 +3038,8 @@ export default function ViewPage() {
 
       // Filter blocked tasks if needed
       if (!showBlockedTasks && database) {
-        allWeekTasks = filterTasksByBlockedStatus(
-          allWeekTasks,
-          database.tasks,
-          showBlockedTasks,
+        allWeekTasks = allWeekTasks.filter(
+          (task) => !blockedTaskIds.has(task.id),
         );
       }
 
@@ -2230,7 +3236,7 @@ export default function ViewPage() {
         allTasks: database.tasks,
         projects: database.projects,
         tags: database.tags,
-        currentUserId: user?.id,
+        currentUserId,
         priorityColor: userPriorityColor,
         showCompleted: database.settings?.showCompletedTasks ?? true,
         completedAccordionKey: accordionKey,
@@ -2247,6 +3253,7 @@ export default function ViewPage() {
         loadingTaskIds,
         animatingOutTaskIds,
         optimisticCompletedIds,
+        onTaskFocus: focusTaskRow,
         onTaskSelect: (taskId: string, event?: React.MouseEvent) => {
           if (event?.ctrlKey || event?.metaKey) {
             setSelectedTaskIds((prev) => {
@@ -2305,6 +3312,7 @@ export default function ViewPage() {
                   <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
                   <input
                     type="text"
+                    data-task-search-input="true"
                     value={taskSearchQuery}
                     onChange={(e) => setTaskSearchQuery(e.target.value)}
                     placeholder="Search tasks..."
@@ -2652,10 +3660,8 @@ export default function ViewPage() {
 
       // Filter blocked tasks if needed
       if (!showBlockedTasks && database) {
-        upcomingTasks = filterTasksByBlockedStatus(
-          upcomingTasks,
-          database.tasks,
-          showBlockedTasks,
+        upcomingTasks = upcomingTasks.filter(
+          (task) => !blockedTaskIds.has(task.id),
         );
       }
 
@@ -2792,6 +3798,7 @@ export default function ViewPage() {
           <div className="mb-6">
             <input
               type="text"
+              data-task-search-input="true"
               placeholder="Search tasks, projects, and organizations..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -2865,6 +3872,7 @@ export default function ViewPage() {
                     onTaskToggle={handleTaskToggle}
                     onTaskEdit={handleTaskEdit}
                     onTaskDelete={handleTaskDelete}
+                    onTaskFocus={focusTaskRow}
                   />
                 </div>
               )}
@@ -3248,36 +4256,38 @@ export default function ViewPage() {
       );
       const projectSearchValue = projectTaskSearchQuery.trim().toLowerCase();
 
-      const currentUserId = database.users[0]?.id || "";
+      const currentProjectUserId = currentUserId || "";
 
       const visibleProjectTasks = projectTasks.filter((task) => {
+        const assignedTo = getTaskAssignedTo(task);
+
         if (projectStatusFilter === "active" && task.completed) return false;
         if (projectStatusFilter === "completed" && !task.completed)
           return false;
 
-        if (
-          projectAssigneeFilter === "assigned" &&
-          !task.assignedTo &&
-          !(task as any).assigned_to
-        ) {
+        if (projectAssigneeFilter === "assigned" && !assignedTo) {
+          return false;
+        }
+        if (projectAssigneeFilter === "unassigned" && assignedTo) {
+          return false;
+        }
+        if (projectAssigneeFilter === "me" && assignedTo !== currentUserId) {
           return false;
         }
         if (
-          projectAssigneeFilter === "unassigned" &&
-          (task.assignedTo || (task as any).assigned_to)
-        ) {
-          return false;
-        }
-        if (
-          !["all", "assigned", "unassigned"].includes(projectAssigneeFilter) &&
-          (task.assignedTo || (task as any).assigned_to) !==
-            projectAssigneeFilter
+          !["all", "assigned", "unassigned", "me"].includes(
+            projectAssigneeFilter,
+          ) &&
+          assignedTo !== projectAssigneeFilter
         ) {
           return false;
         }
 
         const creatorId = getTaskCreatorId(task);
-        if (projectCreatorFilter === "me" && creatorId !== currentUserId) {
+        if (
+          projectCreatorFilter === "me" &&
+          creatorId !== currentProjectUserId
+        ) {
           return false;
         }
         if (
@@ -3295,11 +4305,11 @@ export default function ViewPage() {
           return false;
         }
 
-        if (
-          !showBlockedTasks &&
-          database &&
-          isTaskBlocked(task, database.tasks)
-        ) {
+        if (!taskMatchesTagFilter(task, projectTagFilter)) {
+          return false;
+        }
+
+        if (!showBlockedTasks && blockedTaskIds.has(task.id)) {
           return false;
         }
 
@@ -3331,18 +4341,38 @@ export default function ViewPage() {
         siblings.push(section);
         sectionChildrenByParent.set(section.parentId, siblings);
       }
+      sectionChildrenByParent.forEach((sections) => {
+        sections.sort((a, b) => (a.order || 0) - (b.order || 0));
+      });
+      const taskSectionIdsByTaskId = new Map<string, string[]>();
+      for (const taskSection of database.taskSections || []) {
+        const sectionIds = taskSectionIdsByTaskId.get(taskSection.taskId) || [];
+        sectionIds.push(taskSection.sectionId);
+        taskSectionIdsByTaskId.set(taskSection.taskId, sectionIds);
+      }
+      const sectionTasksBySectionId = new Map<string, Task[]>();
+      const addTaskToSection = (sectionId: string, task: Task) => {
+        const sectionTasks = sectionTasksBySectionId.get(sectionId) || [];
+        sectionTasks.push(task);
+        sectionTasksBySectionId.set(sectionId, sectionTasks);
+      };
+      for (const task of visibleProjectTasks) {
+        const assignedSectionIds = new Set<string>();
+        const directSectionId = task.sectionId || (task as any).section_id;
+        if (directSectionId) {
+          assignedSectionIds.add(directSectionId);
+        }
+        for (const sectionId of taskSectionIdsByTaskId.get(task.id) || []) {
+          assignedSectionIds.add(sectionId);
+        }
+        assignedSectionIds.forEach((sectionId) =>
+          addTaskToSection(sectionId, task),
+        );
+      }
       const sectionHasVisibleTasks = (sectionId: string): boolean => {
-        const hasOwnVisibleTasks = visibleProjectTasks.some((task) => {
-          const taskSections =
-            database.taskSections?.filter((ts) => ts.taskId === task.id) || [];
-          return (
-            task.sectionId === sectionId ||
-            (task as any).section_id === sectionId ||
-            taskSections.some((ts) => ts.sectionId === sectionId)
-          );
-        });
-
-        if (hasOwnVisibleTasks) return true;
+        if ((sectionTasksBySectionId.get(sectionId)?.length || 0) > 0) {
+          return true;
+        }
 
         const childSections = sectionChildrenByParent.get(sectionId) || [];
         return childSections.some((childSection) =>
@@ -3445,9 +4475,29 @@ export default function ViewPage() {
               </div>
               {project?.name || "Project"}
             </h1>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {project ? (
-                <ProjectAiExportControls projectId={project.id} />
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowProjectNotesModal(true)}
+                    className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
+                    title="Project description and notes"
+                    aria-label="Project description and notes"
+                  >
+                    <FileText className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditProject(projectId)}
+                    className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
+                    title="Project settings and DevNotes"
+                    aria-label="Project settings and DevNotes"
+                  >
+                    <Edit className="h-4 w-4" />
+                  </button>
+                  <ProjectAiExportControls projectId={project.id} />
+                </>
               ) : null}
               <button
                 onClick={() => openAddTask(project?.id)}
@@ -3462,21 +4512,6 @@ export default function ViewPage() {
           {project && (
             <ProjectProgressTimeline project={project} tasks={projectTasks} />
           )}
-
-          <button
-            onClick={() => setShowProjectNotesModal(true)}
-            className="w-full mb-5 text-left rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 hover:border-zinc-700 hover:bg-zinc-800/60 transition-colors"
-          >
-            <div className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">
-              Description
-            </div>
-            <div className="text-sm text-zinc-300">
-              {project?.description &&
-              richTextToPlainText(project.description).trim()
-                ? getRichTextPreview(project.description, 240)
-                : "Add project description and notes..."}
-            </div>
-          </button>
 
           <ProjectWorkTabs
             activeTab={projectWorkTab}
@@ -3500,6 +4535,39 @@ export default function ViewPage() {
                     <div className="flex items-center gap-2">
                       <div className="text-xs text-zinc-500">
                         {visibleProjectTasks.length} visible
+                      </div>
+                      <div
+                        className="inline-flex rounded-lg border border-zinc-700 bg-zinc-800 p-1"
+                        aria-label="Project section layout"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => updateProjectSectionLayout("list")}
+                          aria-pressed={projectSectionLayout === "list"}
+                          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                            projectSectionLayout === "list"
+                              ? "bg-[rgb(var(--theme-primary-rgb))] text-white"
+                              : "text-zinc-400 hover:text-white"
+                          }`}
+                          title="Section list layout"
+                        >
+                          <LayoutList className="h-3.5 w-3.5" />
+                          List
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateProjectSectionLayout("board")}
+                          aria-pressed={projectSectionLayout === "board"}
+                          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                            projectSectionLayout === "board"
+                              ? "bg-[rgb(var(--theme-primary-rgb))] text-white"
+                              : "text-zinc-400 hover:text-white"
+                          }`}
+                          title="Horizontal section board"
+                        >
+                          <Columns3 className="h-3.5 w-3.5" />
+                          Board
+                        </button>
                       </div>
                       <button
                         type="button"
@@ -3567,11 +4635,12 @@ export default function ViewPage() {
                       )}
                     </div>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                       <input
                         type="text"
+                        data-task-search-input="true"
                         value={projectTaskSearchQuery}
                         onChange={(e) =>
                           setProjectTaskSearchQuery(e.target.value)
@@ -3602,6 +4671,7 @@ export default function ViewPage() {
                         <SelectItem value="assigned">
                           Assigned To: Assigned
                         </SelectItem>
+                        <SelectItem value="me">Assigned To: Me</SelectItem>
                         <SelectItem value="unassigned">
                           Assigned To: Unassigned
                         </SelectItem>
@@ -3653,6 +4723,12 @@ export default function ViewPage() {
                       </SelectContent>
                     </Select>
 
+                    <ProjectTagFilter
+                      tags={database.tags}
+                      value={projectTagFilter}
+                      onChange={setProjectTagFilter}
+                    />
+
                     <Select
                       value={projectStatusFilter}
                       onValueChange={(value) =>
@@ -3675,127 +4751,170 @@ export default function ViewPage() {
                   </div>
                 </div>
 
-                {/* Add Section divider at the top */}
-                <AddSectionDivider
-                  onClick={() => openAddSection(projectId, undefined, 0)}
-                />
-
-                {/* Sections */}
-                {visibleProjectSections.map((section) => (
-                  <div key={section.id} className="group/section">
-                    <SectionView
-                      section={section}
-                      tasks={visibleProjectTasks}
-                      allTasks={database.tasks}
-                      database={database}
-                      priorityColor={userPriorityColor}
-                      currentUserId={currentUserId}
-                      completedAccordionKey={`project-${projectId}`}
-                      revealActionsOnHover={true}
-                      dueDateLayout={dueDateLayout}
-                      bulkSelectMode={bulkSelectMode}
-                      selectedTaskIds={selectedTaskIds}
-                      loadingTaskIds={loadingTaskIds}
-                      animatingOutTaskIds={animatingOutTaskIds}
-                      optimisticCompletedIds={optimisticCompletedIds}
-                      enableDueDateQuickEdit={true}
-                      onTaskUpdate={handleProjectTaskUpdate}
-                      onTaskToggle={handleTaskToggle}
-                      onTaskEdit={handleTaskEdit}
-                      onTaskDelete={handleTaskDelete}
-                      onTaskSelect={handleProjectTaskSelect}
-                      onSectionEdit={handleSectionEdit}
-                      onSectionDelete={handleSectionDelete}
-                      onAddTask={(section) =>
-                        openAddTask(section.projectId, section.id)
-                      }
-                      onAddSection={(parentId) =>
-                        openAddSection(projectId, parentId)
-                      }
-                      onAddSectionAfter={(section) =>
-                        openAddSection(
-                          projectId,
-                          undefined,
-                          (section.order || 0) + 1,
-                        )
-                      }
-                      onTaskDrop={handleTaskDropToSection}
-                      onSectionReorder={handleSectionReorder}
-                      userId={currentUserId}
+                {projectSectionLayout === "list" ? (
+                  <>
+                    <AddSectionDivider
+                      onClick={() => openAddSection(projectId, undefined, 0)}
                     />
-                  </div>
-                ))}
 
-                {/* Unassigned tasks */}
-                {visibleUnassignedTasks.length > 0 && (
-                  <div className="mt-6">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <h3 className="text-lg font-medium text-zinc-400">
-                        Unassigned Tasks
-                      </h3>
-                      <button
-                        type="button"
-                        onClick={() => setShowAutoSectionConfirm(true)}
-                        disabled={autoSectioning}
-                        className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="AI organize unassigned tasks"
-                      >
-                        <Bot
-                          className={`h-4 w-4 ${autoSectioning ? "animate-pulse" : ""}`}
+                    {visibleProjectSections.map((section) => (
+                      <div key={section.id} className="group/section">
+                        <SectionView
+                          section={section}
+                          tasks={visibleProjectTasks}
+                          allTasks={database.tasks}
+                          database={database}
+                          priorityColor={userPriorityColor}
+                          currentUserId={currentUserId}
+                          completedAccordionKey={`project-${projectId}`}
+                          revealActionsOnHover={true}
+                          dueDateLayout={dueDateLayout}
+                          bulkSelectMode={bulkSelectMode}
+                          selectedTaskIds={selectedTaskIds}
+                          loadingTaskIds={loadingTaskIds}
+                          animatingOutTaskIds={animatingOutTaskIds}
+                          optimisticCompletedIds={optimisticCompletedIds}
+                          sectionTasksBySectionId={sectionTasksBySectionId}
+                          childSectionsByParentId={sectionChildrenByParent}
+                          enableDueDateQuickEdit={true}
+                          onTaskFocus={focusTaskRow}
+                          onTaskUpdate={handleProjectTaskUpdate}
+                          onTaskToggle={handleTaskToggle}
+                          onTaskEdit={handleTaskEdit}
+                          onTaskDelete={handleTaskDelete}
+                          onTaskSelect={handleProjectTaskSelect}
+                          onSectionEdit={handleSectionEdit}
+                          onSectionDelete={handleSectionDelete}
+                          onAddTask={(section) =>
+                            openAddTask(section.projectId, section.id)
+                          }
+                          onAddSection={(parentId) =>
+                            openAddSection(projectId, parentId)
+                          }
+                          onAddSectionAfter={(section) =>
+                            openAddSection(
+                              projectId,
+                              undefined,
+                              (section.order || 0) + 1,
+                            )
+                          }
+                          onTaskDrop={handleTaskDropToSection}
+                          onSectionReorder={handleSectionReorder}
+                          userId={currentUserId || ""}
                         />
-                      </button>
-                    </div>
-                    <TaskList
-                      tasks={visibleUnassignedTasks}
-                      allTasks={database.tasks}
-                      projects={database.projects}
-                      tags={database.tags}
-                      currentUserId={currentUserId}
-                      priorityColor={userPriorityColor}
-                      showCompleted={
-                        database.settings?.showCompletedTasks ?? true
-                      }
-                      completedAccordionKey={`project-${projectId}-unassigned`}
-                      revealActionsOnHover={true}
-                      dueDateLayout={dueDateLayout}
-                      uniformDueBadgeWidth={dueDateLayout === "inline"}
-                      bulkSelectMode={bulkSelectMode}
-                      selectedTaskIds={selectedTaskIds}
-                      loadingTaskIds={loadingTaskIds}
-                      animatingOutTaskIds={animatingOutTaskIds}
-                      optimisticCompletedIds={optimisticCompletedIds}
-                      enableDueDateQuickEdit={true}
-                      onTaskUpdate={handleProjectTaskUpdate}
-                      onTaskToggle={handleTaskToggle}
-                      onTaskEdit={handleTaskEdit}
-                      onTaskDelete={handleTaskDelete}
-                      onTaskSelect={handleProjectTaskSelect}
-                    />
-                  </div>
-                )}
+                      </div>
+                    ))}
 
-                {visibleUnassignedTasks.length === 0 &&
-                  visibleProjectSections.length === 0 && (
-                    <div className="text-center py-8 text-zinc-500">
-                      <p className="mb-4">
-                        No matching tasks or sections for the current filters.
-                      </p>
-                    </div>
-                  )}
+                    {visibleUnassignedTasks.length > 0 && (
+                      <div className="mt-6">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <h3 className="text-lg font-medium text-zinc-400">
+                            Unassigned Tasks
+                          </h3>
+                          <button
+                            type="button"
+                            onClick={() => setShowAutoSectionConfirm(true)}
+                            disabled={autoSectioning}
+                            className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            title="AI organize unassigned tasks"
+                          >
+                            <Bot
+                              className={`h-4 w-4 ${autoSectioning ? "animate-pulse" : ""}`}
+                            />
+                          </button>
+                        </div>
+                        <TaskList
+                          tasks={visibleUnassignedTasks}
+                          allTasks={database.tasks}
+                          projects={database.projects}
+                          tags={database.tags}
+                          currentUserId={currentUserId}
+                          priorityColor={userPriorityColor}
+                          showCompleted={
+                            database.settings?.showCompletedTasks ?? true
+                          }
+                          completedAccordionKey={`project-${projectId}-unassigned`}
+                          revealActionsOnHover={true}
+                          dueDateLayout={dueDateLayout}
+                          uniformDueBadgeWidth={dueDateLayout === "inline"}
+                          bulkSelectMode={bulkSelectMode}
+                          selectedTaskIds={selectedTaskIds}
+                          loadingTaskIds={loadingTaskIds}
+                          animatingOutTaskIds={animatingOutTaskIds}
+                          optimisticCompletedIds={optimisticCompletedIds}
+                          enableDueDateQuickEdit={true}
+                          onTaskFocus={focusTaskRow}
+                          onTaskUpdate={handleProjectTaskUpdate}
+                          onTaskToggle={handleTaskToggle}
+                          onTaskEdit={handleTaskEdit}
+                          onTaskDelete={handleTaskDelete}
+                          onTaskSelect={handleProjectTaskSelect}
+                        />
+                      </div>
+                    )}
+
+                    {visibleUnassignedTasks.length === 0 &&
+                      visibleProjectSections.length === 0 && (
+                        <div className="text-center py-8 text-zinc-500">
+                          <p className="mb-4">
+                            No matching tasks or sections for the current
+                            filters.
+                          </p>
+                        </div>
+                      )}
+                  </>
+                ) : (
+                  <ProjectSectionBoard
+                    sections={visibleProjectSections}
+                    unassignedTasks={visibleUnassignedTasks}
+                    visibleTasks={visibleProjectTasks}
+                    database={database}
+                    projectId={projectId}
+                    currentUserId={currentUserId}
+                    bulkSelectMode={bulkSelectMode}
+                    selectedTaskIds={selectedTaskIds}
+                    loadingTaskIds={loadingTaskIds}
+                    animatingOutTaskIds={animatingOutTaskIds}
+                    optimisticCompletedIds={optimisticCompletedIds}
+                    sectionTasksBySectionId={sectionTasksBySectionId}
+                    childSectionsByParentId={sectionChildrenByParent}
+                    autoSectioning={autoSectioning}
+                    onTaskFocus={focusTaskRow}
+                    onTaskToggle={handleTaskToggle}
+                    onTaskEdit={handleTaskEdit}
+                    onTaskDelete={handleTaskDelete}
+                    onTaskSelect={handleProjectTaskSelect}
+                    onSectionEdit={handleSectionEdit}
+                    onSectionDelete={handleSectionDelete}
+                    onAddTask={(targetProjectId, sectionId) =>
+                      openAddTask(targetProjectId, sectionId)
+                    }
+                    onAddSection={(parentId, order) =>
+                      openAddSection(projectId, parentId, order)
+                    }
+                    onTaskDropToSection={handleTaskDropToSection}
+                    onTaskDropToUnassigned={handleTaskDropToUnassigned}
+                    onAutoOrganizeUnassigned={() =>
+                      setShowAutoSectionConfirm(true)
+                    }
+                  />
+                )}
               </>
             }
           />
 
-          <ProjectNotesModal
-            isOpen={showProjectNotesModal}
-            projectId={projectId}
-            projectName={project?.name || "Project"}
-            initialDescription={project?.description || ""}
-            onClose={() => setShowProjectNotesModal(false)}
-            onSaveDescription={async (description) => {
-              await handleProjectUpdate(projectId, { description });
-            }}
-          />
+          {showProjectNotesModal && (
+            <ProjectNotesModal
+              isOpen
+              projectId={projectId}
+              projectName={project?.name || "Project"}
+              initialDescription={project?.description || ""}
+              onClose={() => setShowProjectNotesModal(false)}
+              onSaveDescription={async (description) => {
+                await handleProjectUpdate(projectId, { description });
+              }}
+            />
+          )}
 
           <ConfirmModal
             isOpen={showAutoSectionConfirm}
@@ -3831,7 +4950,7 @@ export default function ViewPage() {
 
   if (isEmailThreadPopout && popoutThreadId) {
     return (
-      <div className="min-h-screen bg-zinc-950">
+      <div className="min-h-screen app-shell-background">
         <EmailThreadModal
           open
           threadId={popoutThreadId}
@@ -3848,7 +4967,7 @@ export default function ViewPage() {
   }
 
   return (
-    <div className="h-screen bg-zinc-950 flex">
+    <div className="h-screen app-shell-background flex">
       <Sidebar
         data={database}
         onAddTask={() => openAddTask()}
@@ -3879,33 +4998,44 @@ export default function ViewPage() {
                   ? "px-3 pr-6 py-6"
                   : view === "time"
                     ? "p-6"
-                    : "max-w-4xl mx-auto p-8"
+                    : view.startsWith("project-") &&
+                        projectSectionLayout === "board"
+                      ? "p-6"
+                      : "max-w-4xl mx-auto p-8"
           }
         >
           {renderContent()}
         </div>
       </main>
 
-      <EmailThreadModal
-        open={selectedTodayEmailId !== null}
-        threadId={selectedTodayEmailId}
-        projects={database.projects}
-        onRefresh={fetchData}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen) {
-            setSelectedTodayEmailId(null);
-          }
-        }}
-      />
+      {showShortcutHelp && (
+        <ShortcutHelpModal onClose={() => setShowShortcutHelp(false)} />
+      )}
 
-      <EmailSpamReviewModal
-        open={showTodaySpamReview}
-        onOpenChange={setShowTodaySpamReview}
-        items={database.inboxItems}
-        mailboxes={database.mailboxes}
-        rules={database.emailRules}
-        onRefresh={fetchData}
-      />
+      {selectedTodayEmailId && (
+        <EmailThreadModal
+          open
+          threadId={selectedTodayEmailId}
+          projects={database.projects}
+          onRefresh={fetchData}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) {
+              setSelectedTodayEmailId(null);
+            }
+          }}
+        />
+      )}
+
+      {showTodaySpamReview && (
+        <EmailSpamReviewModal
+          open
+          onOpenChange={setShowTodaySpamReview}
+          items={database.inboxItems}
+          mailboxes={database.mailboxes}
+          rules={database.emailRules}
+          onRefresh={fetchData}
+        />
+      )}
 
       {undoCompletion && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
@@ -3927,23 +5057,25 @@ export default function ViewPage() {
         </div>
       )}
 
-      <AddTaskModal
-        isOpen={showAddTask}
-        onClose={() => {
-          setShowAddTask(false);
-          setAddTaskDefaults({});
-        }}
-        data={database}
-        onAddTask={handleAddTask}
-        onDataRefresh={fetchData}
-        defaultProjectId={
-          addTaskDefaults.projectId ||
-          (view.startsWith("project-")
-            ? view.replace("project-", "")
-            : undefined)
-        }
-        defaultSectionId={addTaskDefaults.sectionId}
-      />
+      {showAddTask && (
+        <AddTaskModal
+          isOpen
+          onClose={() => {
+            setShowAddTask(false);
+            setAddTaskDefaults({});
+          }}
+          data={database}
+          onAddTask={handleAddTask}
+          onDataRefresh={fetchData}
+          defaultProjectId={
+            addTaskDefaults.projectId ||
+            (view.startsWith("project-")
+              ? view.replace("project-", "")
+              : undefined)
+          }
+          defaultSectionId={addTaskDefaults.sectionId}
+        />
+      )}
 
       {view.startsWith("project-") && projectViewData?.project && (
         <AiPlannerFloatingChat
@@ -3953,37 +5085,41 @@ export default function ViewPage() {
         />
       )}
 
-      <EditTaskModal
-        isOpen={showEditTask}
-        onClose={() => {
-          setShowEditTask(false);
-          setEditingTask(null);
-        }}
-        task={editingTask}
-        data={database}
-        onSave={handleTaskSave}
-        onDelete={handleTaskDelete}
-        onDataRefresh={fetchData}
-        onTaskSelect={(task) => {
-          setEditingTask(task);
-        }}
-      />
+      {showEditTask && (
+        <EditTaskModal
+          isOpen
+          onClose={() => {
+            setShowEditTask(false);
+            setEditingTask(null);
+          }}
+          task={editingTask}
+          data={database}
+          onSave={handleTaskSave}
+          onDelete={handleTaskDelete}
+          onDataRefresh={fetchData}
+          onTaskSelect={(task) => {
+            setEditingTask(task);
+          }}
+        />
+      )}
 
-      <BulkEditModal
-        isOpen={showBulkEditModal}
-        onClose={() => setShowBulkEditModal(false)}
-        selectedTaskIds={selectedTaskIds}
-        database={database}
-        onApply={handleBulkUpdate}
-        onDelete={handleBulkDelete}
-        onMerge={handleBulkMerge}
-        onCreateAndMerge={handleBulkCreateAndMerge}
-        onInviteUser={handleInviteUser}
-      />
+      {showBulkEditModal && (
+        <BulkEditModal
+          isOpen
+          onClose={() => setShowBulkEditModal(false)}
+          selectedTaskIds={selectedTaskIds}
+          database={database}
+          onApply={handleBulkUpdate}
+          onDelete={handleBulkDelete}
+          onMerge={handleBulkMerge}
+          onCreateAndMerge={handleBulkCreateAndMerge}
+          onInviteUser={handleInviteUser}
+        />
+      )}
 
-      {selectedOrgForProject && (
+      {showAddProject && selectedOrgForProject && (
         <AddProjectModal
-          isOpen={showAddProject}
+          isOpen
           onClose={() => {
             setShowAddProject(false);
             setSelectedOrgForProject(null);
@@ -3993,11 +5129,13 @@ export default function ViewPage() {
         />
       )}
 
-      <AddOrganizationModal
-        isOpen={showAddOrganization}
-        onClose={() => setShowAddOrganization(false)}
-        onAddOrganization={handleAddOrganization}
-      />
+      {showAddOrganization && (
+        <AddOrganizationModal
+          isOpen
+          onClose={() => setShowAddOrganization(false)}
+          onAddOrganization={handleAddOrganization}
+        />
+      )}
 
       {showEditOrganization && editingOrganization && database && (
         <OrganizationSettingsModal
@@ -4101,83 +5239,85 @@ export default function ViewPage() {
         />
       )}
 
-      <EditProjectModal
-        isOpen={showEditProject}
-        onClose={() => {
-          setShowEditProject(false);
-          setEditingProject(null);
-        }}
-        project={editingProject}
-        users={database?.users || []}
-        organization={
-          editingProject
-            ? database?.organizations.find(
-                (candidate) =>
-                  candidate.id ===
-                  ((editingProject as any).organization_id ||
-                    editingProject.organizationId),
-              ) || null
-            : null
-        }
-        currentUserId={currentUserId}
-        currentUserRole={currentUserRole}
-        onUpdate={(updates) => {
-          if (editingProject) {
-            handleProjectUpdate(editingProject.id, updates);
+      {showEditProject && (
+        <EditProjectModal
+          isOpen
+          onClose={() => {
+            setShowEditProject(false);
+            setEditingProject(null);
+          }}
+          project={editingProject}
+          users={database?.users || []}
+          organization={
+            editingProject
+              ? database?.organizations.find(
+                  (candidate) =>
+                    candidate.id ===
+                    ((editingProject as any).organization_id ||
+                      editingProject.organizationId),
+                ) || null
+              : null
           }
-        }}
-        onUserInvite={async (email, projectId, firstName, lastName) => {
-          const project = database?.projects.find(
-            (candidate) => candidate.id === projectId,
-          );
-          if (!project) {
-            throw new Error("Project not found for invite.");
-          }
+          currentUserId={currentUserId}
+          currentUserRole={currentUserRole}
+          onUpdate={(updates) => {
+            if (editingProject) {
+              handleProjectUpdate(editingProject.id, updates);
+            }
+          }}
+          onUserInvite={async (email, projectId, firstName, lastName) => {
+            const project = database?.projects.find(
+              (candidate) => candidate.id === projectId,
+            );
+            if (!project) {
+              throw new Error("Project not found for invite.");
+            }
 
-          return await inviteUserToScope({
-            email,
-            firstName,
-            lastName,
-            organizationId:
-              (project as any).organization_id || project.organizationId,
-            projectId: project.id,
-          });
-        }}
-        onUserAdd={async (userId, projectId) => {
-          const project = database?.projects.find(
-            (candidate) => candidate.id === projectId,
-          );
-          if (!project) return;
+            return await inviteUserToScope({
+              email,
+              firstName,
+              lastName,
+              organizationId:
+                (project as any).organization_id || project.organizationId,
+              projectId: project.id,
+            });
+          }}
+          onUserAdd={async (userId, projectId) => {
+            const project = database?.projects.find(
+              (candidate) => candidate.id === projectId,
+            );
+            if (!project) return;
 
-          const memberIds = Array.from(
-            new Set([...(project.memberIds || []), userId]),
-          );
-          await handleProjectUpdate(projectId, { memberIds });
-        }}
-        onUserRemove={async (userId, projectId) => {
-          const project = database?.projects.find(
-            (candidate) => candidate.id === projectId,
-          );
-          if (!project) return;
+            const memberIds = Array.from(
+              new Set([...(project.memberIds || []), userId]),
+            );
+            await handleProjectUpdate(projectId, { memberIds });
+          }}
+          onUserRemove={async (userId, projectId) => {
+            const project = database?.projects.find(
+              (candidate) => candidate.id === projectId,
+            );
+            if (!project) return;
 
-          const memberIds = (project.memberIds || []).filter(
-            (memberId) => memberId !== userId,
-          );
-          await handleProjectUpdate(projectId, { memberIds });
-        }}
-        onResendInvite={async (userId) => {
-          return await resendInvite(userId);
-        }}
-        onCancelInvite={async (userId, projectId) => {
-          return await cancelInvite({ userId, projectId });
-        }}
-        onArchive={async (projectId) => {
-          await handleProjectUpdate(projectId, { archived: true });
-        }}
-        onDelete={async (projectId) => {
-          await handleProjectDelete(projectId);
-        }}
-      />
+            const memberIds = (project.memberIds || []).filter(
+              (memberId) => memberId !== userId,
+            );
+            await handleProjectUpdate(projectId, { memberIds });
+          }}
+          onResendInvite={async (userId) => {
+            return await resendInvite(userId);
+          }}
+          onCancelInvite={async (userId, projectId) => {
+            return await cancelInvite({ userId, projectId });
+          }}
+          onArchive={async (projectId) => {
+            await handleProjectUpdate(projectId, { archived: true });
+          }}
+          onDelete={async (projectId) => {
+            await handleProjectDelete(projectId);
+          }}
+        />
+      )}
 
       <ConfirmModal
         isOpen={confirmDelete.show}
@@ -4209,9 +5349,9 @@ export default function ViewPage() {
         variant="destructive"
       />
 
-      {view.startsWith("project-") && (
+      {view.startsWith("project-") && showAddSection && (
         <AddSectionModal
-          isOpen={showAddSection}
+          isOpen
           onClose={() => {
             setShowAddSection(false);
             setSectionParentId(undefined);
@@ -4269,12 +5409,14 @@ export default function ViewPage() {
         variant="default"
       />
 
-      <TodoistQuickSyncModal
-        isOpen={showTodoistSync}
-        onClose={() => setShowTodoistSync(false)}
-        onSync={handleTodoistSync}
-        userId={user?.id}
-      />
+      {showTodoistSync && (
+        <TodoistQuickSyncModal
+          isOpen
+          onClose={() => setShowTodoistSync(false)}
+          onSync={handleTodoistSync}
+          userId={user?.id}
+        />
+      )}
     </div>
   );
 }

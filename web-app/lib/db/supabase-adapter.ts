@@ -1056,6 +1056,26 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
     const fieldMap: Record<string, string> = {
       devnotesMeta: "devnotes_meta",
+      projectId: "project_id",
+      dueDate: "due_date",
+      dueTime: "due_time",
+      parentId: "parent_id",
+      assignedTo: "assigned_to",
+      completedAt: "completed_at",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
+      todoistId: "todoist_id",
+      recurringPattern: "recurring_pattern",
+      isRecurring: "is_recurring",
+      sectionId: "section_id",
+      lastTodoistSync: "last_todoist_sync",
+      todoistOrder: "todoist_order",
+      todoistLabels: "todoist_labels",
+      todoistAssigneeId: "todoist_assignee_id",
+      todoistAssignerId: "todoist_assigner_id",
+      todoistCommentCount: "todoist_comment_count",
+      todoistUrl: "todoist_url",
+      todoistSyncToken: "todoist_sync_token",
       timeEstimate: "time_estimate",
       startDate: "start_date",
       startTime: "start_time",
@@ -1179,12 +1199,22 @@ export class SupabaseAdapter implements DatabaseAdapter {
       email: data.email,
       firstName: data.first_name || "",
       lastName: data.last_name || "",
+      name:
+        data.display_name ||
+        `${data.first_name || ""} ${data.last_name || ""}`.trim() ||
+        data.email,
       profileColor: data.profile_color,
       profileMemoji: data.profile_memoji,
       animationsEnabled: data.animations_enabled,
       priorityColor: data.priority_color,
       emailDeleteUndoSeconds: data.email_delete_undo_seconds,
+      status: data.status || "active",
+      invitedAt: data.invited_at || null,
+      inviteToken: data.invite_token || null,
+      inviteExpiresAt: data.invite_expires_at || null,
       role: data.role,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
     };
   }
 

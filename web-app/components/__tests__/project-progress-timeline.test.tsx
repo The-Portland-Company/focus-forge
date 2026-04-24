@@ -60,8 +60,33 @@ test("renders summary stats and timeline date range", () => {
     />,
   );
 
-  assert.match(html, /Total:/);
-  assert.match(html, /Incomplete:/);
-  assert.match(html, /Completed:/);
+  assert.match(html, /Task count/);
+  assert.match(html, /Done:/);
+  assert.match(html, /Remaining:/);
+  assert.match(html, /Tasks: 1\/2/);
   assert.match(html, /2026-01-10 to 2026-01-12/);
+});
+
+test("renders estimate-weighted summary when tasks have estimates", () => {
+  const tasks = [
+    makeTask({
+      id: "t1",
+      completed: true,
+      completedAt: "2026-01-11T12:00:00.000Z",
+      timeEstimate: 90,
+    }),
+    makeTask({ id: "t2", timeEstimate: 30 }),
+  ];
+
+  const html = renderToStaticMarkup(
+    <ProjectProgressTimeline
+      project={project}
+      tasks={tasks}
+      today={new Date("2026-01-12T12:00:00.000Z")}
+    />,
+  );
+
+  assert.match(html, /Estimated work/);
+  assert.match(html, /Done: 1h 30m/);
+  assert.match(html, /Remaining: 30m/);
 });

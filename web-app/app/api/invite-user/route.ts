@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
 
     let userId: string
     let projectName: string | undefined
+    let targetAuthUser = existingUser
 
     if (existingUser) {
       // User exists - just add them to the organization
@@ -87,6 +88,7 @@ export async function POST(request: NextRequest) {
 
           if (duplicateUser?.id) {
             userId = duplicateUser.id
+            targetAuthUser = duplicateUser
           } else {
             console.error('Supabase create user duplicate error with unresolved user:', createError)
             return NextResponse.json(
@@ -109,23 +111,37 @@ export async function POST(request: NextRequest) {
     // Generate invite token
     const inviteToken = crypto.randomBytes(32).toString('hex')
     const inviteExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+    const now = new Date().toISOString()
 
-    // Create or update profile with pending status and invite token
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id,status,first_name,last_name,display_name,profile_color,created_at')
+      .eq('id', userId)
+      .maybeSingle() as { data: any; error: any }
+
+    const shouldKeepActive =
+      existingProfile?.status === 'active' || Boolean(targetAuthUser?.email_confirmed_at)
+
+    // Create or update profile. Confirmed existing users should not be
+    // downgraded to pending when they are added to another org/project.
     const { error: profileError } = await supabaseAdmin
       .from('profiles')
       .upsert({
         id: userId,
         email,
-        first_name: firstName || '',
-        last_name: lastName || '',
-        display_name: `${firstName || ''} ${lastName || ''}`.trim() || email,
-        status: 'pending',
+        first_name: existingProfile?.first_name || firstName || '',
+        last_name: existingProfile?.last_name || lastName || '',
+        display_name:
+          existingProfile?.display_name ||
+          `${firstName || ''} ${lastName || ''}`.trim() ||
+          email,
+        status: shouldKeepActive ? 'active' : 'pending',
         invite_token: inviteToken,
         invite_expires_at: inviteExpiry.toISOString(),
-        invited_at: new Date().toISOString(),
-        profile_color: '#667eea',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        invited_at: now,
+        profile_color: existingProfile?.profile_color || '#667eea',
+        created_at: existingProfile?.created_at || now,
+        updated_at: now
       }, {
         onConflict: 'id'
       })

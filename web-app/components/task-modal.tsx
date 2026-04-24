@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect, type CSSProperties } from "react";
+import {
+  useId,
+  useState,
+  useRef,
+  useEffect,
+  type CSSProperties,
+} from "react";
 import {
   X,
   Calendar,
@@ -19,10 +25,12 @@ import {
   Link2,
   AlertCircle,
   Check,
+  CalendarCheck,
   Repeat2,
   Upload,
   Loader2,
   FileText,
+  UserCheck,
 } from "lucide-react";
 import type {
   Database,
@@ -121,6 +129,8 @@ export function TaskModal({
 }: TaskModalProps) {
   const isEditMode = !!task;
   const { user: authUser } = useAuth();
+  const titleInputId = useId();
+  const descriptionInputId = useId();
   const [taskName, setTaskName] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -305,8 +315,19 @@ export function TaskModal({
   useEffect(() => {
     if (!isOpen || isEditMode) return;
     if (assignedTo) return;
-    if (authUser?.id) setAssignedTo(authUser.id);
-  }, [isOpen, isEditMode, authUser?.id, assignedTo]);
+    if (authUser?.id) {
+      const normalizedAuthEmail = (authUser.email || "").trim().toLowerCase();
+      const currentProfile = data.users.find(
+        (candidate) =>
+          candidate.id === authUser.id ||
+          candidate.authId === authUser.id ||
+          (normalizedAuthEmail &&
+            (candidate.email || "").trim().toLowerCase() ===
+              normalizedAuthEmail),
+      );
+      setAssignedTo(currentProfile?.id || authUser.id);
+    }
+  }, [isOpen, isEditMode, authUser?.id, authUser?.email, data.users, assignedTo]);
 
   useEffect(() => {
     if (!isOpen || isEditMode) return;
@@ -748,8 +769,81 @@ export function TaskModal({
     setUserSearchQuery("");
   };
 
+  const normalizeEmail = (email?: string | null) =>
+    (email || "").trim().toLowerCase();
+
+  const getUserDisplayName = (user: {
+    firstName?: string;
+    lastName?: string;
+    name?: string;
+    email?: string;
+  }) =>
+    user.name ||
+    `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+    user.email ||
+    "Unknown User";
+
+  const isCurrentUserProfile = (candidate?: {
+    id?: string;
+    authId?: string;
+    email?: string | null;
+  }) =>
+    Boolean(
+      candidate &&
+        (candidate.id === authUser?.id ||
+          candidate.authId === authUser?.id ||
+          (normalizeEmail(candidate.email) &&
+            normalizeEmail(candidate.email) === normalizeEmail(authUser?.email))),
+    );
+
+  const currentUserProfile = data.users.find(isCurrentUserProfile);
+  const currentUserId = currentUserProfile?.id || authUser?.id || null;
+  const isAssignedToCurrentUser = Boolean(
+    currentUserId && assignedTo === currentUserId,
+  );
+  const isPendingUser = (user: { status?: string; id?: string; email?: string }) =>
+    user.status === "pending" && !isCurrentUserProfile(user);
+  const todayDateValue = format(new Date(), "yyyy-MM-dd");
+  const assignableUsers = [...data.users]
+    .filter((user) => {
+      const userName = getUserDisplayName(user);
+      const userEmail = user.email || "";
+      const query = userSearchQuery.toLowerCase();
+      return (
+        userName.toLowerCase().includes(query) ||
+        userEmail.toLowerCase().includes(query)
+      );
+    })
+    .sort((a, b) => {
+      if (isCurrentUserProfile(a)) return -1;
+      if (isCurrentUserProfile(b)) return 1;
+      return getUserDisplayName(a).localeCompare(getUserDisplayName(b));
+    });
+
+  const handleAssignToCurrentUser = () => {
+    if (!currentUserId) return;
+    if (assignedTo === currentUserId) {
+      setAssignedTo(null);
+      return;
+    }
+    handleAssignUser(currentUserId);
+  };
+
   // Get assigned user details
-  const assignedUser = data.users.find((u) => u.id === assignedTo);
+  const assignedUser =
+    data.users.find((u) => u.id === assignedTo) ||
+    (isAssignedToCurrentUser && authUser
+      ? {
+          id: authUser.id,
+          email: authUser.email || "",
+          firstName: "",
+          lastName: "",
+          name: authUser.email?.split("@")[0] || "You",
+          createdAt: "",
+          updatedAt: "",
+          status: "active" as const,
+        }
+      : undefined);
 
   const handleAddSubtask = async () => {
     if (!newSubtaskName.trim() || !task) return;
@@ -875,7 +969,14 @@ export function TaskModal({
                 )}
               </button>
             )}
+            <label
+              htmlFor={titleInputId}
+              className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-zinc-400"
+            >
+              Title
+            </label>
             <input
+              id={titleInputId}
               ref={titleInputRef}
               type="text"
               value={taskName}
@@ -917,8 +1018,8 @@ export function TaskModal({
                   setShowProjectSuggestions(false);
                 }
               }}
-              placeholder="Task name"
-              className="w-full bg-zinc-800 rounded-lg px-4 py-3 text-sm font-medium text-white placeholder-zinc-500 border border-zinc-700 focus-theme transition-all"
+              placeholder="Title"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors placeholder-zinc-500 focus-theme"
               required
               autoFocus
             />
@@ -1031,12 +1132,21 @@ export function TaskModal({
           </div>
 
           {/* Description */}
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Description"
-            className="w-full bg-zinc-800 text-white rounded-lg px-4 py-3 text-sm placeholder-zinc-500 border border-zinc-700 focus-theme min-h-[100px] resize-none transition-all"
-          />
+          <div>
+            <label
+              htmlFor={descriptionInputId}
+              className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-zinc-400"
+            >
+              Description
+            </label>
+            <textarea
+              id={descriptionInputId}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Description"
+              className="min-h-[100px] w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white transition-colors placeholder-zinc-500 focus-theme"
+            />
+          </div>
 
           {/* Attachments */}
           <div>
@@ -1445,9 +1555,23 @@ export function TaskModal({
 
           {/* Due Date & Time */}
           <div>
-            <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
-              <Calendar className="w-4 h-4" />
-              Due Date
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm text-zinc-400">
+                <Calendar className="w-4 h-4" />
+                Due Date
+              </div>
+              <button
+                type="button"
+                onClick={() => setDueDate(todayDateValue)}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  dueDate === todayDateValue
+                    ? "border-[rgb(var(--theme-primary-rgb))]/50 bg-[rgb(var(--theme-primary-rgb))]/15 text-[rgb(var(--theme-primary-rgb))]"
+                    : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600 hover:text-white"
+                }`}
+              >
+                <CalendarCheck className="h-3.5 w-3.5" />
+                Today
+              </button>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
@@ -1601,29 +1725,43 @@ export function TaskModal({
           {/* Assignee & Priority */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
-                <User className="w-4 h-4" />
-                Assigned to
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm text-zinc-400">
+                  <User className="w-4 h-4" />
+                  Assigned to
+                </div>
+                {currentUserId && (
+                  <button
+                    type="button"
+                    onClick={handleAssignToCurrentUser}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+                      isAssignedToCurrentUser
+                        ? "border-[rgb(var(--theme-primary-rgb))]/50 bg-[rgb(var(--theme-primary-rgb))]/15 text-[rgb(var(--theme-primary-rgb))]"
+                        : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600 hover:text-white"
+                    }`}
+                  >
+                    <UserCheck className="h-3.5 w-3.5" />
+                    Me
+                  </button>
+                )}
               </div>
               {assignedUser ? (
                 <div className="flex items-center gap-2 text-sm bg-zinc-800 rounded px-3 py-2.5 h-[42px]">
                   <UserAvatar
-                    name={
-                      assignedUser.name ||
-                      `${assignedUser.firstName || ""} ${assignedUser.lastName || ""}`.trim() ||
-                      assignedUser.email
-                    }
+                    name={getUserDisplayName(assignedUser)}
                     profileColor={assignedUser.profileColor}
                     memoji={assignedUser.profileMemoji}
                     size={24}
                     className="text-xs font-medium flex-shrink-0"
                   />
                   <span className="text-zinc-300 flex-1">
-                    {assignedUser.name ||
-                      `${assignedUser.firstName || ""} ${assignedUser.lastName || ""}`.trim() ||
-                      assignedUser.email ||
-                      "Unknown User"}
-                    {assignedUser.status === "pending" && (
+                    {getUserDisplayName(assignedUser)}
+                    {isCurrentUserProfile(assignedUser) && (
+                      <span className="ml-2 text-xs text-[rgb(var(--theme-primary-rgb))]">
+                        You
+                      </span>
+                    )}
+                    {isPendingUser(assignedUser) && (
                       <span className="ml-2 text-xs text-yellow-500">
                         (Pending)
                       </span>
@@ -1644,62 +1782,52 @@ export function TaskModal({
                     value={userSearchQuery}
                     onChange={(e) => setUserSearchQuery(e.target.value)}
                     placeholder="Search users..."
-                    className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                    className="w-full rounded bg-zinc-800 px-3 py-2 text-sm text-white transition-colors focus:outline-none focus:ring-2 ring-theme"
                     autoFocus
                   />
                   <div className="absolute top-full mt-1 w-full bg-zinc-800 rounded-lg shadow-lg border border-zinc-700 max-h-48 overflow-y-auto z-50">
-                    {data.users
-                      .filter((user) => {
-                        const userName =
-                          user.name ||
-                          `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
-                          "";
-                        const userEmail = user.email || "";
-                        return (
-                          userName
-                            .toLowerCase()
-                            .includes(userSearchQuery.toLowerCase()) ||
-                          userEmail
-                            .toLowerCase()
-                            .includes(userSearchQuery.toLowerCase())
-                        );
-                      })
-                      .map((user) => {
-                        const displayName =
-                          user.name ||
-                          `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
-                          user.email ||
-                          "Unknown User";
-                        return (
-                          <button
-                            key={user.id}
-                            type="button"
-                            onClick={() => handleAssignUser(user.id)}
-                            className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-700 transition-colors text-left"
-                          >
-                            <UserAvatar
-                              name={displayName}
-                              profileColor={user.profileColor}
-                              memoji={user.profileMemoji}
-                              size={24}
-                              className="text-xs font-medium flex-shrink-0"
-                            />
-                            <div className="flex-1 text-sm">
-                              <p className="font-medium">
-                                {displayName}
-                                {user.status === "pending" && (
-                                  <span className="ml-2 text-xs text-yellow-500">
-                                    (Pending)
-                                  </span>
-                                )}
-                              </p>
-                              <p className="text-xs text-zinc-500">
-                                {user.email}
-                              </p>
-                            </div>
-                          </button>
-                        );
-                      })}
+                    {assignableUsers.map((user) => {
+                      const displayName = getUserDisplayName(user);
+                      return (
+                        <button
+                          key={user.id}
+                          type="button"
+                          onClick={() => handleAssignUser(user.id)}
+                          className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-700 transition-colors text-left"
+                        >
+                          <UserAvatar
+                            name={displayName}
+                            profileColor={user.profileColor}
+                            memoji={user.profileMemoji}
+                            size={24}
+                            className="text-xs font-medium flex-shrink-0"
+                          />
+                          <div className="flex-1 text-sm">
+                            <p className="font-medium">
+                              {displayName}
+                              {isCurrentUserProfile(user) && (
+                                <span className="ml-2 text-xs text-[rgb(var(--theme-primary-rgb))]">
+                                  You
+                                </span>
+                              )}
+                              {isPendingUser(user) && (
+                                <span className="ml-2 text-xs text-yellow-500">
+                                  (Pending)
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-xs text-zinc-500">
+                              {user.email}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                    {assignableUsers.length === 0 && (
+                      <div className="px-3 py-2 text-sm text-zinc-500">
+                        No users found
+                      </div>
+                    )}
                   </div>
                   <button
                     type="button"
