@@ -24,11 +24,24 @@ jobs:
   mobile-export:
     name: Mobile Export
     runs-on: ubuntu-latest
+    outputs:
+      ios-app-exists: ${{ steps.mobile-project.outputs.exists }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check Mobile Project
+        id: mobile-project
+        run: |
+          if [ -d ios-app ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No ios-app directory found; skipping mobile export."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Node
+        if: steps.mobile-project.outputs.exists == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -36,10 +49,12 @@ jobs:
           cache-dependency-path: web-app/package-lock.json
 
       - name: Install Dependencies
+        if: steps.mobile-project.outputs.exists == 'true'
         run: npm ci
         working-directory: web-app
 
       - name: Build Mobile Bundle
+        if: steps.mobile-project.outputs.exists == 'true'
         run: npm run mobile:prod
         working-directory: web-app
 
@@ -47,6 +62,7 @@ jobs:
     name: iOS Simulator Build
     runs-on: macos-latest
     needs: mobile-export
+    if: needs.mobile-export.outputs.ios-app-exists == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
