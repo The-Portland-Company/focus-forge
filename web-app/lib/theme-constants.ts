@@ -39,21 +39,21 @@ export const THEME_PRESETS: Record<ThemePreset, Theme> = {
   'liquid-glass-dark': {
     id: 'liquid-glass-dark',
     name: 'Liquid Glass Dark',
-    description: 'Apple-inspired glassmorphism with subtle breathing colors',
+    description: 'Dark theme with restrained glass-inspired accents',
     allowsColorCustomization: false,
     cssClass: 'dark theme-liquid-glass'
   },
   'liquid-glass-light': {
     id: 'liquid-glass-light',
     name: 'Liquid Glass Light',
-    description: 'Apple-inspired glassmorphism with vibrant breathing colors',
+    description: 'Light theme with restrained glass-inspired accents',
     allowsColorCustomization: false,
     cssClass: 'light theme-liquid-glass'
   }
 }
 
 // Default theme constants  
-export const DEFAULT_THEME_PRESET: ThemePreset = 'liquid-glass-dark'
+export const DEFAULT_THEME_PRESET: ThemePreset = 'dark'
 export const DEFAULT_GRADIENT_THEME = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
 export const DEFAULT_SOLID_COLOR = '#667eea' // Purple from the gradient
 export const DEFAULT_COLOR_RGB = '102, 126, 234' // RGB values for the primary color

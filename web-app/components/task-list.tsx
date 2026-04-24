@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import { Task, Project } from "@/lib/types";
 import {
   Circle,
@@ -26,7 +26,7 @@ import {
 import { format, addDays } from "date-fns";
 import { getStartOfDay, isToday, isOverdue } from "@/lib/date-utils";
 import { formatRecurringLabel } from "@/lib/recurring-utils";
-import { isTaskBlocked, getBlockingTasks } from "@/lib/dependency-utils";
+import { getBlockedTaskIds } from "@/lib/dependency-utils";
 import { UserAvatar } from "@/components/user-avatar";
 import * as Popover from "@radix-ui/react-popover";
 
@@ -48,6 +48,7 @@ interface TaskListProps {
   animatingOutTaskIds?: Set<string>; // Tasks animating out after processing
   optimisticCompletedIds?: Set<string>; // Tasks optimistically marked as completed
   enableDueDateQuickEdit?: boolean;
+  onTaskFocus?: (taskId: string) => void;
   onTaskUpdate?: (
     taskId: string,
     updates: Partial<Task>,
@@ -173,6 +174,7 @@ export function TaskList({
   animatingOutTaskIds,
   optimisticCompletedIds,
   enableDueDateQuickEdit,
+  onTaskFocus,
   onTaskUpdate,
   onTaskToggle,
   onTaskEdit,
@@ -180,11 +182,35 @@ export function TaskList({
   onTaskSelect,
 }: TaskListProps) {
   // Generate priority colors based on user preference or default to green
-  const priorityColors = priorityColor
-    ? generatePriorityColors(priorityColor)
-    : getDefaultPriorityColors();
-  const tagsById = new Map((tags || []).map((tag) => [tag.id, tag] as const));
-  const [hoveredTask, setHoveredTask] = useState<string | null>(null);
+  const priorityColors = useMemo(
+    () =>
+      priorityColor
+        ? generatePriorityColors(priorityColor)
+        : getDefaultPriorityColors(),
+    [priorityColor],
+  );
+  const tagsById = useMemo(
+    () => new Map((tags || []).map((tag) => [tag.id, tag] as const)),
+    [tags],
+  );
+  const taskById = useMemo(
+    () => new Map(tasks.map((task) => [task.id, task] as const)),
+    [tasks],
+  );
+  const taskChildrenByParent = useMemo(() => {
+    const childrenByParent = new Map<string, Task[]>();
+    tasks.forEach((task) => {
+      if (!task.parentId) return;
+      const children = childrenByParent.get(task.parentId) || [];
+      children.push(task);
+      childrenByParent.set(task.parentId, children);
+    });
+    return childrenByParent;
+  }, [tasks]);
+  const blockedTaskIds = useMemo(
+    () => (allTasks ? getBlockedTaskIds(allTasks) : new Set<string>()),
+    [allTasks],
+  );
   const [showCompletedTasks, setShowCompletedTasks] = useState(showCompleted);
   // Initialize with all parent task IDs so accordions start collapsed
   const [collapsedTasks, setCollapsedTasks] = useState<Set<string>>(() => {
@@ -254,10 +280,16 @@ export function TaskList({
     return formatRecurringLabel(pattern);
   };
 
-  const activeTasks = tasks.filter((task) => !task.completed);
-  const completedTasks = tasks.filter((task) => task.completed);
+  const activeTasks = useMemo(
+    () => tasks.filter((task) => !task.completed),
+    [tasks],
+  );
+  const completedTasks = useMemo(
+    () => tasks.filter((task) => task.completed),
+    [tasks],
+  );
 
-  const sortTasks = (tasksToSort: Task[]) => {
+  const sortTasks = useCallback((tasksToSort: Task[]) => {
     return [...tasksToSort].sort((a, b) => {
       // By priority (1 is highest)
       if (a.priority !== b.priority) {
@@ -271,17 +303,17 @@ export function TaskList({
       }
       return 0;
     });
-  };
+  }, []);
 
   // Organize tasks hierarchically
-  const organizeTasksHierarchically = (tasksToOrganize: Task[]): Task[] => {
-    const taskMap = new Map(tasksToOrganize.map((task) => [task.id, task]));
+  const organizeTasksHierarchically = useCallback((tasksToOrganize: Task[]): Task[] => {
+    const taskIds = new Set(tasksToOrganize.map((task) => task.id));
     const rootTasks: Task[] = [];
     const sortedTasks: Task[] = [];
 
     // First, identify root tasks (no parent)
     tasksToOrganize.forEach((task) => {
-      if (!task.parentId || !taskMap.has(task.parentId)) {
+      if (!task.parentId || !taskIds.has(task.parentId)) {
         rootTasks.push(task);
       }
     });
@@ -295,8 +327,9 @@ export function TaskList({
 
       // Skip children if task is collapsed
       if (!collapsedTasks.has(task.id)) {
-        // Find and add children
-        const children = tasksToOrganize.filter((t) => t.parentId === task.id);
+        const children = (taskChildrenByParent.get(task.id) || []).filter(
+          (child) => taskIds.has(child.id),
+        );
         sortTasks(children).forEach((child) => {
           addTaskWithChildren(child);
         });
@@ -308,10 +341,16 @@ export function TaskList({
     });
 
     return sortedTasks;
-  };
+  }, [collapsedTasks, sortTasks, taskChildrenByParent]);
 
-  const sortedActiveTasks = organizeTasksHierarchically(activeTasks);
-  const sortedCompletedTasks = organizeTasksHierarchically(completedTasks);
+  const sortedActiveTasks = useMemo(
+    () => organizeTasksHierarchically(activeTasks),
+    [activeTasks, organizeTasksHierarchically],
+  );
+  const sortedCompletedTasks = useMemo(
+    () => organizeTasksHierarchically(completedTasks),
+    [completedTasks, organizeTasksHierarchically],
+  );
 
   const formatFullDueDate = (
     date: string,
@@ -367,9 +406,10 @@ export function TaskList({
     return { className: "bg-zinc-800 text-zinc-300 border border-zinc-700" };
   };
 
-  const hasChildren = (taskId: string) => {
-    return tasks.some((t) => t.parentId === taskId);
-  };
+  const hasChildren = useCallback(
+    (taskId: string) => (taskChildrenByParent.get(taskId)?.length || 0) > 0,
+    [taskChildrenByParent],
+  );
 
   const quickDateOptions = [
     { label: "Today", date: format(new Date(), "yyyy-MM-dd") },
@@ -409,8 +449,7 @@ export function TaskList({
     let currentTask = task;
     while (currentTask.parentId) {
       level++;
-      currentTask =
-        tasks.find((t) => t.id === currentTask.parentId) || currentTask;
+      currentTask = taskById.get(currentTask.parentId) || currentTask;
       if (currentTask.id === task.id) break; // Prevent infinite loop
     }
     return level;
@@ -443,11 +482,10 @@ export function TaskList({
         : dueDate
       : null;
     const isDueToday = !!(dueDateOnly && isToday(dueDateOnly));
-    const isBlocked = !!(allTasks && isTaskBlocked(task, allTasks));
-    const showHoverActions = !revealActionsOnHover || hoveredTask === task.id;
-    const actionVisibilityClass = showHoverActions
-      ? "opacity-100 pointer-events-auto"
-      : "opacity-0 pointer-events-none";
+    const isBlocked = blockedTaskIds.has(task.id);
+    const actionVisibilityClass = revealActionsOnHover
+      ? "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
+      : "opacity-100 pointer-events-auto";
 
     // Pre-compute due date badge for flexible layout positioning
     const dueDateBadge = (() => {
@@ -585,17 +623,18 @@ export function TaskList({
     return (
       <div
         key={task.id}
+        data-task-row="true"
+        data-task-id={task.id}
         draggable={!isLoading && !isAnimatingOut}
+        onMouseDown={() => onTaskFocus?.(task.id)}
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = "move";
           e.dataTransfer.setData("taskId", task.id);
         }}
-        className={`group relative flex items-center gap-3 px-4 py-1 rounded-lg hover:bg-zinc-800/50 transition-all cursor-move ${
+        className={`task-list-row group relative flex items-center gap-3 px-4 py-1 rounded-lg hover:bg-zinc-800/50 cursor-move ${
           isCompleted ? "opacity-50" : ""
         } ${isAnimatingOut ? "animate-slide-fade-out" : ""} ${isOptimisticCompleted && !isAnimatingOut ? "gradient-strikethrough" : ""} ${isLoading ? "opacity-70" : ""}`}
         style={{ paddingLeft: `${16 + indentLevel * 24}px` }}
-        onMouseEnter={() => setHoveredTask(task.id)}
-        onMouseLeave={() => setHoveredTask(null)}
       >
         {bulkSelectMode &&
           onTaskSelect &&
@@ -667,7 +706,7 @@ export function TaskList({
         >
           {isCompleted ? (
             <CheckCircle2 className="w-5 h-5" />
-          ) : allTasks && isTaskBlocked(task, allTasks) ? (
+          ) : isBlocked ? (
             <AlertCircle className="w-5 h-5" />
           ) : (
             <Circle className="w-5 h-5" />
@@ -683,20 +722,22 @@ export function TaskList({
               <div className="flex items-start gap-2 min-w-0">
                 {dueDateLayout === "inline" && dueDateBadge}
                 <div className="flex flex-col gap-1 min-w-0 flex-1">
-                  <p
-                    className={`text-sm truncate group-hover:whitespace-normal group-hover:text-clip transition-all flex items-center gap-1.5 ${
+                  <div
+                    className={`flex items-start gap-1.5 text-left text-sm leading-5 ${
                       isCompleted
                         ? "line-through text-zinc-500"
-                        : allTasks && isTaskBlocked(task, allTasks)
+                        : isBlocked
                           ? "text-zinc-400"
                           : "text-white"
                     }`}
                   >
                     {isLoading && (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400 flex-shrink-0" />
+                      <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin text-zinc-400" />
                     )}
-                    {task.name}
-                  </p>
+                    <span className="min-w-0 flex-1 whitespace-normal break-words">
+                      {task.name}
+                    </span>
+                  </div>
                   {task.description && (
                     <div className="text-xs text-zinc-500 line-clamp-2 text-left">
                       {task.description}
@@ -706,7 +747,7 @@ export function TaskList({
                     <div className="mt-1">{dueDateBadge}</div>
                   )}
                 </div>
-                {allTasks && isTaskBlocked(task, allTasks) && !isCompleted && (
+                {isBlocked && !isCompleted && (
                   <div
                     className="flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))] flex-shrink-0"
                     title="Task is blocked by dependencies"
@@ -891,11 +932,7 @@ export function TaskList({
               </div>
 
               <div
-                className={`absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-3 bg-zinc-800/90 backdrop-blur-sm rounded-md px-2 py-1 transition-[opacity,transform] duration-200 ease-out ${
-                  showHoverActions
-                    ? "opacity-100 translate-x-0 pointer-events-auto"
-                    : "opacity-0 translate-x-2 pointer-events-none"
-                }`}
+                className={`absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-3 rounded-md bg-zinc-800/95 px-2 py-1 ${actionVisibilityClass}`}
               >
                 {((task as any).due_date || task.dueDate) && onTaskUpdate ? (
                   <div className="relative group/removedate flex items-center justify-center w-4">

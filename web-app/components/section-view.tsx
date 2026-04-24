@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   ChevronRight,
   ChevronDown,
@@ -28,7 +28,10 @@ interface SectionViewProps {
   loadingTaskIds?: Set<string>;
   animatingOutTaskIds?: Set<string>;
   optimisticCompletedIds?: Set<string>;
+  sectionTasksBySectionId?: Map<string, Task[]>;
+  childSectionsByParentId?: Map<string, Section[]>;
   enableDueDateQuickEdit?: boolean;
+  onTaskFocus?: (taskId: string) => void;
   onTaskUpdate?: (
     taskId: string,
     updates: Partial<Task>,
@@ -63,7 +66,10 @@ export function SectionView({
   loadingTaskIds,
   animatingOutTaskIds,
   optimisticCompletedIds,
+  sectionTasksBySectionId,
+  childSectionsByParentId,
   enableDueDateQuickEdit = false,
+  onTaskFocus,
   onTaskUpdate,
   onTaskToggle,
   onTaskEdit,
@@ -92,21 +98,32 @@ export function SectionView({
   }, [database.userSectionPreferences, userId, section.id]);
 
   // Get tasks for this section
-  const sectionTasks = tasks.filter((task) => {
-    const taskSections =
-      database.taskSections?.filter((ts) => ts.taskId === task.id) || [];
-    return (
-      taskSections.some((ts) => ts.sectionId === section.id) ||
-      task.sectionId === section.id ||
-      (task as any).section_id === section.id
-    );
-  });
+  const sectionTasks = useMemo(() => {
+    const indexedTasks = sectionTasksBySectionId?.get(section.id);
+    if (indexedTasks) return indexedTasks;
+
+    return tasks.filter((task) => {
+      const taskSections =
+        database.taskSections?.filter((ts) => ts.taskId === task.id) || [];
+      return (
+        taskSections.some((ts) => ts.sectionId === section.id) ||
+        task.sectionId === section.id ||
+        (task as any).section_id === section.id
+      );
+    });
+  }, [database.taskSections, section.id, sectionTasksBySectionId, tasks]);
 
   // Get child sections
-  const childSections =
-    database.sections
-      ?.filter((s) => s.parentId === section.id)
-      .sort((a, b) => (a.order || 0) - (b.order || 0)) || [];
+  const childSections = useMemo(() => {
+    const indexedChildren = childSectionsByParentId?.get(section.id);
+    if (indexedChildren) return indexedChildren;
+
+    return (
+      database.sections
+        ?.filter((s) => s.parentId === section.id)
+        .sort((a, b) => (a.order || 0) - (b.order || 0)) || []
+    );
+  }, [childSectionsByParentId, database.sections, section.id]);
 
   const handleToggleCollapse = async () => {
     const newCollapsed = !isCollapsed;
@@ -153,7 +170,7 @@ export function SectionView({
 
   return (
     <div
-      className={`${level > 0 ? "ml-6" : ""} group/section`}
+      className={`section-visibility-auto ${level > 0 ? "ml-6" : ""} group/section`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -253,6 +270,7 @@ export function SectionView({
                 animatingOutTaskIds={animatingOutTaskIds}
                 optimisticCompletedIds={optimisticCompletedIds}
                 enableDueDateQuickEdit={enableDueDateQuickEdit}
+                onTaskFocus={onTaskFocus}
                 onTaskUpdate={onTaskUpdate}
                 onTaskToggle={onTaskToggle}
                 onTaskEdit={onTaskEdit}
@@ -304,7 +322,10 @@ export function SectionView({
               loadingTaskIds={loadingTaskIds}
               animatingOutTaskIds={animatingOutTaskIds}
               optimisticCompletedIds={optimisticCompletedIds}
+              sectionTasksBySectionId={sectionTasksBySectionId}
+              childSectionsByParentId={childSectionsByParentId}
               enableDueDateQuickEdit={enableDueDateQuickEdit}
+              onTaskFocus={onTaskFocus}
               onTaskUpdate={onTaskUpdate}
               onTaskToggle={onTaskToggle}
               onTaskEdit={onTaskEdit}

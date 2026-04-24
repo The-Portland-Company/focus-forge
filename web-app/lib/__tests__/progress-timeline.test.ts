@@ -131,6 +131,53 @@ test("computes daily completion percentages over time", () => {
   assert.equal(day3?.completionPct, 50);
 });
 
+test("weights completion by task time estimates when estimates exist", () => {
+  const tasks: Task[] = [
+    makeTask({
+      id: "t1",
+      completed: true,
+      completedAt: "2026-01-10T15:00:00.000Z",
+      timeEstimate: 120,
+    }),
+    makeTask({
+      id: "t2",
+      timeEstimate: 30,
+    }),
+  ];
+
+  const result = buildProjectProgressTimeline(
+    project,
+    tasks,
+    new Date("2026-01-12T12:00:00.000Z"),
+  );
+  const last = result.points[result.points.length - 1];
+
+  assert.equal(result.usesTimeEstimates, true);
+  assert.equal(last.completedWork, 120);
+  assert.equal(last.totalWork, 150);
+  assert.equal(last.completedCount, 1);
+  assert.equal(last.totalCount, 2);
+  assert.equal(last.completionPct, 80);
+});
+
+test("uses a median estimate fallback for unestimated tasks", () => {
+  const tasks: Task[] = [
+    makeTask({ id: "t1", timeEstimate: 30 }),
+    makeTask({ id: "t2", timeEstimate: 90 }),
+    makeTask({ id: "t3" }),
+  ];
+
+  const result = buildProjectProgressTimeline(
+    project,
+    tasks,
+    new Date("2026-01-12T12:00:00.000Z"),
+  );
+  const last = result.points[result.points.length - 1];
+
+  assert.equal(result.defaultEstimateMinutes, 60);
+  assert.equal(last.totalWork, 180);
+});
+
 test("falls back to today when a completed task has no valid completion timestamps", () => {
   const tasks: Task[] = [
     makeTask({

@@ -4,6 +4,11 @@ import { createServerClient } from "@supabase/ssr";
 
 // Public routes that don't require authentication
 const publicRoutes = [
+  "/robots.txt",
+  "/favicon.ico",
+  "/favicon.png",
+  "/favicon.svg",
+  "/icon.svg",
   "/auth/login",
   "/auth/register",
   "/auth/forgot-password",

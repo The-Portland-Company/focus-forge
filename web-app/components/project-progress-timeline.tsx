@@ -15,8 +15,8 @@ type ProjectProgressTimelineProps = {
 };
 
 const CHART_WIDTH = 860;
-const CHART_HEIGHT = 240;
-const PADDING = { top: 18, right: 16, bottom: 32, left: 44 };
+const CHART_HEIGHT = 132;
+const PADDING = { top: 12, right: 14, bottom: 24, left: 40 };
 
 function getTickIndices(total: number, maxTicks = 6): number[] {
   if (total <= 0) return [];
@@ -62,6 +62,25 @@ function buildPath(points: ProjectTimelinePoint[]): string {
     .join(" ");
 }
 
+function pluralizeTask(count: number): string {
+  return count === 1 ? "task" : "tasks";
+}
+
+function formatWork(value: number, usesTimeEstimates: boolean): string {
+  if (!usesTimeEstimates) {
+    const rounded = Math.round(value);
+    return `${rounded} ${pluralizeTask(rounded)}`;
+  }
+
+  const totalMinutes = Math.max(0, Math.round(value));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
+}
+
 export function ProjectProgressTimeline({
   project,
   tasks,
@@ -78,9 +97,10 @@ export function ProjectProgressTimeline({
   const latestPoint = points[points.length - 1];
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter((task) => task.completed).length;
-  const incompleteTasks = Math.max(0, totalTasks - completedTasks);
-  const completionPct =
-    totalTasks === 0 ? 0 : Number(((completedTasks / totalTasks) * 100).toFixed(1));
+  const completedWork = latestPoint?.completedWork ?? completedTasks;
+  const totalWork = latestPoint?.totalWork ?? totalTasks;
+  const remainingWork = Math.max(0, totalWork - completedWork);
+  const completionPct = latestPoint?.completionPct ?? 0;
   const tickIndices = useMemo(() => getTickIndices(points.length), [points.length]);
   const linePath = useMemo(() => buildPath(points), [points]);
 
@@ -110,35 +130,38 @@ export function ProjectProgressTimeline({
 
   return (
     <section
-      className="mb-5 rounded-xl border border-zinc-800 bg-zinc-900/70 p-4 sm:p-5"
+      className="mb-4 rounded-lg border border-zinc-800 bg-zinc-900/70 p-3"
       aria-label={`Progress timeline for ${project.name}`}
     >
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">
           Progress Timeline
         </h2>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-zinc-200">
-            Total: {totalTasks}
+            {timeline.usesTimeEstimates ? "Estimated work" : "Task count"}
           </span>
           <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-zinc-200">
-            Incomplete: {incompleteTasks}
+            Done: {formatWork(completedWork, timeline.usesTimeEstimates)}
           </span>
           <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-zinc-200">
-            Completed: {completedTasks}
+            Remaining: {formatWork(remainingWork, timeline.usesTimeEstimates)}
+          </span>
+          <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-zinc-200">
+            Tasks: {completedTasks}/{totalTasks}
           </span>
         </div>
       </div>
 
       {!hasTasks ? (
-        <p className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-8 text-center text-sm text-zinc-500">
+        <p className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-5 text-center text-sm text-zinc-500">
           No tasks yet for this project.
         </p>
       ) : (
         <div className="relative">
           <svg
             viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-            className="h-60 w-full"
+            className="h-32 w-full"
             role="img"
             aria-label="Project completion percentage over time"
             onMouseMove={handleMouseMove}
@@ -188,8 +211,8 @@ export function ProjectProgressTimeline({
                   </text>
                   <circle
                     cx={x}
-                    cy={CHART_HEIGHT - PADDING.bottom + 8}
-                    r="8"
+                    cy={CHART_HEIGHT - PADDING.bottom + 6}
+                    r="7"
                     fill="transparent"
                     tabIndex={0}
                     role="button"
@@ -213,7 +236,14 @@ export function ProjectProgressTimeline({
                   stroke="rgba(96,165,250,0.45)"
                   strokeWidth="1"
                 />
-                <circle cx={activeX} cy={activeY} r="4" fill="#60a5fa" stroke="#0a0a0a" strokeWidth="1" />
+                <circle
+                  cx={activeX}
+                  cy={activeY}
+                  r="3.5"
+                  fill="#60a5fa"
+                  stroke="#0a0a0a"
+                  strokeWidth="1"
+                />
               </>
             )}
           </svg>
@@ -234,6 +264,10 @@ export function ProjectProgressTimeline({
                   : ""}
               </div>
               <div>
+                {formatWork(activePoint.completedWork, timeline.usesTimeEstimates)}
+                /{formatWork(activePoint.totalWork, timeline.usesTimeEstimates)}
+              </div>
+              <div className="text-zinc-500">
                 {activePoint.completedCount}/{activePoint.totalCount} tasks
               </div>
             </div>

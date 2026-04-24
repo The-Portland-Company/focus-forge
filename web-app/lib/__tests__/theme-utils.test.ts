@@ -31,6 +31,6 @@ test("getDatabaseThemePreset maps liquid glass variants to the legacy preset", (
   assert.equal(getDatabaseThemePreset("liquid-glass-light", false), "liquid-glass");
 });
 
-test("normalizeDatabaseThemePreset expands the legacy liquid glass preset", () => {
-  assert.equal(normalizeDatabaseThemePreset("liquid-glass"), "liquid-glass-dark");
+test("normalizeDatabaseThemePreset maps the legacy liquid glass preset to the default", () => {
+  assert.equal(normalizeDatabaseThemePreset("liquid-glass"), "dark");
 });

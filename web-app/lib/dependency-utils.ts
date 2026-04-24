@@ -13,6 +13,30 @@ export function isTaskBlocked(task: Task, allTasks: Task[]): boolean {
 }
 
 /**
+ * Build the blocked-task set in one pass instead of re-scanning the full task
+ * list for each rendered task.
+ */
+export function getBlockedTaskIds(allTasks: Task[]): Set<string> {
+  const tasksById = new Map(allTasks.map((task) => [task.id, task]));
+  const blockedTaskIds = new Set<string>();
+
+  allTasks.forEach((task) => {
+    if (!task.dependsOn || task.dependsOn.length === 0) return;
+
+    const isBlocked = task.dependsOn.some((depId) => {
+      const dependency = tasksById.get(depId);
+      return dependency && !dependency.completed;
+    });
+
+    if (isBlocked) {
+      blockedTaskIds.add(task.id);
+    }
+  });
+
+  return blockedTaskIds;
+}
+
+/**
  * Get all tasks that are blocking the given task
  */
 export function getBlockingTasks(task: Task, allTasks: Task[]): Task[] {
@@ -118,5 +142,6 @@ export function filterTasksByBlockedStatus(
 ): Task[] {
   if (showBlocked) return tasks;
 
-  return tasks.filter((task) => !isTaskBlocked(task, allTasks));
+  const blockedTaskIds = getBlockedTaskIds(allTasks);
+  return tasks.filter((task) => !blockedTaskIds.has(task.id));
 }

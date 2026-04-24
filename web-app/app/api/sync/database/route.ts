@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   return withAuth(request, async (req, userId) => {
     try {
       const supabase = await createClient()
-      const { data: currentProfile, error: currentProfileError } = await supabase
+      let { data: currentProfile, error: currentProfileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
@@ -17,6 +17,26 @@ export async function GET(request: NextRequest) {
 
       if (currentProfileError) {
         return createErrorResponse(currentProfileError.message, 500)
+      }
+
+      if ((currentProfile as any)?.status === 'pending') {
+        const { data: activatedProfile, error: activateProfileError } = await (supabase as any)
+          .from('profiles')
+          .update({
+            status: 'active',
+            invite_token: null,
+            invite_expires_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', userId)
+          .select('*')
+          .single()
+
+        if (activateProfileError) {
+          console.error('[database] failed to activate current profile', activateProfileError)
+        } else if (activatedProfile) {
+          currentProfile = activatedProfile
+        }
       }
 
       const isSuperAdmin = currentProfile?.role === 'super_admin'
@@ -174,6 +194,10 @@ export async function GET(request: NextRequest) {
             animationsEnabled: profile.animations_enabled ?? true,
             priorityColor: profile.priority_color || null,
             role: profile.role || null,
+            status: (profile as any).status || 'active',
+            invitedAt: (profile as any).invited_at || null,
+            inviteToken: (profile as any).invite_token || null,
+            inviteExpiresAt: (profile as any).invite_expires_at || null,
             createdAt: profile.created_at || null,
             updatedAt: profile.updated_at || null
           }))
@@ -192,6 +216,10 @@ export async function GET(request: NextRequest) {
           animationsEnabled: currentProfile.animations_enabled ?? true,
           priorityColor: currentProfile.priority_color || null,
           role: currentProfile.role || null,
+          status: (currentProfile as any).status || 'active',
+          invitedAt: (currentProfile as any).invited_at || null,
+          inviteToken: (currentProfile as any).invite_token || null,
+          inviteExpiresAt: (currentProfile as any).invite_expires_at || null,
           createdAt: currentProfile.created_at || null,
           updatedAt: currentProfile.updated_at || null
         })

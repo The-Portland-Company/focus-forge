@@ -5,6 +5,8 @@ export type ProjectTimelinePoint = {
   completionPct: number;
   completedCount: number;
   totalCount: number;
+  completedWork: number;
+  totalWork: number;
 };
 
 export type ProjectTimelineResult = {
@@ -12,6 +14,8 @@ export type ProjectTimelineResult = {
   startDate: string;
   endDate: string;
   hasData: boolean;
+  usesTimeEstimates: boolean;
+  defaultEstimateMinutes: number;
 };
 
 type TaskWithSnakeCase = Task & {
@@ -20,6 +24,7 @@ type TaskWithSnakeCase = Task & {
   created_at?: string;
   completed_at?: string;
   updated_at?: string;
+  time_estimate?: number | null;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -66,6 +71,28 @@ function taskUpdatedAt(task: TaskWithSnakeCase): string | undefined {
   return task.updated_at || task.updatedAt;
 }
 
+function taskEstimate(task: TaskWithSnakeCase): number | null {
+  const rawEstimate = task.time_estimate ?? task.timeEstimate ?? null;
+  const estimate = Number(rawEstimate);
+  return Number.isFinite(estimate) && estimate > 0 ? estimate : null;
+}
+
+function getDefaultEstimateMinutes(tasks: TaskWithSnakeCase[]): number {
+  const estimates = tasks
+    .map(taskEstimate)
+    .filter((value): value is number => value !== null)
+    .sort((a, b) => a - b);
+
+  if (estimates.length === 0) return 1;
+
+  const middle = Math.floor(estimates.length / 2);
+  if (estimates.length % 2 === 1) return estimates[middle] || 60;
+
+  return Math.round(
+    ((estimates[middle - 1] || 60) + (estimates[middle] || 60)) / 2,
+  );
+}
+
 function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, value));
 }
@@ -80,6 +107,12 @@ export function buildProjectProgressTimeline(
   const filteredTasks = typedTasks.filter(
     (task) => taskProjectId(task) === project.id,
   );
+  const usesTimeEstimates = filteredTasks.some(
+    (task) => taskEstimate(task) !== null,
+  );
+  const defaultEstimateMinutes = getDefaultEstimateMinutes(filteredTasks);
+  const getTaskWork = (task: TaskWithSnakeCase) =>
+    usesTimeEstimates ? (taskEstimate(task) ?? defaultEstimateMinutes) : 1;
 
   const dueDates = filteredTasks
     .map((task) => toDate(taskDueDate(task)))
@@ -103,32 +136,43 @@ export function buildProjectProgressTimeline(
   }
 
   const createdDayStamps = filteredTasks
-    .map((task) => toDate(taskCreatedAt(task)))
-    .filter((value): value is Date => value !== null)
-    .map(startOfLocalDay)
-    .map((date) => date.getTime())
-    .sort((a, b) => a - b);
+    .map((task) => {
+      const date = toDate(taskCreatedAt(task));
+      return date
+        ? { timestamp: startOfLocalDay(date).getTime(), work: getTaskWork(task) }
+        : null;
+    })
+    .filter(
+      (value): value is { timestamp: number; work: number } => value !== null,
+    )
+    .sort((a, b) => a.timestamp - b.timestamp);
 
   const completedDayStamps = filteredTasks
     .filter((task) => task.completed)
     .map((task) => {
-      return (
+      const date =
         toDate(taskCompletedAt(task)) ||
         toDate(taskUpdatedAt(task)) ||
         toDate(taskCreatedAt(task)) ||
-        todayDate
-      );
+        todayDate;
+      return { date, work: getTaskWork(task) };
     })
-    .filter((value): value is Date => value !== null)
-    .map(startOfLocalDay)
-    .map((date) => date.getTime())
-    .sort((a, b) => a - b);
+    .filter(
+      (value): value is { date: Date; work: number } => value.date !== null,
+    )
+    .map((value) => ({
+      timestamp: startOfLocalDay(value.date).getTime(),
+      work: value.work,
+    }))
+    .sort((a, b) => a.timestamp - b.timestamp);
 
   const points: ProjectTimelinePoint[] = [];
   let createdIndex = 0;
   let completedIndex = 0;
   let runningTotal = 0;
   let runningCompleted = 0;
+  let runningTotalWork = 0;
+  let runningCompletedWork = 0;
 
   for (
     let cursor = startDate.getTime();
@@ -137,30 +181,34 @@ export function buildProjectProgressTimeline(
   ) {
     while (
       createdIndex < createdDayStamps.length &&
-      createdDayStamps[createdIndex] <= cursor
+      createdDayStamps[createdIndex].timestamp <= cursor
     ) {
       runningTotal += 1;
+      runningTotalWork += createdDayStamps[createdIndex].work;
       createdIndex += 1;
     }
 
     while (
       completedIndex < completedDayStamps.length &&
-      completedDayStamps[completedIndex] <= cursor
+      completedDayStamps[completedIndex].timestamp <= cursor
     ) {
       runningCompleted += 1;
+      runningCompletedWork += completedDayStamps[completedIndex].work;
       completedIndex += 1;
     }
 
     const completionPct =
-      runningTotal === 0
+      runningTotalWork === 0
         ? 0
-        : clampPercent((runningCompleted / runningTotal) * 100);
+        : clampPercent((runningCompletedWork / runningTotalWork) * 100);
 
     points.push({
       date: formatDateKey(new Date(cursor)),
       completionPct: Number(completionPct.toFixed(1)),
       completedCount: runningCompleted,
       totalCount: runningTotal,
+      completedWork: Number(runningCompletedWork.toFixed(1)),
+      totalWork: Number(runningTotalWork.toFixed(1)),
     });
   }
 
@@ -169,5 +217,7 @@ export function buildProjectProgressTimeline(
     startDate: formatDateKey(startDate),
     endDate: formatDateKey(todayDate),
     hasData: filteredTasks.length > 0,
+    usesTimeEstimates,
+    defaultEstimateMinutes,
   };
 }

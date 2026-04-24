@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Calendar, Hash, Link2, AlertCircle } from 'lucide-react'
 import { Task, Project, Database } from '@/lib/types'
 import { format, isToday, isTomorrow, isThisWeek, addDays, startOfWeek, endOfWeek, isPast, isFuture } from 'date-fns'
-import { isTaskBlocked } from '@/lib/dependency-utils'
+import { getBlockedTaskIds } from '@/lib/dependency-utils'
 
 interface KanbanViewProps {
   tasks: Task[]
@@ -25,6 +25,10 @@ interface KanbanColumn {
 export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit, onTaskUpdate, dateType = 'dueDate' }: KanbanViewProps) {
   const [draggedTask, setDraggedTask] = useState<Task | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
+  const blockedTaskIds = useMemo(
+    () => (allTasks ? getBlockedTaskIds(allTasks) : new Set<string>()),
+    [allTasks],
+  )
 
   // Helper function to get project by ID
   const getProject = (projectId: string) => projects.find(p => p.id === projectId)
@@ -178,6 +182,7 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
           <div className="space-y-2">
             {column.tasks.map(task => {
               const project = getProject(task.projectId)
+              const isBlocked = blockedTaskIds.has(task.id)
               
               return (
                 <div
@@ -193,17 +198,17 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
                       type="checkbox"
                       checked={task.completed}
                       onChange={() => {
-                        if (!allTasks || !isTaskBlocked(task, allTasks)) {
+                        if (!isBlocked) {
                           onTaskToggle(task.id)
                         }
                       }}
-                      disabled={allTasks && isTaskBlocked(task, allTasks)}
+                      disabled={isBlocked}
                       className={`mt-0.5 rounded border-zinc-600 focus:ring-offset-0 bg-zinc-700 ${
-                        allTasks && isTaskBlocked(task, allTasks) 
+                        isBlocked
                           ? 'text-zinc-500 cursor-not-allowed' 
                           : 'text-red-500 focus:ring-red-500'
                       }`}
-                      title={allTasks && isTaskBlocked(task, allTasks) ? 'Complete dependencies first' : ''}
+                      title={isBlocked ? 'Complete dependencies first' : ''}
                     />
                     
                     <div className="flex-1 min-w-0">
@@ -212,13 +217,13 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
                           onClick={() => onTaskEdit(task)}
                           className={`text-sm cursor-pointer ${
                             task.completed ? 'line-through text-zinc-500' :
-                            allTasks && isTaskBlocked(task, allTasks) ? 'text-zinc-400' : 
+                            isBlocked ? 'text-zinc-400' :
                             'text-white hover:text-zinc-300'
                           }`}
                         >
                           {task.name}
                         </div>
-                        {allTasks && isTaskBlocked(task, allTasks) && !task.completed && (
+                        {isBlocked && !task.completed && (
                           <div className="flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))]" title="Task is blocked by dependencies">
                             <Link2 className="w-3 h-3" />
                             <span className="text-xs">Blocked</span>

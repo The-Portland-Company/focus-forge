@@ -13,7 +13,10 @@ import {
 
 export async function GET(request: NextRequest) {
   try {
+    const includeEmailData =
+      request.nextUrl.searchParams.get("includeEmailData") !== "false";
     const includeInboxItems =
+      includeEmailData &&
       request.nextUrl.searchParams.get("includeInboxItems") !== "false";
 
     // Check authentication first
@@ -46,6 +49,39 @@ export async function GET(request: NextRequest) {
         },
       },
     );
+
+    try {
+      const { data: currentProfile, error: currentProfileError } =
+        await supabase
+          .from("profiles")
+          .select("id,status")
+          .eq("id", session.user.id)
+          .maybeSingle();
+
+      if (!currentProfileError && currentProfile?.status === "pending") {
+        const { error: activateProfileError } = await supabase
+          .from("profiles")
+          .update({
+            status: "active",
+            invite_token: null,
+            invite_expires_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", session.user.id);
+
+        if (activateProfileError) {
+          console.error(
+            "Failed to activate current user profile:",
+            activateProfileError,
+          );
+        }
+      }
+    } catch (profileActivationError) {
+      console.error(
+        "Error activating current user profile:",
+        profileActivationError,
+      );
+    }
 
     // Test the supabase client directly
     const { data: testOrgs, error: testError } = await supabase
@@ -228,15 +264,17 @@ export async function GET(request: NextRequest) {
 
     try {
       [mailboxes, inboxItems, emailRules, summaryProfiles, ruleStats] =
-        await Promise.all([
-          listMailboxesForUser(session.user.id),
-          includeInboxItems
-            ? listInboxItemsForUser(session.user.id)
-            : Promise.resolve([]),
-          listRulesForUser(session.user.id),
-          listSummaryProfilesForUser(session.user.id),
-          getRuleStatsForUser(session.user.id),
-        ]);
+        includeEmailData
+          ? await Promise.all([
+              listMailboxesForUser(session.user.id),
+              includeInboxItems
+                ? listInboxItemsForUser(session.user.id)
+                : Promise.resolve([]),
+              listRulesForUser(session.user.id),
+              listSummaryProfilesForUser(session.user.id),
+              getRuleStatsForUser(session.user.id),
+            ])
+          : [[], [], [], [], ruleStats];
       quarantineCount = inboxItems.filter(
         (item: any) => item.status === "quarantine",
       ).length;
