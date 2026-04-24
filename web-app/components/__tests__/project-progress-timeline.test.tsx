@@ -97,7 +97,11 @@ test("renders estimate-weighted summary when tasks have estimates", () => {
 
 test("renders an accessible current progress bar scoped to the project", () => {
   const tasks = [
-    makeTask({ id: "t1", completed: true, completedAt: "2026-01-11T12:00:00.000Z" }),
+    makeTask({
+      id: "t1",
+      completed: true,
+      completedAt: "2026-01-11T12:00:00.000Z",
+    }),
     makeTask({ id: "t2" }),
     makeTask({ id: "other", projectId: "proj-2", completed: true }),
   ];

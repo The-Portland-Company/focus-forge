@@ -155,7 +155,13 @@ export function buildProjectProgressTimeline(
         toDate(taskUpdatedAt(task)) ||
         toDate(taskCreatedAt(task)) ||
         todayDate;
-      return { date, work: getTaskWork(task) };
+      return {
+        date:
+          startOfLocalDay(date).getTime() > todayDate.getTime()
+            ? todayDate
+            : date,
+        work: getTaskWork(task),
+      };
     })
     .filter(
       (value): value is { date: Date; work: number } => value.date !== null,
@@ -198,9 +204,9 @@ export function buildProjectProgressTimeline(
     }
 
     const completionPct =
-      runningTotalWork === 0
+      runningTotal === 0
         ? 0
-        : clampPercent((runningCompletedWork / runningTotalWork) * 100);
+        : clampPercent((runningCompleted / runningTotal) * 100);
 
     points.push({
       date: formatDateKey(new Date(cursor)),

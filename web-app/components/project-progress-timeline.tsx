@@ -135,7 +135,7 @@ export function ProjectProgressTimeline({
     setActiveIndex(index);
   };
 
-  const hasTasks = tasks.length > 0;
+  const hasTasks = totalTasks > 0;
 
   return (
     <section

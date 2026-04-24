@@ -131,7 +131,7 @@ test("computes daily completion percentages over time", () => {
   assert.equal(day3?.completionPct, 50);
 });
 
-test("weights completion by task time estimates when estimates exist", () => {
+test("tracks task-count completion while preserving estimate work totals", () => {
   const tasks: Task[] = [
     makeTask({
       id: "t1",
@@ -157,7 +157,7 @@ test("weights completion by task time estimates when estimates exist", () => {
   assert.equal(last.totalWork, 150);
   assert.equal(last.completedCount, 1);
   assert.equal(last.totalCount, 2);
-  assert.equal(last.completionPct, 80);
+  assert.equal(last.completionPct, 50);
 });
 
 test("uses a median estimate fallback for unestimated tasks", () => {
@@ -218,6 +218,28 @@ test("falls back to updatedAt when a completed task is missing completedAt", () 
       id: "t2",
       createdAt: "2026-01-10T12:00:00.000Z",
     }),
+  ];
+
+  const result = buildProjectProgressTimeline(
+    project,
+    tasks,
+    new Date("2026-01-12T12:00:00.000Z"),
+  );
+  const last = result.points[result.points.length - 1];
+
+  assert.equal(last.totalCount, 2);
+  assert.equal(last.completedCount, 1);
+  assert.equal(last.completionPct, 50);
+});
+
+test("counts completed tasks with future completion dates in the current point", () => {
+  const tasks: Task[] = [
+    makeTask({
+      id: "t1",
+      completed: true,
+      completedAt: "2026-01-20T12:00:00.000Z",
+    }),
+    makeTask({ id: "t2" }),
   ];
 
   const result = buildProjectProgressTimeline(
