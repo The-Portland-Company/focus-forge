@@ -4753,7 +4753,7 @@ export default function ViewPage() {
                 </div>
 
                 {projectSectionLayout === "list" ? (
-                  <>
+                  <div className="mx-auto w-full max-w-[1000px]">
                     <AddSectionDivider
                       onClick={() => openAddSection(projectId, undefined, 0)}
                     />
@@ -4863,7 +4863,7 @@ export default function ViewPage() {
                           </p>
                         </div>
                       )}
-                  </>
+                  </div>
                 ) : (
                   <ProjectSectionBoard
                     sections={visibleProjectSections}

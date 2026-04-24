@@ -64,6 +64,7 @@ import {
   serializeRecurringConfig,
 } from "@/lib/recurring-utils";
 import { useAuth } from "@/contexts/AuthContext";
+import { nullableEditFieldValue } from "@/lib/task-modal-payload";
 
 const quickProjectColors = [
   "#ef4444",
@@ -457,19 +458,24 @@ export function TaskModal({
       return;
     }
 
+    const emptyEditValue = nullableEditFieldValue("", isEditMode);
+    const nextDueDate = nullableEditFieldValue(dueDate, isEditMode);
+    const nextStartDate = nullableEditFieldValue(startDate, isEditMode);
+    const nextEndDate = nullableEditFieldValue(endDate, isEditMode);
+
     const taskData: any = {
       name: taskName,
       description,
-      dueDate: dueDate || undefined,
-      dueTime: dueTime || undefined,
+      dueDate: nextDueDate,
+      dueTime: dueDate ? nullableEditFieldValue(dueTime, isEditMode) : emptyEditValue,
       deadline: deadline
         ? deadlineTime
           ? `${deadline}T${deadlineTime}`
           : deadline
-        : undefined,
+        : emptyEditValue,
       priority,
       projectId: effectiveProjectId,
-      parentId: selectedParentTask || undefined,
+      parentId: selectedParentTask || emptyEditValue,
       tags: selectedTags,
       attachments: attachments.map((a) => ({
         id: a.id,
@@ -481,17 +487,19 @@ export function TaskModal({
         storage_provider: a.storageProvider,
       })),
       files: attachments,
-      assignedTo: assignedTo || undefined,
+      assignedTo: assignedTo || emptyEditValue,
       reminders,
       dependsOn: dependencies.length > 0 ? dependencies : undefined,
       recurringPattern: serializeRecurringConfig(recurringConfig),
       sectionId: defaultSectionId || undefined,
       timeEstimate:
-        timeEstimate !== "" ? parseInt(timeEstimate, 10) : undefined,
-      startDate: startDate || undefined,
-      startTime: startTime || undefined,
-      endDate: endDate || undefined,
-      endTime: endTime || undefined,
+        timeEstimate !== "" ? parseInt(timeEstimate, 10) : isEditMode ? null : undefined,
+      startDate: nextStartDate,
+      startTime: startDate
+        ? nullableEditFieldValue(startTime, isEditMode)
+        : emptyEditValue,
+      endDate: nextEndDate,
+      endTime: endDate ? nullableEditFieldValue(endTime, isEditMode) : emptyEditValue,
     };
 
     if (!isEditMode) {
@@ -1579,11 +1587,18 @@ export function TaskModal({
                 <input
                   type="date"
                   value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
+                  onChange={(e) => {
+                    const nextDueDate = e.target.value;
+                    setDueDate(nextDueDate);
+                    if (!nextDueDate) setDueTime("");
+                  }}
                   className="flex-1 bg-transparent text-white pl-3 pr-2 py-3 focus:outline-none themed-date-input"
                 />
                 <button
-                  onClick={() => setDueDate("")}
+                  onClick={() => {
+                    setDueDate("");
+                    setDueTime("");
+                  }}
                   className="text-zinc-400 hover:text-zinc-200 transition-colors p-1"
                   type="button"
                 >
