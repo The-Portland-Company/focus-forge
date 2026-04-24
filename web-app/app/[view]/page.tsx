@@ -63,6 +63,10 @@ import { ProjectProgressTimeline } from "@/components/project-progress-timeline"
 import { ProjectAiExportControls } from "@/components/project-ai-export-controls";
 import { ProjectSectionBoard } from "@/components/project-section-board";
 import {
+  ProjectWorkTabs,
+  type ProjectWorkTab,
+} from "@/components/project-work-tabs";
+import {
   SkeletonSidebar,
   SkeletonViewContent,
 } from "@/components/skeleton-loader";
@@ -87,8 +91,7 @@ import { mergeDatabasePayload } from "@/lib/database-state";
 const EMAIL_BACKGROUND_SYNC_INTERVAL_MS = 15 * 1000;
 const DATABASE_CORE_CACHE_VERSION = 1;
 const DATABASE_CORE_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
-const PROJECT_SECTION_LAYOUT_STORAGE_KEY =
-  "focus-forge:project-section-layout";
+const PROJECT_SECTION_LAYOUT_STORAGE_KEY = "focus-forge:project-section-layout";
 
 const getDatabaseCoreCacheKey = (userId?: string | null) =>
   `focus-forge:database-core:v${DATABASE_CORE_CACHE_VERSION}:${userId || "anonymous"}`;
@@ -595,6 +598,7 @@ export default function ViewPage() {
   const [selectedTodayEmailId, setSelectedTodayEmailId] = useState<
     string | null
   >(null);
+  const [projectWorkTab, setProjectWorkTab] = useState<ProjectWorkTab>("tasks");
   const focusedTaskIdRef = useRef<string | null>(null);
   const focusedTaskRowRef = useRef<HTMLElement | null>(null);
   const loadedProjectInboxIdsRef = useRef<Set<string>>(new Set());
@@ -612,9 +616,7 @@ export default function ViewPage() {
         )
       : null;
   const resolvedCurrentUser =
-    currentUserProfile ||
-    database?.users?.[0] ||
-    null;
+    currentUserProfile || database?.users?.[0] || null;
   const currentUserId = resolvedCurrentUser?.id || user?.id || undefined;
   const currentUserRole = resolvedCurrentUser?.role || null;
   const currentUserDisplayName =
@@ -634,15 +636,12 @@ export default function ViewPage() {
     }
   }, []);
 
-  const updateProjectSectionLayout = useCallback(
-    (layout: "list" | "board") => {
-      setProjectSectionLayout(layout);
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(PROJECT_SECTION_LAYOUT_STORAGE_KEY, layout);
-      }
-    },
-    [],
-  );
+  const updateProjectSectionLayout = useCallback((layout: "list" | "board") => {
+    setProjectSectionLayout(layout);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(PROJECT_SECTION_LAYOUT_STORAGE_KEY, layout);
+    }
+  }, []);
 
   const createEmptyDatabase = (): Database => ({
     users: [],
@@ -2238,10 +2237,7 @@ export default function ViewPage() {
   };
 
   const focusTaskRow = useCallback(
-    (
-      taskId: string,
-      options?: { row?: HTMLElement; scroll?: boolean },
-    ) => {
+    (taskId: string, options?: { row?: HTMLElement; scroll?: boolean }) => {
       if (focusedTaskRowRef.current) {
         focusedTaskRowRef.current.removeAttribute("data-task-row-focused");
         focusedTaskRowRef.current.removeAttribute("aria-selected");
@@ -2507,7 +2503,9 @@ export default function ViewPage() {
       if (event.key === "n") {
         event.preventDefault();
         openAddTask(
-          view.startsWith("project-") ? view.replace("project-", "") : undefined,
+          view.startsWith("project-")
+            ? view.replace("project-", "")
+            : undefined,
         );
         return;
       }
@@ -2518,7 +2516,9 @@ export default function ViewPage() {
           document.querySelector<HTMLInputElement>(
             "[data-task-search-input='true']",
           ) ||
-          document.querySelector<HTMLInputElement>("input[placeholder*='Search']");
+          document.querySelector<HTMLInputElement>(
+            "input[placeholder*='Search']",
+          );
         searchInput?.focus();
         searchInput?.select();
         return;
@@ -4513,255 +4513,364 @@ export default function ViewPage() {
             <ProjectProgressTimeline project={project} tasks={projectTasks} />
           )}
 
-          {projectInboxItems.length > 0 && (
-            <div className="mb-5 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-              <div className="mb-3 text-[11px] uppercase tracking-wide text-zinc-500">
-                Email Work
-              </div>
+          <ProjectWorkTabs
+            activeTab={projectWorkTab}
+            emailCount={projectInboxItems.length}
+            onTabChange={setProjectWorkTab}
+            emailContent={
               <EmailWorkList
                 items={projectInboxItems}
                 mailboxes={database.mailboxes}
                 projects={database.projects}
                 emptyLabel="No email work linked to this project."
               />
-            </div>
-          )}
+            }
+            taskContent={
+              <>
+                <div className="mb-5">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="text-[11px] uppercase tracking-wide text-zinc-500">
+                      Project Task Filters
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs text-zinc-500">
+                        {visibleProjectTasks.length} visible
+                      </div>
+                      <div
+                        className="inline-flex rounded-lg border border-zinc-700 bg-zinc-800 p-1"
+                        aria-label="Project section layout"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => updateProjectSectionLayout("list")}
+                          aria-pressed={projectSectionLayout === "list"}
+                          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                            projectSectionLayout === "list"
+                              ? "bg-[rgb(var(--theme-primary-rgb))] text-white"
+                              : "text-zinc-400 hover:text-white"
+                          }`}
+                          title="Section list layout"
+                        >
+                          <LayoutList className="h-3.5 w-3.5" />
+                          List
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateProjectSectionLayout("board")}
+                          aria-pressed={projectSectionLayout === "board"}
+                          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                            projectSectionLayout === "board"
+                              ? "bg-[rgb(var(--theme-primary-rgb))] text-white"
+                              : "text-zinc-400 hover:text-white"
+                          }`}
+                          title="Horizontal section board"
+                        >
+                          <Columns3 className="h-3.5 w-3.5" />
+                          Board
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (bulkSelectMode) {
+                            setBulkSelectMode(false);
+                            setSelectedTaskIds(new Set());
+                            setLastSelectedTaskId(null);
+                            return;
+                          }
 
-          <div className="mb-5 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="text-[11px] uppercase tracking-wide text-zinc-500">
-                Project Task Filters
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-zinc-500">
-                  {visibleProjectTasks.length} visible
-                </div>
-                <div
-                  className="inline-flex rounded-lg border border-zinc-700 bg-zinc-800 p-1"
-                  aria-label="Project section layout"
-                >
-                  <button
-                    type="button"
-                    onClick={() => updateProjectSectionLayout("list")}
-                    aria-pressed={projectSectionLayout === "list"}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                      projectSectionLayout === "list"
-                        ? "bg-[rgb(var(--theme-primary-rgb))] text-white"
-                        : "text-zinc-400 hover:text-white"
-                    }`}
-                    title="Section list layout"
-                  >
-                    <LayoutList className="h-3.5 w-3.5" />
-                    List
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => updateProjectSectionLayout("board")}
-                    aria-pressed={projectSectionLayout === "board"}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                      projectSectionLayout === "board"
-                        ? "bg-[rgb(var(--theme-primary-rgb))] text-white"
-                        : "text-zinc-400 hover:text-white"
-                    }`}
-                    title="Horizontal section board"
-                  >
-                    <Columns3 className="h-3.5 w-3.5" />
-                    Board
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (bulkSelectMode) {
-                      setBulkSelectMode(false);
-                      setSelectedTaskIds(new Set());
-                      setLastSelectedTaskId(null);
-                      return;
-                    }
+                          setBulkSelectMode(true);
+                          setSelectedTaskIds(new Set());
+                          setLastSelectedTaskId(null);
+                        }}
+                        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                          bulkSelectMode
+                            ? "border-[rgb(var(--theme-primary-rgb))]/30 bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))]"
+                            : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600 hover:text-white"
+                        }`}
+                      >
+                        {bulkSelectMode ? (
+                          <CheckSquare className="h-3.5 w-3.5" />
+                        ) : (
+                          <Square className="h-3.5 w-3.5" />
+                        )}
+                        {bulkSelectMode ? "Cancel Bulk Select" : "Bulk Select"}
+                      </button>
+                      {bulkSelectMode &&
+                        visibleProjectTaskIdList.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedTaskIds((prev) =>
+                                setBulkSelectionForTaskIds(
+                                  prev,
+                                  visibleProjectTaskIdList,
+                                  !allVisibleSelected,
+                                ),
+                              );
+                              if (!allVisibleSelected) {
+                                setLastSelectedTaskId(
+                                  visibleProjectTaskIdList[
+                                    visibleProjectTaskIdList.length - 1
+                                  ] || null,
+                                );
+                              }
+                            }}
+                            className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                          >
+                            {allVisibleSelected
+                              ? "Clear Visible"
+                              : "Select Visible"}
+                          </button>
+                        )}
+                      {bulkSelectMode && hasVisibleSelection && (
+                        <button
+                          type="button"
+                          onClick={() => setShowBulkEditModal(true)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[rgb(var(--theme-primary-rgb))]/80"
+                        >
+                          Apply to {visibleSelectedCount} task
+                          {visibleSelectedCount === 1 ? "" : "s"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                      <input
+                        type="text"
+                        data-task-search-input="true"
+                        value={projectTaskSearchQuery}
+                        onChange={(e) =>
+                          setProjectTaskSearchQuery(e.target.value)
+                        }
+                        placeholder="Search this project..."
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2 pl-9 pr-9 text-sm text-white transition-all focus:outline-none focus:ring-2 ring-theme"
+                      />
+                      {projectTaskSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setProjectTaskSearchQuery("")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-zinc-300"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
 
-                    setBulkSelectMode(true);
-                    setSelectedTaskIds(new Set());
-                    setLastSelectedTaskId(null);
-                  }}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                    bulkSelectMode
-                      ? "border-[rgb(var(--theme-primary-rgb))]/30 bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))]"
-                      : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600 hover:text-white"
-                  }`}
-                >
-                  {bulkSelectMode ? (
-                    <CheckSquare className="h-3.5 w-3.5" />
-                  ) : (
-                    <Square className="h-3.5 w-3.5" />
-                  )}
-                  {bulkSelectMode ? "Cancel Bulk Select" : "Bulk Select"}
-                </button>
-                {bulkSelectMode && visibleProjectTaskIdList.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedTaskIds((prev) =>
-                        setBulkSelectionForTaskIds(
-                          prev,
-                          visibleProjectTaskIdList,
-                          !allVisibleSelected,
-                        ),
-                      );
-                      if (!allVisibleSelected) {
-                        setLastSelectedTaskId(
-                          visibleProjectTaskIdList[
-                            visibleProjectTaskIdList.length - 1
-                          ] || null,
-                        );
+                    <Select
+                      value={projectAssigneeFilter}
+                      onValueChange={setProjectAssigneeFilter}
+                    >
+                      <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                        <SelectValue placeholder="Assigned To" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Assigned To: All</SelectItem>
+                        <SelectItem value="assigned">
+                          Assigned To: Assigned
+                        </SelectItem>
+                        <SelectItem value="me">Assigned To: Me</SelectItem>
+                        <SelectItem value="unassigned">
+                          Assigned To: Unassigned
+                        </SelectItem>
+                        {database.users.map((user) => (
+                          <SelectItem key={user.id} value={user.id}>
+                            Assigned To: {user.firstName} {user.lastName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Select
+                      value={projectCreatorFilter}
+                      onValueChange={setProjectCreatorFilter}
+                    >
+                      <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                        <SelectValue placeholder="Created By" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Created By: All</SelectItem>
+                        <SelectItem value="me">Created By: Me</SelectItem>
+                        {projectCreatorIds.map((creatorId) => {
+                          const creator = database.users.find(
+                            (user) => user.id === creatorId,
+                          );
+                          if (!creator) return null;
+                          return (
+                            <SelectItem key={creator.id} value={creator.id}>
+                              Created By: {creator.firstName} {creator.lastName}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+
+                    <Select
+                      value={projectPriorityFilter}
+                      onValueChange={setProjectPriorityFilter}
+                    >
+                      <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                        <SelectValue placeholder="Priority" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Priority: All</SelectItem>
+                        <SelectItem value="1">Priority 1</SelectItem>
+                        <SelectItem value="2">Priority 2</SelectItem>
+                        <SelectItem value="3">Priority 3</SelectItem>
+                        <SelectItem value="4">Priority 4</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    <ProjectTagFilter
+                      tags={database.tags}
+                      value={projectTagFilter}
+                      onChange={setProjectTagFilter}
+                    />
+
+                    <Select
+                      value={projectStatusFilter}
+                      onValueChange={(value) =>
+                        setProjectStatusFilter(
+                          value as typeof projectStatusFilter,
+                        )
                       }
-                    }}
-                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
-                  >
-                    {allVisibleSelected ? "Clear Visible" : "Select Visible"}
-                  </button>
-                )}
-                {bulkSelectMode && hasVisibleSelection && (
-                  <button
-                    type="button"
-                    onClick={() => setShowBulkEditModal(true)}
-                    className="inline-flex items-center gap-2 rounded-lg border border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[rgb(var(--theme-primary-rgb))]/80"
-                  >
-                    Apply to {visibleSelectedCount} task
-                    {visibleSelectedCount === 1 ? "" : "s"}
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                <input
-                  type="text"
-                  data-task-search-input="true"
-                  value={projectTaskSearchQuery}
-                  onChange={(e) => setProjectTaskSearchQuery(e.target.value)}
-                  placeholder="Search this project..."
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2 pl-9 pr-9 text-sm text-white transition-all focus:outline-none focus:ring-2 ring-theme"
-                />
-                {projectTaskSearchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setProjectTaskSearchQuery("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-zinc-300"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
+                    >
+                      <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">Status: Active</SelectItem>
+                        <SelectItem value="completed">
+                          Status: Completed
+                        </SelectItem>
+                        <SelectItem value="all">Status: All</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
 
-              <Select
-                value={projectAssigneeFilter}
-                onValueChange={setProjectAssigneeFilter}
-              >
-                <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
-                  <SelectValue placeholder="Assigned To" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Assigned To: All</SelectItem>
-                  <SelectItem value="assigned">
-                    Assigned To: Assigned
-                  </SelectItem>
-                  <SelectItem value="me">Assigned To: Me</SelectItem>
-                  <SelectItem value="unassigned">
-                    Assigned To: Unassigned
-                  </SelectItem>
-                  {database.users.map((user) => (
-                    <SelectItem key={user.id} value={user.id}>
-                      Assigned To: {user.firstName} {user.lastName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                {projectSectionLayout === "list" ? (
+                  <>
+                    <AddSectionDivider
+                      onClick={() => openAddSection(projectId, undefined, 0)}
+                    />
 
-              <Select
-                value={projectCreatorFilter}
-                onValueChange={setProjectCreatorFilter}
-              >
-                <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
-                  <SelectValue placeholder="Created By" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Created By: All</SelectItem>
-                  <SelectItem value="me">Created By: Me</SelectItem>
-                  {projectCreatorIds.map((creatorId) => {
-                    const creator = database.users.find(
-                      (user) => user.id === creatorId,
-                    );
-                    if (!creator) return null;
-                    return (
-                      <SelectItem key={creator.id} value={creator.id}>
-                        Created By: {creator.firstName} {creator.lastName}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+                    {visibleProjectSections.map((section) => (
+                      <div key={section.id} className="group/section">
+                        <SectionView
+                          section={section}
+                          tasks={visibleProjectTasks}
+                          allTasks={database.tasks}
+                          database={database}
+                          priorityColor={userPriorityColor}
+                          currentUserId={currentUserId}
+                          completedAccordionKey={`project-${projectId}`}
+                          revealActionsOnHover={true}
+                          dueDateLayout={dueDateLayout}
+                          bulkSelectMode={bulkSelectMode}
+                          selectedTaskIds={selectedTaskIds}
+                          loadingTaskIds={loadingTaskIds}
+                          animatingOutTaskIds={animatingOutTaskIds}
+                          optimisticCompletedIds={optimisticCompletedIds}
+                          sectionTasksBySectionId={sectionTasksBySectionId}
+                          childSectionsByParentId={sectionChildrenByParent}
+                          enableDueDateQuickEdit={true}
+                          onTaskFocus={focusTaskRow}
+                          onTaskUpdate={handleProjectTaskUpdate}
+                          onTaskToggle={handleTaskToggle}
+                          onTaskEdit={handleTaskEdit}
+                          onTaskDelete={handleTaskDelete}
+                          onTaskSelect={handleProjectTaskSelect}
+                          onSectionEdit={handleSectionEdit}
+                          onSectionDelete={handleSectionDelete}
+                          onAddTask={(section) =>
+                            openAddTask(section.projectId, section.id)
+                          }
+                          onAddSection={(parentId) =>
+                            openAddSection(projectId, parentId)
+                          }
+                          onAddSectionAfter={(section) =>
+                            openAddSection(
+                              projectId,
+                              undefined,
+                              (section.order || 0) + 1,
+                            )
+                          }
+                          onTaskDrop={handleTaskDropToSection}
+                          onSectionReorder={handleSectionReorder}
+                          userId={currentUserId || ""}
+                        />
+                      </div>
+                    ))}
 
-              <Select
-                value={projectPriorityFilter}
-                onValueChange={setProjectPriorityFilter}
-              >
-                <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
-                  <SelectValue placeholder="Priority" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Priority: All</SelectItem>
-                  <SelectItem value="1">Priority 1</SelectItem>
-                  <SelectItem value="2">Priority 2</SelectItem>
-                  <SelectItem value="3">Priority 3</SelectItem>
-                  <SelectItem value="4">Priority 4</SelectItem>
-                </SelectContent>
-              </Select>
+                    {visibleUnassignedTasks.length > 0 && (
+                      <div className="mt-6">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <h3 className="text-lg font-medium text-zinc-400">
+                            Unassigned Tasks
+                          </h3>
+                          <button
+                            type="button"
+                            onClick={() => setShowAutoSectionConfirm(true)}
+                            disabled={autoSectioning}
+                            className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            title="AI organize unassigned tasks"
+                          >
+                            <Bot
+                              className={`h-4 w-4 ${autoSectioning ? "animate-pulse" : ""}`}
+                            />
+                          </button>
+                        </div>
+                        <TaskList
+                          tasks={visibleUnassignedTasks}
+                          allTasks={database.tasks}
+                          projects={database.projects}
+                          tags={database.tags}
+                          currentUserId={currentUserId}
+                          priorityColor={userPriorityColor}
+                          showCompleted={
+                            database.settings?.showCompletedTasks ?? true
+                          }
+                          completedAccordionKey={`project-${projectId}-unassigned`}
+                          revealActionsOnHover={true}
+                          dueDateLayout={dueDateLayout}
+                          uniformDueBadgeWidth={dueDateLayout === "inline"}
+                          bulkSelectMode={bulkSelectMode}
+                          selectedTaskIds={selectedTaskIds}
+                          loadingTaskIds={loadingTaskIds}
+                          animatingOutTaskIds={animatingOutTaskIds}
+                          optimisticCompletedIds={optimisticCompletedIds}
+                          enableDueDateQuickEdit={true}
+                          onTaskFocus={focusTaskRow}
+                          onTaskUpdate={handleProjectTaskUpdate}
+                          onTaskToggle={handleTaskToggle}
+                          onTaskEdit={handleTaskEdit}
+                          onTaskDelete={handleTaskDelete}
+                          onTaskSelect={handleProjectTaskSelect}
+                        />
+                      </div>
+                    )}
 
-              <ProjectTagFilter
-                tags={database.tags}
-                value={projectTagFilter}
-                onChange={setProjectTagFilter}
-              />
-
-              <Select
-                value={projectStatusFilter}
-                onValueChange={(value) =>
-                  setProjectStatusFilter(value as typeof projectStatusFilter)
-                }
-              >
-                <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Status: Active</SelectItem>
-                  <SelectItem value="completed">Status: Completed</SelectItem>
-                  <SelectItem value="all">Status: All</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {projectSectionLayout === "list" ? (
-            <>
-              {/* Add Section divider at the top */}
-              <AddSectionDivider
-                onClick={() => openAddSection(projectId, undefined, 0)}
-              />
-
-              {/* Sections */}
-              {visibleProjectSections.map((section) => (
-                <div key={section.id} className="group/section">
-                  <SectionView
-                    section={section}
-                    tasks={visibleProjectTasks}
-                    allTasks={database.tasks}
+                    {visibleUnassignedTasks.length === 0 &&
+                      visibleProjectSections.length === 0 && (
+                        <div className="text-center py-8 text-zinc-500">
+                          <p className="mb-4">
+                            No matching tasks or sections for the current
+                            filters.
+                          </p>
+                        </div>
+                      )}
+                  </>
+                ) : (
+                  <ProjectSectionBoard
+                    sections={visibleProjectSections}
+                    unassignedTasks={visibleUnassignedTasks}
+                    visibleTasks={visibleProjectTasks}
                     database={database}
-                    priorityColor={userPriorityColor}
+                    projectId={projectId}
                     currentUserId={currentUserId}
-                    completedAccordionKey={`project-${projectId}`}
-                    revealActionsOnHover={true}
-                    dueDateLayout={dueDateLayout}
                     bulkSelectMode={bulkSelectMode}
                     selectedTaskIds={selectedTaskIds}
                     loadingTaskIds={loadingTaskIds}
@@ -4769,126 +4878,30 @@ export default function ViewPage() {
                     optimisticCompletedIds={optimisticCompletedIds}
                     sectionTasksBySectionId={sectionTasksBySectionId}
                     childSectionsByParentId={sectionChildrenByParent}
-                    enableDueDateQuickEdit={true}
+                    autoSectioning={autoSectioning}
                     onTaskFocus={focusTaskRow}
-                    onTaskUpdate={handleProjectTaskUpdate}
                     onTaskToggle={handleTaskToggle}
                     onTaskEdit={handleTaskEdit}
                     onTaskDelete={handleTaskDelete}
                     onTaskSelect={handleProjectTaskSelect}
                     onSectionEdit={handleSectionEdit}
                     onSectionDelete={handleSectionDelete}
-                    onAddTask={(section) =>
-                      openAddTask(section.projectId, section.id)
+                    onAddTask={(targetProjectId, sectionId) =>
+                      openAddTask(targetProjectId, sectionId)
                     }
-                    onAddSection={(parentId) =>
-                      openAddSection(projectId, parentId)
+                    onAddSection={(parentId, order) =>
+                      openAddSection(projectId, parentId, order)
                     }
-                    onAddSectionAfter={(section) =>
-                      openAddSection(
-                        projectId,
-                        undefined,
-                        (section.order || 0) + 1,
-                      )
+                    onTaskDropToSection={handleTaskDropToSection}
+                    onTaskDropToUnassigned={handleTaskDropToUnassigned}
+                    onAutoOrganizeUnassigned={() =>
+                      setShowAutoSectionConfirm(true)
                     }
-                    onTaskDrop={handleTaskDropToSection}
-                    onSectionReorder={handleSectionReorder}
-                    userId={currentUserId || ""}
                   />
-                </div>
-              ))}
-
-              {/* Unassigned tasks */}
-              {visibleUnassignedTasks.length > 0 && (
-                <div className="mt-6">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <h3 className="text-lg font-medium text-zinc-400">
-                      Unassigned Tasks
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setShowAutoSectionConfirm(true)}
-                      disabled={autoSectioning}
-                      className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-                      title="AI organize unassigned tasks"
-                    >
-                      <Bot
-                        className={`h-4 w-4 ${autoSectioning ? "animate-pulse" : ""}`}
-                      />
-                    </button>
-                  </div>
-                  <TaskList
-                    tasks={visibleUnassignedTasks}
-                    allTasks={database.tasks}
-                    projects={database.projects}
-                    tags={database.tags}
-                    currentUserId={currentUserId}
-                    priorityColor={userPriorityColor}
-                    showCompleted={database.settings?.showCompletedTasks ?? true}
-                    completedAccordionKey={`project-${projectId}-unassigned`}
-                    revealActionsOnHover={true}
-                    dueDateLayout={dueDateLayout}
-                    uniformDueBadgeWidth={dueDateLayout === "inline"}
-                    bulkSelectMode={bulkSelectMode}
-                    selectedTaskIds={selectedTaskIds}
-                    loadingTaskIds={loadingTaskIds}
-                    animatingOutTaskIds={animatingOutTaskIds}
-                    optimisticCompletedIds={optimisticCompletedIds}
-                    enableDueDateQuickEdit={true}
-                    onTaskFocus={focusTaskRow}
-                    onTaskUpdate={handleProjectTaskUpdate}
-                    onTaskToggle={handleTaskToggle}
-                    onTaskEdit={handleTaskEdit}
-                    onTaskDelete={handleTaskDelete}
-                    onTaskSelect={handleProjectTaskSelect}
-                  />
-                </div>
-              )}
-
-              {/* Add Section divider at the bottom if there are unassigned tasks */}
-              {visibleUnassignedTasks.length === 0 &&
-                visibleProjectSections.length === 0 && (
-                  <div className="text-center py-8 text-zinc-500">
-                    <p className="mb-4">
-                      No matching tasks or sections for the current filters.
-                    </p>
-                  </div>
                 )}
-            </>
-          ) : (
-            <ProjectSectionBoard
-              sections={visibleProjectSections}
-              unassignedTasks={visibleUnassignedTasks}
-              visibleTasks={visibleProjectTasks}
-              database={database}
-              projectId={projectId}
-              currentUserId={currentUserId}
-              bulkSelectMode={bulkSelectMode}
-              selectedTaskIds={selectedTaskIds}
-              loadingTaskIds={loadingTaskIds}
-              animatingOutTaskIds={animatingOutTaskIds}
-              optimisticCompletedIds={optimisticCompletedIds}
-              sectionTasksBySectionId={sectionTasksBySectionId}
-              childSectionsByParentId={sectionChildrenByParent}
-              autoSectioning={autoSectioning}
-              onTaskFocus={focusTaskRow}
-              onTaskToggle={handleTaskToggle}
-              onTaskEdit={handleTaskEdit}
-              onTaskDelete={handleTaskDelete}
-              onTaskSelect={handleProjectTaskSelect}
-              onSectionEdit={handleSectionEdit}
-              onSectionDelete={handleSectionDelete}
-              onAddTask={(targetProjectId, sectionId) =>
-                openAddTask(targetProjectId, sectionId)
-              }
-              onAddSection={(parentId, order) =>
-                openAddSection(projectId, parentId, order)
-              }
-              onTaskDropToSection={handleTaskDropToSection}
-              onTaskDropToUnassigned={handleTaskDropToUnassigned}
-              onAutoOrganizeUnassigned={() => setShowAutoSectionConfirm(true)}
-            />
-          )}
+              </>
+            }
+          />
 
           {showProjectNotesModal && (
             <ProjectNotesModal
