@@ -4999,9 +4999,10 @@ export default function ViewPage() {
                   ? "px-3 pr-6 py-6"
                   : view === "time"
                     ? "p-6"
-                    : view.startsWith("project-") &&
-                        projectSectionLayout === "board"
-                      ? "p-6"
+                    : view.startsWith("project-")
+                      ? projectSectionLayout === "board"
+                        ? "p-6"
+                        : "w-full p-6 xl:p-8"
                       : "max-w-4xl mx-auto p-8"
           }
         >
