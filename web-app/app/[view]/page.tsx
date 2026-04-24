@@ -4516,6 +4516,7 @@ export default function ViewPage() {
           <ProjectWorkTabs
             activeTab={projectWorkTab}
             emailCount={projectInboxItems.length}
+            taskCount={visibleProjectTasks.length}
             onTabChange={setProjectWorkTab}
             emailContent={
               <EmailWorkList
