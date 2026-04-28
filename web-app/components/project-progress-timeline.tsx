@@ -277,12 +277,19 @@ export function ProjectProgressTimeline({
             )}
           </svg>
 
-          {activePoint && activeX !== null && (
+          {activePoint && activeX !== null && (() => {
+            const leftPct = (activeX / CHART_WIDTH) * 100;
+            const edge = 12;
+            let translateX = "-50%";
+            if (leftPct > 100 - edge) translateX = "-100%";
+            else if (leftPct < edge) translateX = "0%";
+            return (
             <div
-              className="pointer-events-none absolute -translate-x-1/2 rounded-md border border-zinc-700 bg-zinc-950/95 px-2 py-1 text-xs text-zinc-200 shadow-lg"
+              className="pointer-events-none absolute rounded-md border border-zinc-700 bg-zinc-950/95 px-2 py-1 text-xs text-zinc-200 shadow-lg whitespace-nowrap"
               style={{
-                left: `${(activeX / CHART_WIDTH) * 100}%`,
+                left: `${leftPct}%`,
                 top: "8px",
+                transform: `translateX(${translateX})`,
               }}
             >
               <div className="font-medium">{toDisplayDate(activePoint.date)}</div>
@@ -300,7 +307,8 @@ export function ProjectProgressTimeline({
                 {activePoint.completedCount}/{activePoint.totalCount} tasks
               </div>
             </div>
-          )}
+            );
+          })()}
 
           <p className="mt-2 text-xs text-zinc-500">
             {timeline.startDate} to {timeline.endDate}
