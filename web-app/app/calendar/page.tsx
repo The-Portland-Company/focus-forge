@@ -164,14 +164,15 @@ export default function CalendarPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center min-h-screen bg-zinc-950">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
       </div>
     )
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-7xl">
+    <div className="min-h-screen bg-zinc-950 text-white">
+      <div className="container mx-auto p-6 max-w-7xl">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-100">Calendar</h1>
         <p className="text-gray-400 mt-2">Manage your time blocks and schedule</p>
@@ -401,6 +402,7 @@ export default function CalendarPage() {
             )
           })}
         </div>
+      </div>
       </div>
     </div>
   )
