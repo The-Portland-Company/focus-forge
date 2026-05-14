@@ -6,7 +6,9 @@ export type ThreadAction =
   | "archive"
   | "spam"
   | "delete"
-  | "always_delete_sender";
+  | "always_delete_sender"
+  | "snooze"
+  | "to_task";
 
 const CONFIRMATION_REQUIRED_ACTIONS = new Set<ThreadAction>([
   "quarantine",
@@ -24,6 +26,8 @@ const ACTION_LABELS: Record<ThreadAction, string> = {
   spam: "Spam",
   delete: "Delete",
   always_delete_sender: "Always Delete Sender",
+  snooze: "Snooze",
+  to_task: "Convert to task",
 };
 
 export const DEFAULT_EMAIL_DELETE_UNDO_SECONDS = 60;

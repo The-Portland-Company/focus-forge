@@ -19,6 +19,8 @@ export async function POST(
       userId: auth.user.id,
       threadId: params.id,
       action: body.action,
+      snoozedUntil: body.snoozedUntil ?? null,
+      projectId: body.projectId ?? null,
     });
     if (body.action === "reprocess") {
       const detail = await getThreadDetailForUser(auth.user.id, params.id);

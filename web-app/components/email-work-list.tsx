@@ -6,6 +6,7 @@ import {
   Bot,
   Check,
   ChevronDown,
+  Clock,
   FolderSearch,
   Loader2,
   Mail,
@@ -15,7 +16,10 @@ import {
   Skull,
   Sparkles,
   SquareCheckBig,
+  Trash2,
+  Wand2,
 } from "lucide-react";
+import { SnoozePopover } from "@/components/snooze-popover";
 import { Tooltip } from "@/components/tooltip";
 import {
   Dialog,
@@ -56,7 +60,12 @@ type EmailWorkListProps = {
   onProjectPickerSelect?: (item: InboxItem, projectId: string) => void;
   onProjectCreate?: (item: InboxItem) => void;
   onProjectPickerClose?: () => void;
-  onThreadAction?: (item: InboxItem, action: ThreadAction) => Promise<void> | void;
+  onThreadAction?: (
+    item: InboxItem,
+    action: ThreadAction,
+    options?: { snoozedUntil?: string },
+  ) => Promise<void> | void;
+  showTodayTriageActions?: boolean;
   emptyLabel?: string;
 };
 
@@ -453,6 +462,7 @@ export function EmailWorkList({
   onProjectCreate,
   onProjectPickerClose,
   onThreadAction,
+  showTodayTriageActions = false,
   emptyLabel = "No email work yet.",
 }: EmailWorkListProps) {
   const [linkedTasksThreadTitle, setLinkedTasksThreadTitle] = useState("");
@@ -718,6 +728,63 @@ export function EmailWorkList({
                 {shouldShowStatusBadge(item) && reviewBadgeLabel ? (
                   <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
                     {reviewBadgeLabel}
+                  </div>
+                ) : null}
+                {showTodayTriageActions ? (
+                  <div
+                    className="flex items-center gap-1"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <Tooltip
+                      content="Convert to task"
+                      className="w-auto"
+                      side="top"
+                    >
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void onThreadAction?.(item, "to_task");
+                        }}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-emerald-300"
+                        aria-label="Convert to task"
+                      >
+                        <Wand2 className="h-3.5 w-3.5" />
+                      </button>
+                    </Tooltip>
+                    <SnoozePopover
+                      onSelect={(iso) =>
+                        onThreadAction?.(item, "snooze", { snoozedUntil: iso })
+                      }
+                      trigger={
+                        <button
+                          type="button"
+                          onClick={(event) => event.stopPropagation()}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-sky-300"
+                          aria-label="Snooze email"
+                          title="Snooze"
+                        >
+                          <Clock className="h-3.5 w-3.5" />
+                        </button>
+                      }
+                    />
+                    <Tooltip
+                      content="Delete email"
+                      className="w-auto"
+                      side="top"
+                    >
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void onThreadAction?.(item, "delete");
+                        }}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-rose-300"
+                        aria-label="Delete email"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </Tooltip>
                   </div>
                 ) : null}
               </div>

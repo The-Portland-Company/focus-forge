@@ -3805,7 +3805,11 @@ export async function applyThreadAction(params: {
     | "archive"
     | "spam"
     | "delete"
-    | "always_delete_sender";
+    | "always_delete_sender"
+    | "snooze"
+    | "to_task";
+  snoozedUntil?: string | null;
+  projectId?: string | null;
 }) {
   const admin = getAdminClient();
   const thread = await ensureThreadAccess(params.userId, params.threadId);
@@ -3826,6 +3830,41 @@ export async function applyThreadAction(params: {
 
   if (effectiveAction === "reprocess") {
     return reprocessThread(params.threadId, params.userId);
+  }
+
+  if (effectiveAction === "snooze") {
+    const snoozedIso = params.snoozedUntil
+      ? new Date(params.snoozedUntil).toISOString()
+      : null;
+    if (!snoozedIso || Number.isNaN(new Date(snoozedIso).getTime())) {
+      throw new Error("Invalid snooze timestamp");
+    }
+    await admin
+      .from("email_threads")
+      .update({
+        work_due_date: snoozedIso,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", params.threadId);
+    return { success: true, snoozedUntil: snoozedIso };
+  }
+
+  if (effectiveAction === "to_task") {
+    const tasks = await createTasksForThread(
+      params.userId,
+      params.threadId,
+      params.projectId ?? null,
+    );
+    // Mark resolved so the inbox row drops out of Today after conversion.
+    await admin
+      .from("email_threads")
+      .update({
+        status: "resolved",
+        resolution_state: "taskified",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", params.threadId);
+    return { success: true, tasks };
   }
 
   if (effectiveAction === "approve") {

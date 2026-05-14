@@ -87,6 +87,7 @@ import {
 } from "@/lib/project-bulk-selection";
 import { shouldShowInboxItemInToday } from "@/lib/email-inbox/shared";
 import { mergeDatabasePayload } from "@/lib/database-state";
+import { DailyPlanCard } from "@/components/daily-plan-card";
 
 const EMAIL_BACKGROUND_SYNC_INTERVAL_MS = 15 * 1000;
 const DATABASE_CORE_CACHE_VERSION = 1;
@@ -2994,10 +2995,19 @@ export default function ViewPage() {
     }
 
     if (view === "today") {
-      // Get all tasks with due dates up to end of week
+      // Get all tasks with due dates up to end of week (excluding snoozed)
+      const nowMs = Date.now();
       let allWeekTasks = database.tasks.filter((task) => {
         const dueDate = (task as any).due_date || task.dueDate;
         if (!dueDate) return false;
+        const snoozedUntil =
+          (task as any).snoozed_until || (task as any).snoozedUntil;
+        if (snoozedUntil) {
+          const snoozedMs = new Date(snoozedUntil).getTime();
+          if (Number.isFinite(snoozedMs) && snoozedMs > nowMs) {
+            return false;
+          }
+        }
         // Include overdue, today, tomorrow, and rest of week
         return (
           isOverdue(dueDate) ||
@@ -3499,6 +3509,96 @@ export default function ViewPage() {
 
           {/* Task List with dark container - Grouped by time period */}
           <div className="w-full pb-8 pt-6">
+            <div className="mx-4 mb-4">
+              <DailyPlanCard
+                capacityMinutes={
+                  Math.min(
+                    1440,
+                    Math.max(
+                      30,
+                      Number(
+                        (resolvedCurrentUser as any)?.dailyCapacityMinutes ?? 300,
+                      ) || 300,
+                    ),
+                  )
+                }
+                plannedMinutesActual={todayTasks.reduce((acc, task) => {
+                  if (task.completed) return acc;
+                  const minutes = Number(
+                    (task as any).time_estimate ?? task.timeEstimate ?? 0,
+                  );
+                  return acc + (Number.isFinite(minutes) ? minutes : 0);
+                }, 0)}
+                resolveContext={({ kind, id }) => {
+                  if (kind === "task") {
+                    const task = database.tasks.find((t) => t.id === id);
+                    if (!task) return null;
+                    const project = database.projects.find(
+                      (p) => p.id === task.projectId,
+                    );
+                    return {
+                      task: {
+                        id: task.id,
+                        name: task.name,
+                        projectName: project?.name || null,
+                      },
+                    };
+                  }
+                  const item = database.inboxItems.find(
+                    (entry) => entry.id === id,
+                  );
+                  if (!item) return null;
+                  return {
+                    inboxItem: {
+                      id: item.id,
+                      actionTitle: item.actionTitle,
+                      subject: item.subject,
+                    },
+                  };
+                }}
+                onStartTask={(taskId) => {
+                  const task = database.tasks.find((t) => t.id === taskId);
+                  if (task) {
+                    handleTaskEdit(task);
+                  }
+                }}
+                onCompleteTask={(taskId) => {
+                  void handleTaskToggle(taskId);
+                }}
+                onSnoozeTask={(taskId, iso) => {
+                  void handleTaskUpdate(taskId, {
+                    snoozedUntil: iso,
+                  } as any);
+                }}
+                onSnoozeInboxItem={(inboxItemId, iso) => {
+                  void fetch(
+                    `/api/email/threads/${inboxItemId}/actions`,
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        action: "snooze",
+                        snoozedUntil: iso,
+                      }),
+                    },
+                  )
+                    .then(() => fetchData())
+                    .catch(() => undefined);
+                }}
+                onConvertInboxToTask={(inboxItemId) => {
+                  void fetch(
+                    `/api/email/threads/${inboxItemId}/actions`,
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "to_task" }),
+                    },
+                  )
+                    .then(() => fetchData())
+                    .catch(() => undefined);
+                }}
+              />
+            </div>
             <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 space-y-2 mx-4">
               {todayEmailItems.length > 0 && (
                 <div>
@@ -3533,6 +3633,26 @@ export default function ViewPage() {
                         projects={database.projects}
                         selectedId={selectedTodayEmailId}
                         onSelect={(item) => setSelectedTodayEmailId(item.id)}
+                        showTodayTriageActions
+                        onThreadAction={async (item, action, options) => {
+                          try {
+                            await fetch(
+                              `/api/email/threads/${item.id}/actions`,
+                              {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                },
+                                body: JSON.stringify({
+                                  action,
+                                  snoozedUntil: options?.snoozedUntil ?? null,
+                                }),
+                              },
+                            );
+                          } finally {
+                            await fetchData();
+                          }
+                        }}
                         emptyLabel="No email work is waiting in Today."
                       />
                     </div>

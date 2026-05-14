@@ -18,6 +18,7 @@ import {
   Mail,
   Plus,
   Trash2,
+  Hourglass,
 } from "lucide-react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { UserAvatar } from "@/components/user-avatar";
@@ -84,6 +85,7 @@ export default function SettingsPage() {
   const [emailDeleteUndoSeconds, setEmailDeleteUndoSeconds] = useState<number>(
     DEFAULT_EMAIL_DELETE_UNDO_SECONDS,
   );
+  const [dailyCapacityMinutes, setDailyCapacityMinutes] = useState<number>(300);
   const [saveStatus, setSaveStatus] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
@@ -545,6 +547,12 @@ export default function SettingsPage() {
       const userDeleteUndoSeconds = clampEmailDeleteUndoSeconds(
         (profile as any).email_delete_undo_seconds,
       );
+      const rawCapacity = Number(
+        (profile as any).daily_capacity_minutes ?? 300,
+      );
+      const userCapacityMinutes = Number.isFinite(rawCapacity)
+        ? Math.min(1440, Math.max(30, Math.round(rawCapacity)))
+        : 300;
 
       setProfileColor(userColor);
       setAnimationsEnabled(userAnimations);
@@ -552,6 +560,7 @@ export default function SettingsPage() {
       setProfileMemoji(userMemoji);
       setPriorityColor(userPriorityColor);
       setEmailDeleteUndoSeconds(userDeleteUndoSeconds);
+      setDailyCapacityMinutes(userCapacityMinutes);
 
       // Apply complete theme immediately when profile loads
       applyTheme(userTheme, userColor, userAnimations);
@@ -564,6 +573,7 @@ export default function SettingsPage() {
     priorityColor?: string;
     animationsEnabled?: boolean;
     emailDeleteUndoSeconds?: number;
+    dailyCapacityMinutes?: number;
     themePreset?: ThemePreset;
     emailReplySettings?: EmailReplySettings;
     defaultEmailHtmlRenderMode?: EmailHtmlRenderMode;
@@ -601,6 +611,13 @@ export default function SettingsPage() {
         if (updates.emailDeleteUndoSeconds !== undefined) {
           profileUpdates.email_delete_undo_seconds =
             clampEmailDeleteUndoSeconds(updates.emailDeleteUndoSeconds);
+        }
+        if (updates.dailyCapacityMinutes !== undefined) {
+          const raw = Number(updates.dailyCapacityMinutes);
+          const clamped = Number.isFinite(raw)
+            ? Math.min(1440, Math.max(30, Math.round(raw)))
+            : 300;
+          profileUpdates.daily_capacity_minutes = clamped;
         }
         if (updates.themePreset !== undefined) {
           profileUpdates.theme_preset = getDatabaseThemePreset(
@@ -1263,6 +1280,82 @@ export default function SettingsPage() {
                     </p>
                   </div>
                 </label>
+              </div>
+
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
+                  <Hourglass className="w-5 h-5" />
+                  Daily Focus Capacity
+                </h3>
+                <p className="text-sm text-zinc-400 mb-6">
+                  How many focus hours you realistically have in a day. Today
+                  uses this to flag overcommitted plans and to size the daily
+                  schedule.
+                </p>
+                <div className="space-y-4">
+                  <div className="flex flex-wrap gap-3">
+                    {[
+                      { label: "3h", minutes: 180 },
+                      { label: "4h", minutes: 240 },
+                      { label: "5h", minutes: 300 },
+                      { label: "6h", minutes: 360 },
+                      { label: "8h", minutes: 480 },
+                    ].map((preset) => (
+                      <button
+                        key={preset.minutes}
+                        type="button"
+                        onClick={async () => {
+                          setDailyCapacityMinutes(preset.minutes);
+                          await handleAutoSave({
+                            dailyCapacityMinutes: preset.minutes,
+                          });
+                        }}
+                        className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
+                          dailyCapacityMinutes === preset.minutes
+                            ? "border-theme-primary bg-zinc-800 text-white"
+                            : "border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:border-zinc-700"
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <label className="flex max-w-xs flex-col gap-2">
+                    <span className="text-sm font-medium text-white">
+                      Custom (minutes)
+                    </span>
+                    <input
+                      type="number"
+                      min={30}
+                      max={1440}
+                      step={15}
+                      value={dailyCapacityMinutes}
+                      onChange={(e) => {
+                        const next = Number(e.target.value);
+                        setDailyCapacityMinutes(
+                          Number.isFinite(next)
+                            ? Math.min(1440, Math.max(30, Math.round(next)))
+                            : 300,
+                        );
+                      }}
+                      onBlur={async (e) => {
+                        const next = Number(e.target.value);
+                        const clamped = Number.isFinite(next)
+                          ? Math.min(1440, Math.max(30, Math.round(next)))
+                          : 300;
+                        setDailyCapacityMinutes(clamped);
+                        await handleAutoSave({
+                          dailyCapacityMinutes: clamped,
+                        });
+                      }}
+                      className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-white outline-none transition-colors focus:border-theme-primary"
+                    />
+                  </label>
+                  <p className="text-xs text-zinc-500">
+                    Range: 30 minutes to 24 hours. Default: 5 hours (300
+                    minutes).
+                  </p>
+                </div>
               </div>
 
               <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
