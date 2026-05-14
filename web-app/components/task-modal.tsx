@@ -31,6 +31,7 @@ import {
   Loader2,
   FileText,
   UserCheck,
+  Sparkles,
 } from "lucide-react";
 import type {
   Database,
@@ -174,6 +175,8 @@ export function TaskModal({
     useState<RecurringConfig | null>(null);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [timeEstimate, setTimeEstimate] = useState<string>("");
+  const [estimateSuggesting, setEstimateSuggesting] = useState(false);
+  const [estimateError, setEstimateError] = useState<string | null>(null);
   const [startDate, setStartDate] = useState("");
   const [startTime, setStartTime] = useState<string>("");
   const [endDate, setEndDate] = useState("");
@@ -1629,10 +1632,63 @@ export function TaskModal({
 
           {/* Time Estimate */}
           <div>
-            <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
-              <Clock className="w-4 h-4" />
-              Time Estimate
+            <div className="flex items-center justify-between gap-2 mb-2 text-sm text-zinc-400">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                Time Estimate
+              </div>
+              <button
+                type="button"
+                disabled={estimateSuggesting || !taskName.trim()}
+                onClick={async () => {
+                  setEstimateError(null);
+                  setEstimateSuggesting(true);
+                  try {
+                    const response = await fetch("/api/tasks/estimate", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        name: taskName,
+                        description,
+                      }),
+                    });
+                    if (!response.ok) {
+                      const errorPayload = await response
+                        .json()
+                        .catch(() => ({}));
+                      throw new Error(
+                        errorPayload?.error ||
+                          `Estimate failed (${response.status})`,
+                      );
+                    }
+                    const payload = await response.json();
+                    if (typeof payload?.minutes === "number") {
+                      setTimeEstimate(String(payload.minutes));
+                    }
+                  } catch (error) {
+                    setEstimateError(
+                      error instanceof Error
+                        ? error.message
+                        : "Failed to estimate task",
+                    );
+                  } finally {
+                    setEstimateSuggesting(false);
+                  }
+                }}
+                className="flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 transition-colors hover:border-zinc-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                title="Suggest an estimate based on the task name and description"
+              >
+                {estimateSuggesting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                Suggest
+              </button>
             </div>
+            {estimateError ? (
+              <div className="mb-2 text-xs text-red-400">{estimateError}</div>
+            ) : null}
             <div className="flex items-center gap-2">
               <div className="bg-zinc-800 rounded-lg flex items-center pr-2 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
                 <Clock className="ml-4 w-4 h-4 text-zinc-500 flex-shrink-0" />

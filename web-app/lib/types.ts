@@ -12,6 +12,7 @@ export interface User {
   priorityColor?: string; // Custom priority color (default: green)
   animationsEnabled?: boolean;
   emailDeleteUndoSeconds?: number;
+  dailyCapacityMinutes?: number;
   createdAt: string;
   updatedAt: string;
   status?: "active" | "pending";
@@ -106,6 +107,7 @@ export interface Task {
   todoistUrl?: string;
   sectionId?: string;
   timeEstimate?: number; // Time estimate in minutes
+  snoozedUntil?: string | null;
   startDate?: string;
   startTime?: string;
   endDate?: string;

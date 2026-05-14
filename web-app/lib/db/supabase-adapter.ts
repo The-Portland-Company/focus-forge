@@ -737,6 +737,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
         recurringPattern: task.recurring_pattern,
         orderIndex: task.order_index,
         timeEstimate: task.time_estimate,
+        snoozedUntil: task.snoozed_until,
         startDate: task.start_date,
         startTime: task.start_time,
         endDate: task.end_date,
@@ -817,6 +818,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       recurringPattern: data.recurring_pattern,
       orderIndex: data.order_index,
       timeEstimate: data.time_estimate,
+      snoozedUntil: data.snoozed_until,
       startDate: data.start_date,
       startTime: data.start_time,
       endDate: data.end_date,
@@ -899,6 +901,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "todoist_url",
       "last_todoist_sync",
       "time_estimate",
+      "snoozed_until",
       "start_date",
       "start_time",
       "end_date",
@@ -929,6 +932,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       todoistUrl: "todoist_url",
       todoistSyncToken: "todoist_sync_token",
       timeEstimate: "time_estimate",
+      snoozedUntil: "snoozed_until",
       startDate: "start_date",
       startTime: "start_time",
       endDate: "end_date",
@@ -1048,6 +1052,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "todoist_url",
       "last_todoist_sync",
       "time_estimate",
+      "snoozed_until",
       "start_date",
       "start_time",
       "end_date",
@@ -1077,6 +1082,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       todoistUrl: "todoist_url",
       todoistSyncToken: "todoist_sync_token",
       timeEstimate: "time_estimate",
+      snoozedUntil: "snoozed_until",
       startDate: "start_date",
       startTime: "start_time",
       endDate: "end_date",
@@ -1208,6 +1214,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       animationsEnabled: data.animations_enabled,
       priorityColor: data.priority_color,
       emailDeleteUndoSeconds: data.email_delete_undo_seconds,
+      dailyCapacityMinutes: data.daily_capacity_minutes,
       status: data.status || "active",
       invitedAt: data.invited_at || null,
       inviteToken: data.invite_token || null,
@@ -1238,6 +1245,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
     if (updates.emailDeleteUndoSeconds !== undefined)
       supabaseUpdates.email_delete_undo_seconds =
         updates.emailDeleteUndoSeconds;
+    if (updates.dailyCapacityMinutes !== undefined)
+      supabaseUpdates.daily_capacity_minutes = updates.dailyCapacityMinutes;
     if (updates.role !== undefined) supabaseUpdates.role = updates.role;
 
     const { data, error } = await supabase
@@ -1260,6 +1269,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       animationsEnabled: data.animations_enabled,
       priorityColor: data.priority_color,
       emailDeleteUndoSeconds: data.email_delete_undo_seconds,
+      dailyCapacityMinutes: data.daily_capacity_minutes,
       role: data.role,
     };
   }
