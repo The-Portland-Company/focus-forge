@@ -806,6 +806,24 @@ export default function ViewPage() {
     void fetchData();
   }, [fetchData, user?.id, view]);
 
+  // Refresh the in-memory database whenever something changes the data outside
+  // the normal render flow — the AI assistant (focusforge:data-changed) and the
+  // voice task button (voice-tasks:*). Keeps the visible list in sync without a
+  // manual page refresh.
+  useEffect(() => {
+    const refresh = () => {
+      void fetchData();
+    };
+    window.addEventListener("focusforge:data-changed", refresh);
+    window.addEventListener("voice-tasks:created", refresh);
+    window.addEventListener("voice-tasks:reverted", refresh);
+    return () => {
+      window.removeEventListener("focusforge:data-changed", refresh);
+      window.removeEventListener("voice-tasks:created", refresh);
+      window.removeEventListener("voice-tasks:reverted", refresh);
+    };
+  }, [fetchData]);
+
   const loadProjectInboxItems = useCallback(
     async (projectId: string, options: { force?: boolean } = {}) => {
       if (!projectId) return;
