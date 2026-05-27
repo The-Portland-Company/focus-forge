@@ -1478,6 +1478,48 @@ export async function listInboxItemsForUser(
   );
 }
 
+/**
+ * Lightweight count of unread emails for the macOS Dock badge.
+ * Counts inbound threads still flagged unread that are not spam and still live
+ * in the active inbox (excludes quarantine/deleted/archived/resolved). Runs as a
+ * head-only count so it can be polled cheaply from any view.
+ */
+export async function getUnreadBadgeCountForUser(
+  userId: string,
+): Promise<number> {
+  const admin = getAdminClient();
+  const mailboxes = await listMailboxesForUser(userId);
+  const mailboxIds = mailboxes.map((mailbox) => mailbox.id);
+  if (mailboxIds.length === 0) {
+    return 0;
+  }
+
+  // Fetch the minimal set of unread threads still living in the active inbox and
+  // count in JS. This mirrors the client badge logic exactly and avoids
+  // PostgREST NULL quirks (`classification`/`origin` are nullable on inbound
+  // threads, and `.neq()` would silently drop NULL rows).
+  // Only `status`, `classification`, and `is_unread` are real columns here;
+  // `origin` is derived in the app layer (always "inbound" for stored threads),
+  // so we exclude spam by classification and count the rest. Counted in JS to
+  // sidestep PostgREST NULL handling on the nullable `classification` column.
+  const { data: rows } = await admin
+    .from("email_threads")
+    .select("classification")
+    .in("mailbox_id", mailboxIds)
+    .eq("is_unread", true)
+    .in("status", ["active", "needs_project"]);
+
+  if (!rows) {
+    return 0;
+  }
+
+  return rows.reduce(
+    (count: number, row: any) =>
+      row.classification === "spam" ? count : count + 1,
+    0,
+  );
+}
+
 export async function listSenderHistoryForUser(
   userId: string,
   senderEmail: string,

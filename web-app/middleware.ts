@@ -9,6 +9,12 @@ const publicRoutes = [
   "/favicon.png",
   "/favicon.svg",
   "/icon.svg",
+  // PWA install assets must be publicly fetchable so the OS can register the
+  // app (and render the Dock badge) without an app session.
+  "/manifest.webmanifest",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/icon-maskable-512.png",
   "/auth/login",
   "/auth/register",
   "/auth/forgot-password",
