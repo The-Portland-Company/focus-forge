@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Loader2, Send, Sparkles, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { Loader2, Mic, Send, Sparkles, Square, X } from "lucide-react";
 import { useToast } from "@/contexts/ToastContext";
+import { useRecorder } from "@/lib/voice/use-recorder";
 
 type AgentMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   provider?: string | null;
+  origin?: "voice" | "text";
 };
 
 const PROVIDER_META: Record<string, { name: string; bg: string }> = {
@@ -52,8 +55,9 @@ function ProviderLogo({ provider }: { provider?: string | null }) {
 }
 
 interface AiPlannerFloatingChatProps {
-  projectId: string;
-  projectName: string;
+  /** Optional: present on a project page; omitted when mounted globally. */
+  projectId?: string;
+  projectName?: string;
   /** View identifier for page context (e.g. "project-<id>"). */
   view?: string;
   /** Number of tasks currently visible on screen, for page-aware answers. */
@@ -82,23 +86,37 @@ const SUGGESTIONS = [
 ];
 
 export function AiPlannerFloatingChat({
-  projectId,
-  projectName,
-  view,
+  projectId: projectIdProp,
+  projectName: projectNameProp,
+  view: viewProp,
   visibleTaskCount,
   onCreated,
 }: AiPlannerFloatingChatProps) {
   const { showError } = useToast();
+  const pathname = usePathname();
+  const recorder = useRecorder();
+
+  // When mounted globally (no prop), derive the current project from the URL
+  // (/project-<id>) so page-aware answers and task creation still target it.
+  const { projectId, view } = useMemo(() => {
+    if (projectIdProp) return { projectId: projectIdProp, view: viewProp || `project-${projectIdProp}` };
+    const m = pathname?.match(/\/project-([^/?#]+)/);
+    return { projectId: m?.[1], view: viewProp || (pathname ? pathname.replace(/^\//, "") : undefined) };
+  }, [projectIdProp, viewProp, pathname]);
+  const projectName = projectNameProp;
+
   const [isOpen, setIsOpen] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
   const [sending, setSending] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [model, setModel] = useState<ModelChoice>("auto");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const storageKey = `${SESSION_STORAGE_PREFIX}:${projectId}`;
+  const recording = recorder.state === "recording";
+  const storageKey = `${SESSION_STORAGE_PREFIX}:${projectId || "global"}`;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -135,13 +153,16 @@ export function AiPlannerFloatingChat({
       .finally(() => setLoadingSession(false));
   }, [isOpen, storageKey]);
 
-  const send = async (text: string) => {
+  const send = async (text: string, origin: "voice" | "text" = "text") => {
     const message = text.trim();
     if (!message || sending) return;
 
     setInput("");
     setSending(true);
-    setMessages((prev) => [...prev, { id: `local-${Date.now()}`, role: "user", content: message }]);
+    setMessages((prev) => [
+      ...prev,
+      { id: `local-${Date.now()}`, role: "user", content: message, origin },
+    ]);
 
     try {
       const response = await fetch("/api/ai-agent/chat", {
@@ -150,11 +171,11 @@ export function AiPlannerFloatingChat({
         credentials: "include",
         body: JSON.stringify({
           sessionId,
-          projectId,
+          ...(projectId ? { projectId } : {}),
           message,
           provider: model,
           pageContext: {
-            view: view || `project-${projectId}`,
+            view,
             visibleTaskCount: typeof visibleTaskCount === "number" ? visibleTaskCount : undefined,
           },
         }),
@@ -207,6 +228,54 @@ export function AiPlannerFloatingChat({
     }
   };
 
+  const startRecording = async () => {
+    if (recording || transcribing || sending) return;
+    try {
+      await recorder.start();
+    } catch (err) {
+      showError(
+        "Microphone unavailable",
+        err instanceof Error ? err.message : "Could not start recording.",
+      );
+    }
+  };
+
+  // Stop recording, transcribe via Whisper, then auto-send the transcript to
+  // the agent as a voice-origin message in this same conversation.
+  const stopAndSend = async () => {
+    setTranscribing(true);
+    try {
+      const blob = await recorder.stop();
+      if (!blob) {
+        showError("No audio captured", "Please try again.");
+        return;
+      }
+      const fd = new FormData();
+      fd.append("audio", blob, "recording.webm");
+      const resp = await fetch("/api/voice/transcribe", {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data?.error || "Transcription failed");
+      const text = String(data.text || "").trim();
+      if (!text) {
+        showError("Empty transcript", "Nothing was detected. Please retry.");
+        return;
+      }
+      await send(text, "voice");
+    } catch (err: any) {
+      showError("Voice failed", err?.message || "Could not transcribe audio.");
+    } finally {
+      setTranscribing(false);
+    }
+  };
+
+  const cancelRecording = () => {
+    recorder.cancel();
+  };
+
   return (
     <>
       <button
@@ -222,7 +291,7 @@ export function AiPlannerFloatingChat({
           <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-zinc-100">Focus Forge Assistant</p>
-              <p className="text-xs text-zinc-400">{projectName}</p>
+              <p className="text-xs text-zinc-400">{projectName || "All projects"}</p>
             </div>
             <button
               onClick={() => setIsOpen(false)}
@@ -244,8 +313,8 @@ export function AiPlannerFloatingChat({
                 {messages.length === 0 && (
                   <div className="space-y-3">
                     <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-300">
-                      Ask me about this project or tell me what to do — I can answer questions about your
-                      tasks and create, edit, complete, or delete them for you.
+                      Ask about your tasks or tell me what to do — by typing or tapping the mic to
+                      speak. I can answer questions and create, edit, complete, or delete tasks for you.
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {SUGGESTIONS.map((s) => (
@@ -285,6 +354,12 @@ export function AiPlannerFloatingChat({
                           msg.role === "user" ? "bg-zinc-100 text-zinc-950" : "bg-zinc-800 text-zinc-100"
                         }`}
                       >
+                        {msg.role === "user" && msg.origin === "voice" && (
+                          <span className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                            <Mic className="h-3 w-3" />
+                            Voice
+                          </span>
+                        )}
                         <p className="whitespace-pre-wrap">{msg.content}</p>
                       </div>
                     </div>
@@ -303,50 +378,94 @@ export function AiPlannerFloatingChat({
           </div>
 
           <div className="border-t border-zinc-800 p-3">
-            <div className="flex items-end gap-2">
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    send(input);
-                  }
-                }}
-                placeholder="Ask a question or give an instruction..."
-                className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-zinc-500"
-                disabled={sending}
-              />
-              <label className="sr-only" htmlFor="ai-agent-model">
-                Model
-              </label>
-              <select
-                id="ai-agent-model"
-                value={model}
-                onChange={(e) => {
-                  const next = e.target.value as ModelChoice;
-                  setModel(next);
-                  if (typeof window !== "undefined") localStorage.setItem(MODEL_STORAGE_KEY, next);
-                }}
-                disabled={sending}
-                title="Choose which model answers"
-                className="h-[38px] rounded-xl border border-zinc-700 bg-zinc-900 px-2 text-xs text-zinc-300 outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {MODEL_OPTIONS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => send(input)}
-                disabled={sending || !input.trim()}
-                className="h-[38px] rounded-xl border border-zinc-700 bg-zinc-100 px-3 text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
-                aria-label="Send message"
-              >
-                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              </button>
-            </div>
+            {recording ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={cancelRecording}
+                  className="rounded-xl border border-zinc-700 bg-zinc-900 p-2 text-zinc-400 hover:text-zinc-100"
+                  aria-label="Cancel recording"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="flex flex-1 items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+                  <div className="flex h-5 flex-1 items-end gap-0.5">
+                    {Array.from({ length: 16 }).map((_, i) => {
+                      const seed = (Math.sin(Date.now() / 120 + i) + 1) / 2;
+                      const h = Math.max(3, Math.min(20, recorder.level * 20 * (0.4 + seed)));
+                      return <span key={i} className="w-1 flex-1 rounded bg-amber-400" style={{ height: `${h}px` }} />;
+                    })}
+                  </div>
+                  <span className="text-xs tabular-nums text-amber-200">
+                    {Math.floor(recorder.elapsedMs / 1000)}s
+                  </span>
+                </div>
+                <button
+                  onClick={stopAndSend}
+                  className="flex h-[38px] items-center gap-1 rounded-xl bg-amber-500 px-3 text-sm font-medium text-black hover:bg-amber-400"
+                  aria-label="Stop and send"
+                >
+                  <Square className="h-4 w-4" /> Send
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-end gap-2">
+                <input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      send(input);
+                    }
+                  }}
+                  placeholder={transcribing ? "Transcribing…" : "Ask, or tap the mic to speak…"}
+                  className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-zinc-500"
+                  disabled={sending || transcribing}
+                />
+                <label className="sr-only" htmlFor="ai-agent-model">
+                  Model
+                </label>
+                <select
+                  id="ai-agent-model"
+                  value={model}
+                  onChange={(e) => {
+                    const next = e.target.value as ModelChoice;
+                    setModel(next);
+                    if (typeof window !== "undefined") localStorage.setItem(MODEL_STORAGE_KEY, next);
+                  }}
+                  disabled={sending}
+                  title="Choose which model answers"
+                  className="h-[38px] rounded-xl border border-zinc-700 bg-zinc-900 px-2 text-xs text-zinc-300 outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {MODEL_OPTIONS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                {input.trim() ? (
+                  <button
+                    onClick={() => send(input)}
+                    disabled={sending || transcribing}
+                    className="h-[38px] rounded-xl border border-zinc-700 bg-zinc-100 px-3 text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                    aria-label="Send message"
+                  >
+                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </button>
+                ) : (
+                  <button
+                    onClick={startRecording}
+                    disabled={sending || transcribing}
+                    className="flex h-[38px] w-[42px] items-center justify-center rounded-xl border border-zinc-700 bg-zinc-100 text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                    aria-label="Record voice message"
+                    title="Tap to speak"
+                  >
+                    {transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

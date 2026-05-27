@@ -213,6 +213,15 @@ export const AGENT_TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "list_projects",
+      description:
+        "List the user's accessible projects (id + name). Use this to resolve which project a task belongs to when the user names a project, or when there is no project on the current page and you need to pick/confirm one before creating a task.",
+      parameters: { type: "object", additionalProperties: false, properties: {} },
+    },
+  },
   // ---- Daily prioritization ----
   {
     type: "function" as const,
@@ -385,6 +394,8 @@ export async function executeTool(
         return await completeTask(ctx, args);
       case "delete_task":
         return await deleteTask(ctx, args);
+      case "list_projects":
+        return await listProjects(ctx);
       case "get_daily_capacity":
         return await getDailyCapacity(ctx);
       case "list_today_candidates":
@@ -548,6 +559,17 @@ async function deleteTask(ctx: AgentToolContext, args: Record<string, any>): Pro
   const { error } = await ctx.admin.from("tasks").delete().eq("id", task.id);
   if (error) return { ok: false, error: error.message };
   return { ok: true, data: { deletedId: task.id, name: task.name } };
+}
+
+async function listProjects(ctx: AgentToolContext): Promise<AgentToolResult> {
+  if (ctx.accessibleProjectIds.size === 0) return { ok: true, data: { projects: [] } };
+  const { data, error } = await ctx.admin
+    .from("projects")
+    .select("id, name")
+    .in("id", Array.from(ctx.accessibleProjectIds))
+    .order("name", { ascending: true });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, data: { projects: (data || []).map((p: any) => ({ id: p.id, name: p.name })) } };
 }
 
 // ---- Daily prioritization executors ----

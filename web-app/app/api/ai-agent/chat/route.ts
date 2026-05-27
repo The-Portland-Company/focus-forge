@@ -27,17 +27,24 @@ export async function POST(request: NextRequest) {
       ? body.provider
       : "auto";
 
-    if (!projectId || !message) {
+    if (!message) {
       return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
     }
 
     const admin = createPlannerAdminClient();
-    const project = await getAuthorizedProject(admin, session.user.id, projectId);
-    if (!project) {
-      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+
+    // projectId is optional: present on a project page, absent when the
+    // assistant is used globally (e.g. Today/Inbox views).
+    let project: { id: string; name: string } | null = null;
+    if (projectId) {
+      project = await getAuthorizedProject(admin, session.user.id, projectId);
+      if (!project) {
+        return NextResponse.json({ error: "Project not found" }, { status: 404 });
+      }
     }
 
-    // Resolve or create a persistent session (reuse the planner session tables).
+    // Resolve or create a persistent session. Project sessions key on project_id;
+    // the global session is the one with project_id IS NULL for this user.
     let agentSessionId = sessionId;
     if (agentSessionId) {
       const { data: existing } = await admin
@@ -45,26 +52,32 @@ export async function POST(request: NextRequest) {
         .select("id, user_id, project_id")
         .eq("id", agentSessionId)
         .maybeSingle();
-      if (!existing || existing.user_id !== session.user.id || existing.project_id !== projectId) {
+      const sameScope = existing && existing.project_id === (projectId || null);
+      if (!existing || existing.user_id !== session.user.id || !sameScope) {
         agentSessionId = null;
       }
     }
     if (!agentSessionId) {
-      const { data: latest } = await admin
+      let q = admin
         .from("ai_planner_sessions")
         .select("id")
         .eq("user_id", session.user.id)
-        .eq("project_id", projectId)
         .neq("status", "archived")
         .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(1);
+      q = projectId ? q.eq("project_id", projectId) : q.is("project_id", null);
+      const { data: latest } = await q.maybeSingle();
       agentSessionId = latest?.id ?? null;
     }
     if (!agentSessionId) {
       const { data: created, error: createErr } = await admin
         .from("ai_planner_sessions")
-        .insert({ user_id: session.user.id, project_id: projectId, model: "gpt-4.1", status: "active" })
+        .insert({
+          user_id: session.user.id,
+          project_id: projectId || null,
+          model: "gpt-4.1",
+          status: "active",
+        })
         .select("id")
         .single();
       if (createErr || !created?.id) {
@@ -94,8 +107,8 @@ export async function POST(request: NextRequest) {
       conversation,
       page: {
         view: typeof pageContext.view === "string" ? pageContext.view : null,
-        projectId,
-        projectName: project.name,
+        projectId: projectId || null,
+        projectName: project?.name ?? null,
         visibleTaskCount:
           typeof pageContext.visibleTaskCount === "number" ? pageContext.visibleTaskCount : null,
       },
