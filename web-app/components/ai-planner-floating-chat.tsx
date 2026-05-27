@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
-import { Check, ChevronDown, Loader2, Mic, Send, Sparkles, Square, X } from "lucide-react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Check, ChevronDown, ExternalLink, Loader2, Mic, Send, Sparkles, Square, X } from "lucide-react";
 import { useToast } from "@/contexts/ToastContext";
 import { useRecorder } from "@/lib/voice/use-recorder";
 
@@ -64,6 +64,8 @@ interface AiPlannerFloatingChatProps {
   visibleTaskCount?: number;
   /** Called after the agent mutates data so the page can refresh. */
   onCreated?: () => Promise<void> | void;
+  /** Render full-window (popped-out) instead of a floating panel + FAB. */
+  embedded?: boolean;
 }
 
 const SESSION_STORAGE_PREFIX = "aiAgentSession";
@@ -91,21 +93,27 @@ export function AiPlannerFloatingChat({
   view: viewProp,
   visibleTaskCount,
   onCreated,
+  embedded = false,
 }: AiPlannerFloatingChatProps) {
   const { showError } = useToast();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const recorder = useRecorder();
 
-  // When mounted globally (no prop), derive the current project from the URL
-  // (/project-<id>) so page-aware answers and task creation still target it.
+  // Derive the current project: from props, the URL (/project-<id>) when mounted
+  // globally, or query params when popped out (embedded window on /assistant).
   const { projectId, view } = useMemo(() => {
     if (projectIdProp) return { projectId: projectIdProp, view: viewProp || `project-${projectIdProp}` };
+    if (embedded) {
+      const qp = searchParams?.get("projectId") || undefined;
+      return { projectId: qp, view: searchParams?.get("view") || (qp ? `project-${qp}` : undefined) };
+    }
     const m = pathname?.match(/\/project-([^/?#]+)/);
     return { projectId: m?.[1], view: viewProp || (pathname ? pathname.replace(/^\//, "") : undefined) };
-  }, [projectIdProp, viewProp, pathname]);
-  const projectName = projectNameProp;
+  }, [projectIdProp, viewProp, pathname, embedded, searchParams]);
+  const projectName = projectNameProp || searchParams?.get("projectName") || undefined;
 
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(embedded);
   const [loadingSession, setLoadingSession] = useState(false);
   const [sending, setSending] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -277,30 +285,68 @@ export function AiPlannerFloatingChat({
     recorder.cancel();
   };
 
+  const openPopout = () => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams();
+    if (projectId) params.set("projectId", projectId);
+    if (projectName) params.set("projectName", projectName);
+    if (view) params.set("view", view);
+    const qs = params.toString();
+    window.open(
+      `/assistant${qs ? `?${qs}` : ""}`,
+      "focusforge-assistant",
+      "width=460,height=760,menubar=no,toolbar=no,location=no,status=no",
+    );
+    setIsOpen(false);
+  };
+
+  // On the dedicated popout route, only the embedded instance renders.
+  if (!embedded && pathname === "/assistant") return null;
+
   return (
     <>
-      <button
-        aria-label="Open AI assistant"
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-5 right-5 z-50 rounded-full border border-zinc-700 bg-zinc-900 p-3 text-zinc-100 shadow-lg transition hover:border-zinc-500 hover:bg-zinc-800"
-      >
-        <Sparkles className="h-5 w-5" />
-      </button>
+      {!embedded && (
+        <button
+          aria-label="Open AI assistant"
+          onClick={() => setIsOpen(true)}
+          className="fixed bottom-5 right-5 z-50 rounded-full border border-zinc-700 bg-zinc-900 p-3 text-zinc-100 shadow-lg transition hover:border-zinc-500 hover:bg-zinc-800"
+        >
+          <Sparkles className="h-5 w-5" />
+        </button>
+      )}
 
       {isOpen && (
-        <div className="fixed bottom-20 right-5 z-50 flex h-[78vh] w-[min(94vw,460px)] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl">
+        <div
+          className={
+            embedded
+              ? "fixed inset-0 z-50 flex h-screen w-screen flex-col bg-zinc-950"
+              : "fixed bottom-20 right-5 z-50 flex h-[78vh] w-[min(94vw,460px)] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl"
+          }
+        >
           <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-zinc-100">Focus Forge Assistant</p>
               <p className="text-xs text-zinc-400">{projectName || "All projects"}</p>
             </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-              aria-label="Close assistant"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              {!embedded && (
+                <button
+                  onClick={openPopout}
+                  className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                  aria-label="Pop out assistant"
+                  title="Open in a separate window"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                onClick={() => (embedded ? window.close() : setIsOpen(false))}
+                className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                aria-label={embedded ? "Close window" : "Close assistant"}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-3">
