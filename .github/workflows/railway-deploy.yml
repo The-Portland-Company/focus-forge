@@ -46,7 +46,9 @@ jobs:
 
       - name: Link Railway Project
         if: steps.token.outputs.has_token == 'true'
-        run: railway link -p fbc264f9-bb98-4fbd-a7c6-ccbf3f728280 -e production -s app
+        # A project-scoped RAILWAY_TOKEN doesn't need (and can't use) `link`;
+        # keep it non-fatal so project tokens just skip it.
+        run: railway link -p fbc264f9-bb98-4fbd-a7c6-ccbf3f728280 -e production -s app || echo "link skipped (project token)"
 
       - name: Deploy (Retry)
         if: steps.token.outputs.has_token == 'true'
@@ -58,7 +60,7 @@ jobs:
           for attempt in 1 2 3; do
             echo "railway up attempt ${attempt}/3"
             set +e
-            railway up -c --path-as-root web-app 2>&1 | tee "logs/railway-up-attempt-${attempt}.log"
+            railway up -c --path-as-root web-app --service app 2>&1 | tee "logs/railway-up-attempt-${attempt}.log"
             rc="${PIPESTATUS[0]}"
             set -e
 

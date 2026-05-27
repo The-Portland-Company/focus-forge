@@ -483,6 +483,26 @@ export function Sidebar({
     };
   }, [data.inboxItems]);
 
+  // Active (incomplete) task counts per project, per organization, and overall —
+  // shown as badges in the Organizations accordion.
+  const orgTaskCounts = useMemo(() => {
+    const byProject = new Map<string, number>();
+    for (const task of data.tasks) {
+      if (task.completed) continue;
+      const pid = (task as any).project_id || task.projectId;
+      if (typeof pid === "string") byProject.set(pid, (byProject.get(pid) || 0) + 1);
+    }
+    const byOrg = new Map<string, number>();
+    let total = 0;
+    for (const project of data.projects) {
+      const count = byProject.get(project.id) || 0;
+      const oid = (project as any).organization_id || project.organizationId;
+      if (typeof oid === "string") byOrg.set(oid, (byOrg.get(oid) || 0) + count);
+      total += count;
+    }
+    return { byProject, byOrg, total };
+  }, [data.tasks, data.projects]);
+
   const sentItemsCount = useMemo(() => {
     const sentItems = data.inboxItems.filter(
       (item) =>
@@ -813,20 +833,25 @@ export function Sidebar({
         {isCollapsed ? (
           <Tooltip
             content={
-              data.quarantineCount > 0
-                ? `Email Inbox (${data.quarantineCount} quarantined)`
+              inboxItemsCount.unread > 0
+                ? `Email Inbox (${inboxItemsCount.unread} unread)`
                 : "Email Inbox"
             }
           >
             <Link
               href="/email-inbox"
-              className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
+              className={`relative w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
                 currentView.startsWith("email-")
                   ? "bg-zinc-800 text-white"
                   : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
               }`}
             >
               <Mail className="w-4 h-4" />
+              {inboxItemsCount.unread > 0 ? (
+                <span className="absolute -top-0.5 right-0.5 min-w-[16px] rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1 text-center text-[9px] font-semibold leading-[15px] text-white">
+                  {inboxItemsCount.unread > 99 ? "99+" : inboxItemsCount.unread}
+                </span>
+              ) : null}
             </Link>
           </Tooltip>
         ) : (
@@ -843,9 +868,9 @@ export function Sidebar({
                 <Mail className="w-4 h-4" />
                 Email Inbox
               </span>
-              {data.quarantineCount > 0 ? (
+              {inboxItemsCount.unread > 0 ? (
                 <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                  {data.quarantineCount}
+                  {inboxItemsCount.unread}
                 </span>
               ) : null}
             </Link>
@@ -1017,8 +1042,16 @@ export function Sidebar({
 
         {!isCollapsed && (
           <div className="flex items-center justify-between px-3 py-1 mb-0">
-            <span className="text-xs font-medium text-zinc-500 uppercase">
+            <span className="flex items-center gap-2 text-xs font-medium text-zinc-500 uppercase">
               Organizations
+              {orgTaskCounts.total > 0 ? (
+                <span
+                  className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] tracking-wide text-zinc-400"
+                  title={`${orgTaskCounts.total} active tasks across all organizations`}
+                >
+                  {orgTaskCounts.total}
+                </span>
+              ) : null}
             </span>
             <button
               onClick={() => {
@@ -1185,6 +1218,12 @@ export function Sidebar({
                   >
                     <div className="relative flex items-center px-3 py-1">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span
+                          className="flex-shrink-0 min-w-[18px] text-right text-[10px] tabular-nums text-zinc-500"
+                          title={`${orgTaskCounts.byOrg.get(org.id) || 0} active tasks in ${org.name}`}
+                        >
+                          {orgTaskCounts.byOrg.get(org.id) || 0}
+                        </span>
                         <span className="relative flex items-center flex-shrink-0">
                           <button
                             onClick={(event) => copyOrgId(org.id, event)}
@@ -1390,6 +1429,12 @@ export function Sidebar({
                                   : ""
                               }`}
                             >
+                              <span
+                                className="flex-shrink-0 min-w-[16px] text-right text-[10px] tabular-nums text-zinc-500"
+                                title={`${orgTaskCounts.byProject.get(project.id) || 0} active tasks`}
+                              >
+                                {orgTaskCounts.byProject.get(project.id) || 0}
+                              </span>
                               <GripVertical className="w-3 h-3 opacity-40" />
                               <Link
                                 href={`/project-${project.id}`}
