@@ -176,7 +176,30 @@ export function AiPlannerFloatingChat({
         },
       ]);
 
-      if (data.mutated && onCreated) await onCreated();
+      // Refresh the page after any data-changing action. Trust both the
+      // server's `mutated` flag and the set of tools that actually ran, so a
+      // create/edit/delete reflects without a manual refresh even if the flag
+      // is under-reported. Dispatch a global event too, so any mounted view
+      // (and the voice feature) refreshes via one shared mechanism.
+      const MUTATING_TOOLS = new Set([
+        "create_task",
+        "update_task",
+        "complete_task",
+        "delete_task",
+        "add_task_to_today",
+        "set_task_estimate",
+        "inbox_action",
+      ]);
+      const didMutate =
+        Boolean(data.mutated) ||
+        (Array.isArray(data.toolsUsed) &&
+          data.toolsUsed.some((t: string) => MUTATING_TOOLS.has(t)));
+      if (didMutate) {
+        if (onCreated) await onCreated();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("focusforge:data-changed"));
+        }
+      }
     } catch (error: any) {
       showError("Assistant request failed", error?.message || "Unknown error");
     } finally {
