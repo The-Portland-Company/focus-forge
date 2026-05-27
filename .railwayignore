@@ -7,4 +7,8 @@ logs/
 /build/
 /.next/
 /web-app/.next/
+/web-app/docs/
+/web-app/logs/
+/web-app/.playwright-cli/
 /api/dist/
+docs/screenshots/
