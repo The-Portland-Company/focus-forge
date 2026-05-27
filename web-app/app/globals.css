@@ -322,7 +322,10 @@ input[type="checkbox"]:focus {
   --ring: 240 4.9% 83.9%;
 }
 
-.theme-dark {
+/* App shell background tokens — defined unconditionally so the main shell
+   never falls through to a light body background. This app is dark-first and
+   every surface/component is dark-styled. */
+:root {
   --app-background-color: #09090b;
   --app-background-image:
     radial-gradient(circle at 24% 12%, rgba(0, 71, 171, 0.2) 0, rgba(0, 71, 171, 0.08) 18rem, transparent 34rem),
@@ -332,9 +335,17 @@ input[type="checkbox"]:focus {
     linear-gradient(135deg, #09090b 0%, #111114 48%, #0a0a0c 100%);
 }
 
-.theme-dark body,
-.theme-dark .app-shell-background {
+/* The full-screen app shell is always dark, regardless of theme preset, so a
+   light/system-light account preference can't leave it transparent-white.
+   A future real light theme can override `.theme-light .app-shell-background`. */
+.app-shell-background {
   background-color: var(--app-background-color); /* zinc-950 base */
+  background-image: var(--app-background-image);
+  background-repeat: no-repeat;
+}
+
+.theme-dark body {
+  background-color: var(--app-background-color);
   background-image: var(--app-background-image);
   background-repeat: no-repeat;
 }
