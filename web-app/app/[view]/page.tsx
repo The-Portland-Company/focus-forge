@@ -195,13 +195,6 @@ const ProjectNotesModal = dynamic(
     ),
   { ssr: false },
 );
-const AiPlannerFloatingChat = dynamic(
-  () =>
-    import("@/components/ai-planner-floating-chat").then(
-      (mod) => mod.AiPlannerFloatingChat,
-    ),
-  { ssr: false },
-);
 const EmailInboxView = dynamic(
   () =>
     import("@/components/email-inbox-view").then((mod) => mod.EmailInboxView),
@@ -5214,15 +5207,6 @@ export default function ViewPage() {
               : undefined)
           }
           defaultSectionId={addTaskDefaults.sectionId}
-        />
-      )}
-
-      {view.startsWith("project-") && projectViewData?.project && (
-        <AiPlannerFloatingChat
-          projectId={projectViewData.project.id}
-          projectName={projectViewData.project.name}
-          view={view}
-          onCreated={fetchData}
         />
       )}
 
