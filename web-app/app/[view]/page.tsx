@@ -5203,6 +5203,7 @@ export default function ViewPage() {
         <AiPlannerFloatingChat
           projectId={projectViewData.project.id}
           projectName={projectViewData.project.name}
+          view={view}
           onCreated={fetchData}
         />
       )}
