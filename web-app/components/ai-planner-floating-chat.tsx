@@ -1,76 +1,110 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Bot,
-  Loader2,
-  Send,
-  Sparkles,
-  CheckCircle2,
-  X,
-} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, Send, Sparkles, X } from "lucide-react";
 import { useToast } from "@/contexts/ToastContext";
-import type { PlannerMode, PlanDraft, TaskBlueprint } from "@/lib/ai-planner/types";
 
-type PlannerMessage = {
+type AgentMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
-  createdAt?: string;
+  provider?: string | null;
 };
 
-type PlannerArtifact = {
-  id: string;
-  type: "plan" | "task_blueprint";
-  payload_json: Record<string, unknown>;
-  approved_at?: string | null;
-  created_at: string;
-  updated_at: string;
+const PROVIDER_META: Record<string, { name: string; bg: string }> = {
+  openai: { name: "GPT-4.1", bg: "#0f0f0f" },
+  anthropic: { name: "Claude", bg: "#CC785C" },
+  xai: { name: "Grok", bg: "#0f0f0f" },
 };
 
-type CreationReport = {
-  created: {
-    sections: number;
-    tasks: number;
-    subtasks: number;
-  };
-  failures: Array<{ stage: string; path: string; reason: string }>;
-  createdEntityIds: {
-    sections: string[];
-    tasks: string[];
-    subtasks: string[];
-  };
-};
+function providerMeta(provider?: string | null) {
+  return (provider && PROVIDER_META[provider]) || { name: "AI", bg: "#3f3f46" };
+}
+
+function ProviderLogo({ provider }: { provider?: string | null }) {
+  const common = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none" } as const;
+  if (provider === "anthropic") {
+    return (
+      <svg {...common} stroke="#fff" strokeWidth={2.2} strokeLinecap="round" aria-hidden>
+        <path d="M12 2v20M2 12h20M4.9 4.9l14.2 14.2M19.1 4.9 4.9 19.1" />
+      </svg>
+    );
+  }
+  if (provider === "xai") {
+    return (
+      <svg {...common} fill="#fff" aria-hidden>
+        <path d="M4 3h4l4 5.5L16 3h4l-6.2 8.4L20 21h-4l-4.2-5.8L7.5 21H3.5l6.5-8.8z" />
+      </svg>
+    );
+  }
+  if (provider === "openai") {
+    return (
+      <svg {...common} fill="#fff" aria-hidden>
+        <path d="M21.3 9.9a5 5 0 0 0-.4-4.1 5.05 5.05 0 0 0-5.45-2.4A5.07 5.07 0 0 0 4.6 4.4a5 5 0 0 0-3.35 2.42 5.05 5.05 0 0 0 .62 5.93 5 5 0 0 0 .43 4.11 5.06 5.06 0 0 0 5.45 2.42A5 5 0 0 0 11.5 21a5.06 5.06 0 0 0 4.82-3.5 5 5 0 0 0 3.34-2.42 5.06 5.06 0 0 0-.62-5.92zM11.5 19.6a3.74 3.74 0 0 1-2.4-.87l.12-.07 4-2.3a.66.66 0 0 0 .33-.57v-5.62l1.68.98v4.66a3.76 3.76 0 0 1-3.75 3.75zm-8.06-3.44a3.73 3.73 0 0 1-.45-2.51l.12.07 4 2.3a.64.64 0 0 0 .65 0l4.87-2.8v1.94l-4.06 2.35a3.75 3.75 0 0 1-5.12-1.35zM2.4 7.7a3.74 3.74 0 0 1 1.97-1.65v4.74a.64.64 0 0 0 .32.56l4.85 2.8-1.68.97-4.03-2.32A3.76 3.76 0 0 1 2.4 7.7zm13.83 3.22-4.87-2.82 1.68-.97 4.03 2.32a3.75 3.75 0 0 1-.57 6.76v-4.73a.66.66 0 0 0-.34-.56zm1.67-2.52-.12-.07-3.98-2.32a.65.65 0 0 0-.66 0L9.04 6.95V5l4.03-2.33a3.75 3.75 0 0 1 5.57 3.89zM8.13 11.85l-1.68-.97V6.22a3.75 3.75 0 0 1 6.15-2.88l-.12.07-4 2.3a.66.66 0 0 0-.33.57zm.91-1.97 2.17-1.25 2.17 1.25v2.5l-2.17 1.25-2.17-1.25z" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common} fill="#fff" aria-hidden>
+      <path d="M12 3l1.6 4.8L18 9l-4.4 1.2L12 15l-1.6-4.8L6 9l4.4-1.2z" />
+    </svg>
+  );
+}
 
 interface AiPlannerFloatingChatProps {
   projectId: string;
   projectName: string;
+  /** View identifier for page context (e.g. "project-<id>"). */
+  view?: string;
+  /** Number of tasks currently visible on screen, for page-aware answers. */
+  visibleTaskCount?: number;
+  /** Called after the agent mutates data so the page can refresh. */
   onCreated?: () => Promise<void> | void;
 }
 
-const SESSION_STORAGE_PREFIX = "aiPlannerSession";
+const SESSION_STORAGE_PREFIX = "aiAgentSession";
+const MODEL_STORAGE_KEY = "aiAgentModel";
+
+const MODEL_OPTIONS = [
+  { id: "auto", label: "Auto" },
+  { id: "openai", label: "GPT-4.1" },
+  { id: "anthropic", label: "Claude 4.5" },
+  { id: "xai", label: "Grok 3" },
+] as const;
+
+type ModelChoice = (typeof MODEL_OPTIONS)[number]["id"];
+
+const SUGGESTIONS = [
+  "What tasks do you see on this page?",
+  "What are my priorities today?",
+  "Any new tasks from my inbox?",
+  "Help me clean up my inbox",
+];
 
 export function AiPlannerFloatingChat({
   projectId,
   projectName,
+  view,
+  visibleTaskCount,
   onCreated,
 }: AiPlannerFloatingChatProps) {
-  const { showError, showSuccess } = useToast();
+  const { showError } = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
   const [sending, setSending] = useState(false);
-  const [approving, setApproving] = useState(false);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<PlannerMessage[]>([]);
-  const [artifacts, setArtifacts] = useState<PlannerArtifact[]>([]);
-  const [mode, setMode] = useState<PlannerMode>("clarify");
-  const [readiness, setReadiness] = useState<string>("needs_clarification");
-  const [missingInfo, setMissingInfo] = useState<string[]>([]);
-  const [creationReport, setCreationReport] = useState<CreationReport | null>(null);
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [model, setModel] = useState<ModelChoice>("auto");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const storageKey = `${SESSION_STORAGE_PREFIX}:${projectId}`;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem(MODEL_STORAGE_KEY) as ModelChoice | null;
+    if (saved && MODEL_OPTIONS.some((m) => m.id === saved)) setModel(saved);
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -78,69 +112,39 @@ export function AiPlannerFloatingChat({
 
   useEffect(() => {
     if (!isOpen) return;
-
-    const existingSessionId = typeof window !== "undefined" ? localStorage.getItem(storageKey) : null;
-
-    if (!existingSessionId) return;
+    const existing = typeof window !== "undefined" ? localStorage.getItem(storageKey) : null;
+    if (!existing) return;
 
     setLoadingSession(true);
-    fetch(`/api/ai-planner/session/${existingSessionId}`, {
-      credentials: "include",
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error("Failed to load planner session");
-        }
-        return response.json();
-      })
+    fetch(`/api/ai-planner/session/${existing}`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("load failed"))))
       .then((data) => {
-        const loadedMessages: PlannerMessage[] = (data?.messages || [])
-          .filter((msg: any) => msg.role === "user" || msg.role === "assistant")
-          .map((msg: any) => ({
-            id: msg.id,
-            role: msg.role,
-            content: String(msg.content_text || ""),
-            createdAt: msg.created_at,
-          }));
-
-        setSessionId(existingSessionId);
-        setMessages(loadedMessages);
-        setArtifacts(data?.artifacts || []);
+        const loaded: AgentMessage[] = (data?.messages || [])
+          .filter((m: any) => m.role === "user" || m.role === "assistant")
+          .map((m: any) => ({
+            id: m.id,
+            role: m.role,
+            content: String(m.content_text || ""),
+            provider: m.content_json?.provider ?? null,
+          }))
+          .filter((m: AgentMessage) => m.content.trim().length > 0);
+        setSessionId(existing);
+        setMessages(loaded);
       })
-      .catch(() => {
-        localStorage.removeItem(storageKey);
-      })
-      .finally(() => {
-        setLoadingSession(false);
-      });
+      .catch(() => localStorage.removeItem(storageKey))
+      .finally(() => setLoadingSession(false));
   }, [isOpen, storageKey]);
 
-  const latestPlan = useMemo(
-    () => artifacts.find((artifact) => artifact.type === "plan") || null,
-    [artifacts],
-  );
-
-  const latestTaskBlueprint = useMemo(
-    () => artifacts.find((artifact) => artifact.type === "task_blueprint") || null,
-    [artifacts],
-  );
-
-  const canApprove = Boolean(latestTaskBlueprint && !approving);
-
-  const handleSend = async () => {
-    const message = input.trim();
+  const send = async (text: string) => {
+    const message = text.trim();
     if (!message || sending) return;
 
-    const localMessageId = `local-${Date.now()}`;
     setInput("");
     setSending(true);
-    setMessages((prev) => [
-      ...prev,
-      { id: localMessageId, role: "user", content: message },
-    ]);
+    setMessages((prev) => [...prev, { id: `local-${Date.now()}`, role: "user", content: message }]);
 
     try {
-      const response = await fetch("/api/ai-planner/chat", {
+      const response = await fetch("/api/ai-agent/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -148,96 +152,42 @@ export function AiPlannerFloatingChat({
           sessionId,
           projectId,
           message,
-          mode,
+          provider: model,
+          pageContext: {
+            view: view || `project-${projectId}`,
+            visibleTaskCount: typeof visibleTaskCount === "number" ? visibleTaskCount : undefined,
+          },
         }),
       });
-
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error || "Planner chat failed");
-      }
+      if (!response.ok) throw new Error(data?.error || "Agent request failed");
 
       if (data.sessionId) {
         setSessionId(data.sessionId);
         localStorage.setItem(storageKey, data.sessionId);
       }
-
-      setReadiness(data.readiness || "needs_clarification");
-      setMissingInfo(Array.isArray(data.missingInfo) ? data.missingInfo : []);
-
       setMessages((prev) => [
         ...prev,
         {
           id: `assistant-${Date.now()}`,
           role: "assistant",
           content: String(data.assistantMessage || ""),
+          provider: data.provider ?? null,
         },
       ]);
 
-      if (data.planArtifact || data.taskBlueprintArtifact) {
-        setArtifacts((prev) => {
-          const next = [...prev];
-          if (data.planArtifact) {
-            next.unshift(data.planArtifact);
-          }
-          if (data.taskBlueprintArtifact) {
-            next.unshift(data.taskBlueprintArtifact);
-          }
-          return next;
-        });
-      }
+      if (data.mutated && onCreated) await onCreated();
     } catch (error: any) {
-      showError("Planner request failed", error?.message || "Unknown error");
+      showError("Assistant request failed", error?.message || "Unknown error");
     } finally {
       setSending(false);
     }
   };
 
-  const handleApprove = async () => {
-    if (!sessionId || !latestTaskBlueprint?.id || approving) return;
-
-    try {
-      setApproving(true);
-      const response = await fetch("/api/ai-planner/approve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          sessionId,
-          projectId,
-          artifactId: latestTaskBlueprint.id,
-        }),
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error || "Failed to create tasks from plan");
-      }
-
-      setCreationReport(data as CreationReport);
-      showSuccess(
-        "Tasks created",
-        `Sections: ${data.created.sections}, tasks: ${data.created.tasks}, subtasks: ${data.created.subtasks}`,
-      );
-
-      if (onCreated) {
-        await onCreated();
-      }
-    } catch (error: any) {
-      showError("Approval failed", error?.message || "Unknown error");
-    } finally {
-      setApproving(false);
-    }
-  };
-
-  const planDraft = latestPlan?.payload_json as PlanDraft | undefined;
-  const taskBlueprint = latestTaskBlueprint?.payload_json as TaskBlueprint | undefined;
-
   return (
     <>
       <button
-        aria-label="Open AI planner"
+        aria-label="Open AI assistant"
         onClick={() => setIsOpen(true)}
         className="fixed bottom-5 right-5 z-50 rounded-full border border-zinc-700 bg-zinc-900 p-3 text-zinc-100 shadow-lg transition hover:border-zinc-500 hover:bg-zinc-800"
       >
@@ -248,53 +198,43 @@ export function AiPlannerFloatingChat({
         <div className="fixed bottom-20 right-5 z-50 flex h-[78vh] w-[min(94vw,460px)] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl">
           <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
             <div>
-              <p className="text-sm font-semibold text-zinc-100">AI Project Planner</p>
+              <p className="text-sm font-semibold text-zinc-100">Focus Forge Assistant</p>
               <p className="text-xs text-zinc-400">{projectName}</p>
             </div>
             <button
               onClick={() => setIsOpen(false)}
               className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-              aria-label="Close AI planner"
+              aria-label="Close assistant"
             >
               <X className="h-4 w-4" />
             </button>
-          </div>
-
-          <div className="border-b border-zinc-800 px-4 py-3">
-            <p className="mb-2 text-[11px] uppercase tracking-wide text-zinc-500">Mode</p>
-            <div className="grid grid-cols-3 gap-2 text-xs">
-              <button
-                onClick={() => setMode("clarify")}
-                className={`rounded px-2 py-1.5 ${mode === "clarify" ? "bg-zinc-100 text-zinc-950" : "bg-zinc-800 text-zinc-300"}`}
-              >
-                Clarify
-              </button>
-              <button
-                onClick={() => setMode("draft_plan")}
-                className={`rounded px-2 py-1.5 ${mode === "draft_plan" ? "bg-zinc-100 text-zinc-950" : "bg-zinc-800 text-zinc-300"}`}
-              >
-                Draft Plan
-              </button>
-              <button
-                onClick={() => setMode("finalize_tasks")}
-                className={`rounded px-2 py-1.5 ${mode === "finalize_tasks" ? "bg-zinc-100 text-zinc-950" : "bg-zinc-800 text-zinc-300"}`}
-              >
-                Finalize
-              </button>
-            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-3">
             {loadingSession ? (
               <div className="flex items-center gap-2 text-sm text-zinc-400">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Loading session...
+                Loading conversation...
               </div>
             ) : (
               <>
                 {messages.length === 0 && (
-                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-300">
-                    Ask for project planning help. Start with context, goals, and constraints.
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-300">
+                      Ask me about this project or tell me what to do — I can answer questions about your
+                      tasks and create, edit, complete, or delete them for you.
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {SUGGESTIONS.map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => send(s)}
+                          className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs text-zinc-300 hover:border-zinc-500"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -302,13 +242,24 @@ export function AiPlannerFloatingChat({
                   {messages.map((msg) => (
                     <div
                       key={msg.id}
-                      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                      className={`flex items-start gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                     >
+                      {msg.role === "assistant" && (
+                        <div className="flex w-10 flex-shrink-0 flex-col items-center gap-1 pt-0.5">
+                          <span
+                            className="flex h-7 w-7 items-center justify-center rounded-full ring-1 ring-white/10"
+                            style={{ backgroundColor: providerMeta(msg.provider).bg }}
+                          >
+                            <ProviderLogo provider={msg.provider} />
+                          </span>
+                          <span className="text-[9px] leading-none text-zinc-500">
+                            {providerMeta(msg.provider).name}
+                          </span>
+                        </div>
+                      )}
                       <div
-                        className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
-                          msg.role === "user"
-                            ? "bg-zinc-100 text-zinc-950"
-                            : "bg-zinc-800 text-zinc-100"
+                        className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+                          msg.role === "user" ? "bg-zinc-100 text-zinc-950" : "bg-zinc-800 text-zinc-100"
                         }`}
                       >
                         <p className="whitespace-pre-wrap">{msg.content}</p>
@@ -320,63 +271,7 @@ export function AiPlannerFloatingChat({
                 {sending && (
                   <div className="mt-3 flex items-center gap-2 text-sm text-zinc-400">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Thinking...
-                  </div>
-                )}
-
-                {missingInfo.length > 0 && (
-                  <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
-                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-amber-300">
-                      Missing info
-                    </p>
-                    <ul className="space-y-1 text-xs text-amber-100">
-                      {missingInfo.map((item) => (
-                        <li key={item}>• {item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {planDraft && (
-                  <div className="mt-4 rounded-xl border border-zinc-700 bg-zinc-900 p-3">
-                    <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-zinc-100">
-                      <Bot className="h-4 w-4" />
-                      Plan Draft
-                    </div>
-                    <p className="text-xs text-zinc-300">{planDraft.overview}</p>
-                    <div className="mt-2 text-xs text-zinc-400">
-                      Objectives: {planDraft.objectives?.length || 0} • Milestones: {planDraft.milestones?.length || 0}
-                    </div>
-                  </div>
-                )}
-
-                {taskBlueprint && (
-                  <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
-                    <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-200">
-                      <CheckCircle2 className="h-4 w-4" />
-                      Task Blueprint Ready
-                    </div>
-                    <p className="text-xs text-emerald-100">
-                      Lists: {taskBlueprint.lists?.length || 0}
-                    </p>
-                  </div>
-                )}
-
-                {creationReport && (
-                  <div className="mt-4 rounded-xl border border-zinc-700 bg-zinc-900 p-3 text-xs text-zinc-200">
-                    <p className="mb-1 font-semibold">Creation Summary</p>
-                    <p>
-                      Sections: {creationReport.created.sections} • Tasks: {creationReport.created.tasks} • Subtasks: {creationReport.created.subtasks}
-                    </p>
-                    {creationReport.failures.length > 0 && (
-                      <div className="mt-2 space-y-1 text-red-300">
-                        {creationReport.failures.map((failure, idx) => (
-                          <p key={`${failure.path}-${idx}`}>
-                            {failure.stage}: {failure.path} ({failure.reason})
-                          </p>
-                        ))}
-                      </div>
-                    )}
+                    Working...
                   </div>
                 )}
                 <div ref={messagesEndRef} />
@@ -385,37 +280,46 @@ export function AiPlannerFloatingChat({
           </div>
 
           <div className="border-t border-zinc-800 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[11px] uppercase tracking-wide text-zinc-500">
-                Readiness: {readiness.replaceAll("_", " ")}
-              </span>
-              <button
-                onClick={handleApprove}
-                disabled={!canApprove}
-                className="rounded bg-emerald-500 px-2.5 py-1 text-xs font-medium text-emerald-950 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-300"
-              >
-                {approving ? "Creating..." : "Approve & Create Tasks"}
-              </button>
-            </div>
-            <div className="flex gap-2">
+            <div className="flex items-end gap-2">
               <input
                 value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    handleSend();
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send(input);
                   }
                 }}
-                placeholder="Describe the project or answer questions..."
-                className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none ring-0 placeholder:text-zinc-500 focus:border-zinc-500"
-                disabled={sending || approving}
+                placeholder="Ask a question or give an instruction..."
+                className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-zinc-500"
+                disabled={sending}
               />
+              <label className="sr-only" htmlFor="ai-agent-model">
+                Model
+              </label>
+              <select
+                id="ai-agent-model"
+                value={model}
+                onChange={(e) => {
+                  const next = e.target.value as ModelChoice;
+                  setModel(next);
+                  if (typeof window !== "undefined") localStorage.setItem(MODEL_STORAGE_KEY, next);
+                }}
+                disabled={sending}
+                title="Choose which model answers"
+                className="h-[38px] rounded-xl border border-zinc-700 bg-zinc-900 px-2 text-xs text-zinc-300 outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {MODEL_OPTIONS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
               <button
-                onClick={handleSend}
-                disabled={sending || approving || !input.trim()}
-                className="rounded-xl border border-zinc-700 bg-zinc-100 px-3 text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
-                aria-label="Send planner message"
+                onClick={() => send(input)}
+                disabled={sending || !input.trim()}
+                className="h-[38px] rounded-xl border border-zinc-700 bg-zinc-100 px-3 text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                aria-label="Send message"
               >
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </button>
