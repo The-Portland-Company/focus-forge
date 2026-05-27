@@ -636,6 +636,22 @@ export function TaskList({
         } ${isAnimatingOut ? "animate-slide-fade-out" : ""} ${isOptimisticCompleted && !isAnimatingOut ? "gradient-strikethrough" : ""} ${isLoading ? "opacity-70" : ""}`}
         style={{ paddingLeft: `${16 + indentLevel * 24}px` }}
       >
+        <div className="relative flex flex-shrink-0 items-center justify-center">
+          <button
+            onClick={(e) => copyTaskId(task.id, e)}
+            className="text-zinc-600 hover:text-[rgb(var(--theme-primary-rgb))] transition-colors"
+            title={`Copy task ID: ${task.id.slice(0, 8)}…`}
+            aria-label="Copy task ID"
+          >
+            <Hash className="w-4 h-4" />
+          </button>
+          {copiedTaskId === task.id && (
+            <span className="absolute left-0 top-full mt-1 z-50 whitespace-nowrap text-[10px] font-medium text-green-400 animate-fade-in-up">
+              Copied!
+            </span>
+          )}
+        </div>
+
         {bulkSelectMode &&
           onTaskSelect &&
           (isLoading ? (
@@ -951,21 +967,6 @@ export function TaskList({
                     </button>
                   </div>
                 ) : null}
-
-                <div className="relative flex items-center justify-center w-4">
-                  <button
-                    onClick={(e) => copyTaskId(task.id, e)}
-                    className="text-zinc-600 hover:text-zinc-400 transition-colors"
-                    title={`Copy ID: ${task.id.slice(0, 8)}`}
-                  >
-                    <Hash className="w-4 h-4" />
-                  </button>
-                  {copiedTaskId === task.id && (
-                    <span className="absolute right-0 top-full mt-1 text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up z-50">
-                      Copied!
-                    </span>
-                  )}
-                </div>
 
                 <div className="relative flex items-center justify-center w-4">
                   <button
