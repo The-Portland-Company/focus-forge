@@ -96,6 +96,12 @@ import {
   normalizeMailboxPassword,
 } from "@/lib/email-inbox/shared";
 import {
+  computeUnreadBadgeCount,
+  getDockBadgeDocumentTitle,
+  normalizeDockBadgeCount,
+  publishDockBadgeCount,
+} from "@/lib/dock-badge";
+import {
   applyMailboxProviderPreset,
   createEmptyMailboxForm,
   createMailboxFormFromMailbox,
@@ -184,8 +190,6 @@ const EMAIL_DETAIL_PANEL_STORAGE_KEY =
   "focus-forge.email-inbox.detail-panel-width";
 const EMAIL_INBOX_FILTER_BAR_STORAGE_KEY =
   "focus-forge.email-inbox.filter-bar-collapsed";
-const DOCK_BADGE_EVENT_NAME = "focus-forge:dock-badge-count-change";
-const APP_TITLE = "Focus: Forge";
 
 type EmailInboxSearchHelpToken = {
   value: string;
@@ -580,68 +584,10 @@ export function parseEmailInboxSearchQuery(query: string): ParsedInboxSearchQuer
   );
 }
 
-export function normalizeDockBadgeCount(count: number) {
-  if (!Number.isFinite(count) || count <= 0) {
-    return 0;
-  }
-
-  return Math.floor(count);
-}
-
-export function getDockBadgeDocumentTitle(count: number, appTitle = APP_TITLE) {
-  const normalizedCount = normalizeDockBadgeCount(count);
-  return normalizedCount > 0 ? `(${normalizedCount}) ${appTitle}` : appTitle;
-}
-
-function publishDockBadgeCount(count: number) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const normalizedCount = normalizeDockBadgeCount(count);
-  const badgingNavigator = navigator as Navigator & {
-    setAppBadge?: (count?: number) => Promise<void>;
-    clearAppBadge?: () => Promise<void>;
-  };
-
-  if (normalizedCount > 0) {
-    void badgingNavigator.setAppBadge?.(normalizedCount);
-  } else {
-    void badgingNavigator.clearAppBadge?.();
-  }
-
-  if (typeof document !== "undefined") {
-    document.title = getDockBadgeDocumentTitle(normalizedCount);
-  }
-
-  window.dispatchEvent(
-    new CustomEvent(DOCK_BADGE_EVENT_NAME, {
-      detail: { count: normalizedCount },
-    }),
-  );
-
-  const nativeWindow = window as Window & {
-    electronAPI?: {
-      setDockBadgeCount?: (count: number) => void;
-    };
-    focusForgeDesktop?: {
-      setDockBadgeCount?: (count: number) => void;
-    };
-    webkit?: {
-      messageHandlers?: {
-        setDockBadgeCount?: {
-          postMessage?: (payload: { count: number }) => void;
-        };
-      };
-    };
-  };
-
-  nativeWindow.focusForgeDesktop?.setDockBadgeCount?.(normalizedCount);
-  nativeWindow.electronAPI?.setDockBadgeCount?.(normalizedCount);
-  nativeWindow.webkit?.messageHandlers?.setDockBadgeCount?.postMessage?.({
-    count: normalizedCount,
-  });
-}
+// Dock badge helpers live in @/lib/dock-badge so the top-level app shell can
+// publish a global unread count regardless of which view is mounted. Re-export
+// the pure helpers here for existing tests that import them from this module.
+export { getDockBadgeDocumentTitle, normalizeDockBadgeCount };
 
 function EmailActorAvatar({
   name,
@@ -1553,13 +1499,14 @@ export function EmailInboxView({
     );
   }, [preferences?.default_email_html_render_mode]);
 
+  // Publish the global unread-excluding-spam count to the macOS Dock badge from
+  // the live inbox state so it updates instantly as the user reads/triages mail.
+  // This is not gated on the current view, and we don't clear it on unmount —
+  // the app shell keeps the badge in sync from the last loaded inbox snapshot
+  // when the email view isn't mounted.
   useEffect(() => {
-    publishDockBadgeCount(isEmailInboxView(view) ? unreadInboxCount : 0);
-
-    return () => {
-      publishDockBadgeCount(0);
-    };
-  }, [unreadInboxCount, view]);
+    publishDockBadgeCount(computeUnreadBadgeCount(inboxItems));
+  }, [inboxItems]);
 
   useEffect(() => {
     if (!currentUserId) return;
