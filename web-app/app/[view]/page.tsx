@@ -532,6 +532,13 @@ export default function ViewPage() {
     restOfWeek: true,
   });
   const [showTodaySpamReview, setShowTodaySpamReview] = useState(false);
+  // Today → Email Work: sort + classification filter (default newest first),
+  // a mailbox-sync indicator + refresh button, and a modal listing each
+  // connected mailbox's last sync timestamp.
+  const [todayEmailSort, setTodayEmailSort] = useState<"newest" | "oldest">("newest");
+  const [todayEmailClass, setTodayEmailClass] = useState<string>("all");
+  const [syncingMailboxes, setSyncingMailboxes] = useState(false);
+  const [showMailboxSyncModal, setShowMailboxSyncModal] = useState(false);
   const [showAddSection, setShowAddSection] = useState(false);
   const [sectionParentId, setSectionParentId] = useState<string | undefined>(
     undefined,
@@ -3098,6 +3105,42 @@ export default function ViewPage() {
         );
       });
 
+      // Apply sort + classification filter for the Email Work section.
+      const sortedFilteredTodayEmailItems = todayEmailItems
+        .filter((item) =>
+          todayEmailClass === "all" ? true : item.classification === todayEmailClass,
+        )
+        .slice()
+        .sort((a, b) => {
+          const at = new Date(
+            a.latestMessageAt || a.latestInboundAt || a.latestOutboundAt || a.updatedAt || a.createdAt || 0,
+          ).getTime();
+          const bt = new Date(
+            b.latestMessageAt || b.latestInboundAt || b.latestOutboundAt || b.updatedAt || b.createdAt || 0,
+          ).getTime();
+          return todayEmailSort === "newest" ? bt - at : at - bt;
+        });
+
+      // Most recent mailbox sync across all connected mailboxes.
+      const lastMailboxSync = database.mailboxes.reduce<string | null>((latest, mb) => {
+        if (!mb.lastSyncedAt) return latest;
+        if (!latest) return mb.lastSyncedAt;
+        return mb.lastSyncedAt > latest ? mb.lastSyncedAt : latest;
+      }, null);
+      const formatRelativeSync = (iso: string | null) => {
+        if (!iso) return "never";
+        const t = new Date(iso).getTime();
+        if (!Number.isFinite(t)) return "never";
+        const ms = Date.now() - t;
+        const m = Math.round(ms / 60000);
+        if (m < 1) return "just now";
+        if (m < 60) return `${m}m ago`;
+        const h = Math.round(m / 60);
+        if (h < 24) return `${h}h ago`;
+        const d = Math.round(h / 24);
+        return `${d}d ago`;
+      };
+
       // Helper: ensure parent tasks appear in sections with their children,
       // and children appear alongside their parents
       const addMissingFamily = (sectionTasks: Task[], allActive: Task[]) => {
@@ -3641,9 +3684,74 @@ export default function ViewPage() {
                     }
                   />
                   {todaySections.email && (
-                    <div className="mt-2">
+                    <div className="mt-2 space-y-2">
+                      {/* Controls row: sort, classification filter, refresh,
+                          last-sync indicator, and a button to open a modal
+                          listing each connected mailbox's last sync time. */}
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-2 py-1.5 text-xs">
+                        <label className="flex items-center gap-1 text-zinc-500">
+                          Sort
+                          <select
+                            value={todayEmailSort}
+                            onChange={(e) => setTodayEmailSort(e.target.value as "newest" | "oldest")}
+                            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-zinc-500"
+                          >
+                            <option value="newest">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                          </select>
+                        </label>
+                        <label className="flex items-center gap-1 text-zinc-500">
+                          Filter
+                          <select
+                            value={todayEmailClass}
+                            onChange={(e) => setTodayEmailClass(e.target.value)}
+                            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-zinc-500"
+                          >
+                            <option value="all">All</option>
+                            <option value="actionable">Actionable</option>
+                            <option value="newsletter">Newsletter</option>
+                            <option value="waiting">Waiting</option>
+                            <option value="reference">Reference</option>
+                            <option value="spam">Spam</option>
+                            <option value="unknown">Unknown</option>
+                          </select>
+                        </label>
+                        <div className="ml-auto flex items-center gap-2">
+                          <span className="text-zinc-500">
+                            Last sync: <span className="text-zinc-300">{formatRelativeSync(lastMailboxSync)}</span>
+                          </span>
+                          <button
+                            type="button"
+                            disabled={syncingMailboxes}
+                            onClick={async () => {
+                              setSyncingMailboxes(true);
+                              try {
+                                await fetch("/api/email/mailboxes/sync-due", { method: "POST" });
+                                await fetchData();
+                              } catch {
+                                /* best effort */
+                              } finally {
+                                setSyncingMailboxes(false);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
+                            title="Refresh email — sync due mailboxes"
+                          >
+                            <RefreshCw className={`h-3 w-3 ${syncingMailboxes ? "animate-spin" : ""}`} />
+                            Refresh
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowMailboxSyncModal(true)}
+                            className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-500"
+                            title="Show all connected mailboxes and their last sync"
+                          >
+                            Mailboxes
+                          </button>
+                        </div>
+                      </div>
                       <EmailWorkList
-                        items={todayEmailItems}
+                        items={sortedFilteredTodayEmailItems}
                         mailboxes={database.mailboxes}
                         projects={database.projects}
                         selectedId={selectedTodayEmailId}
@@ -5161,6 +5269,77 @@ export default function ViewPage() {
             }
           }}
         />
+      )}
+
+      {showMailboxSyncModal && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setShowMailboxSyncModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-zinc-100 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Connected mailboxes</h2>
+              <button
+                onClick={() => setShowMailboxSyncModal(false)}
+                aria-label="Close"
+                className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              >
+                ✕
+              </button>
+            </div>
+            {database.mailboxes.length === 0 ? (
+              <p className="text-xs text-zinc-400">No mailboxes connected.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {database.mailboxes.map((mb) => (
+                  <li
+                    key={mb.id}
+                    className="flex items-center justify-between rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-zinc-100">
+                        {mb.displayName || mb.name || mb.emailAddress}
+                      </div>
+                      <div className="truncate text-[10px] text-zinc-500">
+                        {mb.emailAddress}
+                      </div>
+                      {mb.lastSyncError ? (
+                        <div className="mt-0.5 truncate text-[10px] text-red-400" title={mb.lastSyncError}>
+                          Last error: {mb.lastSyncError}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="ml-3 whitespace-nowrap text-zinc-400">
+                      {mb.lastSyncedAt ? formatRelativeSync(mb.lastSyncedAt) : "never"}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                disabled={syncingMailboxes}
+                onClick={async () => {
+                  setSyncingMailboxes(true);
+                  try {
+                    await fetch("/api/email/mailboxes/sync-due", { method: "POST" });
+                    await fetchData();
+                  } finally {
+                    setSyncingMailboxes(false);
+                  }
+                }}
+                className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-200 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3 w-3 ${syncingMailboxes ? "animate-spin" : ""}`} />
+                Refresh all
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showTodaySpamReview && (
