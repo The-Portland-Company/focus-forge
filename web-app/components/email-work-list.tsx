@@ -69,20 +69,19 @@ type EmailWorkListProps = {
   emptyLabel?: string;
 };
 
-/** Compact thread timestamp: same-day → "2:13 PM"; same-year → "Mar 4";
- *  older → "May 27, 2025". Used at the top-right of each email row. */
+/** Compact thread timestamp with BOTH date and time:
+ *  same-year → "Jun 2, 2:13 PM"; older → "Jun 2 '25, 2:13 PM". */
 export function formatThreadTimestamp(iso?: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return "";
   const now = new Date();
-  if (d.toDateString() === now.toDateString()) {
-    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  }
-  if (d.getFullYear() === now.getFullYear()) {
-    return d.toLocaleDateString([], { month: "short", day: "numeric" });
-  }
-  return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  const sameYear = d.getFullYear() === now.getFullYear();
+  const datePart = sameYear
+    ? d.toLocaleDateString([], { month: "short", day: "numeric" })
+    : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} '${String(d.getFullYear()).slice(-2)}`;
+  const timePart = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return `${datePart}, ${timePart}`;
 }
 
 export function formatEmailSubject(subject: string) {
