@@ -5,6 +5,7 @@ import { AuthProvider } from "@/contexts/AuthContext"
 import { ToastProvider } from "@/contexts/ToastContext"
 import { AiPlannerFloatingChat } from "@/components/ai-planner-floating-chat"
 import { DockBadgeSync } from "@/components/dock-badge-sync"
+import { EstimateReviewNudge } from "@/components/estimate-review-nudge"
 import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"] })
@@ -43,6 +44,9 @@ export default function RootLayout({
             <DockBadgeSync />
             <Suspense fallback={null}>
               <AiPlannerFloatingChat />
+            </Suspense>
+            <Suspense fallback={null}>
+              <EstimateReviewNudge />
             </Suspense>
           </ToastProvider>
         </AuthProvider>

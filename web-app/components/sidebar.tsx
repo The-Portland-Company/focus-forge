@@ -34,6 +34,7 @@ import {
   FileCode2,
   Play,
   Square,
+  Hourglass,
 } from "lucide-react";
 import { Database, Project } from "@/lib/types";
 import { UserAvatar } from "@/components/user-avatar";
@@ -134,6 +135,29 @@ export function Sidebar({
   const [showCalendarPopover, setShowCalendarPopover] = useState(false);
   const [calendarCopied, setCalendarCopied] = useState(false);
   const calendarPopoverRef = useRef<HTMLDivElement>(null);
+  const [estimateBacklog, setEstimateBacklog] = useState<number>(0);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/tasks/unestimated?total=1", {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled && typeof json?.total === "number") {
+          setEstimateBacklog(json.total);
+        }
+      } catch {
+        /* non-fatal */
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [currentTimerStartedAt, setCurrentTimerStartedAt] = useState<
     string | null
   >(null);
@@ -1034,6 +1058,40 @@ export function Sidebar({
           >
             <CalendarDays className="w-4 h-4" />
             Upcoming
+          </Link>
+        )}
+
+        {isCollapsed ? (
+          <Tooltip content="Estimates">
+            <Link
+              href="/estimates"
+              className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
+                currentView === "estimates"
+                  ? "bg-zinc-800 text-white"
+                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+              }`}
+            >
+              <Hourglass className="w-4 h-4" />
+            </Link>
+          </Tooltip>
+        ) : (
+          <Link
+            href="/estimates"
+            className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+              currentView === "estimates"
+                ? "bg-zinc-800 text-white"
+                : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+            }`}
+          >
+            <span className="flex items-center gap-3">
+              <Hourglass className="w-4 h-4" />
+              Estimates
+            </span>
+            {estimateBacklog > 0 ? (
+              <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                {estimateBacklog > 99 ? "99+" : estimateBacklog}
+              </span>
+            ) : null}
           </Link>
         )}
 

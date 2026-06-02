@@ -1,3 +1,5 @@
+import type { CalibrationExample } from "./examples";
+
 const ESTIMATOR_MODEL = "gpt-4.1-mini";
 
 export type EstimateConfidence = "low" | "med" | "high";
@@ -8,6 +10,18 @@ export interface TaskEstimateResult {
   rationale?: string;
 }
 
+export interface EstimateTaskInput {
+  name: string;
+  description?: string | null;
+  projectName?: string | null;
+  tags?: string[] | null;
+  priority?: number | null;
+  dueInDays?: number | null;
+  subtaskCount?: number | null;
+  /** Up to ~12 recent calibrations from this user, used as few-shot signal. */
+  examples?: CalibrationExample[];
+}
+
 const ESTIMATE_SCHEMA = {
   name: "task_time_estimate",
   strict: true,
@@ -15,7 +29,7 @@ const ESTIMATE_SCHEMA = {
     type: "object",
     additionalProperties: false,
     properties: {
-      minutes: { type: "integer", minimum: 5, maximum: 480 },
+      minutes: { type: "integer", minimum: 1, maximum: 480 },
       confidence: { type: "string", enum: ["low", "med", "high"] },
       rationale: { type: "string" },
     },
@@ -23,20 +37,21 @@ const ESTIMATE_SCHEMA = {
   },
 } as const;
 
-const SYSTEM_PROMPT = `You estimate how long a single task will take an experienced knowledge worker.
+const SYSTEM_PROMPT = `You estimate how long a single task will take a specific knowledge worker.
 
 Rules:
 - Output JSON only matching the provided schema, no markdown.
-- minutes must be between 5 and 480 (8 hours).
-- Round to common chunks: 15, 30, 45, 60, 90, 120, 180, 240, 360, 480.
+- minutes must be between 1 and 480 (8 hours).
+- Prefer common chunks: 1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 360, 480.
 - Be realistic, not aspirational. Include time for context-switching when implied.
-- confidence "high" only when the task is concrete and the scope is clear.
-- rationale is one short sentence explaining the estimate.`;
+- If recent calibrations are provided, weight your estimate toward similar past durations for similar tasks.
+- "high" confidence only when scope is concrete and similar calibrations agree.
+- rationale is one short sentence (under ~20 words) explaining the estimate.`;
 
 function clampMinutes(value: unknown): number {
   const num = Number(value);
   if (!Number.isFinite(num)) return 30;
-  return Math.min(480, Math.max(5, Math.round(num)));
+  return Math.min(480, Math.max(1, Math.round(num)));
 }
 
 function normalizeConfidence(value: unknown): EstimateConfidence {
@@ -46,10 +61,64 @@ function normalizeConfidence(value: unknown): EstimateConfidence {
   return "low";
 }
 
-export async function estimateTaskMinutes(input: {
-  name: string;
-  description?: string | null;
-}): Promise<TaskEstimateResult> {
+function priorityLabel(priority?: number | null): string | null {
+  if (priority == null) return null;
+  // Lower number = higher priority in this app (1=urgent, 4=low)
+  const map: Record<number, string> = {
+    1: "urgent",
+    2: "high",
+    3: "medium",
+    4: "low",
+  };
+  return map[priority] ?? null;
+}
+
+function formatExamples(examples?: CalibrationExample[]): string {
+  if (!examples || examples.length === 0) return "";
+  const lines = examples.map((ex, i) => {
+    const proj = ex.projectName ? ` [${ex.projectName}]` : "";
+    const desc = ex.description
+      ? ` — ${ex.description.slice(0, 80)}`
+      : "";
+    return `${i + 1}. "${ex.name}"${proj}${desc} → ${ex.acceptedMinutes} min`;
+  });
+  return `\nThis user's recent calibrations (most recent first):\n${lines.join("\n")}\n`;
+}
+
+function buildUserMessage(input: EstimateTaskInput): string {
+  const cleanedName = input.name.trim();
+  const cleanedDescription = (input.description || "").toString().trim();
+
+  const contextLines: string[] = [`Title: ${cleanedName}`];
+  if (input.projectName) contextLines.push(`Project: ${input.projectName}`);
+  const pri = priorityLabel(input.priority);
+  if (pri) contextLines.push(`Priority: ${pri}`);
+  if (input.tags && input.tags.length > 0) {
+    contextLines.push(`Tags: ${input.tags.slice(0, 8).join(", ")}`);
+  }
+  if (input.dueInDays != null) {
+    if (input.dueInDays < 0) contextLines.push(`Due: overdue by ${Math.abs(input.dueInDays)}d`);
+    else if (input.dueInDays === 0) contextLines.push("Due: today");
+    else contextLines.push(`Due in ${input.dueInDays}d`);
+  }
+  if (input.subtaskCount && input.subtaskCount > 0) {
+    contextLines.push(`Has ${input.subtaskCount} subtasks (estimate the parent's coordinating work only)`);
+  }
+  contextLines.push(
+    cleanedDescription
+      ? `Description: ${cleanedDescription.slice(0, 2000)}`
+      : "Description: (none)",
+  );
+
+  return (
+    `Estimate this task:\n${contextLines.join("\n")}\n` +
+    formatExamples(input.examples)
+  );
+}
+
+export async function estimateTaskMinutes(
+  input: EstimateTaskInput,
+): Promise<TaskEstimateResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is not configured");
@@ -59,14 +128,6 @@ export async function estimateTaskMinutes(input: {
   if (!cleanedName) {
     throw new Error("Task name is required for estimation");
   }
-  const cleanedDescription = (input.description || "").toString().trim();
-
-  const userMessage =
-    `Estimate this task:\n` +
-    `Title: ${cleanedName}\n` +
-    (cleanedDescription
-      ? `Description: ${cleanedDescription.slice(0, 2000)}\n`
-      : "Description: (none)\n");
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -83,7 +144,7 @@ export async function estimateTaskMinutes(input: {
       },
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
+        { role: "user", content: buildUserMessage(input) },
       ],
     }),
   });
