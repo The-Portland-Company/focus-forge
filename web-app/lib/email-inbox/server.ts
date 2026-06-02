@@ -2062,6 +2062,144 @@ export async function createMailbox(
   ]);
 }
 
+// Partial update of an existing mailbox's settings + (optionally) connection
+// credentials. Unlike `createMailbox` (which upserts by email and always
+// re-encrypts a password), this is keyed by mailbox id, only touches the fields
+// present in `patch`, and leaves stored credentials untouched when `password`
+// is omitted/empty. This is what powers per-mailbox editing + auto-sync
+// frequency config from clients. Requires manage-level access.
+export async function updateMailboxSettings(
+  userId: string,
+  mailboxId: string,
+  patch: {
+    provider?: MailboxType["provider"];
+    name?: string;
+    displayName?: string | null;
+    loginUsername?: string;
+    password?: string | null;
+    imapHost?: string;
+    imapPort?: number;
+    imapSecure?: boolean;
+    smtpHost?: string;
+    smtpPort?: number;
+    smtpSecure?: boolean;
+    isShared?: boolean;
+    syncFolder?: string;
+    quarantineFolder?: string | null;
+    autoSyncEnabled?: boolean;
+    syncFrequencyMinutes?: number;
+  },
+) {
+  const admin = getAdminClient();
+  const existing = await ensureMailboxManage(userId, mailboxId);
+  const provider = (patch.provider ??
+    existing.provider) as MailboxType["provider"];
+
+  const update: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (patch.name !== undefined) {
+    const name = patch.name.trim();
+    if (!name) throw new Error("Mailbox name is required.");
+    update.name = name;
+  }
+  if (patch.displayName !== undefined) {
+    update.display_name = patch.displayName?.trim() || null;
+  }
+  if (patch.provider !== undefined) {
+    update.provider = provider;
+  }
+  if (patch.loginUsername !== undefined) {
+    const loginUsername = patch.loginUsername.trim();
+    if (!loginUsername) throw new Error("Login username is required.");
+    update.login_username = loginUsername;
+  }
+  if (patch.imapHost !== undefined) {
+    const imapHost = patch.imapHost.trim();
+    if (!imapHost) throw new Error("IMAP host is required.");
+    update.imap_host = imapHost;
+  }
+  if (patch.smtpHost !== undefined) {
+    const smtpHost = patch.smtpHost.trim();
+    if (!smtpHost) throw new Error("SMTP host is required.");
+    update.smtp_host = smtpHost;
+  }
+  if (patch.imapPort !== undefined) {
+    const imapPort = Number(patch.imapPort);
+    if (!Number.isFinite(imapPort) || imapPort <= 0) {
+      throw new Error("IMAP port must be a valid number.");
+    }
+    update.imap_port = imapPort;
+  }
+  if (patch.smtpPort !== undefined) {
+    const smtpPort = Number(patch.smtpPort);
+    if (!Number.isFinite(smtpPort) || smtpPort <= 0) {
+      throw new Error("SMTP port must be a valid number.");
+    }
+    update.smtp_port = smtpPort;
+  }
+  if (patch.imapSecure !== undefined) update.imap_secure = patch.imapSecure;
+  if (patch.smtpSecure !== undefined) update.smtp_secure = patch.smtpSecure;
+  if (patch.syncFolder !== undefined) {
+    update.sync_folder = patch.syncFolder.trim() || "INBOX";
+  }
+  if (patch.quarantineFolder !== undefined) {
+    update.quarantine_folder = patch.quarantineFolder?.trim() || null;
+  }
+  if (patch.autoSyncEnabled !== undefined) {
+    update.auto_sync_enabled = Boolean(patch.autoSyncEnabled);
+  }
+  if (patch.syncFrequencyMinutes !== undefined) {
+    const minutes = Number(patch.syncFrequencyMinutes);
+    if (!Number.isFinite(minutes) || minutes < 1) {
+      throw new Error("Sync frequency must be at least 1 minute.");
+    }
+    update.sync_frequency_minutes = Math.round(minutes);
+  }
+  if (patch.isShared !== undefined) {
+    if (patch.isShared && !existing.organization_id) {
+      throw new Error("Shared mailboxes must belong to an organization.");
+    }
+    update.is_shared = Boolean(patch.isShared);
+  }
+
+  if (patch.password !== undefined && patch.password !== null) {
+    const normalizedPassword = normalizeMailboxPassword(
+      provider,
+      patch.password,
+    );
+    if (normalizedPassword) {
+      const passwordValidationError = getMailboxPasswordValidationError(
+        provider,
+        normalizedPassword,
+      );
+      if (passwordValidationError) throw new Error(passwordValidationError);
+      update.credentials_encrypted = encryptMailboxCredentials({
+        password: normalizedPassword,
+      });
+      update.last_sync_error = null;
+    }
+  }
+
+  const { data: updatedMailbox, error } = await admin
+    .from("mailboxes")
+    .update(update)
+    .eq("id", mailboxId)
+    .select()
+    .single();
+
+  if (error || !updatedMailbox) {
+    throw new Error(error?.message || "Failed to update mailbox");
+  }
+
+  const mailboxes = await listMailboxesForUser(userId);
+  const coerced = mailboxes.find(
+    (row) => String(row.id) === String(mailboxId),
+  );
+  return coerced ?? coerceMailbox(updatedMailbox, []);
+}
+
 export async function syncMailboxById(userId: string, mailboxId: string) {
   const admin = getAdminClient();
   const mailbox = await ensureMailboxManage(userId, mailboxId);
