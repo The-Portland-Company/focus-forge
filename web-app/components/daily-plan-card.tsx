@@ -64,6 +64,13 @@ export function DailyPlanCard({
   const [error, setError] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  // Cache the day's generated plan so navigating away + back doesn't burn AI
+  // usage by re-running. Keyed on today's local date.
+  const todayKey = useMemo(() => {
+    const d = new Date();
+    return `dailyPlan:${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+
   const fetchPlan = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -82,17 +89,55 @@ export function DailyPlanCard({
       const payload = (await response.json()) as DailyPlanResponse;
       setPlan(payload);
       setCurrentIndex(0);
+      try {
+        localStorage.setItem(todayKey, JSON.stringify(payload));
+      } catch {
+        /* quota / private mode */
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load plan");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [todayKey]);
 
+  // On mount: rehydrate today's cached plan if present. Do NOT auto-fetch —
+  // generation is gated behind an explicit "Generate plan" click to avoid
+  // burning AI usage on every Today view visit.
   useEffect(() => {
-    fetchPlan();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    try {
+      const raw = localStorage.getItem(todayKey);
+      if (raw) setPlan(JSON.parse(raw) as DailyPlanResponse);
+    } catch {
+      /* ignore */
+    }
+  }, [todayKey]);
+
+  const replan = useCallback(() => {
+    try {
+      localStorage.removeItem(todayKey);
+    } catch {
+      /* ignore */
+    }
+    void fetchPlan();
+  }, [fetchPlan, todayKey]);
+
+  // When the planner errors with a provider billing/quota issue, surface a
+  // direct link to that provider's billing page.
+  const billingProvider = useMemo(() => {
+    const msg = (error || "").toLowerCase();
+    if (!msg) return null;
+    if (/insufficient_quota|exceeded your current quota|openai|gpt-|whisper-/.test(msg)) {
+      return { label: "OpenAI", url: "https://platform.openai.com/settings/organization/billing/overview" };
+    }
+    if (/credit balance|anthropic|claude/.test(msg)) {
+      return { label: "Anthropic", url: "https://console.anthropic.com/settings/billing" };
+    }
+    if (/spending limit|xai|grok-|groq/.test(msg)) {
+      return { label: "xAI", url: "https://console.x.ai/" };
+    }
+    return null;
+  }, [error]);
 
   const orderedItems = plan?.orderedItems || [];
   const currentItem = orderedItems[currentIndex] || null;
@@ -250,23 +295,59 @@ export function DailyPlanCard({
             <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={fetchPlan}
-          disabled={loading}
-          className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950/40 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-600 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <RefreshCw className="h-3 w-3" /> Replan
-        </button>
+        {plan ? (
+          <button
+            type="button"
+            onClick={replan}
+            disabled={loading}
+            className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950/40 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw className="h-3 w-3" /> Replan
+          </button>
+        ) : null}
       </div>
 
       <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
         {error ? (
-          <div className="text-sm text-red-400">{error}</div>
+          <div className="space-y-2">
+            <div className="text-sm text-red-400">{error}</div>
+            {billingProvider ? (
+              <a
+                href={billingProvider.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-200 hover:bg-amber-500/20"
+              >
+                Open {billingProvider.label} billing →
+              </a>
+            ) : null}
+            <button
+              type="button"
+              onClick={fetchPlan}
+              className="ml-2 inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950/40 px-2.5 py-1 text-xs text-zinc-300 hover:border-zinc-600"
+            >
+              <RefreshCw className="h-3 w-3" /> Try again
+            </button>
+          </div>
         ) : loading && !plan ? (
           <div className="flex items-center gap-2 text-sm text-zinc-400">
             <Loader2 className="h-4 w-4 animate-spin" /> Building today&apos;s
             plan…
+          </div>
+        ) : !plan ? (
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-sm text-zinc-400">
+              Generate today&apos;s plan when you&apos;re ready — runs the AI, so it&apos;s
+              one click instead of automatic.
+            </p>
+            <button
+              type="button"
+              onClick={fetchPlan}
+              disabled={loading}
+              className="inline-flex items-center gap-2 rounded-md bg-[rgb(var(--theme-primary-rgb))] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Sparkles className="h-3.5 w-3.5" /> Generate plan
+            </button>
           </div>
         ) : (
           renderCurrentBody()

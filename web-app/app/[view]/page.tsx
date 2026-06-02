@@ -97,8 +97,12 @@ const PROJECT_SECTION_LAYOUT_STORAGE_KEY = "focus-forge:project-section-layout";
 const getDatabaseCoreCacheKey = (userId?: string | null) =>
   `focus-forge:database-core:v${DATABASE_CORE_CACHE_VERSION}:${userId || "anonymous"}`;
 
-const shouldIncludeInboxItemsForInitialView = (view: string) =>
-  view === "today";
+// The sidebar's Email Inbox sub-item badges (Inbox/Quarantine/Trash/Sent +
+// Rules count) read from data.inboxItems and data.emailRules — and the
+// sidebar renders on every view. So always include inbox items in the
+// database fetch; otherwise the badges go to 0 anywhere the user lands
+// (or refreshes) outside Today.
+const shouldIncludeInboxItemsForInitialView = (_view: string) => true;
 
 const readCachedDatabaseCore = (userId?: string | null): Database | null => {
   if (typeof window === "undefined") return null;
