@@ -69,6 +69,22 @@ type EmailWorkListProps = {
   emptyLabel?: string;
 };
 
+/** Compact thread timestamp: same-day → "2:13 PM"; same-year → "Mar 4";
+ *  older → "May 27, 2025". Used at the top-right of each email row. */
+export function formatThreadTimestamp(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  if (d.getFullYear() === now.getFullYear()) {
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+  return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+}
+
 export function formatEmailSubject(subject: string) {
   return subject.trim() || "Untitled email";
 }
@@ -631,12 +647,27 @@ export function EmailWorkList({
                     )}
                   >
                     <span>To:</span>
-                    <span
-                      className="font-medium"
-                      style={{ color: mailboxAccentColor }}
-                    >
-                      {mailboxLabel}
-                    </span>
+                    {(mailbox?.emailAddress || item.mailboxEmailAddress) ? (
+                      <Tooltip
+                        content={mailbox?.emailAddress || item.mailboxEmailAddress || ""}
+                        className="w-auto"
+                        side="top"
+                      >
+                        <span
+                          className="font-medium cursor-help"
+                          style={{ color: mailboxAccentColor }}
+                        >
+                          {mailboxLabel}
+                        </span>
+                      </Tooltip>
+                    ) : (
+                      <span
+                        className="font-medium"
+                        style={{ color: mailboxAccentColor }}
+                      >
+                        {mailboxLabel}
+                      </span>
+                    )}
                   </span>
                   {ccLine ? (
                     <span
@@ -648,6 +679,33 @@ export function EmailWorkList({
                       {ccLine}
                     </span>
                   ) : null}
+                  {/* Thread timestamp, pushed to the right side of the From/To row */}
+                  {(() => {
+                    const ts = formatThreadTimestamp(
+                      item.latestMessageAt ||
+                        item.latestInboundAt ||
+                        item.latestOutboundAt ||
+                        item.updatedAt ||
+                        item.createdAt,
+                    );
+                    return ts ? (
+                      <span
+                        className={cn(
+                          "ml-auto whitespace-nowrap text-[11px] tabular-nums",
+                          isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
+                        )}
+                        title={
+                          (item.latestMessageAt ||
+                            item.latestInboundAt ||
+                            item.latestOutboundAt ||
+                            item.updatedAt ||
+                            item.createdAt) ?? undefined
+                        }
+                      >
+                        {ts}
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
                 <div className="mt-1 flex min-w-0 items-start gap-2">
                   {shouldShowSpamIndicator(item) ? (
