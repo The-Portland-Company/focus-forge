@@ -69,5 +69,33 @@ export function DockBadgeSync() {
     void fetchAndPublishBadge();
   }, [userId, pathname]);
 
+  // The Safari/macOS Badging API silently no-ops unless Notification permission
+  // has been granted IN THE INSTALLED WEB APP (per WebKit). Auto-prompt once on
+  // first user interaction when running standalone; remember we asked so we
+  // don't pester. Outside an installed app, do nothing (Safari tabs can't badge
+  // anyway, and we don't want to prompt regular browser users).
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof Notification === "undefined") return;
+    if (Notification.permission !== "default") return;
+    const standalone = window.matchMedia?.("(display-mode: standalone)")?.matches;
+    if (!standalone) return;
+    const PROMPT_KEY = "dockBadgeNotifPrompted";
+    if (localStorage.getItem(PROMPT_KEY) === "true") return;
+    const ask = () => {
+      localStorage.setItem(PROMPT_KEY, "true");
+      Notification.requestPermission()
+        .catch(() => undefined)
+        .finally(() => void fetchAndPublishBadge());
+      window.removeEventListener("pointerdown", ask);
+      window.removeEventListener("keydown", ask);
+    };
+    window.addEventListener("pointerdown", ask, { once: true });
+    window.addEventListener("keydown", ask, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", ask);
+      window.removeEventListener("keydown", ask);
+    };
+  }, []);
+
   return null;
 }

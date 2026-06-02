@@ -76,6 +76,21 @@ interface SidebarProps {
   isAddingTask?: boolean; // Whether the add task modal is open
 }
 
+/** Two-tone count badge: unread in the theme accent, read in muted zinc.
+ *  Hidden when there are no items. Used on Email Inbox sub-items. */
+function UnreadReadBadge({ unread, total }: { unread: number; total: number }) {
+  if (!total) return null;
+  const read = Math.max(0, total - unread);
+  return (
+    <span className="text-[10px] tabular-nums">
+      <span className={unread > 0 ? "text-[rgb(var(--theme-primary-rgb))] font-semibold" : "text-zinc-600"}>
+        {unread}
+      </span>
+      <span className="text-zinc-600">/{read}</span>
+    </span>
+  );
+}
+
 export function Sidebar({
   data,
   onAddTask,
@@ -97,6 +112,8 @@ export function Sidebar({
   const router = useRouter();
   // Initialize with collapsed state by default
   const [expandedOrgs, setExpandedOrgs] = useState<string[]>([]);
+  // Email Inbox is an accordion (default open); state persisted in localStorage.
+  const [emailInboxExpanded, setEmailInboxExpanded] = useState<boolean>(true);
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
   const [showPendingInvitations, setShowPendingInvitations] = useState(false);
@@ -167,6 +184,12 @@ export function Sidebar({
         setIsCollapsed(true);
       }
 
+      // Load Email Inbox accordion state (default open)
+      const storedEmailInbox = localStorage.getItem("emailInboxExpanded");
+      if (storedEmailInbox === "false") {
+        setEmailInboxExpanded(false);
+      }
+
       setHasLoadedPreferences(true);
     }
   }, [hasLoadedPreferences]);
@@ -184,6 +207,13 @@ export function Sidebar({
       return () => clearTimeout(timeoutId);
     }
   }, [expandedOrgs, hasLoadedPreferences]);
+
+  // Persist Email Inbox accordion state.
+  useEffect(() => {
+    if (hasLoadedPreferences) {
+      localStorage.setItem("emailInboxExpanded", String(emailInboxExpanded));
+    }
+  }, [emailInboxExpanded, hasLoadedPreferences]);
 
   // Save collapsed state to localStorage
   useEffect(() => {
@@ -528,6 +558,23 @@ export function Sidebar({
     };
   }, [data.inboxItems]);
 
+  // Per-sub-item unread/total counts for two-tone badges.
+  const quarantineItemsCount = useMemo(() => {
+    const quarantineItems = data.inboxItems.filter(
+      (item) => item.status === "quarantine",
+    );
+    return {
+      total: quarantineItems.length || data.quarantineCount || 0,
+      unread: quarantineItems.filter((item) => item.isUnread).length,
+    };
+  }, [data.inboxItems, data.quarantineCount]);
+
+  const rulesCount = useMemo(() => {
+    const rules = (data as any).emailRules;
+    if (!Array.isArray(rules)) return 0;
+    return rules.filter((r: any) => r?.isActive !== false).length;
+  }, [data]);
+
   const orgProjects = (orgId: string) =>
     data.projects
       .filter((project) => {
@@ -856,106 +903,110 @@ export function Sidebar({
           </Tooltip>
         ) : (
           <div className="mb-1">
-            <Link
-              href="/email-inbox"
-              className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                currentView.startsWith("email-")
-                  ? "bg-zinc-800 text-white"
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
-              }`}
-            >
-              <span className="flex items-center gap-3">
-                <Mail className="w-4 h-4" />
-                Email Inbox
-              </span>
-              {inboxItemsCount.unread > 0 ? (
-                <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                  {inboxItemsCount.unread}
-                </span>
-              ) : null}
-            </Link>
-            <div className="mt-0.5 space-y-0.5 border-t border-zinc-800 pt-0.5">
+            {/* Email Inbox: a Link for navigation + a chevron to toggle the
+                accordion of sub-items (Inbox, Quarantine, Trash, Sent, Rules,
+                AI Lab). State persisted in localStorage as "emailInboxExpanded". */}
+            <div className="flex items-center gap-1">
               <Link
                 href="/email-inbox"
-                className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
-                  currentView === "email-inbox"
+                className={`flex-1 flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  currentView.startsWith("email-")
                     ? "bg-zinc-800 text-white"
-                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                    : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
                 }`}
               >
-                <span>Inbox</span>
-                {inboxItemsCount.total > 0 ? (
-                  <span className="text-[10px] text-zinc-400">
-                    {inboxItemsCount.unread}/{inboxItemsCount.total}
+                <span className="flex items-center gap-3">
+                  <Mail className="w-4 h-4" />
+                  Email Inbox
+                </span>
+                {inboxItemsCount.unread > 0 ? (
+                  <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                    {inboxItemsCount.unread}
                   </span>
                 ) : null}
               </Link>
-              <Link
-                href="/email-quarantine"
-                className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
-                  currentView === "email-quarantine"
-                    ? "bg-zinc-800 text-white"
-                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
-                }`}
+              <button
+                onClick={() => setEmailInboxExpanded((v) => !v)}
+                className="p-1 rounded hover:bg-zinc-800 transition-colors group flex-shrink-0"
+                aria-label={emailInboxExpanded ? "Collapse Email Inbox" : "Expand Email Inbox"}
+                aria-expanded={emailInboxExpanded}
               >
-                <span>Quarantine</span>
-                {data.quarantineCount > 0 ? (
-                  <span className="text-[10px] text-zinc-400">
-                    {data.quarantineCount}
-                  </span>
-                ) : null}
-              </Link>
-              <Link
-                href="/email-trash"
-                className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
-                  currentView === "email-trash"
-                    ? "bg-zinc-800 text-white"
-                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
-                }`}
-              >
-                <span>Trash</span>
-                {trashItemsCount.total > 0 ? (
-                  <span className="text-[10px] text-zinc-400">
-                    {trashItemsCount.unread}/{trashItemsCount.total}
-                  </span>
-                ) : null}
-              </Link>
-              <Link
-                href="/email-sent"
-                className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
-                  currentView === "email-sent"
-                    ? "bg-zinc-800 text-white"
-                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
-                }`}
-              >
-                <span>Sent</span>
-                {sentItemsCount.total > 0 ? (
-                  <span className="text-[10px] text-zinc-400">
-                    {sentItemsCount.unread}/{sentItemsCount.total}
-                  </span>
-                ) : null}
-              </Link>
-              <Link
-                href="/email-rules"
-                className={`block rounded-md px-2 py-1 text-sm transition-colors ${
-                  currentView === "email-rules"
-                    ? "bg-zinc-800 text-white"
-                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
-                }`}
-              >
-                Rules
-              </Link>
-              <Link
-                href="/email-ai-lab"
-                className={`block rounded-md px-2 py-1 text-sm transition-colors ${
-                  currentView === "email-ai-lab"
-                    ? "bg-zinc-800 text-white"
-                    : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
-                }`}
-              >
-                AI Lab
-              </Link>
+                <ChevronRight
+                  className={`w-4 h-4 text-zinc-500 group-hover:text-zinc-300 transition-transform ${emailInboxExpanded ? "rotate-90" : ""}`}
+                />
+              </button>
             </div>
+            {emailInboxExpanded && (
+              <div className="mt-0.5 space-y-0.5 border-t border-zinc-800 pt-0.5">
+                <Link
+                  href="/email-inbox"
+                  className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
+                    currentView === "email-inbox"
+                      ? "bg-zinc-800 text-white"
+                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                  }`}
+                >
+                  <span>Inbox</span>
+                  <UnreadReadBadge unread={inboxItemsCount.unread} total={inboxItemsCount.total} />
+                </Link>
+                <Link
+                  href="/email-quarantine"
+                  className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
+                    currentView === "email-quarantine"
+                      ? "bg-zinc-800 text-white"
+                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                  }`}
+                >
+                  <span>Quarantine</span>
+                  <UnreadReadBadge unread={quarantineItemsCount.unread} total={quarantineItemsCount.total} />
+                </Link>
+                <Link
+                  href="/email-trash"
+                  className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
+                    currentView === "email-trash"
+                      ? "bg-zinc-800 text-white"
+                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                  }`}
+                >
+                  <span>Trash</span>
+                  <UnreadReadBadge unread={trashItemsCount.unread} total={trashItemsCount.total} />
+                </Link>
+                <Link
+                  href="/email-sent"
+                  className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
+                    currentView === "email-sent"
+                      ? "bg-zinc-800 text-white"
+                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                  }`}
+                >
+                  <span>Sent</span>
+                  <UnreadReadBadge unread={sentItemsCount.unread} total={sentItemsCount.total} />
+                </Link>
+                <Link
+                  href="/email-rules"
+                  className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
+                    currentView === "email-rules"
+                      ? "bg-zinc-800 text-white"
+                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                  }`}
+                >
+                  <span>Rules</span>
+                  {rulesCount > 0 ? (
+                    <span className="text-[10px] text-zinc-500">{rulesCount}</span>
+                  ) : null}
+                </Link>
+                <Link
+                  href="/email-ai-lab"
+                  className={`block rounded-md px-2 py-1 text-sm transition-colors ${
+                    currentView === "email-ai-lab"
+                      ? "bg-zinc-800 text-white"
+                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                  }`}
+                >
+                  AI Lab
+                </Link>
+              </div>
+            )}
           </div>
         )}
 
