@@ -628,7 +628,7 @@ export function Sidebar({
         <div className="flex items-center justify-between mb-3">
           {!isCollapsed ? (
             <>
-              <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
+              <div className="flex items-center gap-3 px-3 py-2 rounded-lg min-w-0">
                 <UserAvatar
                   name={
                     data.users?.[0]?.name ||
@@ -637,8 +637,8 @@ export function Sidebar({
                   }
                   profileColor={data.users?.[0]?.profileColor}
                   memoji={data.users?.[0]?.profileMemoji}
-                  size={24}
-                  className="flex-shrink-0 text-xs"
+                  size={60}
+                  className="flex-shrink-0 text-base"
                 />
                 <div className="text-sm text-white font-medium leading-none">
                   {data.users?.[0]?.firstName || "User"}
