@@ -833,11 +833,12 @@ export function EmailWorkList({
                   <div className="min-w-0">
                     <div
                       className={cn(
-                        "min-w-0 break-words text-white",
+                        "flex min-w-0 items-start gap-1.5 break-words text-white",
                         isVisuallyUnread ? "font-semibold" : "font-medium",
                       )}
                     >
-                      {aiTitle}
+                      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                      <span className="min-w-0 break-words">{aiTitle}</span>
                     </div>
                     {hasAiTitle ? (
                       <div className="mt-0.5 break-words text-xs text-zinc-500">
