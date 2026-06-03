@@ -3,7 +3,6 @@
 import * as Popover from "@radix-ui/react-popover";
 import { useState, type CSSProperties } from "react";
 import {
-  Bot,
   Check,
   ChevronDown,
   Clock,
@@ -543,15 +542,12 @@ export function EmailWorkList({
         const rawSummaryText = item.summaryText
           ? formatInboxPreviewText(item.summaryText)
           : null;
-        const summaryText = shouldShowAiSummary({
-          summaryText: rawSummaryText,
-          previewText: item.previewText
-            ? formatInboxPreviewText(item.previewText)
-            : null,
-          forceShow: alwaysShowSummary,
-        })
-          ? rawSummaryText
-          : null;
+        // Task B: always surface the AI summary when one exists.
+        const displaySummary =
+          rawSummaryText && rawSummaryText !== "No summary available yet."
+            ? rawSummaryText
+            : null;
+        // Task C: cleaned email body excerpt used for the hover tooltip.
         const previewText = item.previewText
           ? formatInboxPreviewText(item.previewText)
           : rawSummaryText || "No summary available yet.";
@@ -844,55 +840,16 @@ export function EmailWorkList({
               </div>
               </div>
 
-              {summaryText ? (
-                <div
-                  className={cn(
-                    "overflow-hidden transition-all duration-200",
-                    alwaysShowSummary
-                      ? "mt-3 max-h-24 opacity-100"
-                      : "max-h-0 opacity-0 group-hover:mt-3 group-hover:max-h-24 group-hover:opacity-100",
-                  )}
-                >
+              {displaySummary ? (
+                <div className="mt-3">
                   <div
                     className={cn(
-                      "inline-flex max-w-full items-start gap-2 text-sm italic",
+                      "flex max-w-full items-start gap-2 text-sm italic",
                       isVisuallyUnread ? "text-zinc-200" : "text-zinc-400",
                     )}
                   >
-                    <Bot className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
-                    <span className="min-w-0 truncate whitespace-nowrap">
-                      {summaryText}
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-
-              {item.previewText ? (
-                <div
-                  className={cn(
-                    "overflow-hidden transition-all duration-200",
-                    alwaysShowExcerpt
-                      ? cn(
-                          "max-h-28 opacity-100",
-                          summaryText ? "mt-2" : "mt-3",
-                        )
-                      : cn(
-                          "max-h-0 opacity-0",
-                          summaryText
-                            ? "group-hover:mt-2"
-                            : "group-hover:mt-3",
-                          "group-hover:max-h-28 group-hover:opacity-100",
-                        ),
-                  )}
-                >
-                  <div
-                    className={cn(
-                      getEmailWorkPreviewClassName(isVisuallyUnread),
-                      "mt-0",
-                      isVisuallyUnread ? "opacity-100" : "opacity-100",
-                    )}
-                  >
-                    {previewText}
+                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
+                    <span className="min-w-0 break-words">{displaySummary}</span>
                   </div>
                 </div>
               ) : null}
