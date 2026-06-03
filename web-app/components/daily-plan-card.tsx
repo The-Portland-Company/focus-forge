@@ -10,8 +10,17 @@ import {
   Loader2,
   Inbox,
   ListChecks,
+  HelpCircle,
 } from "lucide-react";
 import { SnoozePopover } from "@/components/snooze-popover";
+import { Tooltip } from "@/components/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { DailyPlanResponse } from "@/lib/daily-plan/types";
 
 export interface DailyPlanCardItemContext {
@@ -63,6 +72,7 @@ export function DailyPlanCard({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [showHelp, setShowHelp] = useState(false);
 
   // Cache the day's generated plan so navigating away + back doesn't burn AI
   // usage by re-running. Keyed on today's local date.
@@ -335,19 +345,32 @@ export function DailyPlanCard({
             plan…
           </div>
         ) : !plan ? (
-          <div className="flex flex-col items-start gap-2">
-            <p className="text-sm text-zinc-400">
-              Generate today&apos;s plan when you&apos;re ready — runs the AI, so it&apos;s
-              one click instead of automatic.
-            </p>
+          <div className="group relative">
             <button
               type="button"
-              onClick={fetchPlan}
-              disabled={loading}
-              className="inline-flex items-center gap-2 rounded-md bg-[rgb(var(--theme-primary-rgb))] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => setShowHelp(true)}
+              aria-label="What does Generate plan do?"
+              className="absolute -right-1 -top-1 z-10 rounded-full p-1 text-zinc-500 opacity-0 transition-opacity hover:text-zinc-200 focus:opacity-100 group-hover:opacity-100"
             >
-              <Sparkles className="h-3.5 w-3.5" /> Generate plan
+              <HelpCircle className="h-4 w-4" />
             </button>
+            <div className="flex items-center gap-3 pr-6">
+              <p className="flex-1 text-sm text-zinc-400">
+                Generate today&apos;s plan when you&apos;re ready — runs the AI, so
+                it&apos;s one click instead of automatic.
+              </p>
+              <Tooltip content="Generate plan" side="top" align="end" className="shrink-0">
+                <button
+                  type="button"
+                  onClick={fetchPlan}
+                  disabled={loading}
+                  aria-label="Generate plan"
+                  className="inline-flex items-center justify-center rounded-md bg-[rgb(var(--theme-primary-rgb))] p-2 text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Sparkles className="h-4 w-4" />
+                </button>
+              </Tooltip>
+            </div>
           </div>
         ) : (
           renderCurrentBody()
@@ -386,6 +409,64 @@ export function DailyPlanCard({
           {plan.deferred.length === 1 ? "" : "s"} deferred to a later day.
         </div>
       ) : null}
+
+      <Dialog open={showHelp} onOpenChange={setShowHelp}>
+        <DialogContent className="max-w-lg border-zinc-800 bg-zinc-900">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-theme-primary" />
+              How Generate plan works
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Generate plan sends your eligible work to an AI planner (OpenAI
+              GPT-4.1) that orders your day, estimates each item, and defers what
+              won&apos;t fit. It runs only when you click — nothing is generated
+              automatically — and the result is cached locally for the rest of the
+              day. Use Replan to discard the cache and run it again.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 text-sm text-zinc-300">
+            <div>
+              <p className="mb-1 font-medium text-zinc-200">What it includes</p>
+              <ul className="list-disc space-y-1 pl-5 text-zinc-400">
+                <li>
+                  Incomplete tasks due overdue, today, tomorrow, or later this
+                  week — snoozed tasks are skipped (up to 60 tasks).
+                </li>
+                <li>
+                  Email inbox items eligible for Today, treated as quick triage
+                  (up to 30).
+                </li>
+                <li>Calendar time blocks scheduled for the day.</li>
+                <li>
+                  Your daily focus capacity from your profile (default 5h / 300
+                  minutes).
+                </li>
+                <li>Pinned tasks, which are ranked to be done soon.</li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="mb-1 font-medium text-zinc-200">How it ranks work</p>
+              <ul className="list-disc space-y-1 pl-5 text-zinc-400">
+                <li>
+                  Higher priority, deadline pressure, overdue status, and tasks
+                  blocking other work all rank earlier.
+                </li>
+                <li>
+                  Each item gets a time estimate (your saved estimate when set,
+                  otherwise a proposed one) and a one-line rationale.
+                </li>
+                <li>
+                  Items that overflow your capacity are deferred with a suggested
+                  snooze time when they aren&apos;t deadline-critical.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
