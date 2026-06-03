@@ -555,10 +555,10 @@ export function EmailWorkList({
         const previewText = item.previewText
           ? formatInboxPreviewText(item.previewText)
           : rawSummaryText || "No summary available yet.";
-        const showSecondaryActionTitle = shouldShowSecondaryActionTitle(
-          item.actionTitle,
-          item.subject,
-        );
+        const hasAiTitle = Boolean(item.actionTitle?.trim());
+        const aiTitle = hasAiTitle
+          ? (item.actionTitle as string).trim()
+          : formatEmailSubject(item.subject);
         const reviewState = getInboxReviewState(item);
         const reviewBadgeLabel = getInboxReviewBadgeLabel(item);
         const canMoveToQuarantine =
@@ -761,25 +761,22 @@ export function EmailWorkList({
                       </Tooltip>
                     )
                   ) : null}
-                  <div
-                    className={cn(
-                      "min-w-0 break-words text-white",
-                      isVisuallyUnread ? "font-semibold" : "font-normal",
-                    )}
-                  >
-                    {formatEmailSubject(item.subject)}
+                  <div className="min-w-0">
+                    <div
+                      className={cn(
+                        "min-w-0 break-words text-white",
+                        isVisuallyUnread ? "font-semibold" : "font-medium",
+                      )}
+                    >
+                      {aiTitle}
+                    </div>
+                    {hasAiTitle ? (
+                      <div className="mt-0.5 break-words text-xs text-zinc-500">
+                        Subject: {formatEmailSubject(item.subject)}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
-                {showSecondaryActionTitle ? (
-                  <div
-                    className={cn(
-                      "mt-1 break-words text-sm",
-                      isVisuallyUnread ? "text-white" : "text-zinc-500",
-                    )}
-                  >
-                    {item.actionTitle}
-                  </div>
-                ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 {shouldShowStatusBadge(item) && reviewBadgeLabel ? (
