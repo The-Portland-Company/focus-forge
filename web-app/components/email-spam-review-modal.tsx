@@ -37,6 +37,8 @@ import { cn } from "@/lib/utils";
 import {
   formatEmailSubject,
   formatParticipantLine,
+  formatParticipantName,
+  getPrimarySenderParticipant,
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
 
@@ -394,6 +396,9 @@ export function EmailSpamReviewModal({
                     thread.participants,
                     "from",
                   );
+                  const senderName = formatParticipantName(
+                    getPrimarySenderParticipant(thread.participants),
+                  );
                   const isBusy = busyThreadId === thread.id;
                   const isConfirming = confirmingThreadId === thread.id;
                   const showSecondaryActionTitle =
@@ -431,8 +436,16 @@ export function EmailSpamReviewModal({
                               </span>
                             ) : null}
                           </div>
-                          <div className="mt-2 text-sm font-medium text-white">
-                            {formatEmailSubject(thread.subject)}
+                          <div className="mt-2 flex min-w-0 items-center gap-2">
+                            <span
+                              title={senderName}
+                              className="inline-flex max-w-[45%] shrink-0 items-center rounded-full border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/15 px-2.5 py-1 text-xs font-semibold text-white"
+                            >
+                              <span className="truncate">{senderName}</span>
+                            </span>
+                            <span className="min-w-0 truncate text-sm font-medium text-white">
+                              {formatEmailSubject(thread.subject)}
+                            </span>
                           </div>
                           {showSecondaryActionTitle ? (
                             <div className="mt-1 text-sm text-zinc-400">
