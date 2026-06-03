@@ -4660,11 +4660,18 @@ export function EmailInboxView({
                 </div>
                 <div className="mt-4 min-w-0 space-y-3">
                   <div className="flex min-w-0 items-center justify-between gap-3">
-                    <div className="inline-flex min-w-0 items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
-                      <Mail className="h-3.5 w-3.5" />
-                      <span className="truncate">
-                        {formatEmailSubject(selectedThread.subject)}
-                      </span>
+                    <div className="min-w-0">
+                      <div className="inline-flex min-w-0 items-center gap-2 text-sm font-semibold text-white">
+                        <Mail className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                        <span className="truncate">
+                          {selectedThread.actionTitle?.trim()
+                            ? selectedThread.actionTitle
+                            : formatEmailSubject(selectedThread.subject)}
+                        </span>
+                      </div>
+                      <div className="mt-1 truncate text-xs text-zinc-500">
+                        Subject: {formatEmailSubject(selectedThread.subject)}
+                      </div>
                     </div>
                     <button
                       type="button"
