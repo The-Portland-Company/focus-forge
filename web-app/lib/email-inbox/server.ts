@@ -3987,9 +3987,11 @@ export async function applyThreadAction(params: {
     | "delete"
     | "always_delete_sender"
     | "snooze"
+    | "set_classification"
     | "to_task";
   snoozedUntil?: string | null;
   projectId?: string | null;
+  classification?: string | null;
 }) {
   const admin = getAdminClient();
   const thread = await ensureThreadAccess(params.userId, params.threadId);
@@ -4010,6 +4012,53 @@ export async function applyThreadAction(params: {
 
   if (effectiveAction === "reprocess") {
     return reprocessThread(params.threadId, params.userId);
+  }
+
+  if (effectiveAction === "set_classification") {
+    const allowedClassifications = [
+      "unknown",
+      "actionable",
+      "newsletter",
+      "spam",
+      "waiting",
+      "reference",
+      "transactional",
+    ];
+    const nextClassification = params.classification;
+    if (
+      !nextClassification ||
+      !allowedClassifications.includes(nextClassification)
+    ) {
+      throw new Error("Invalid classification");
+    }
+
+    const update: Record<string, unknown> = {
+      classification: nextClassification,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Keep status consistent with the chosen category. Categorizing as spam
+    // re-marks the thread as spam; categorizing as anything else pulls it back
+    // out of spam/quarantine into the normal triage queue. (Provider folders
+    // are not touched here — classification is the app's triage signal; the
+    // dedicated "spam" action remains responsible for provider-side moves.)
+    if (nextClassification === "spam") {
+      update.status = "spam";
+    } else if (
+      thread.status === "spam" ||
+      thread.status === "quarantine" ||
+      thread.classification === "spam"
+    ) {
+      update.status = thread.project_id ? "active" : "needs_project";
+      update.needs_project = !thread.project_id;
+    }
+
+    await admin
+      .from("email_threads")
+      .update(update)
+      .eq("id", params.threadId);
+
+    return { success: true, classification: nextClassification };
   }
 
   if (effectiveAction === "snooze") {

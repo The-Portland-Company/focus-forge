@@ -393,7 +393,8 @@ export interface InboxItem {
     | "newsletter"
     | "spam"
     | "waiting"
-    | "reference";
+    | "reference"
+    | "transactional";
   resolutionState: "open" | "taskified" | "resolved";
   actionTitle: string;
   subject: string;

@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
-  Check,
   ChevronDown,
   Loader2,
   Mail,
   ShieldAlert,
   Sparkles,
+  Tag,
 } from "lucide-react";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
 import {
@@ -21,10 +21,13 @@ import {
   buildExistingSpamReviewRuleGroups,
   buildSpamReviewSessionItems,
   removeCreatedSpamReviewRule,
+  resolveSpamReviewCategory,
   shouldConfirmSpamRuleUndo,
   summarizeEmailRuleActions,
   summarizeEmailRuleConditions,
+  SPAM_REVIEW_CATEGORIES,
   type CreatedSpamReviewRule,
+  type SpamReviewCategoryValue,
   upsertCreatedSpamReviewRule,
 } from "@/lib/email-inbox/spam-review";
 import type {
@@ -37,6 +40,8 @@ import { cn } from "@/lib/utils";
 import {
   formatEmailSubject,
   formatParticipantLine,
+  formatParticipantName,
+  getPrimarySenderParticipant,
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
 
@@ -144,6 +149,9 @@ export function EmailSpamReviewModal({
   const [keepSpamByThreadId, setKeepSpamByThreadId] = useState<
     Record<string, boolean>
   >({});
+  const [categoryByThreadId, setCategoryByThreadId] = useState<
+    Record<string, SpamReviewCategoryValue>
+  >({});
   const [createdRules, setCreatedRules] = useState<CreatedSpamReviewRule[]>([]);
   const [busyThreadId, setBusyThreadId] = useState<string | null>(null);
   const [confirmingThreadId, setConfirmingThreadId] = useState<string | null>(
@@ -187,6 +195,17 @@ export function EmailSpamReviewModal({
       setKeepSpamByThreadId(
         Object.fromEntries(
           initialSessionItems.map((item) => [item.id, true] as const),
+        ),
+      );
+      setCategoryByThreadId(
+        Object.fromEntries(
+          initialSessionItems.map(
+            (item) =>
+              [
+                item.id,
+                resolveSpamReviewCategory(item.classification).value,
+              ] as const,
+          ),
         ),
       );
       setCreatedRules([]);
@@ -286,6 +305,7 @@ export function EmailSpamReviewModal({
       );
 
       setKeepSpamByThreadId((prev) => ({ ...prev, [thread.id]: true }));
+      setCategoryByThreadId((prev) => ({ ...prev, [thread.id]: "spam" }));
       setCreatedRules((prev) => removeCreatedSpamReviewRule(prev, thread.id));
       setConfirmingThreadId(null);
       setExpandedCreatedRuleThreadId((current) =>
@@ -302,20 +322,29 @@ export function EmailSpamReviewModal({
     }
   };
 
-  const handleToggle = (thread: InboxItem) => {
+  const handleCategorize = async (
+    thread: InboxItem,
+    value: SpamReviewCategoryValue,
+  ) => {
     if (busyThreadId === thread.id) {
       return;
     }
 
-    const keepSpam = keepSpamByThreadId[thread.id] ?? true;
-    const createdRule = createdRulesByThreadId.get(thread.id);
-
-    if (keepSpam) {
-      void handleCreateRule(thread);
+    const currentValue =
+      categoryByThreadId[thread.id] ??
+      resolveSpamReviewCategory(thread.classification).value;
+    if (value === currentValue) {
       return;
     }
 
+    const isSpam = value === "spam";
+    const createdRule = createdRulesByThreadId.get(thread.id);
+    const currentlyAllowed = keepSpamByThreadId[thread.id] === false;
+
+    // Re-selecting Spam while an allow-rule exists re-enables spam detection;
+    // route through the existing confirm + revert flow.
     if (
+      isSpam &&
       shouldConfirmSpamRuleUndo({
         createdRuleId: createdRule?.rule.id,
         nextKeepSpam: true,
@@ -325,7 +354,45 @@ export function EmailSpamReviewModal({
       return;
     }
 
-    setKeepSpamByThreadId((prev) => ({ ...prev, [thread.id]: true }));
+    setBusyThreadId(thread.id);
+
+    try {
+      const response = await fetch(`/api/email/threads/${thread.id}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "set_classification",
+          classification: value,
+        }),
+      });
+      await parseResponse<{ success: boolean }>(
+        response,
+        "Failed to update category",
+      );
+
+      setCategoryByThreadId((prev) => ({ ...prev, [thread.id]: value }));
+      if (isSpam) {
+        setKeepSpamByThreadId((prev) => ({ ...prev, [thread.id]: true }));
+      }
+      updateStatus(`Categorized as ${resolveSpamReviewCategory(value).label}.`);
+    } catch (error) {
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to update category",
+      );
+      setBusyThreadId(null);
+      return;
+    }
+
+    setBusyThreadId(null);
+
+    // Any non-spam category also keeps future mail out of spam. Create the
+    // exception rule the first time the user moves a thread out of spam.
+    if (!isSpam && !currentlyAllowed) {
+      await handleCreateRule(thread);
+    } else {
+      await onRefresh?.();
+    }
   };
 
   const { ruleGroups: existingRuleGroups, unmatchedItems } = useMemo(
@@ -394,8 +461,16 @@ export function EmailSpamReviewModal({
                     thread.participants,
                     "from",
                   );
+                  const senderName = formatParticipantName(
+                    getPrimarySenderParticipant(thread.participants),
+                  );
                   const isBusy = busyThreadId === thread.id;
                   const isConfirming = confirmingThreadId === thread.id;
+                  const aiCategory = resolveSpamReviewCategory(
+                    thread.classification,
+                  );
+                  const currentCategoryValue =
+                    categoryByThreadId[thread.id] ?? aiCategory.value;
                   const showSecondaryActionTitle =
                     shouldShowSecondaryActionTitle(
                       thread.actionTitle,
@@ -431,8 +506,16 @@ export function EmailSpamReviewModal({
                               </span>
                             ) : null}
                           </div>
-                          <div className="mt-2 text-sm font-medium text-white">
-                            {formatEmailSubject(thread.subject)}
+                          <div className="mt-2 flex min-w-0 items-center gap-2">
+                            <span
+                              title={senderName}
+                              className="inline-flex max-w-[45%] shrink-0 items-center rounded-full border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/15 px-2.5 py-1 text-xs font-semibold text-white"
+                            >
+                              <span className="truncate">{senderName}</span>
+                            </span>
+                            <span className="min-w-0 truncate text-sm font-medium text-white">
+                              {formatEmailSubject(thread.subject)}
+                            </span>
                           </div>
                           {showSecondaryActionTitle ? (
                             <div className="mt-1 text-sm text-zinc-400">
@@ -446,37 +529,54 @@ export function EmailSpamReviewModal({
                           ) : null}
                         </div>
 
-                        <div className="flex flex-col items-end gap-2">
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={keepSpam}
-                            onClick={() => handleToggle(thread)}
-                            disabled={isBusy}
-                            className={cn(
-                              "relative inline-flex h-7 w-14 items-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                              keepSpam
-                                ? "border-amber-500/40 bg-amber-500/20"
-                                : "border-emerald-500/40 bg-emerald-500/20",
-                            )}
-                          >
-                            <span
+                        <div className="flex w-44 shrink-0 flex-col items-end gap-1.5">
+                          <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-500">
+                            <Tag className="h-3.5 w-3.5" />
+                            Categorize
+                          </div>
+                          <div className="relative w-full">
+                            <select
+                              aria-label="Categorize thread"
+                              value={currentCategoryValue}
+                              disabled={isBusy}
+                              onChange={(event) =>
+                                void handleCategorize(
+                                  thread,
+                                  event.target.value as SpamReviewCategoryValue,
+                                )
+                              }
                               className={cn(
-                                "inline-flex h-5 w-5 transform items-center justify-center rounded-full bg-white text-zinc-900 transition-transform",
-                                keepSpam ? "translate-x-1" : "translate-x-8",
+                                "w-full cursor-pointer appearance-none rounded-lg border px-3 py-2 pr-8 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--theme-primary-rgb))]/40 disabled:cursor-not-allowed disabled:opacity-60",
+                                keepSpam
+                                  ? "border-amber-500/40 bg-amber-500/15 text-amber-100"
+                                  : "border-emerald-500/40 bg-emerald-500/15 text-emerald-100",
                               )}
                             >
+                              {SPAM_REVIEW_CATEGORIES.map((category) => (
+                                <option
+                                  key={category.value}
+                                  value={category.value}
+                                  className="bg-zinc-900 text-white"
+                                >
+                                  {category.label}
+                                  {category.value === aiCategory.value
+                                    ? " (AI pick)"
+                                    : ""}
+                                </option>
+                              ))}
+                            </select>
+                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400">
                               {isBusy ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : keepSpam ? (
-                                <ShieldAlert className="h-3.5 w-3.5" />
+                                <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
-                                <Check className="h-3.5 w-3.5" />
+                                <ChevronDown className="h-4 w-4" />
                               )}
                             </span>
-                          </button>
-                          <div className="text-[11px] uppercase tracking-wide text-zinc-500">
-                            {keepSpam ? "Keep as spam" : "Allow future mail"}
+                          </div>
+                          <div className="text-right text-[11px] text-zinc-500">
+                            {keepSpam
+                              ? "Kept as spam"
+                              : "Allowed — future mail kept out of spam"}
                           </div>
                         </div>
                       </div>

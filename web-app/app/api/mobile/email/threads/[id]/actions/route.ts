@@ -21,6 +21,7 @@ const PASSTHROUGH_ACTIONS = new Set([
   "delete",
   "always_delete_sender",
   "snooze",
+  "set_classification",
   "to_task",
 ]);
 
@@ -69,6 +70,7 @@ export async function POST(
       action: action as Parameters<typeof applyThreadAction>[0]["action"],
       snoozedUntil: body.snoozedUntil ?? null,
       projectId: body.projectId ?? null,
+      classification: body.classification ?? null,
     });
 
     // Mirror web behavior: reprocess returns refreshed thread detail.
