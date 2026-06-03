@@ -38,6 +38,7 @@ import {
   RefreshCw,
   Search,
   SendHorizontal,
+  Sparkles,
   Shield,
   ShieldAlert,
   Trash2,
@@ -4662,7 +4663,7 @@ export function EmailInboxView({
                   <div className="flex min-w-0 items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="inline-flex min-w-0 items-center gap-2 text-sm font-semibold text-white">
-                        <Mail className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                        <Sparkles className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
                         <span className="truncate">
                           {selectedThread.actionTitle?.trim()
                             ? selectedThread.actionTitle
