@@ -398,3 +398,12 @@ CREATE POLICY "Users can update their own preferences" ON user_preferences
 
 CREATE POLICY "Users can insert their own preferences" ON user_preferences
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- ============================================================================
+-- ENTITY VERSIONING (soft delete + event log)
+-- Applied via supabase/migrations/20260603190000_entity_versioning.sql
+-- Columns: organizations/projects/sections/tasks gain deleted_at TIMESTAMPTZ
+-- and delete_batch_id UUID. Table entity_events is the immutable audit log.
+-- Functions: log_entity_event() trigger, soft_delete_entity(), restore_entity().
+-- See that migration file for the canonical DDL (kept in one place to avoid drift).
+-- ============================================================================

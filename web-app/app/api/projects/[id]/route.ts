@@ -140,9 +140,9 @@ export async function DELETE(
     }
 
     const adapter = new SupabaseAdapter(supabase, session.user.id);
-    await adapter.deleteProject(params.id);
+    const { batchId } = await adapter.deleteProject(params.id);
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, batchId });
   } catch (error) {
     console.error("Error deleting project:", error);
     return NextResponse.json(

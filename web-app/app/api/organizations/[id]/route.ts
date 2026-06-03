@@ -101,9 +101,9 @@ export async function DELETE(
     }
 
     const adapter = new SupabaseAdapter(supabase, session.user.id);
-    await adapter.deleteOrganization(params.id);
+    const { batchId } = await adapter.deleteOrganization(params.id);
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, batchId });
   } catch (error) {
     console.error("Error deleting organization:", error);
     return NextResponse.json(

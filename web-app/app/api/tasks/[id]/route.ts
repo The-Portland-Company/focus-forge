@@ -128,13 +128,16 @@ export async function DELETE(
     const params = await props.params;
     const supabase = await createClient();
 
-    const { error } = await supabase.from("tasks").delete().eq("id", params.id);
+    const { data: batchId, error } = await supabase.rpc("soft_delete_entity", {
+      p_entity_type: "task",
+      p_entity_id: params.id,
+    });
 
     if (error) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, batchId });
   } catch (error) {
     console.error("DELETE /api/tasks/[id] error:", error);
     return NextResponse.json(

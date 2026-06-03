@@ -48,12 +48,14 @@ export async function GET(
           .from('sections')
           .select('id,name')
           .eq('project_id', projectId)
+          .is('deleted_at', null)
           .order('name', { ascending: true }),
         serviceSupabase
           .from('tasks')
           .select('id,section_id')
           .eq('project_id', projectId)
-          .eq('completed', false),
+          .eq('completed', false)
+          .is('deleted_at', null),
       ])
 
     if (sectionsError || tasksError) {

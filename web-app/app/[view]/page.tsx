@@ -61,6 +61,7 @@ import {
 import { applyUserTheme } from "@/lib/theme-utils";
 import { parseRecurringPattern, getNextDueDate } from "@/lib/recurring-utils";
 import { ProjectProgressTimeline } from "@/components/project-progress-timeline";
+import { HistoryTimelineScrubber } from "@/components/history-timeline-scrubber";
 import { ProjectAiExportControls } from "@/components/project-ai-export-controls";
 import { ProjectSectionBoard } from "@/components/project-section-board";
 import {
@@ -597,6 +598,10 @@ export default function ViewPage() {
     taskId: string;
     taskName: string;
     affectedIds: string[];
+  } | null>(null);
+  const [undoDelete, setUndoDelete] = useState<{
+    batchId: string;
+    taskName: string;
   } | null>(null);
   const [undoExiting, setUndoExiting] = useState(false);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1775,6 +1780,7 @@ export default function ViewPage() {
 
   const confirmTaskDelete = async () => {
     if (!taskDeleteConfirm.taskId) return;
+    const deletedName = taskDeleteConfirm.taskName;
     try {
       const response = await fetch(`/api/tasks/${taskDeleteConfirm.taskId}`, {
         method: "DELETE",
@@ -1782,10 +1788,38 @@ export default function ViewPage() {
       });
 
       if (response.ok) {
+        const payload = await response.json().catch(() => null);
+        if (payload?.batchId) {
+          setUndoDelete({ batchId: payload.batchId, taskName: deletedName });
+          setTimeout(() => {
+            setUndoDelete((current) =>
+              current?.batchId === payload.batchId ? null : current,
+            );
+          }, 15000);
+        }
         await fetchData();
       }
     } catch (error) {
       console.error("Error deleting task:", error);
+    }
+  };
+
+  const handleUndoDelete = async () => {
+    if (!undoDelete) return;
+    const { batchId } = undoDelete;
+    setUndoDelete(null);
+    try {
+      const response = await fetch("/api/trash/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ batchId }),
+      });
+      if (response.ok) {
+        await fetchData();
+      }
+    } catch (error) {
+      console.error("Error restoring task:", error);
     }
   };
 
@@ -4330,6 +4364,12 @@ export default function ViewPage() {
               archived
             </p>
 
+            <HistoryTimelineScrubber
+              scope={{ organizationId: orgId }}
+              title="History"
+              className="mb-4"
+            />
+
             {editingOrgDescription === orgId ? (
               <textarea
                 value={organization?.description || ""}
@@ -4781,6 +4821,14 @@ export default function ViewPage() {
 
           {project && (
             <ProjectProgressTimeline project={project} tasks={projectTasks} />
+          )}
+
+          {project && (
+            <HistoryTimelineScrubber
+              scope={{ projectId: project.id }}
+              title="History"
+              className="mb-4"
+            />
           )}
 
           <ProjectWorkTabs
@@ -5380,6 +5428,27 @@ export default function ViewPage() {
         />
       )}
 
+      {undoDelete && (
+        <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50">
+          <div className="animate-slide-up-in">
+            <div className="flex items-center gap-3 bg-black text-white border border-zinc-800 rounded-lg px-4 py-3 shadow-lg">
+              <span className="text-sm">
+                Deleted &quot;{undoDelete.taskName}&quot; — moved to{" "}
+                <a href="/trash" className="underline underline-offset-4">
+                  Trash
+                </a>
+              </span>
+              <button
+                onClick={handleUndoDelete}
+                className="text-sm font-semibold text-white hover:text-zinc-200 underline underline-offset-4"
+              >
+                Undo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {undoCompletion && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
           <div
@@ -5678,7 +5747,7 @@ export default function ViewPage() {
         }
         onConfirm={confirmTaskDelete}
         title="Delete Task"
-        description={`Are you sure you want to delete "${taskDeleteConfirm.taskName}"? This cannot be undone.`}
+        description={`Are you sure you want to delete "${taskDeleteConfirm.taskName}"? It will be moved to the Trash, where you can restore it.`}
         confirmText="Delete"
         cancelText="Cancel"
         variant="destructive"

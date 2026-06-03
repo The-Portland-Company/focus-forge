@@ -42,6 +42,7 @@ export async function GET(
       )
       .eq('project_id', projectId)
       .eq('completed', false)
+      .is('deleted_at', null)
       .order('priority', { ascending: true })
       .order('due_date', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false })

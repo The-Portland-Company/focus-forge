@@ -57,6 +57,7 @@ import {
   SelectGroup,
   SelectLabel,
 } from "@/components/ui/select";
+import { HistoryTimelineScrubber } from "@/components/history-timeline-scrubber";
 import { TimePicker } from "@/components/time-picker";
 import { UserAvatar } from "@/components/user-avatar";
 import { RecurringPicker } from "@/components/recurring-picker";
@@ -162,6 +163,7 @@ export function TaskModal({
   const [newSubtaskName, setNewSubtaskName] = useState("");
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
   const [pendingSubtasks, setPendingSubtasks] = useState<string[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [tagSuggestions, setTagSuggestions] = useState<typeof data.tags>([]);
   const [bouncingTagId, setBouncingTagId] = useState<string | null>(null);
   const [showProjectSuggestions, setShowProjectSuggestions] = useState(false);
@@ -2524,6 +2526,27 @@ export function TaskModal({
               </div>
             ) : null}
           </div>
+
+          {/* History */}
+          {isEditMode && task && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => setShowHistory((prev) => !prev)}
+                className="text-xs text-zinc-400 hover:text-white underline underline-offset-4"
+                data-testid="task-history-toggle"
+              >
+                {showHistory ? "Hide history" : "Show history"}
+              </button>
+              {showHistory && (
+                <HistoryTimelineScrubber
+                  scope={{ entityType: "task", entityId: task.id }}
+                  title="Task History"
+                  className="mt-2"
+                />
+              )}
+            </div>
+          )}
 
           {/* Form Actions */}
           <div className="flex justify-between pt-6 border-t border-zinc-800">

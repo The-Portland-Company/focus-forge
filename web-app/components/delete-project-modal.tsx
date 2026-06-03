@@ -233,7 +233,7 @@ export function DeleteProjectModal({
             <DialogHeader>
               <DialogTitle>Confirm Deletion</DialogTitle>
               <DialogDescription className="text-zinc-400">
-                This will permanently delete "{project?.name}" and all {tasks.length} task{tasks.length !== 1 ? 's' : ''} in it. This cannot be undone.
+                This will move "{project?.name}" and all {tasks.length} task{tasks.length !== 1 ? 's' : ''} in it to the Trash. You can restore it from there, or permanently delete it later.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="mt-2">
