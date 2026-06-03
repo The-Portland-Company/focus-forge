@@ -21,6 +21,7 @@ import {
   Link2Off,
   CalendarClock,
   RefreshCw,
+  Mailbox,
   CheckSquare,
   Square,
   X,
@@ -3693,14 +3694,20 @@ export default function ViewPage() {
                       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-2 py-1.5 text-xs">
                         <label className="flex items-center gap-1 text-zinc-500">
                           Sort
-                          <select
+                          <Select
                             value={todayEmailSort}
-                            onChange={(e) => setTodayEmailSort(e.target.value as "newest" | "oldest")}
-                            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-zinc-500"
+                            onValueChange={(value) =>
+                              setTodayEmailSort(value as "newest" | "oldest")
+                            }
                           >
-                            <option value="newest">Newest first</option>
-                            <option value="oldest">Oldest first</option>
-                          </select>
+                            <SelectTrigger className="h-8 w-[150px] border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200">
+                              <SelectValue placeholder="Sort" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="newest">Newest first</SelectItem>
+                              <SelectItem value="oldest">Oldest first</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </label>
                         <label className="flex items-center gap-1 text-zinc-500">
                           Filter
