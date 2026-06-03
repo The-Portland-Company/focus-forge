@@ -698,6 +698,13 @@ export function Sidebar({
               </div>
               <div className="flex items-center gap-1">
                 <Link
+                  href="/trash"
+                  className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+                  title="Trash"
+                >
+                  <Trash2 className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                </Link>
+                <Link
                   href="/settings"
                   className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
                   title="Settings"
@@ -1744,7 +1751,7 @@ export function Sidebar({
                                   e.stopPropagation();
                                   if (
                                     confirm(
-                                      `Are you sure you want to permanently delete "${project.name}"? This will also delete all tasks in this project.`,
+                                      `Delete "${project.name}"? It and all its tasks will be moved to the Trash, where you can restore them.`,
                                     )
                                   ) {
                                     if (onProjectDelete) {

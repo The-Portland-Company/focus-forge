@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
        task_tags ( tag:tag_id ( name ) )`,
       { count: "exact" },
     )
+    .is("deleted_at", null)
     .is("time_estimate", null)
     .eq("completed", false)
     .order("priority", { ascending: true, nullsFirst: false })

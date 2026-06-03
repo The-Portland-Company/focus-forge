@@ -86,13 +86,16 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { error } = await supabase.from("sections").delete().eq("id", params.id);
+    const { data: batchId, error } = await supabase.rpc("soft_delete_entity", {
+      p_entity_type: "section",
+      p_entity_id: params.id,
+    });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, batchId });
   } catch (error) {
     console.error("Failed to delete section:", error);
     return NextResponse.json({ error: "Failed to delete section" }, { status: 500 });

@@ -151,6 +151,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       .from("organizations")
       .select("*")
       .in("id", orgIds)
+      .is("deleted_at", null)
       .order("order_index");
 
     if (error) {
@@ -310,13 +311,105 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async deleteOrganization(id: string) {
+    return this.softDeleteEntity("organization", id);
+  }
+
+  // --- Versioning: soft delete / restore / purge / trash / history ---
+
+  async softDeleteEntity(
+    entityType: "organization" | "project" | "section" | "task",
+    id: string,
+  ): Promise<{ batchId: string }> {
     const supabase = this.supabase;
-    const { error } = await supabase
-      .from("organizations")
-      .delete()
-      .eq("id", id);
+    const { data, error } = await supabase.rpc("soft_delete_entity", {
+      p_entity_type: entityType,
+      p_entity_id: id,
+    });
 
     if (error) throw error;
+    return { batchId: data };
+  }
+
+  async restoreEntity(batchId: string): Promise<{ restored: number }> {
+    const supabase = this.supabase;
+    const { data, error } = await supabase.rpc("restore_entity", {
+      p_batch_id: batchId,
+    });
+
+    if (error) throw error;
+    return { restored: data };
+  }
+
+  async purgeEntity(
+    entityType: "organization" | "project" | "section" | "task",
+    id: string,
+  ) {
+    const table = `${entityType === "organization" ? "organization" : entityType}s`;
+    const supabase = this.supabase;
+    const { error } = await supabase.from(table).delete().eq("id", id);
+
+    if (error) throw error;
+  }
+
+  async getTrash() {
+    const supabase = this.supabase;
+    const [orgs, projects, sections, tasks] = await Promise.all(
+      ["organizations", "projects", "sections", "tasks"].map(
+        async (table) => {
+          const { data, error } = await supabase
+            .from(table)
+            .select("*")
+            .not("deleted_at", "is", null)
+            .order("deleted_at", { ascending: false });
+          if (error) throw error;
+          return data || [];
+        },
+      ),
+    );
+
+    return {
+      organizations: orgs,
+      projects,
+      sections,
+      tasks,
+    };
+  }
+
+  async getEntityHistory(entityType: string, entityId: string) {
+    const supabase = this.supabase;
+    const { data, error } = await supabase
+      .from("entity_events")
+      .select("*")
+      .eq("entity_type", entityType)
+      .eq("entity_id", entityId)
+      .order("occurred_at", { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  async getScopeHistory(scope: {
+    organizationId?: string;
+    projectId?: string;
+  }) {
+    const supabase = this.supabase;
+    let query = supabase
+      .from("entity_events")
+      .select("*")
+      .order("occurred_at", { ascending: true })
+      .limit(5000);
+
+    if (scope.projectId) {
+      query = query.eq("project_id", scope.projectId);
+    } else if (scope.organizationId) {
+      query = query.eq("organization_id", scope.organizationId);
+    } else {
+      throw new Error("organizationId or projectId required");
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
   }
 
   // Projects
@@ -480,6 +573,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
           .from("projects")
           .select("*")
           .eq("organization_id", organizationId)
+          .is("deleted_at", null)
           .order("order_index");
 
         if (error) throw error;
@@ -498,6 +592,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
         .from("projects")
         .select("*")
         .in("id", visibleIdsInOrganization)
+        .is("deleted_at", null)
         .order("order_index");
 
       if (error) throw error;
@@ -519,6 +614,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       .from("projects")
       .select("*")
       .in("organization_id", scopedOrganizationIds)
+      .is("deleted_at", null)
       .order("order_index");
 
     if (error) throw error;
@@ -628,10 +724,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async deleteProject(id: string) {
-    const supabase = this.supabase;
-    const { error } = await supabase.from("projects").delete().eq("id", id);
-
-    if (error) throw error;
+    return this.softDeleteEntity("project", id);
   }
 
   // Tasks
@@ -668,6 +761,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
           assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color, profile_memoji)
         `,
         )
+        .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .range(offset, offset + pageSize - 1);
 
@@ -1158,10 +1252,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async deleteTask(id: string) {
-    const supabase = this.supabase;
-    const { error } = await supabase.from("tasks").delete().eq("id", id);
-
-    if (error) throw error;
+    return this.softDeleteEntity("task", id);
   }
 
   // Tags

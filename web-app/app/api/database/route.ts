@@ -161,6 +161,7 @@ export async function GET(request: NextRequest) {
           .from("sections")
           .select("*")
           .in("project_id", projectIds)
+          .is("deleted_at", null)
           .order("todoist_order", { ascending: true })
           .order("created_at", { ascending: true });
 

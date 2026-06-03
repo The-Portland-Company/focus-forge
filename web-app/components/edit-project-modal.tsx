@@ -333,7 +333,7 @@ export function EditProjectModal({
     if (!firstConfirm) return
 
     const secondConfirm = window.confirm(
-      `Final confirmation: permanently delete "${project.name}" and everything inside it?`,
+      `Final confirmation: move "${project.name}" and everything inside it to the Trash?`,
     )
     if (!secondConfirm) return
 

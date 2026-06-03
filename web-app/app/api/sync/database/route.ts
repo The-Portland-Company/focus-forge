@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
         const { data: allOrganizations, error: allOrgError } = await supabase
           .from('organizations')
           .select('*')
+          .is('deleted_at', null)
 
         if (allOrgError) {
           return createErrorResponse(allOrgError.message, 500)
@@ -69,6 +70,7 @@ export async function GET(request: NextRequest) {
         const { data: orgs, error: orgError } = await supabase
           .from('organizations')
           .select('*')
+          .is('deleted_at', null)
           .in('id', organizationIds.length > 0 ? organizationIds : ['00000000-0000-0000-0000-000000000000'])
 
         if (orgError) {
@@ -81,6 +83,7 @@ export async function GET(request: NextRequest) {
       const { data: projects, error: projectError } = await supabase
         .from('projects')
         .select('*')
+        .is('deleted_at', null)
         .in('organization_id', organizationIds.length > 0 ? organizationIds : ['00000000-0000-0000-0000-000000000000'])
 
       if (projectError) {
@@ -95,6 +98,7 @@ export async function GET(request: NextRequest) {
           *,
           task_tags(tag_id)
         `)
+        .is('deleted_at', null)
         .order('created_at', { ascending: false })
 
       if (taskError) {
@@ -119,6 +123,7 @@ export async function GET(request: NextRequest) {
       const { data: sections, error: sectionError } = await supabase
         .from('sections')
         .select('*')
+        .is('deleted_at', null)
         .in('project_id', projectIds.length > 0 ? projectIds : ['00000000-0000-0000-0000-000000000000'])
 
       if (sectionError) {

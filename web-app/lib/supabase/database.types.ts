@@ -1478,6 +1478,19 @@ export type Database = {
         }
         Returns: string
       }
+      soft_delete_entity: {
+        Args: {
+          p_entity_type: string
+          p_entity_id: string
+        }
+        Returns: string
+      }
+      restore_entity: {
+        Args: {
+          p_batch_id: string
+        }
+        Returns: number
+      }
       user_has_organization_access: {
         Args: { org_id: string }
         Returns: boolean

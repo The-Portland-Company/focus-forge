@@ -29,21 +29,21 @@ export interface DatabaseAdapter {
   getOrganization(id: string): Promise<any>;
   createOrganization(org: any): Promise<any>;
   updateOrganization(id: string, updates: any): Promise<any>;
-  deleteOrganization(id: string): Promise<void>;
+  deleteOrganization(id: string): Promise<{ batchId: string } | void>;
 
   // Projects
   getProjects(organizationId?: string): Promise<any[]>;
   getProject(id: string): Promise<any>;
   createProject(project: any): Promise<any>;
   updateProject(id: string, updates: any): Promise<any>;
-  deleteProject(id: string): Promise<void>;
+  deleteProject(id: string): Promise<{ batchId: string } | void>;
 
   // Tasks
   getTasks(projectId?: string): Promise<any[]>;
   getTask(id: string): Promise<any>;
   createTask(task: any): Promise<any>;
   updateTask(id: string, updates: any): Promise<any>;
-  deleteTask(id: string): Promise<void>;
+  deleteTask(id: string): Promise<{ batchId: string } | void>;
 
   // Tags
   getTags(): Promise<any[]>;

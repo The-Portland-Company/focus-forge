@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from("sections")
       .select("*")
+      .is("deleted_at", null)
       .order("todoist_order", { ascending: true })
       .order("created_at", { ascending: true });
 

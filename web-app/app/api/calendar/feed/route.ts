@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
       .from("tasks")
       .select("*")
       .eq("completed", false)
+      .is("deleted_at", null)
       .order("due_date", { ascending: true });
 
     if (projectIds.length > 0) {
