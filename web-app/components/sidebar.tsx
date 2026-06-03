@@ -120,6 +120,11 @@ export function Sidebar({
   const [showPendingInvitations, setShowPendingInvitations] = useState(false);
   const [resendingUserId, setResendingUserId] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const SIDEBAR_MIN_WIDTH = 200;
+  const SIDEBAR_MAX_WIDTH = 480;
+  const SIDEBAR_DEFAULT_WIDTH = 280;
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [draggedProject, setDraggedProject] = useState<string | null>(null);
   const [draggedOrg, setDraggedOrg] = useState<string | null>(null);
   const [dragOverOrg, setDragOverOrg] = useState<string | null>(null);
@@ -214,6 +219,20 @@ export function Sidebar({
         setEmailInboxExpanded(false);
       }
 
+      // Load persisted sidebar width
+      const storedWidth = localStorage.getItem("ffSidebarWidth");
+      if (storedWidth) {
+        const parsedWidth = parseInt(storedWidth, 10);
+        if (!Number.isNaN(parsedWidth)) {
+          setSidebarWidth(
+            Math.min(
+              SIDEBAR_MAX_WIDTH,
+              Math.max(SIDEBAR_MIN_WIDTH, parsedWidth),
+            ),
+          );
+        }
+      }
+
       setHasLoadedPreferences(true);
     }
   }, [hasLoadedPreferences]);
@@ -245,6 +264,38 @@ export function Sidebar({
       localStorage.setItem("sidebarCollapsed", isCollapsed.toString());
     }
   }, [isCollapsed, hasLoadedPreferences]);
+
+  // Persist sidebar width to localStorage
+  useEffect(() => {
+    if (hasLoadedPreferences) {
+      localStorage.setItem("ffSidebarWidth", String(sidebarWidth));
+    }
+  }, [sidebarWidth, hasLoadedPreferences]);
+
+  // Handle drag-to-resize of the sidebar width
+  useEffect(() => {
+    if (!isResizingSidebar) return;
+    const handleMouseMove = (event: MouseEvent) => {
+      const next = Math.min(
+        SIDEBAR_MAX_WIDTH,
+        Math.max(SIDEBAR_MIN_WIDTH, event.clientX),
+      );
+      setSidebarWidth(next);
+    };
+    const handleMouseUp = () => setIsResizingSidebar(false);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    const prevUserSelect = document.body.style.userSelect;
+    const prevCursor = document.body.style.cursor;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = prevUserSelect;
+      document.body.style.cursor = prevCursor;
+    };
+  }, [isResizingSidebar]);
 
   useEffect(() => {
     return () => {
@@ -622,7 +673,8 @@ export function Sidebar({
 
   return (
     <div
-      className={`${isCollapsed ? "w-[60px]" : "w-[clamp(240px,22vw,320px)]"} h-full shrink-0 overflow-hidden bg-zinc-900 border-r border-zinc-800 flex flex-col transition-all duration-300`}
+      className={`group/sidebar relative ${isCollapsed ? "w-[60px]" : ""} h-full shrink-0 overflow-hidden bg-zinc-900 border-r border-zinc-800 flex flex-col ${isResizingSidebar ? "" : "transition-all duration-300"}`}
+      style={isCollapsed ? undefined : { width: sidebarWidth }}
     >
       <div className={`${isCollapsed ? "p-2" : "p-3"}`}>
         <div className="flex items-center justify-between mb-3">
@@ -2051,6 +2103,28 @@ export function Sidebar({
           </div>
         </DialogContent>
       </Dialog>
+      {!isCollapsed && (
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setIsResizingSidebar(true);
+          }}
+          onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT_WIDTH)}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          title="Drag to resize sidebar"
+          className="absolute top-0 right-0 z-40 flex h-full w-2 cursor-col-resize items-center justify-end"
+        >
+          <div
+            className={`h-12 w-1 rounded-full transition-opacity ${
+              isResizingSidebar
+                ? "bg-theme-gradient opacity-100"
+                : "bg-zinc-600 opacity-0 group-hover/sidebar:opacity-100"
+            }`}
+          />
+        </div>
+      )}
     </div>
   );
 }
