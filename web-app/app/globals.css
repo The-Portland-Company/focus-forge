@@ -101,6 +101,13 @@
   contain-intrinsic-size: 42px;
 }
 
+/* Paint containment from content-visibility clips hover tooltips/previews;
+   lift it while the row is hovered so popovers can escape the row bounds. */
+.task-list-row:hover {
+  content-visibility: visible;
+  contain: none;
+}
+
 .task-list-row[data-task-row-focused="true"] {
   background-color: rgb(39 39 42 / 0.8);
   box-shadow: 0 0 0 1px rgba(var(--theme-primary-rgb), 0.6);
@@ -795,4 +802,21 @@ input[type="datetime-local"].themed-date-input {
   .themed-date-input {
     min-height: 1.5em;
   }
+}
+
+/* Breathing animation for rows being deleted */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.985);
+  }
+}
+
+.animate-breathe {
+  animation: breathe 1.2s ease-in-out infinite;
 }
