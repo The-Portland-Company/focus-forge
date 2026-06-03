@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Archive,
   Bot,
@@ -11,19 +12,23 @@ import {
   Loader2,
   MailCheck,
   MailPlus,
+  PanelBottom,
+  PanelRight,
   Search,
   SendHorizontal,
   ShieldAlert,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 import { EmailThreadAttachments } from "@/components/email-thread-attachments";
 import { Tooltip } from "@/components/tooltip";
 import { EmailSignatureContent } from "@/components/email-signature-content";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
+  DialogOverlay,
+  DialogPortal,
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
@@ -197,6 +202,7 @@ export function EmailThreadModal({
   const [queuedAction, setQueuedAction] = useState<ThreadAction | null>(null);
   const [isQueuedActionNoticeVisible, setIsQueuedActionNoticeVisible] =
     useState(false);
+  const [detailDock, setDetailDock] = useState<"bottom" | "right">("bottom");
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
   const queuedActionTimeoutRef = useRef<number | null>(null);
   const { profile } = useUserProfile();
@@ -226,6 +232,25 @@ export function EmailThreadModal({
   const conversationEntries = getConversationEntriesExcludingPrimary(
     thread?.conversation,
   );
+
+  // Task D: restore the persisted detail-dock preference on mount.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem("ffEmailDetailDock");
+    if (stored === "bottom" || stored === "right") {
+      setDetailDock(stored);
+    }
+  }, []);
+
+  const handleToggleDock = () => {
+    setDetailDock((current) => {
+      const next = current === "bottom" ? "right" : "bottom";
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("ffEmailDetailDock", next);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     setReplyStyleOverrides(
@@ -763,17 +788,65 @@ export function EmailThreadModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(96vw,72rem)] max-w-[72rem] overflow-hidden border-zinc-800 bg-zinc-950 p-0 text-white sm:max-h-[92vh] sm:rounded-2xl">
-        <DialogTitle className="sr-only">
-          {thread?.subject
-            ? formatEmailSubject(thread.subject)
-            : "Email thread"}
-        </DialogTitle>
-        <DialogDescription className="sr-only">
-          Review an email thread from Today in a modal.
-        </DialogDescription>
+      <DialogPortal>
+        <DialogOverlay />
+        <DialogPrimitive.Content
+          className={cn(
+            "fixed z-50 flex flex-col overflow-hidden border-zinc-800 bg-zinc-950 text-white shadow-2xl outline-none duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+            detailDock === "right"
+              ? "inset-y-0 right-0 h-full w-[min(96vw,42rem)] border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:rounded-l-2xl"
+              : "inset-x-0 bottom-0 max-h-[92vh] w-full border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom sm:rounded-t-2xl",
+          )}
+        >
+          <DialogTitle className="sr-only">
+            {thread?.subject
+              ? formatEmailSubject(thread.subject)
+              : "Email thread"}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Review an email thread from Today in a modal.
+          </DialogDescription>
 
-        <div className="max-h-[92vh] overflow-y-auto p-6">
+          <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-6 py-3">
+            <div className="min-w-0 truncate text-sm font-medium text-zinc-300">
+              {thread?.subject
+                ? formatEmailSubject(thread.subject)
+                : "Email thread"}
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Tooltip
+                content={
+                  detailDock === "bottom" ? "Dock to right" : "Dock to bottom"
+                }
+                className="w-auto"
+                side="bottom"
+                align="end"
+              >
+                <button
+                  type="button"
+                  onClick={handleToggleDock}
+                  aria-label={
+                    detailDock === "bottom" ? "Dock to right" : "Dock to bottom"
+                  }
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                >
+                  {detailDock === "bottom" ? (
+                    <PanelRight className="h-4 w-4" />
+                  ) : (
+                    <PanelBottom className="h-4 w-4" />
+                  )}
+                </button>
+              </Tooltip>
+              <DialogPrimitive.Close
+                aria-label="Close"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </DialogPrimitive.Close>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6">
           {loadingThread ? (
             <div className="flex min-h-[420px] items-center justify-center text-zinc-500">
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -1377,8 +1450,9 @@ export function EmailThreadModal({
           {thread && statusMessage ? (
             <div className="mt-5 text-sm text-zinc-400">{statusMessage}</div>
           ) : null}
-        </div>
-      </DialogContent>
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPortal>
     </Dialog>
   );
 }
