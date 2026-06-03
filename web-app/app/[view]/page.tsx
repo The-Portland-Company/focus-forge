@@ -21,6 +21,7 @@ import {
   Link2Off,
   CalendarClock,
   RefreshCw,
+  Mailbox,
   CheckSquare,
   Square,
   X,
@@ -3693,14 +3694,20 @@ export default function ViewPage() {
                       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-2 py-1.5 text-xs">
                         <label className="flex items-center gap-1 text-zinc-500">
                           Sort
-                          <select
+                          <Select
                             value={todayEmailSort}
-                            onChange={(e) => setTodayEmailSort(e.target.value as "newest" | "oldest")}
-                            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-zinc-500"
+                            onValueChange={(value) =>
+                              setTodayEmailSort(value as "newest" | "oldest")
+                            }
                           >
-                            <option value="newest">Newest first</option>
-                            <option value="oldest">Oldest first</option>
-                          </select>
+                            <SelectTrigger className="h-8 w-[150px] border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200">
+                              <SelectValue placeholder="Sort" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="newest">Newest first</SelectItem>
+                              <SelectItem value="oldest">Oldest first</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </label>
                         <label className="flex items-center gap-1 text-zinc-500">
                           Filter
@@ -3722,34 +3729,52 @@ export default function ViewPage() {
                           <span className="text-zinc-500">
                             Last sync: <span className="text-zinc-300">{formatRelativeSync(lastMailboxSync)}</span>
                           </span>
-                          <button
-                            type="button"
-                            disabled={syncingMailboxes}
-                            onClick={async () => {
-                              setSyncingMailboxes(true);
-                              try {
-                                await fetch("/api/email/mailboxes/sync-due", { method: "POST" });
-                                await fetchData();
-                              } catch {
-                                /* best effort */
-                              } finally {
-                                setSyncingMailboxes(false);
-                              }
-                            }}
-                            className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
-                            title="Refresh email — sync due mailboxes"
+                          <Tooltip
+                            content="Refresh email — sync due mailboxes"
+                            className="w-auto"
+                            side="bottom"
+                            align="end"
                           >
-                            <RefreshCw className={`h-3 w-3 ${syncingMailboxes ? "animate-spin" : ""}`} />
-                            Refresh
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setShowMailboxSyncModal(true)}
-                            className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-500"
-                            title="Show all connected mailboxes and their last sync"
+                            <button
+                              type="button"
+                              disabled={syncingMailboxes}
+                              onClick={async () => {
+                                setSyncingMailboxes(true);
+                                try {
+                                  await fetch("/api/email/mailboxes/sync-due", { method: "POST" });
+                                  await fetchData();
+                                } catch {
+                                  /* best effort */
+                                } finally {
+                                  setSyncingMailboxes(false);
+                                }
+                              }}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
+                              aria-label="Refresh email — sync due mailboxes"
+                            >
+                              <RefreshCw className={`h-3.5 w-3.5 ${syncingMailboxes ? "animate-spin" : ""}`} />
+                            </button>
+                          </Tooltip>
+                          <Tooltip
+                            content="Connected mailboxes & last sync"
+                            className="w-auto"
+                            side="bottom"
+                            align="end"
                           >
-                            Mailboxes
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowMailboxSyncModal(true)}
+                              className="relative inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500"
+                              aria-label="Connected mailboxes & last sync"
+                            >
+                              <Mailbox className="h-3.5 w-3.5" />
+                              {database.mailboxes.length > 0 ? (
+                                <span className="absolute -right-1.5 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1 text-[10px] font-semibold leading-none text-white">
+                                  {database.mailboxes.length}
+                                </span>
+                              ) : null}
+                            </button>
+                          </Tooltip>
                         </div>
                       </div>
                       <EmailWorkList
