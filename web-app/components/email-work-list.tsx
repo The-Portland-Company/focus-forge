@@ -487,6 +487,12 @@ export function EmailWorkList({
   const [spamActionThreadId, setSpamActionThreadId] = useState<string | null>(
     null,
   );
+  // Task C: rendered hover tooltip showing the first lines of the email body.
+  const [hoverPreview, setHoverPreview] = useState<{
+    text: string;
+    top: number;
+    left: number;
+  } | null>(null);
 
   const handleOpenLinkedTasks = async (item: InboxItem) => {
     setLinkedTasksThreadTitle(formatEmailSubject(item.subject));
@@ -566,6 +572,16 @@ export function EmailWorkList({
             role="button"
             tabIndex={0}
             onClick={() => onSelect?.(item)}
+            onMouseEnter={(event) => {
+              if (!item.previewText) return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              setHoverPreview({
+                text: previewText,
+                top: rect.bottom + 8,
+                left: rect.left + 16,
+              });
+            }}
+            onMouseLeave={() => setHoverPreview(null)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
@@ -1048,6 +1064,15 @@ export function EmailWorkList({
         );
         })}
       </div>
+
+      {hoverPreview ? (
+        <div
+          className="pointer-events-none fixed z-50 max-w-[360px] rounded-lg border border-zinc-700 bg-zinc-950/95 px-3 py-2 text-xs leading-5 text-zinc-200 shadow-2xl backdrop-blur"
+          style={{ top: `${hoverPreview.top}px`, left: `${hoverPreview.left}px` }}
+        >
+          <span className="line-clamp-3 break-words">{hoverPreview.text}</span>
+        </div>
+      ) : null}
 
       <Dialog
         open={isLinkedTasksModalOpen}
