@@ -14,6 +14,10 @@ import {
   EMAIL_RULE_ACTION_OPTIONS,
   EMAIL_RULE_FIELD_OPTIONS,
 } from "@/lib/email-inbox/rule-assistant";
+import {
+  summarizeEmailRuleActions,
+  summarizeEmailRuleConditions,
+} from "@/lib/email-inbox/spam-review";
 import { cn } from "@/lib/utils";
 
 type EmailRulesPanelProps = {
@@ -455,12 +459,23 @@ export function EmailRulesPanel({
                 <div className="mt-1 text-sm text-zinc-400">
                   {rule.description || "No description"}
                 </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                  <span>{rule.matchMode.toUpperCase()}</span>
-                  <span>·</span>
-                  <span>
-                    {rule.actions.map((action) => action.type).join(", ")}
-                  </span>
+                <div className="mt-3 space-y-1.5">
+                  <div className="flex items-start gap-2 text-xs">
+                    <span className="mt-0.5 shrink-0 rounded-md border border-zinc-700 bg-zinc-800/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+                      Match {rule.matchMode}
+                    </span>
+                    <span className="text-zinc-300">
+                      {summarizeEmailRuleConditions(rule)}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2 text-xs">
+                    <span className="mt-0.5 shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                      Then
+                    </span>
+                    <span className="text-zinc-300">
+                      {summarizeEmailRuleActions(rule)}
+                    </span>
+                  </div>
                 </div>
               </button>
             ))
