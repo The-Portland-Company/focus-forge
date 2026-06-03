@@ -22,11 +22,13 @@ import {
   Loader2,
   FileText,
   MessageCircle,
+  Mail,
+  StickyNote,
 } from "lucide-react";
 import { format, addDays } from "date-fns";
 import { getStartOfDay, isToday, isOverdue } from "@/lib/date-utils";
 import { formatRecurringLabel } from "@/lib/recurring-utils";
-import { getBlockedTaskIds } from "@/lib/dependency-utils";
+import { getBlockedTaskIds, getBlockingTasks } from "@/lib/dependency-utils";
 import { UserAvatar } from "@/components/user-avatar";
 import * as Popover from "@radix-ui/react-popover";
 
@@ -47,6 +49,11 @@ interface TaskListProps {
   loadingTaskIds?: Set<string>; // Tasks currently being processed
   animatingOutTaskIds?: Set<string>; // Tasks animating out after processing
   optimisticCompletedIds?: Set<string>; // Tasks optimistically marked as completed
+  deletingTaskIds?: Set<string>; // Tasks currently being deleted (loader + breathe)
+  emailThreadIdByTaskId?: Record<string, string>; // task id -> linked email thread id
+  onOpenEmailThread?: (threadId: string) => void;
+  onAddDependency?: (task: Task) => void;
+  showDescriptions?: boolean; // show description excerpts under all tasks
   enableDueDateQuickEdit?: boolean;
   onTaskFocus?: (taskId: string) => void;
   onTaskUpdate?: (
@@ -173,6 +180,11 @@ export function TaskList({
   loadingTaskIds,
   animatingOutTaskIds,
   optimisticCompletedIds,
+  deletingTaskIds,
+  emailThreadIdByTaskId,
+  onOpenEmailThread,
+  onAddDependency,
+  showDescriptions = true,
   enableDueDateQuickEdit,
   onTaskFocus,
   onTaskUpdate,
@@ -223,6 +235,9 @@ export function TaskList({
     return parentIds;
   });
   const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null);
+  const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(
+    new Set(),
+  );
   const [hasLoadedCompletedState, setHasLoadedCompletedState] = useState(false);
   const [quickEditTaskId, setQuickEditTaskId] = useState<string | null>(null);
   const [quickDueDate, setQuickDueDate] = useState("");
@@ -455,6 +470,62 @@ export function TaskList({
     return level;
   };
 
+  const renderRichDescription = (text: string) => {
+    // If the description contains HTML, render it directly.
+    if (/<[a-z][\s\S]*>/i.test(text)) {
+      return (
+        <div
+          className="prose prose-invert prose-sm max-w-none [&_img]:max-w-full [&_img]:rounded [&_a]:text-sky-400 [&_a]:underline"
+          dangerouslySetInnerHTML={{ __html: text }}
+        />
+      );
+    }
+    // Plain text: linkify URLs, embed image URLs, show link preview cards.
+    const parts = text.split(/(https?:\/\/[^\s]+)/g);
+    return (
+      <div className="space-y-2 whitespace-pre-wrap break-words">
+        {parts.map((part, idx) => {
+          if (!/^https?:\/\//.test(part)) {
+            return <span key={idx}>{part}</span>;
+          }
+          const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(part);
+          if (isImage) {
+            return (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={idx}
+                src={part}
+                alt=""
+                className="my-1 max-h-48 max-w-full rounded border border-zinc-700"
+              />
+            );
+          }
+          let host = part;
+          try {
+            host = new URL(part).hostname;
+          } catch {}
+          return (
+            <a
+              key={idx}
+              href={part}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="my-1 flex items-center gap-2 rounded border border-zinc-700 bg-zinc-800/80 px-2 py-1.5 text-sky-400 hover:bg-zinc-700/80"
+            >
+              <img
+                src={`https://www.google.com/s2/favicons?domain=${host}&sz=32`}
+                alt=""
+                className="h-4 w-4 rounded-sm"
+              />
+              <span className="truncate text-xs">{part}</span>
+            </a>
+          );
+        })}
+      </div>
+    );
+  };
+
   const renderTask = (task: Task) => {
     const indentLevel = getIndentLevel(task);
     const hasSubtasks = hasChildren(task.id);
@@ -462,6 +533,7 @@ export function TaskList({
     const isLoading = loadingTaskIds?.has(task.id);
     const isAnimatingOut = animatingOutTaskIds?.has(task.id);
     const isOptimisticCompleted = optimisticCompletedIds?.has(task.id);
+    const isDeleting = deletingTaskIds?.has(task.id);
     const taskTagBadges = task.tagBadges?.length
       ? task.tagBadges
       : (task.tags || []).reduce<NonNullable<Task["tagBadges"]>>(
@@ -631,20 +703,34 @@ export function TaskList({
           e.dataTransfer.effectAllowed = "move";
           e.dataTransfer.setData("taskId", task.id);
         }}
-        className={`task-list-row group relative flex items-center gap-3 px-4 py-1 rounded-lg hover:bg-zinc-800/50 cursor-move ${
+        className={`task-list-row group relative z-0 hover:z-40 flex items-center gap-3 px-4 py-1 rounded-lg hover:bg-zinc-800/50 cursor-move ${
           isCompleted ? "opacity-50" : ""
-        } ${isAnimatingOut ? "animate-slide-fade-out" : ""} ${isOptimisticCompleted && !isAnimatingOut ? "gradient-strikethrough" : ""} ${isLoading ? "opacity-70" : ""}`}
+        } ${isAnimatingOut ? "animate-slide-fade-out" : ""} ${isOptimisticCompleted && !isAnimatingOut ? "gradient-strikethrough" : ""} ${isLoading ? "opacity-70" : ""} ${
+          isDeleting
+            ? "gradient-strikethrough animate-breathe pointer-events-none"
+            : ""
+        } ${
+          hasSubtasks && !isCollapsed
+            ? "bg-violet-950/40 hover:bg-violet-950/50"
+            : indentLevel > 0
+              ? "bg-violet-900/10 hover:bg-violet-900/20"
+              : ""
+        }`}
         style={{ paddingLeft: `${16 + indentLevel * 24}px` }}
       >
         <div className="relative flex flex-shrink-0 items-center justify-center">
-          <button
-            onClick={(e) => copyTaskId(task.id, e)}
-            className="text-zinc-600 hover:text-[rgb(var(--theme-primary-rgb))] transition-colors"
-            title={`Copy task ID: ${task.id.slice(0, 8)}…`}
-            aria-label="Copy task ID"
-          >
-            <Hash className="w-4 h-4" />
-          </button>
+          <span className="relative group/copyid flex items-center justify-center">
+            <button
+              onClick={(e) => copyTaskId(task.id, e)}
+              className="text-zinc-600 hover:text-[rgb(var(--theme-primary-rgb))] transition-colors"
+              aria-label="Copy task ID"
+            >
+              <Hash className="w-4 h-4" />
+            </button>
+            <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/copyid:opacity-100 transition-opacity pointer-events-none z-50">
+              Copy task ID
+            </span>
+          </span>
           {copiedTaskId === task.id && (
             <span className="absolute left-0 top-full mt-1 z-50 whitespace-nowrap text-[10px] font-medium text-green-400 animate-fade-in-up">
               Copied!
@@ -687,13 +773,16 @@ export function TaskList({
                 return next;
               });
             }}
-            className="text-zinc-400 hover:text-zinc-300 transition-colors -mr-1.5"
+            className="relative group/expand text-zinc-400 hover:text-zinc-300 transition-colors -mr-1.5"
           >
             {isCollapsed ? (
               <ChevronRight className="w-4 h-4" />
             ) : (
               <ChevronDown className="w-4 h-4" />
             )}
+            <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/expand:opacity-100 transition-opacity pointer-events-none z-50">
+              {isCollapsed ? "Show subtasks" : "Hide subtasks"}
+            </span>
           </button>
         )}
 
@@ -718,7 +807,14 @@ export function TaskList({
               : undefined
           }
           disabled={isBlocked || isOptimisticCompleted}
-          title={isBlocked ? "Complete dependencies first" : ""}
+          aria-label={isBlocked ? "Blocked — complete dependencies first" : "Complete task"}
+          title={
+            isBlocked
+              ? "Complete dependencies first"
+              : isCompleted
+                ? "Reopen task"
+                : "Complete task"
+          }
         >
           {isCompleted ? (
             <CheckCircle2 className="w-5 h-5" />
@@ -728,6 +824,26 @@ export function TaskList({
             <Circle className="w-5 h-5" />
           )}
         </button>
+
+        {projects &&
+          (() => {
+            const projectId = (task as any).project_id || task.projectId;
+            if (!projectId) return null;
+            const project = projects.find((p) => p.id === projectId);
+            return project ? (
+              <span className="relative group/projectleft flex flex-shrink-0 items-center justify-center w-4">
+                <span
+                  className="w-4 h-4 rounded-full flex items-center justify-center text-[6px] font-bold text-white"
+                  style={{ backgroundColor: project.color }}
+                >
+                  {getProjectAcronym(project.name)}
+                </span>
+                <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/projectleft:opacity-100 transition-opacity pointer-events-none z-50">
+                  {project.name}
+                </span>
+              </span>
+            ) : null;
+          })()}
 
         <div
           className="flex-1 min-w-0 cursor-pointer"
@@ -747,36 +863,173 @@ export function TaskList({
                           : "text-white"
                     }`}
                   >
-                    {isLoading && (
+                    {(isLoading || isDeleting) && (
                       <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin text-zinc-400" />
                     )}
                     <span className="min-w-0 flex-1 whitespace-normal break-words">
                       {task.name}
                     </span>
                   </div>
-                  {task.description && (
-                    <div className="text-xs text-zinc-500 line-clamp-2 text-left">
-                      {task.description}
-                    </div>
-                  )}
+                  {task.description &&
+                    (showDescriptions ||
+                    expandedDescriptions.has(task.id) ? (
+                      <div className="relative group/desc">
+                        <div className="text-xs text-zinc-500 line-clamp-2 text-left">
+                          {task.description}
+                        </div>
+                        <div className="absolute left-0 bottom-full z-50 mb-1 hidden w-[28rem] max-w-[80vw] max-h-80 overflow-auto rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-xs text-zinc-200 shadow-xl group-hover/desc:block">
+                          {renderRichDescription(task.description)}
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedDescriptions((prev) => {
+                            const next = new Set(prev);
+                            next.add(task.id);
+                            return next;
+                          });
+                        }}
+                        className="relative group/descbtn flex w-fit items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300"
+                      >
+                        <FileText className="h-3 w-3" />
+                        <span>Show description</span>
+                        <span className="absolute left-0 bottom-full z-50 mb-1 hidden w-[28rem] max-w-[80vw] max-h-80 overflow-auto rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-left text-xs text-zinc-200 shadow-xl group-hover/descbtn:block">
+                          {renderRichDescription(task.description)}
+                        </span>
+                      </button>
+                    ))}
                   {dueDateLayout === "below" && dueDateBadge && (
                     <div className="mt-1">{dueDateBadge}</div>
                   )}
                 </div>
                 {isBlocked && !isCompleted && (
-                  <div
-                    className="flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))] flex-shrink-0"
-                    title="Task is blocked by dependencies"
-                  >
+                  <div className="relative group/blocked flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))] flex-shrink-0 cursor-help">
                     <Link2 className="w-3 h-3" />
                     <span className="text-xs">Blocked</span>
+                    <span className="absolute right-0 bottom-full mb-1 px-2 py-1.5 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/blocked:opacity-100 transition-opacity pointer-events-none z-50">
+                      <span className="block font-semibold text-zinc-300">
+                        Blocked by:
+                      </span>
+                      {(allTasks
+                        ? getBlockingTasks(task, allTasks)
+                        : []
+                      ).map((blocker) => (
+                        <span key={blocker.id} className="block">
+                          • {blocker.name}
+                        </span>
+                      ))}
+                    </span>
                   </div>
                 )}
               </div>
             </div>
 
             <div className="flex items-center text-xs flex-shrink-0">
+              <div
+                className={`mr-2 flex translate-x-3 items-center gap-3 rounded-md bg-zinc-800/95 px-2 py-1 transition-all duration-200 group-hover:translate-x-0 ${actionVisibilityClass}`}
+              >
+                {((task as any).due_date || task.dueDate) && onTaskUpdate ? (
+                  <span className="relative group/removedate flex items-center justify-center w-4">
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await onTaskUpdate(task.id, {
+                          due_date: null,
+                          due_time: null,
+                        } as any);
+                      }}
+                      className="text-zinc-600 hover:text-orange-400 transition-colors"
+                      aria-label="Remove due date"
+                    >
+                      <CalendarX2 className="w-4 h-4" />
+                    </button>
+                    <span className="absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/removedate:opacity-100 transition-opacity pointer-events-none z-50">
+                      Remove due date
+                    </span>
+                  </span>
+                ) : null}
+
+                {onAddDependency ? (
+                  <span className="relative group/adddep flex items-center justify-center w-4">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAddDependency(task);
+                      }}
+                      className="text-zinc-600 hover:text-[rgb(var(--theme-primary-rgb))] transition-colors"
+                      aria-label="Add dependency"
+                    >
+                      <Link2 className="w-4 h-4" />
+                    </button>
+                    <span className="absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/adddep:opacity-100 transition-opacity pointer-events-none z-50">
+                      Add dependency
+                    </span>
+                  </span>
+                ) : null}
+
+                <span className="relative group/editbtn flex items-center justify-center w-4">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTaskEdit(task);
+                    }}
+                    className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                    aria-label="Edit task"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </button>
+                  <span className="absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/editbtn:opacity-100 transition-opacity pointer-events-none z-50">
+                    Edit task
+                  </span>
+                </span>
+
+                <span className="relative group/deletebtn flex items-center justify-center w-4">
+                  {isDeleting ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-red-400" />
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTaskDelete(task.id);
+                      }}
+                      className="text-zinc-600 hover:text-red-400 transition-colors"
+                      aria-label="Delete task"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                  <span className="absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/deletebtn:opacity-100 transition-opacity pointer-events-none z-50">
+                    Delete task (moves to Trash)
+                  </span>
+                </span>
+              </div>
+
               <div className="flex items-center gap-2">
+                {(task as any).devnotesMeta || (task as any).devnotes_meta ? (
+                  <span className="relative group/devnotes flex items-center justify-center w-4">
+                    <StickyNote className="w-4 h-4 text-amber-400" />
+                    <span className="absolute right-full mr-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/devnotes:opacity-100 transition-opacity pointer-events-none z-50">
+                      Has DevNotes
+                    </span>
+                  </span>
+                ) : null}
+
+                {emailThreadIdByTaskId?.[task.id] && onOpenEmailThread ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenEmailThread(emailThreadIdByTaskId[task.id]);
+                    }}
+                    className="relative group/emaillink flex items-center justify-center w-4"
+                  >
+                    <Mail className="w-4 h-4 text-sky-400" />
+                    <span className="absolute right-full mr-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/emaillink:opacity-100 transition-opacity pointer-events-none z-50">
+                      View linked email
+                    </span>
+                  </button>
+                ) : null}
                 {task.todoistId ? (
                   <span
                     className={`relative group/todoist flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}
@@ -816,27 +1069,6 @@ export function TaskList({
                     </span>
                   </span>
                 ) : null}
-
-                {projects &&
-                  (() => {
-                    const projectId =
-                      (task as any).project_id || task.projectId;
-                    if (!projectId) return null;
-                    const project = projects.find((p) => p.id === projectId);
-                    return project ? (
-                      <span className="relative group/project flex items-center justify-center w-4">
-                        <span
-                          className="w-4 h-4 rounded-full flex items-center justify-center text-[6px] font-bold text-white"
-                          style={{ backgroundColor: project.color }}
-                        >
-                          {getProjectAcronym(project.name)}
-                        </span>
-                        <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/project:opacity-100 transition-opacity pointer-events-none z-50">
-                          {project.name}
-                        </span>
-                      </span>
-                    ) : null;
-                  })()}
 
                 {task.deadline ? (
                   <span className="relative group/deadline flex items-center justify-center w-4 text-red-400">
@@ -947,53 +1179,7 @@ export function TaskList({
                 {dueDateLayout === "right" && dueDateBadge}
               </div>
 
-              <div
-                className={`absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-3 rounded-md bg-zinc-800/95 px-2 py-1 ${actionVisibilityClass}`}
-              >
-                {((task as any).due_date || task.dueDate) && onTaskUpdate ? (
-                  <div className="relative group/removedate flex items-center justify-center w-4">
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        await onTaskUpdate(task.id, {
-                          due_date: null,
-                          due_time: null,
-                        } as any);
-                      }}
-                      className="text-zinc-600 hover:text-orange-400 transition-colors"
-                      title="Remove due date"
-                    >
-                      <CalendarX2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : null}
 
-                <div className="relative flex items-center justify-center w-4">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onTaskEdit(task);
-                    }}
-                    className="text-zinc-600 hover:text-zinc-400 transition-colors"
-                    title="Edit task"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="relative flex items-center justify-center w-4">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onTaskDelete(task.id);
-                    }}
-                    className="text-zinc-600 hover:text-red-400 transition-colors"
-                    title="Delete task"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         </div>

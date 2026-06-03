@@ -33,6 +33,8 @@ import {
   ChevronDown,
   CalendarDays,
   FileText,
+  FolderKanban,
+  LayoutGrid,
   Columns3,
   LayoutList,
 } from "lucide-react";
@@ -541,6 +543,20 @@ export default function ViewPage() {
     "all" | "tasks" | "projects" | "organizations"
   >("all");
   const [showBlockedTasks, setShowBlockedTasks] = useState(false);
+  const [groupTasksByProject, setGroupTasksByProject] = useState(false);
+  const [showTaskDescriptions, setShowTaskDescriptions] = useState(true);
+  const [todayViewMode, setTodayViewMode] = useState<"list" | "kanban">(
+    "list",
+  );
+  const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [emailTaskLinks, setEmailTaskLinks] = useState<
+    Record<string, string>
+  >({});
+  const [taskEmailThreadId, setTaskEmailThreadId] = useState<string | null>(
+    null,
+  );
   const [todaySections, setTodaySections] = useState({
     email: true,
     overdue: true,
@@ -944,6 +960,16 @@ export default function ViewPage() {
       window.clearInterval(interval);
     };
   }, [fetchData, isEmailThreadPopout, user, view]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    fetch("/api/email/task-links", { credentials: "include" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (payload?.links) setEmailTaskLinks(payload.links);
+      })
+      .catch(() => undefined);
+  }, [user?.id, view]);
 
   const clearUndoTimers = () => {
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
@@ -1781,6 +1807,8 @@ export default function ViewPage() {
   const confirmTaskDelete = async () => {
     if (!taskDeleteConfirm.taskId) return;
     const deletedName = taskDeleteConfirm.taskName;
+    const deletingId = taskDeleteConfirm.taskId;
+    setDeletingTaskIds((prev) => new Set(prev).add(deletingId));
     try {
       const response = await fetch(`/api/tasks/${taskDeleteConfirm.taskId}`, {
         method: "DELETE",
@@ -1801,6 +1829,12 @@ export default function ViewPage() {
       }
     } catch (error) {
       console.error("Error deleting task:", error);
+    } finally {
+      setDeletingTaskIds((prev) => {
+        const next = new Set(prev);
+        next.delete(deletingId);
+        return next;
+      });
     }
   };
 
@@ -3358,6 +3392,11 @@ export default function ViewPage() {
         loadingTaskIds,
         animatingOutTaskIds,
         optimisticCompletedIds,
+        deletingTaskIds,
+        emailThreadIdByTaskId: emailTaskLinks,
+        onOpenEmailThread: (threadId: string) => setTaskEmailThreadId(threadId),
+        onAddDependency: (task: Task) => handleTaskEdit(task),
+        showDescriptions: showTaskDescriptions,
         onTaskFocus: focusTaskRow,
         onTaskSelect: (taskId: string, event?: React.MouseEvent) => {
           if (event?.ctrlKey || event?.metaKey) {
@@ -3396,6 +3435,51 @@ export default function ViewPage() {
           setLastSelectedTaskId(taskId);
         },
       });
+
+      const renderTaskSection = (
+        sectionTasks: typeof allWeekTasks,
+        accordionKey: string,
+      ) => {
+        if (!groupTasksByProject) {
+          return <TaskList {...getTaskListProps(sectionTasks, accordionKey)} />;
+        }
+        const groups = new Map<string, typeof allWeekTasks>();
+        sectionTasks.forEach((task) => {
+          const pid =
+            (task as any).project_id || task.projectId || "__none__";
+          const bucket = groups.get(pid) || [];
+          bucket.push(task);
+          groups.set(pid, bucket);
+        });
+        const dueMs = (task: any) => {
+          const due = task.due_date || task.dueDate;
+          return due ? new Date(due).getTime() : Number.POSITIVE_INFINITY;
+        };
+        const ranked = Array.from(groups.entries())
+          .map(([pid, bucket]) => ({
+            pid,
+            bucket,
+            earliest: Math.min(...bucket.map(dueMs)),
+          }))
+          .sort((a, b) => a.earliest - b.earliest);
+        return ranked.map(({ pid, bucket }) => {
+          const project = database.projects.find((p) => p.id === pid);
+          return (
+            <div key={`${accordionKey}-${pid}`} className="mb-2">
+              <div className="flex items-center gap-2 px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                <span
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: project?.color || "#52525b" }}
+                />
+                {project?.name || "No project"}
+              </div>
+              <TaskList
+                {...getTaskListProps(bucket, `${accordionKey}-${pid}`)}
+              />
+            </div>
+          );
+        });
+      };
 
       const todayDate = new Date();
       const todayLabel = `${format(todayDate, "EEE")}. ${format(todayDate, "MMM")}. ${format(todayDate, "do")} '${format(todayDate, "yy")}`;
@@ -3438,7 +3522,7 @@ export default function ViewPage() {
                     {user && (
                       <button
                         onClick={() => setShowTodoistSync(true)}
-                        className="p-2.5 hover:bg-zinc-800 rounded-lg transition-colors text-red-500 hover:text-red-400"
+                        className="p-2 rounded border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-zinc-600 transition-colors"
                         title="Sync with Todoist"
                       >
                         <RefreshCw className="w-4 h-4" />
@@ -3464,10 +3548,63 @@ export default function ViewPage() {
                             : "inline",
                       )
                     }
-                    className="p-2 rounded border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
+                    className="p-2 rounded border border-zinc-700 text-zinc-400 hover:text-sky-400 hover:border-zinc-600 transition-colors"
                     title={`Date: ${dueDateLayout === "inline" ? "Inline" : dueDateLayout === "below" ? "Below" : "Right"}`}
                   >
                     <CalendarDays className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setGroupTasksByProject((prev) => !prev)}
+                    className={`p-2 rounded border transition-colors ${
+                      groupTasksByProject
+                        ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30"
+                        : "border-zinc-700 text-zinc-400 hover:text-violet-400 hover:border-zinc-600"
+                    }`}
+                    title={
+                      groupTasksByProject
+                        ? "Grouped by project (click to ungroup)"
+                        : "Group by Project"
+                    }
+                  >
+                    <FolderKanban className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setShowTaskDescriptions((prev) => !prev)}
+                    className={`p-2 rounded border transition-colors ${
+                      showTaskDescriptions
+                        ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30"
+                        : "border-zinc-700 text-zinc-400 hover:text-amber-400 hover:border-zinc-600"
+                    }`}
+                    title={
+                      showTaskDescriptions
+                        ? "Hiding description excerpts on click"
+                        : "Show description excerpts under all tasks"
+                    }
+                  >
+                    <FileText className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() =>
+                      setTodayViewMode((prev) =>
+                        prev === "list" ? "kanban" : "list",
+                      )
+                    }
+                    className={`p-2 rounded border transition-colors ${
+                      todayViewMode === "kanban"
+                        ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30"
+                        : "border-zinc-700 text-zinc-400 hover:text-emerald-400 hover:border-zinc-600"
+                    }`}
+                    title={
+                      todayViewMode === "kanban"
+                        ? "Switch to List view"
+                        : "Switch to Kanban view"
+                    }
+                  >
+                    {todayViewMode === "kanban" ? (
+                      <LayoutList className="w-4 h-4" />
+                    ) : (
+                      <LayoutGrid className="w-4 h-4" />
+                    )}
                   </button>
                   <div className="flex items-center gap-1">
                     <Popover.Root>
@@ -3695,253 +3832,136 @@ export default function ViewPage() {
               />
             </div>
             <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 space-y-2 mx-4">
-              {todayEmailItems.length > 0 && (
+              {(database.mailboxes?.length ?? 0) > 0 && (
                 <div>
                   <SectionHeader
-                    title="Email Work"
+                    title="Email Inbox"
                     count={todayEmailItems.length}
                     section="email"
                     isOpen={todaySections.email}
-                    actions={
-                      <Tooltip
-                        content="AI + Spam"
-                        className="w-auto"
-                        side="bottom"
-                        align="end"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setShowTodaySpamReview(true)}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
-                          aria-label="AI + Spam"
-                        >
-                          <Bot className="h-4 w-4" />
-                        </button>
-                      </Tooltip>
-                    }
                   />
                   {todaySections.email && (
-                    <div className="mt-2 space-y-2">
-                      {/* Controls row: sort, classification filter, refresh,
-                          last-sync indicator, and a button to open a modal
-                          listing each connected mailbox's last sync time. */}
-                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-2 py-1.5 text-xs">
-                        <label className="flex items-center gap-1 text-zinc-500">
-                          Sort
-                          <Select
-                            value={todayEmailSort}
-                            onValueChange={(value) =>
-                              setTodayEmailSort(value as "newest" | "oldest")
-                            }
-                          >
-                            <SelectTrigger className="h-8 w-[150px] border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200">
-                              <SelectValue placeholder="Sort" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="newest">Newest first</SelectItem>
-                              <SelectItem value="oldest">Oldest first</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </label>
-                        <label className="flex items-center gap-1 text-zinc-500">
-                          Filter
-                          <select
-                            value={todayEmailClass}
-                            onChange={(e) => setTodayEmailClass(e.target.value)}
-                            className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-zinc-500"
-                          >
-                            <option value="all">All</option>
-                            <option value="actionable">Actionable</option>
-                            <option value="newsletter">Newsletter</option>
-                            <option value="waiting">Waiting</option>
-                            <option value="reference">Reference</option>
-                            <option value="spam">Spam</option>
-                            <option value="unknown">Unknown</option>
-                          </select>
-                        </label>
-                        <div className="ml-auto flex items-center gap-2">
-                          <span className="text-zinc-500">
-                            Last sync: <span className="text-zinc-300">{formatRelativeSync(lastMailboxSync)}</span>
-                          </span>
-                          <Tooltip
-                            content="Refresh email — sync due mailboxes"
-                            className="w-auto"
-                            side="bottom"
-                            align="end"
-                          >
-                            <button
-                              type="button"
-                              disabled={syncingMailboxes}
-                              onClick={async () => {
-                                setSyncingMailboxes(true);
-                                try {
-                                  await fetch("/api/email/mailboxes/sync-due", { method: "POST" });
-                                  await fetchData();
-                                } catch {
-                                  /* best effort */
-                                } finally {
-                                  setSyncingMailboxes(false);
-                                }
-                              }}
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
-                              aria-label="Refresh email — sync due mailboxes"
-                            >
-                              <RefreshCw className={`h-3.5 w-3.5 ${syncingMailboxes ? "animate-spin" : ""}`} />
-                            </button>
-                          </Tooltip>
-                          <Tooltip
-                            content="Connected mailboxes & last sync"
-                            className="w-auto"
-                            side="bottom"
-                            align="end"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => setShowMailboxSyncModal(true)}
-                              className="relative inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500"
-                              aria-label="Connected mailboxes & last sync"
-                            >
-                              <Mailbox className="h-3.5 w-3.5" />
-                              {database.mailboxes.length > 0 ? (
-                                <span className="absolute -right-1.5 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1 text-[10px] font-semibold leading-none text-white">
-                                  {database.mailboxes.length}
-                                </span>
-                              ) : null}
-                            </button>
-                          </Tooltip>
+                    <div className="mt-1 max-h-[70vh] overflow-y-auto rounded-lg border border-zinc-800">
+                      <EmailInboxView
+                        view="email-inbox"
+                        data={database}
+                        onRefresh={fetchData}
+                        currentUserId={currentUserId}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {todayViewMode === "kanban" ? (
+                <div className="mt-2">
+                  <KanbanView
+                    tasks={[
+                      ...overdueTasks,
+                      ...todayTasks,
+                      ...tomorrowTasks,
+                      ...restOfWeekTasks,
+                    ].filter((t) => !t.completed)}
+                    allTasks={database.tasks}
+                    projects={database.projects}
+                    onTaskToggle={handleTaskToggle}
+                    onTaskEdit={handleTaskEdit}
+                    onTaskUpdate={handleTaskUpdate}
+                  />
+                </div>
+              ) : (
+                <>
+                  {/* Overdue Section */}
+                  {overdueTasks.length > 0 && (
+                    <div>
+                      <SectionHeader
+                        title="Overdue"
+                        count={overdueTasks.filter((t) => !t.completed).length}
+                        section="overdue"
+                        isOpen={todaySections.overdue}
+                      />
+                      {todaySections.overdue && (
+                        <div className="mt-1">
+                          <>{renderTaskSection(overdueTasks, "today-overdue")}</>
                         </div>
-                      </div>
-                      <EmailWorkList
-                        items={sortedFilteredTodayEmailItems}
-                        mailboxes={database.mailboxes}
-                        projects={database.projects}
-                        selectedId={selectedTodayEmailId}
-                        onSelect={(item) => setSelectedTodayEmailId(item.id)}
-                        showTodayTriageActions
-                        onThreadAction={async (item, action, options) => {
-                          try {
-                            await fetch(
-                              `/api/email/threads/${item.id}/actions`,
-                              {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                },
-                                body: JSON.stringify({
-                                  action,
-                                  snoozedUntil: options?.snoozedUntil ?? null,
-                                }),
-                              },
-                            );
-                          } finally {
-                            await fetchData();
-                          }
-                        }}
-                        emptyLabel="No email work is waiting in Today."
-                      />
+                      )}
                     </div>
                   )}
-                </div>
-              )}
 
-              {/* Overdue Section */}
-              {overdueTasks.length > 0 && (
-                <div>
-                  <SectionHeader
-                    title="Overdue"
-                    count={overdueTasks.filter((t) => !t.completed).length}
-                    section="overdue"
-                    isOpen={todaySections.overdue}
-                  />
-                  {todaySections.overdue && (
-                    <div className="mt-1">
-                      <TaskList
-                        {...getTaskListProps(overdueTasks, "today-overdue")}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Today Section */}
-              <div>
-                <SectionHeader
-                  title="Today"
-                  count={todayTasks.filter((t) => !t.completed).length}
-                  section="today"
-                  isOpen={todaySections.today}
-                />
-                {todaySections.today && (
-                  <div className="mt-1">
-                    {todayTasks.length > 0 ? (
-                      <TaskList
-                        {...getTaskListProps(todayTasks, "today-today")}
-                      />
-                    ) : (
-                      <p className="text-sm text-zinc-600 py-2 px-1">
-                        No tasks due today
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Tomorrow Section */}
-              <div>
-                <SectionHeader
-                  title="Tomorrow"
-                  count={tomorrowTasks.filter((t) => !t.completed).length}
-                  section="tomorrow"
-                  isOpen={todaySections.tomorrow}
-                />
-                {todaySections.tomorrow && (
-                  <div className="mt-1">
-                    {tomorrowTasks.length > 0 ? (
-                      <TaskList
-                        {...getTaskListProps(tomorrowTasks, "today-tomorrow")}
-                      />
-                    ) : (
-                      <p className="text-sm text-zinc-600 py-2 px-1">
-                        No tasks due tomorrow
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Rest of Week Section */}
-              <div>
-                <SectionHeader
-                  title="Rest of the Week"
-                  count={restOfWeekTasks.filter((t) => !t.completed).length}
-                  section="restOfWeek"
-                  isOpen={todaySections.restOfWeek}
-                />
-                {todaySections.restOfWeek && (
-                  <div className="mt-1">
-                    {restOfWeekTasks.length > 0 ? (
-                      <TaskList
-                        {...getTaskListProps(
-                          restOfWeekTasks,
-                          "today-restofweek",
+                  {/* Today Section */}
+                  <div>
+                    <SectionHeader
+                      title="Today"
+                      count={todayTasks.filter((t) => !t.completed).length}
+                      section="today"
+                      isOpen={todaySections.today}
+                    />
+                    {todaySections.today && (
+                      <div className="mt-1">
+                        {todayTasks.length > 0 ? (
+                          <>{renderTaskSection(todayTasks, "today-today")}</>
+                        ) : (
+                          <p className="text-sm text-zinc-600 py-2 px-1">
+                            No tasks due today
+                          </p>
                         )}
-                      />
-                    ) : (
-                      <p className="text-sm text-zinc-600 py-2 px-1">
-                        No tasks for the rest of the week
-                      </p>
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
 
-              {completedWeekTasks.length > 0 && (
-                <div className="mt-4">
-                  <TaskList
-                    {...getTaskListProps(completedWeekTasks, "today-completed")}
-                    showCompleted={false}
-                  />
-                </div>
+                  {/* Tomorrow Section */}
+                  <div>
+                    <SectionHeader
+                      title="Tomorrow"
+                      count={tomorrowTasks.filter((t) => !t.completed).length}
+                      section="tomorrow"
+                      isOpen={todaySections.tomorrow}
+                    />
+                    {todaySections.tomorrow && (
+                      <div className="mt-1">
+                        {tomorrowTasks.length > 0 ? (
+                          <>{renderTaskSection(tomorrowTasks, "today-tomorrow")}</>
+                        ) : (
+                          <p className="text-sm text-zinc-600 py-2 px-1">
+                            No tasks due tomorrow
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Rest of Week Section */}
+                  <div>
+                    <SectionHeader
+                      title="Rest of the Week"
+                      count={restOfWeekTasks.filter((t) => !t.completed).length}
+                      section="restOfWeek"
+                      isOpen={todaySections.restOfWeek}
+                    />
+                    {todaySections.restOfWeek && (
+                      <div className="mt-1">
+                        {restOfWeekTasks.length > 0 ? (
+                          <>
+                            {renderTaskSection(restOfWeekTasks, "today-restofweek")}
+                          </>
+                        ) : (
+                          <p className="text-sm text-zinc-600 py-2 px-1">
+                            No tasks for the rest of the week
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {completedWeekTasks.length > 0 && (
+                    <div className="mt-4">
+                      <TaskList
+                        {...getTaskListProps(completedWeekTasks, "today-completed")}
+                        showCompleted={false}
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -5425,6 +5445,18 @@ export default function ViewPage() {
           mailboxes={database.mailboxes}
           rules={database.emailRules}
           onRefresh={fetchData}
+        />
+      )}
+
+      {taskEmailThreadId && (
+        <EmailThreadModal
+          open
+          threadId={taskEmailThreadId}
+          projects={database?.projects || []}
+          onRefresh={fetchData}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setTaskEmailThreadId(null);
+          }}
         />
       )}
 
