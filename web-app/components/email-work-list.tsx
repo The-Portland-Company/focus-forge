@@ -776,7 +776,7 @@ export function EmailWorkList({
                   })()}
                 </div>
                 <div className="mt-1 flex min-w-0 items-start gap-2">
-                  {shouldShowSpamIndicator(item) ? (
+                  {shouldShowSpamIndicator(item) && reviewState !== "quarantine" ? (
                     canMoveToQuarantine ? (
                       <Popover.Root
                         open={spamActionThreadId === item.id}
@@ -850,7 +850,7 @@ export function EmailWorkList({
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 {shouldShowStatusBadge(item) && reviewBadgeLabel ? (
-                  <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                  <div className="rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-rose-300">
                     {reviewBadgeLabel}
                   </div>
                 ) : null}

@@ -4600,7 +4600,7 @@ export function EmailInboxView({
                     </div>
                     {shouldShowStatusBadge(selectedThread) &&
                     getInboxReviewBadgeLabel(selectedThread) ? (
-                      <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                      <div className="rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-rose-300">
                         {getInboxReviewBadgeLabel(selectedThread)}
                       </div>
                     ) : null}
