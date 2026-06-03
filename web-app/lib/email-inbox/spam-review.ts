@@ -46,6 +46,83 @@ const SPAM_REVIEW_RULE_ACTIONS = new Set([
   "always_delete",
 ]);
 
+export type SpamReviewCategoryValue = InboxItem["classification"];
+
+export type SpamReviewCategory = {
+  value: SpamReviewCategoryValue;
+  label: string;
+  description: string;
+  /** When true, choosing this category keeps the thread classified as spam. */
+  isSpam?: boolean;
+};
+
+/**
+ * Reconciled categorization taxonomy used by the spam review modal.
+ *
+ * It reuses the app's EXISTING `classification` values
+ * (spam / newsletter / actionable / waiting / reference / unknown) and adds
+ * ONE genuinely new value, `transactional`, for receipts/confirmations which
+ * had no equivalent before. "Promotional" is intentionally reconciled onto the
+ * existing `newsletter` value instead of being duplicated as a new concept.
+ */
+export const SPAM_REVIEW_CATEGORIES: SpamReviewCategory[] = [
+  {
+    value: "spam",
+    label: "Spam",
+    description: "Keep out of the inbox as spam.",
+    isSpam: true,
+  },
+  {
+    value: "transactional",
+    label: "Transactional",
+    description: "Receipts, confirmations, account & security notices.",
+  },
+  {
+    value: "newsletter",
+    label: "Promotional",
+    description: "Marketing, newsletters & promotional mail.",
+  },
+  {
+    value: "actionable",
+    label: "Actionable",
+    description: "Needs a reply or action from you.",
+  },
+  {
+    value: "waiting",
+    label: "Waiting",
+    description: "Awaiting a reply from someone else.",
+  },
+  {
+    value: "reference",
+    label: "Reference",
+    description: "Informational — keep for reference.",
+  },
+  {
+    value: "unknown",
+    label: "Uncategorized",
+    description: "Not categorized yet.",
+  },
+];
+
+const SPAM_REVIEW_CATEGORY_FALLBACK =
+  SPAM_REVIEW_CATEGORIES.find((category) => category.value === "spam") ??
+  SPAM_REVIEW_CATEGORIES[0];
+
+/**
+ * Resolves the best-matching category for a thread's existing AI classification
+ * so the Categorize control can pre-select it. Falls back to Spam (the detected
+ * state for everything in this modal) when the value is unrecognized.
+ */
+export function resolveSpamReviewCategory(
+  classification: SpamReviewCategoryValue | null | undefined,
+): SpamReviewCategory {
+  return (
+    SPAM_REVIEW_CATEGORIES.find(
+      (category) => category.value === classification,
+    ) ?? SPAM_REVIEW_CATEGORY_FALLBACK
+  );
+}
+
 export function listDetectedSpamItems(
   items: InboxItem[],
   mailboxId?: string | null,
