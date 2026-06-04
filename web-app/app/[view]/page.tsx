@@ -3172,38 +3172,6 @@ export default function ViewPage() {
       // Group tasks by section
       const completedWeekTasks = allWeekTasks.filter((task) => task.completed);
       const activeWeekTasks = allWeekTasks.filter((task) => !task.completed);
-      const todayEmailItems = database.inboxItems.filter((item) => {
-        if (!shouldShowInboxItemInToday(item)) return false;
-
-        if (!taskSearchQuery.trim()) {
-          return true;
-        }
-
-        const query = taskSearchQuery.toLowerCase();
-        return (
-          item.actionTitle.toLowerCase().includes(query) ||
-          item.subject.toLowerCase().includes(query) ||
-          (item.summaryText || item.previewText || "")
-            .toLowerCase()
-            .includes(query)
-        );
-      });
-
-      // Apply sort + classification filter for the Email Work section.
-      const sortedFilteredTodayEmailItems = todayEmailItems
-        .filter((item) =>
-          todayEmailClass === "all" ? true : item.classification === todayEmailClass,
-        )
-        .slice()
-        .sort((a, b) => {
-          const at = new Date(
-            a.latestMessageAt || a.latestInboundAt || a.latestOutboundAt || a.updatedAt || a.createdAt || 0,
-          ).getTime();
-          const bt = new Date(
-            b.latestMessageAt || b.latestInboundAt || b.latestOutboundAt || b.updatedAt || b.createdAt || 0,
-          ).getTime();
-          return todayEmailSort === "newest" ? bt - at : at - bt;
-        });
 
       // Most recent mailbox sync across all connected mailboxes.
       const lastMailboxSync = database.mailboxes.reduce<string | null>((latest, mb) => {
@@ -3832,27 +3800,6 @@ export default function ViewPage() {
               />
             </div>
             <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 space-y-2 mx-4">
-              {(database.mailboxes?.length ?? 0) > 0 && (
-                <div>
-                  <SectionHeader
-                    title="Email Inbox"
-                    count={todayEmailItems.length}
-                    section="email"
-                    isOpen={todaySections.email}
-                  />
-                  {todaySections.email && (
-                    <div className="mt-1 max-h-[70vh] overflow-y-auto rounded-lg border border-zinc-800">
-                      <EmailInboxView
-                        view="email-inbox"
-                        data={database}
-                        onRefresh={fetchData}
-                        currentUserId={currentUserId}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
               {todayViewMode === "kanban" ? (
                 <div className="mt-2">
                   <KanbanView
