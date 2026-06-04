@@ -10,6 +10,7 @@ import {
 import { EstimatePresets } from "@/components/estimate-presets";
 import {
   Calendar,
+  ChevronLeft,
   ChevronRight,
   Flag,
   Loader2,
@@ -84,6 +85,7 @@ export function EstimateReviewModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedCount, setSavedCount] = useState(0);
+  const [pageInput, setPageInput] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const current = tasks[index];
@@ -94,6 +96,18 @@ export function EstimateReviewModal({
     setError(null);
     setIndex((i) => i + 1);
   }, []);
+
+  // Navigate to an arbitrary card without saving.
+  const goTo = useCallback(
+    (i: number) => {
+      if (tasks.length === 0) return;
+      const clamped = Math.max(0, Math.min(i, tasks.length - 1));
+      setValue(null);
+      setError(null);
+      setIndex(clamped);
+    },
+    [tasks.length]
+  );
 
   const finish = useCallback(() => {
     onCompleted?.(savedCount);
@@ -227,11 +241,17 @@ export function EstimateReviewModal({
         advance();
       } else if (e.key.toLowerCase() === "u" && currentSuggestion) {
         setValue(currentSuggestion.minutes);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        goTo(index - 1);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        goTo(index + 1);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, saveCurrent, advance, currentSuggestion]);
+  }, [isOpen, saveCurrent, advance, currentSuggestion, goTo, index]);
 
   // When we run off the end of the batch, close out.
   useEffect(() => {
@@ -253,13 +273,8 @@ export function EstimateReviewModal({
     >
       <DialogContent className="bg-zinc-900 border-zinc-800 max-w-xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center justify-between gap-3">
+          <DialogTitle>
             <span className="text-white">Estimate tasks</span>
-            <span className="text-xs font-normal text-zinc-400">
-              {tasks.length > 0
-                ? `${Math.min(index + 1, tasks.length)} / ${tasks.length}`
-                : ""}
-            </span>
           </DialogTitle>
         </DialogHeader>
 
@@ -400,8 +415,58 @@ export function EstimateReviewModal({
               </div>
             </div>
 
+            {/* Pagination — navigate without saving */}
+            <div className="flex items-center justify-center gap-2 border-t border-zinc-800 pt-3">
+              <button
+                type="button"
+                onClick={() => goTo(index - 1)}
+                disabled={index <= 0}
+                className="rounded-md border border-zinc-700 bg-zinc-800 p-1.5 text-zinc-300 hover:border-zinc-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Previous task (doesn't save)"
+                aria-label="Previous task"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                <input
+                  type="number"
+                  min={1}
+                  max={tasks.length}
+                  value={pageInput ?? String(Math.min(index + 1, tasks.length))}
+                  onChange={(e) => setPageInput(e.target.value)}
+                  onBlur={() => {
+                    if (pageInput != null) {
+                      const n = parseInt(pageInput, 10);
+                      if (!Number.isNaN(n)) goTo(n - 1);
+                      setPageInput(null);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  className="w-12 rounded-md border border-zinc-700 bg-zinc-900 px-1.5 py-1 text-center text-zinc-200 focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  aria-label="Jump to task"
+                />
+                <span>/ {tasks.length}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => goTo(index + 1)}
+                disabled={index >= tasks.length - 1}
+                className="rounded-md border border-zinc-700 bg-zinc-800 p-1.5 text-zinc-300 hover:border-zinc-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Next task (doesn't save)"
+                aria-label="Next task"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
             <div className="text-[10px] text-zinc-600 text-center pt-1">
-              Enter = save · S = skip · U = use suggestion · Esc = close
+              Enter = save · S = skip · U = use suggestion · ←/→ = navigate · Esc = close
             </div>
           </div>
         )}
