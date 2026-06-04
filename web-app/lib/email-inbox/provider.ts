@@ -380,6 +380,18 @@ export async function fetchMailboxMessageReadStates(
   });
 }
 
+// Lists every UID currently present in the synced folder (e.g. Gmail INBOX).
+// Used to mirror provider-side archiving: stored messages whose UID is no
+// longer present have left the folder.
+export async function fetchMailboxFolderUids(mailbox: MailboxTransportRow) {
+  return await withImapClient(mailbox, async (client) => {
+    const uids = await client.search({ all: true }, { uid: true });
+    return (Array.isArray(uids) ? uids : [])
+      .map((uid) => String(uid))
+      .filter((uid) => uid && uid !== "0");
+  });
+}
+
 export async function fetchMailboxMessageByProviderMessageId(
   mailbox: MailboxTransportRow,
   providerMessageId: string,

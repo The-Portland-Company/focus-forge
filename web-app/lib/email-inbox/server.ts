@@ -43,6 +43,7 @@ import {
   emptyMailboxTrash,
   fetchMailboxAttachmentByProviderMessageId,
   fetchMailboxMessageByProviderMessageId,
+  fetchMailboxFolderUids,
   fetchMailboxMessageReadStates,
   fetchMailboxMessages,
   sendMailboxReply,
@@ -1069,6 +1070,74 @@ async function listMailboxPushRecipientIds(mailbox: any) {
   });
 
   return Array.from(recipientIds);
+}
+
+// Mirrors provider-side archiving: any triage-visible thread whose inbound
+// messages have all left the synced folder (e.g. archived in Gmail) is moved
+// to 'archived' here too, so the app inbox only shows what's in the provider
+// inbox. Threads already quarantined/deleted/resolved are left untouched.
+async function mirrorProviderFolderState(params: {
+  mailboxId: string;
+  mailbox: MailboxTransportRow;
+}) {
+  const admin = getAdminClient();
+
+  let folderUids: string[];
+  try {
+    folderUids = await fetchMailboxFolderUids(params.mailbox);
+  } catch {
+    // Non-fatal: mirroring is best-effort; the next sync retries.
+    return { archivedThreadCount: 0 };
+  }
+  const presentUids = new Set(folderUids);
+
+  const { data: threadRows } = await admin
+    .from("email_threads")
+    .select("id")
+    .eq("mailbox_id", params.mailboxId)
+    .in("status", ["active", "needs_project"]);
+
+  const threadIds = (threadRows ?? []).map((row: any) => String(row.id));
+  if (threadIds.length === 0) {
+    return { archivedThreadCount: 0 };
+  }
+
+  // A thread is still "in the inbox" when at least one of its inbound
+  // messages is still present in the synced folder.
+  const stillPresent = new Set<string>();
+  const chunkSize = 100;
+  for (let i = 0; i < threadIds.length; i += chunkSize) {
+    const chunk = threadIds.slice(i, i + chunkSize);
+    const { data: messageRows } = await admin
+      .from("email_messages")
+      .select("thread_id,provider_message_id")
+      .eq("mailbox_id", params.mailboxId)
+      .eq("direction", "inbound")
+      .not("provider_message_id", "is", null)
+      .in("thread_id", chunk);
+    (messageRows ?? []).forEach((row: any) => {
+      if (presentUids.has(String(row.provider_message_id || ""))) {
+        stillPresent.add(String(row.thread_id));
+      }
+    });
+  }
+
+  const departedThreadIds = threadIds.filter(
+    (id: string) => !stillPresent.has(id),
+  );
+  if (departedThreadIds.length === 0) {
+    return { archivedThreadCount: 0 };
+  }
+
+  for (let i = 0; i < departedThreadIds.length; i += chunkSize) {
+    const chunk = departedThreadIds.slice(i, i + chunkSize);
+    await admin
+      .from("email_threads")
+      .update({ status: "archived", is_unread: false })
+      .in("id", chunk);
+  }
+
+  return { archivedThreadCount: departedThreadIds.length };
 }
 
 async function syncMailboxThreadReadStates(params: {
@@ -2278,6 +2347,11 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       providerMessageIds: syncedProviderMessageIds,
     });
 
+    const mirrorResult = await mirrorProviderFolderState({
+      mailboxId,
+      mailbox: transportMailbox,
+    });
+
     let pushNotificationCount = 0;
     for (const candidate of notificationCandidates) {
       const result = await sendNewEmailPushNotifications({
@@ -2319,6 +2393,7 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       syncedMessageCount: messages.length,
       changedThreadCount: changedThreadIds.size,
       pushNotificationCount,
+      archivedThreadCount: mirrorResult.archivedThreadCount,
     };
   } catch (error) {
     const message = extractMailboxErrorMessage(error);
