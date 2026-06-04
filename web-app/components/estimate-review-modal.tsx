@@ -390,10 +390,14 @@ export function EstimateReviewModal({
                   onClick={saveCurrent}
                   disabled={value == null || saving}
                   className="text-sm rounded-md bg-[rgb(var(--theme-primary-rgb))] text-white px-3 py-1.5 hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1"
-                  title="Save & next (Enter)"
+                  title={
+                    index >= tasks.length - 1
+                      ? "Save (Enter)"
+                      : "Approve & Continue (Enter)"
+                  }
                 >
                   {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                  Save & next
+                  {index >= tasks.length - 1 ? "Save" : "Approve & Continue"}
                 </button>
               </div>
             </div>
