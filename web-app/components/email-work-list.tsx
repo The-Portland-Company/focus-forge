@@ -605,12 +605,8 @@ export function EmailWorkList({
         const rawSummaryText = item.summaryText
           ? formatInboxPreviewText(item.summaryText)
           : null;
-        // Task B: always surface the AI summary when one exists.
-        const displaySummary =
-          rawSummaryText && rawSummaryText !== "No summary available yet."
-            ? rawSummaryText
-            : null;
-        // Task C: cleaned email body excerpt used for the hover tooltip.
+        // The AI title (rendered above) replaces the inline AI summary.
+        // Cleaned email body excerpt used for the hover tooltip.
         const previewText = item.previewText
           ? formatInboxPreviewText(item.previewText)
           : rawSummaryText || "No summary available yet.";
@@ -922,20 +918,6 @@ export function EmailWorkList({
               </div>
               </div>
 
-              {displaySummary ? (
-                <div className="mt-3">
-                  <div
-                    className={cn(
-                      "flex max-w-full items-start gap-2 text-sm italic",
-                      isVisuallyUnread ? "text-zinc-200" : "text-zinc-400",
-                    )}
-                  >
-                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
-                    <span className="min-w-0 break-words">{displaySummary}</span>
-                  </div>
-                </div>
-              ) : null}
-
               <div
                 className={cn(
                   "mt-2 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500 transition-opacity",
@@ -1133,10 +1115,15 @@ export function EmailWorkList({
 
       {hoverPreview ? (
         <div
-          className="pointer-events-none fixed z-50 max-w-[360px] rounded-lg border border-zinc-700 bg-zinc-950/95 px-3 py-2 text-xs leading-5 text-zinc-200 shadow-2xl backdrop-blur"
+          className="pointer-events-none fixed z-50 w-[min(720px,90vw)] rounded-lg border border-zinc-700 bg-zinc-950/95 px-4 py-3 text-xs leading-5 text-zinc-200 shadow-2xl backdrop-blur"
           style={{ top: `${hoverPreview.top}px`, left: `${hoverPreview.left}px` }}
         >
-          <span className="line-clamp-3 break-words">{hoverPreview.text}</span>
+          {/* Arrow pointing up at the hovered email row */}
+          <div
+            aria-hidden
+            className="absolute -top-[5px] left-8 h-2.5 w-2.5 rotate-45 border-l border-t border-zinc-700 bg-zinc-950"
+          />
+          <span className="line-clamp-4 break-words">{hoverPreview.text}</span>
         </div>
       ) : null}
 
