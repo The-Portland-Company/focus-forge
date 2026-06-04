@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { EstimateReviewModal } from "@/components/estimate-review-modal";
-import { Hourglass, Play, Sparkles, Loader2 } from "lucide-react";
+import { Hourglass, Play, Sparkles, Loader2, Trash2 } from "lucide-react";
 
 interface PreviewTask {
   id: string;
@@ -13,6 +13,16 @@ interface PreviewTask {
   organizationName?: string | null;
 }
 
+interface CalibrationExample {
+  id: string;
+  taskName: string;
+  projectName?: string | null;
+  aiSuggestedMinutes?: number | null;
+  aiConfidence?: string | null;
+  acceptedMinutes: number;
+  createdAt: string;
+}
+
 const PRIORITY_DOT: Record<number, string> = {
   1: "bg-red-400",
   2: "bg-orange-400",
@@ -20,11 +30,16 @@ const PRIORITY_DOT: Record<number, string> = {
   4: "bg-zinc-500",
 };
 
+type Tab = "queue" | "rules";
+
 export default function EstimatesPage() {
   const [total, setTotal] = useState<number | null>(null);
   const [preview, setPreview] = useState<PreviewTask[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>("queue");
+  const [examples, setExamples] = useState<CalibrationExample[]>([]);
+  const [examplesLoading, setExamplesLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,13 +57,43 @@ export default function EstimatesPage() {
     }
   }, []);
 
+  const loadExamples = useCallback(async () => {
+    setExamplesLoading(true);
+    try {
+      const res = await fetch("/api/tasks/estimate/examples?limit=100", {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setExamples(json.examples ?? []);
+      }
+    } finally {
+      setExamplesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (tab === "rules") loadExamples();
+  }, [tab, loadExamples]);
+
+  const deleteExample = useCallback(
+    async (id: string) => {
+      const res = await fetch(`/api/tasks/estimate/examples?id=${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) setExamples((rows) => rows.filter((r) => r.id !== id));
+    },
+    [],
+  );
+
   return (
     <div className="max-w-3xl mx-auto px-6 py-10">
-      <div className="flex items-start justify-between gap-4 mb-8">
+      <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <div className="inline-flex items-center gap-2 text-zinc-400 text-sm mb-2">
             <Hourglass className="w-4 h-4" /> Estimates
@@ -76,59 +121,163 @@ export default function EstimatesPage() {
         </button>
       </div>
 
-      {loading ? (
-        <div className="py-16 flex items-center justify-center text-zinc-500">
-          <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading…
-        </div>
-      ) : preview.length === 0 ? (
-        <div className="py-16 text-center text-zinc-400">
-          <Sparkles className="w-6 h-6 mx-auto mb-3 text-zinc-500" />
-          Nothing left to estimate. New tasks will appear here automatically.
-        </div>
+      {/* Tabs */}
+      <div className="flex items-center gap-1 border-b border-zinc-800 mb-6">
+        <button
+          type="button"
+          onClick={() => setTab("queue")}
+          className={`px-3 py-2 text-sm -mb-px border-b-2 transition-colors ${
+            tab === "queue"
+              ? "border-[rgb(var(--theme-primary-rgb))] text-white"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          Queue
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("rules")}
+          className={`px-3 py-2 text-sm -mb-px border-b-2 transition-colors ${
+            tab === "rules"
+              ? "border-[rgb(var(--theme-primary-rgb))] text-white"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          AI Rules
+        </button>
+      </div>
+
+      {tab === "queue" ? (
+        loading ? (
+          <div className="py-16 flex items-center justify-center text-zinc-500">
+            <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading…
+          </div>
+        ) : preview.length === 0 ? (
+          <div className="py-16 text-center text-zinc-400">
+            <Sparkles className="w-6 h-6 mx-auto mb-3 text-zinc-500" />
+            Nothing left to estimate. New tasks will appear here automatically.
+          </div>
+        ) : (
+          <div className="rounded-lg border border-zinc-800 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wide">
+                <tr>
+                  <th className="text-left px-4 py-2">Task</th>
+                  <th className="text-left px-4 py-2">Project</th>
+                  <th className="text-left px-4 py-2">Due</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.map((t) => (
+                  <tr
+                    key={t.id}
+                    className="border-t border-zinc-800 hover:bg-zinc-900/40"
+                  >
+                    <td className="px-4 py-2 text-zinc-200">
+                      <span className="inline-flex items-center gap-2">
+                        {t.priority != null && (
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              PRIORITY_DOT[t.priority] ?? "bg-zinc-500"
+                            }`}
+                          />
+                        )}
+                        {t.name}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-zinc-400">
+                      {t.organizationName ? `${t.organizationName} · ` : ""}
+                      {t.projectName ?? "—"}
+                    </td>
+                    <td className="px-4 py-2 text-zinc-500">
+                      {t.dueDate
+                        ? new Date(t.dueDate).toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                          })
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
       ) : (
-        <div className="rounded-lg border border-zinc-800 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wide">
-              <tr>
-                <th className="text-left px-4 py-2">Task</th>
-                <th className="text-left px-4 py-2">Project</th>
-                <th className="text-left px-4 py-2">Due</th>
-              </tr>
-            </thead>
-            <tbody>
-              {preview.map((t) => (
-                <tr
-                  key={t.id}
-                  className="border-t border-zinc-800 hover:bg-zinc-900/40"
-                >
-                  <td className="px-4 py-2 text-zinc-200">
-                    <span className="inline-flex items-center gap-2">
-                      {t.priority != null && (
-                        <span
-                          className={`w-2 h-2 rounded-full ${
-                            PRIORITY_DOT[t.priority] ?? "bg-zinc-500"
-                          }`}
-                        />
-                      )}
-                      {t.name}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-zinc-400">
-                    {t.organizationName ? `${t.organizationName} · ` : ""}
-                    {t.projectName ?? "—"}
-                  </td>
-                  <td className="px-4 py-2 text-zinc-500">
-                    {t.dueDate
-                      ? new Date(t.dueDate).toLocaleDateString(undefined, {
+        <div>
+          <p className="text-xs text-zinc-500 mb-4 max-w-prose">
+            These are AI calibration rules — one is recorded each time you
+            approve an estimate. They're replayed to the AI as examples of your
+            pace, so future suggestions match how long things actually take
+            you. Deleting one removes it from the AI's training signal.
+          </p>
+          {examplesLoading ? (
+            <div className="py-16 flex items-center justify-center text-zinc-500">
+              <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading…
+            </div>
+          ) : examples.length === 0 ? (
+            <div className="py-16 text-center text-zinc-400">
+              <Sparkles className="w-6 h-6 mx-auto mb-3 text-zinc-500" />
+              No rules yet. Approve estimates in a review session and they'll
+              appear here.
+            </div>
+          ) : (
+            <div className="rounded-lg border border-zinc-800 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wide">
+                  <tr>
+                    <th className="text-left px-4 py-2">Task</th>
+                    <th className="text-left px-4 py-2">Project</th>
+                    <th className="text-right px-4 py-2">AI suggested</th>
+                    <th className="text-right px-4 py-2">You approved</th>
+                    <th className="text-left px-4 py-2">When</th>
+                    <th className="px-2 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {examples.map((ex) => (
+                    <tr
+                      key={ex.id}
+                      className="border-t border-zinc-800 hover:bg-zinc-900/40"
+                    >
+                      <td className="px-4 py-2 text-zinc-200">{ex.taskName}</td>
+                      <td className="px-4 py-2 text-zinc-400">
+                        {ex.projectName ?? "—"}
+                      </td>
+                      <td className="px-4 py-2 text-right text-zinc-400">
+                        {ex.aiSuggestedMinutes != null
+                          ? `${ex.aiSuggestedMinutes}m`
+                          : "—"}
+                        {ex.aiConfidence ? (
+                          <span className="text-zinc-600"> · {ex.aiConfidence}</span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-2 text-right text-zinc-200 font-medium">
+                        {ex.acceptedMinutes}m
+                      </td>
+                      <td className="px-4 py-2 text-zinc-500">
+                        {new Date(ex.createdAt).toLocaleDateString(undefined, {
                           month: "short",
                           day: "numeric",
-                        })
-                      : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                        })}
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        <button
+                          type="button"
+                          onClick={() => deleteExample(ex.id)}
+                          className="text-zinc-600 hover:text-red-400 p-1"
+                          title="Remove from AI training"
+                          aria-label={`Delete rule for ${ex.taskName}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -138,6 +287,7 @@ export default function EstimatesPage() {
         onCompleted={() => {
           setModalOpen(false);
           load();
+          if (tab === "rules") loadExamples();
         }}
         batchSize={20}
       />
