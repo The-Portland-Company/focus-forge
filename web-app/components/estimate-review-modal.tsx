@@ -14,9 +14,7 @@ import {
   ChevronRight,
   Flag,
   Loader2,
-  SkipForward,
   Sparkles,
-  X,
 } from "lucide-react";
 
 interface UnestimatedTask {
@@ -271,7 +269,7 @@ export function EstimateReviewModal({
         if (!o) finish();
       }}
     >
-      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-xl">
+      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-xl [&>button.absolute]:rounded-full [&>button.absolute]:border [&>button.absolute]:border-zinc-700 [&>button.absolute]:bg-zinc-800 [&>button.absolute]:p-1.5 [&>button.absolute]:text-zinc-300 [&>button.absolute]:opacity-100 [&>button.absolute]:transition-colors [&>button.absolute]:hover:border-zinc-500 [&>button.absolute]:hover:bg-zinc-700 [&>button.absolute]:hover:text-white">
         <DialogHeader>
           <DialogTitle>
             <span className="text-white">Estimate tasks</span>
@@ -385,23 +383,8 @@ export function EstimateReviewModal({
             )}
 
             {/* Actions */}
-            <div className="flex items-center justify-between pt-2">
-              <button
-                type="button"
-                onClick={finish}
-                className="text-xs text-zinc-500 hover:text-zinc-300 inline-flex items-center gap-1"
-              >
-                <X className="w-3 h-3" /> Close
-              </button>
+            <div className="flex items-center justify-end pt-2">
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={advance}
-                  className="text-sm rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-zinc-300 hover:border-zinc-500 inline-flex items-center gap-1"
-                  title="Skip (S)"
-                >
-                  <SkipForward className="w-3.5 h-3.5" /> Skip
-                </button>
                 <button
                   type="button"
                   onClick={saveCurrent}
@@ -463,10 +446,6 @@ export function EstimateReviewModal({
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
-            </div>
-
-            <div className="text-[10px] text-zinc-600 text-center pt-1">
-              Enter = save · S = skip · U = use suggestion · ←/→ = navigate · Esc = close
             </div>
           </div>
         )}
