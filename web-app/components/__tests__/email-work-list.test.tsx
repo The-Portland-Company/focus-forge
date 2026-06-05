@@ -329,9 +329,10 @@ test("getInboxReviewBadgeLabel returns the user-facing review badge copy", () =>
     getInboxReviewBadgeLabel({ status: "quarantine", classification: "spam" } as any),
     "Quarantine",
   );
+  // Spam-classified threads still in the inbox are flagged, not quarantined.
   assert.equal(
     getInboxReviewBadgeLabel({ status: "active", classification: "spam" } as any),
-    "Spam",
+    "Flagged",
   );
   assert.equal(
     getInboxReviewBadgeLabel({ status: "active", classification: "actionable" } as any),

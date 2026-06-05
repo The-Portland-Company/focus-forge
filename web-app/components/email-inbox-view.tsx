@@ -701,8 +701,9 @@ export function filterInboxItemsForView(params: {
       return false;
     }
 
+    // Quarantined threads live exclusively in the Quarantine folder.
     if (item.status === "quarantine") {
-      return params.retainedSpamThreadIds.includes(item.id);
+      return false;
     }
 
     if (item.origin === "outbound") {

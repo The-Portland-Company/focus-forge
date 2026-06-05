@@ -290,8 +290,10 @@ export function getInboxReviewBadgeLabel(
     return "Quarantine";
   }
 
+  // Spam-classified threads still sitting in the Inbox are "flagged" —
+  // they only read "Quarantine" once actually moved to that folder.
   if (reviewState === "spam") {
-    return "Spam";
+    return "Flagged";
   }
 
   return null;
