@@ -23,6 +23,7 @@ import { SnoozePopover } from "@/components/snooze-popover";
 import { Tooltip } from "@/components/tooltip";
 import { EmailHtmlContent } from "@/components/ui/email-html-content";
 import { stripQuotedAndSignature } from "@/lib/email-inbox/strip-quoted";
+import { selectPrimarySender } from "@/lib/email-inbox/parse-sender";
 import { formatEmailTimestamp } from "@/lib/email-inbox/format-timestamp";
 import {
   Dialog,
@@ -124,11 +125,11 @@ export function formatParticipantValue(participant: InboxParticipant) {
 export function getPrimarySenderParticipant(
   participants: InboxParticipant[] | undefined,
 ) {
-  return (
-    (participants || []).find(
-      (participant) => participant.participantRole === "from",
-    ) || null
-  );
+  // Prefer the most recent "from" sender that actually carries data (email,
+  // then name) and parse any raw "Name <email>" header strings — so the inbox
+  // never shows "Unknown sender" when identifying info exists. Falls back to the
+  // first "from" entry via the shared selector.
+  return selectPrimarySender(participants);
 }
 
 export function formatParticipantName(participant: InboxParticipant | null) {

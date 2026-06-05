@@ -18,6 +18,10 @@ import {
 } from "@/lib/email-inbox/rules";
 import { resolveRuleDrivenThreadState } from "@/lib/email-inbox/reprocess";
 import {
+  normalizeParticipant,
+  parseAddressString,
+} from "@/lib/email-inbox/parse-sender";
+import {
   buildSpamExceptionRevertPayload,
   buildSpamExceptionRulePayload,
   generateSpamExceptionRuleDraft,
@@ -656,7 +660,26 @@ async function persistParticipants(
 ) {
   const admin = getAdminClient();
   for (const [participantRole, addresses] of Object.entries(grouped)) {
-    for (const address of addresses) {
+    for (const rawAddress of addresses) {
+      // Defensive: some providers hand us a raw "Name <email>" string in the
+      // email field with an empty name. Split it apart so we never persist a
+      // participant that has neither a usable name nor email.
+      const address = (() => {
+        const email = (rawAddress.email ?? "").trim();
+        const name = (rawAddress.name ?? "").trim() || null;
+        if (email.includes("<") || (!name && email.includes(" "))) {
+          const parsed = parseAddressString(email);
+          if (parsed.email) {
+            return { email: parsed.email, name: name || parsed.name || null };
+          }
+        }
+        return { email: email.toLowerCase(), name };
+      })();
+
+      if (!address.email && !address.name) {
+        continue;
+      }
+
       const contact = await upsertContact(mailbox, address);
       const { data: linkedProfile } = await admin
         .from("profiles")
@@ -1012,14 +1035,17 @@ async function getActiveReplyDraftForThread(threadId: string) {
 }
 
 function mapParticipantRow(row: any): InboxParticipant {
-  return {
+  // Normalize so raw "Name <email>" header strings that may have landed in
+  // either column are split back into name/email — the inbox should never show
+  // "Unknown sender" when any identifying info exists in the row.
+  return normalizeParticipant({
     id: row.id,
-    emailAddress: row.email_address,
+    emailAddress: row.email_address ?? "",
     displayName: row.display_name ?? null,
     participantRole: row.participant_role,
     profileId: row.profile_id ?? null,
     contactId: row.contact_id ?? null,
-  };
+  });
 }
 
 function appendParticipant(
