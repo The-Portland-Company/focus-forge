@@ -235,6 +235,10 @@ export function EmailThreadModal({
   );
   const [busyState, setBusyState] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  // Sticky error for reply send/schedule failures. Unlike transient
+  // status toasts (auto-cleared after 2.4s), this stays visible until the
+  // user retries or edits, so SMTP/auth failures are never silently lost.
+  const [replyError, setReplyError] = useState<string | null>(null);
   const [pendingConfirmAction, setPendingConfirmAction] =
     useState<ThreadAction | null>(null);
   const [queuedAction, setQueuedAction] = useState<ThreadAction | null>(null);
@@ -420,6 +424,7 @@ export function EmailThreadModal({
     setPendingConfirmAction(null);
     setQueuedAction(null);
     setIsQueuedActionNoticeVisible(false);
+    setReplyError(null);
   }, [threadId]);
 
   useEffect(() => {
@@ -620,6 +625,7 @@ export function EmailThreadModal({
     if (!threadId || !replyContent.trim()) return;
 
     setBusyState("reply");
+    setReplyError(null);
 
     try {
       const draft = await ensureComposerDraft();
@@ -638,9 +644,10 @@ export function EmailThreadModal({
         replyMode === "internal_note" ? "Internal note saved." : "Reply sent.",
       );
     } catch (error) {
-      updateStatus(
-        error instanceof Error ? error.message : "Failed to send reply",
-      );
+      const message =
+        error instanceof Error ? error.message : "Failed to send reply";
+      setReplyError(message);
+      updateStatus(message);
     } finally {
       setBusyState(null);
     }
@@ -650,6 +657,7 @@ export function EmailThreadModal({
     if (!threadId || !replyContent.trim() || !scheduledReplyAt) return;
 
     setBusyState("reply_schedule");
+    setReplyError(null);
 
     try {
       const draft = await ensureComposerDraft();
@@ -674,9 +682,10 @@ export function EmailThreadModal({
       await reloadThread(threadId);
       updateStatus("Reply scheduled.");
     } catch (error) {
-      updateStatus(
-        error instanceof Error ? error.message : "Failed to schedule reply",
-      );
+      const message =
+        error instanceof Error ? error.message : "Failed to schedule reply";
+      setReplyError(message);
+      updateStatus(message);
     } finally {
       setBusyState(null);
     }
@@ -1444,9 +1453,32 @@ export function EmailThreadModal({
                   </div>
                 ) : null}
                 <div className="space-y-3">
+                  {replyError ? (
+                    <div className="flex items-start justify-between gap-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+                      <div className="min-w-0">
+                        <div className="font-medium text-red-100">
+                          Reply not sent
+                        </div>
+                        <div className="mt-0.5 break-words text-xs text-red-200/90">
+                          {replyError}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setReplyError(null)}
+                        aria-label="Dismiss send error"
+                        className="shrink-0 rounded-md border border-red-800/60 px-2 py-0.5 text-xs text-red-100 transition-colors hover:border-red-700 hover:text-white"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  ) : null}
                   <textarea
                     value={replyContent}
-                    onChange={(event) => setReplyContent(event.target.value)}
+                    onChange={(event) => {
+                      setReplyContent(event.target.value);
+                      if (replyError) setReplyError(null);
+                    }}
                     rows={5}
                     placeholder={
                       replyMode === "internal_note"

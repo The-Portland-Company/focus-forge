@@ -477,6 +477,34 @@ export async function fetchMailboxAttachmentByProviderMessageId(
   });
 }
 
+/**
+ * Translate raw SMTP failures into a clear, actionable message. Gmail/Workspace
+ * rejects an invalid or revoked app password with code 534/535 and a
+ * "WebLoginRequired"/"BadCredentials" body; surface that as a re-auth prompt
+ * instead of the cryptic multi-line SMTP blob.
+ */
+function translateSmtpSendError(error: unknown, mailboxEmail: string): Error {
+  const code = (error as { responseCode?: number; code?: string })
+    ?.responseCode;
+  const raw =
+    error instanceof Error ? error.message : String(error ?? "Unknown error");
+
+  const isAuthFailure =
+    code === 534 ||
+    code === 535 ||
+    /WebLoginRequired|BadCredentials|Username and Password not accepted|Invalid login|5\.7\.\d/i.test(
+      raw,
+    );
+
+  if (isAuthFailure) {
+    return new Error(
+      `Email provider rejected the login for ${mailboxEmail}. The mailbox app password is no longer valid — reconnect the mailbox with a fresh Google app password (or re-authorize the account) in Settings, then resend.`,
+    );
+  }
+
+  return error instanceof Error ? error : new Error(raw);
+}
+
 export async function sendMailboxReply(params: {
   mailbox: MailboxTransportRow;
   to: string[];
@@ -505,24 +533,29 @@ export async function sendMailboxReply(params: {
     },
   });
 
-  const info = await transport.sendMail({
-    from: params.mailbox.display_name
-      ? `"${params.mailbox.display_name}" <${params.mailbox.email_address}>`
-      : params.mailbox.email_address,
-    to: params.to,
-    cc: params.cc,
-    bcc: params.bcc,
-    subject: params.subject,
-    text: params.text,
-    ...(params.html ? { html: params.html } : {}),
-    ...(params.attachments && params.attachments.length > 0
-      ? { attachments: params.attachments }
-      : {}),
-    ...(params.inReplyTo ? { inReplyTo: params.inReplyTo } : {}),
-    ...(params.references && params.references.length > 0
-      ? { references: params.references }
-      : {}),
-  });
+  let info;
+  try {
+    info = await transport.sendMail({
+      from: params.mailbox.display_name
+        ? `"${params.mailbox.display_name}" <${params.mailbox.email_address}>`
+        : params.mailbox.email_address,
+      to: params.to,
+      cc: params.cc,
+      bcc: params.bcc,
+      subject: params.subject,
+      text: params.text,
+      ...(params.html ? { html: params.html } : {}),
+      ...(params.attachments && params.attachments.length > 0
+        ? { attachments: params.attachments }
+        : {}),
+      ...(params.inReplyTo ? { inReplyTo: params.inReplyTo } : {}),
+      ...(params.references && params.references.length > 0
+        ? { references: params.references }
+        : {}),
+    });
+  } catch (error) {
+    throw translateSmtpSendError(error, params.mailbox.email_address);
+  }
 
   return info;
 }
