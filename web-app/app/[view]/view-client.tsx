@@ -621,7 +621,7 @@ export default function ViewPage({
   >("all");
   const [showBlockedTasks, setShowBlockedTasks] = useState(false);
   const [groupTasksByProject, setGroupTasksByProject] = useState(false);
-  const [showTaskDescriptions, setShowTaskDescriptions] = useState(true);
+  const [showTaskDescriptions, setShowTaskDescriptions] = useState(false);
   const [todayViewMode, setTodayViewMode] = useState<"list" | "kanban">(
     "list",
   );
