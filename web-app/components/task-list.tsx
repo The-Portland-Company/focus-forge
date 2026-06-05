@@ -727,11 +727,12 @@ export function TaskList({
               ? "bg-violet-900/10 hover:bg-violet-900/20"
               : ""
         }`}
-        style={{ paddingLeft: `${16 + indentLevel * 24}px` }}
+        style={{ paddingLeft: `${6 + indentLevel * 24}px` }}
       >
         {/* Fixed-width expander slot (far left) — always reserved so parent and
-            non-parent rows align identically with zero layout shift. */}
-        <div className="flex w-4 flex-shrink-0 items-center justify-center">
+            non-parent rows align identically with zero layout shift. -mr-2
+            offsets the row gap so the chevron hugs the # column. */}
+        <div className="-mr-2 flex w-4 flex-shrink-0 items-center justify-center">
           {hasSubtasks ? (
             <button
               onClick={(e) => {
@@ -899,6 +900,33 @@ export function TaskList({
                         style={{ animation: "task-save-check-fade 3s ease-out forwards" }}
                       />
                     )}
+                    {task.description && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedDescriptions((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(task.id)) {
+                              next.delete(task.id);
+                            } else {
+                              next.add(task.id);
+                            }
+                            return next;
+                          });
+                        }}
+                        className="mt-0.5 flex flex-shrink-0 items-center text-zinc-500 hover:text-zinc-300 transition-colors"
+                        aria-label={
+                          showDescriptions || expandedDescriptions.has(task.id)
+                            ? "Hide description"
+                            : "Show description"
+                        }
+                        aria-expanded={
+                          showDescriptions || expandedDescriptions.has(task.id)
+                        }
+                      >
+                        <AlignLeft className="h-3 w-3" />
+                      </button>
+                    )}
                     <span className="min-w-0 flex-1 whitespace-normal break-words">
                       {task.name}
                     </span>
@@ -910,32 +938,6 @@ export function TaskList({
                         expandedDescriptions.has(task.id);
                       return (
                         <div className="flex flex-col">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setExpandedDescriptions((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(task.id)) {
-                                  next.delete(task.id);
-                                } else {
-                                  next.add(task.id);
-                                }
-                                return next;
-                              });
-                            }}
-                            className="flex w-fit items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
-                            aria-label={
-                              isDescOpen ? "Hide description" : "Show description"
-                            }
-                            aria-expanded={isDescOpen}
-                          >
-                            <AlignLeft className="h-3 w-3" />
-                            <ChevronDown
-                              className={`h-3 w-3 transition-transform duration-200 ${
-                                isDescOpen ? "rotate-180" : ""
-                              }`}
-                            />
-                          </button>
                           {/* Animated slide-down reveal via grid-rows transition */}
                           <div
                             className={`grid transition-all duration-200 ease-out ${
