@@ -11,6 +11,7 @@ import { Archive, Link2, Loader2, Mail, RotateCcw, Save, Search, Trash2, Users, 
 import { RichTextEditor } from "@/components/ui/rich-text-editor"
 import { hasRichTextContent } from "@/lib/rich-text"
 import { ExistingMemberPicker, filterAvailableMembers } from "@/components/existing-member-picker"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
 interface EditProjectModalProps {
   isOpen: boolean
@@ -124,6 +125,7 @@ export function EditProjectModal({
   const [cancellingInviteIds, setCancellingInviteIds] = useState<Set<string>>(new Set())
   const [isArchiving, setIsArchiving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [confirmStep, setConfirmStep] = useState<"archive" | "delete" | "delete-final" | null>(null)
 
   useEffect(() => {
     if (!project) return
@@ -310,14 +312,10 @@ export function EditProjectModal({
   const handleArchiveProject = async () => {
     if (!project || !onArchive || isArchiving) return
 
-    const confirmed = window.confirm(
-      `Archive "${project.name}"? It will be moved out of active projects.`,
-    )
-    if (!confirmed) return
-
     setIsArchiving(true)
     try {
       await onArchive(project.id)
+      setConfirmStep(null)
       onClose()
     } finally {
       setIsArchiving(false)
@@ -327,19 +325,10 @@ export function EditProjectModal({
   const handleDeleteProject = async () => {
     if (!project || !onDelete || isDeleting) return
 
-    const firstConfirm = window.confirm(
-      `Delete "${project.name}"? This will also delete all tasks in this project.`,
-    )
-    if (!firstConfirm) return
-
-    const secondConfirm = window.confirm(
-      `Final confirmation: move "${project.name}" and everything inside it to the Trash?`,
-    )
-    if (!secondConfirm) return
-
     setIsDeleting(true)
     try {
       await onDelete(project.id)
+      setConfirmStep(null)
       onClose()
     } finally {
       setIsDeleting(false)
@@ -748,7 +737,7 @@ export function EditProjectModal({
                     type="button"
                     variant="outline"
                     size="icon"
-                    onClick={handleDeleteProject}
+                    onClick={() => setConfirmStep("delete")}
                     disabled={isDeleting || isArchiving || isSubmitting}
                     aria-label="Delete project"
                     className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:text-red-200"
@@ -767,7 +756,7 @@ export function EditProjectModal({
                     type="button"
                     variant="outline"
                     size="icon"
-                    onClick={handleArchiveProject}
+                    onClick={() => setConfirmStep("archive")}
                     disabled={isArchiving || isDeleting || isSubmitting}
                     aria-label="Archive project"
                     className="border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 hover:text-amber-200"
@@ -804,6 +793,37 @@ export function EditProjectModal({
           </DialogFooter>
         </form>
       </DialogContent>
+
+      <ConfirmDialog
+        open={confirmStep === "archive"}
+        onOpenChange={(open) => !open && setConfirmStep(null)}
+        title="Archive project?"
+        description={`Archive "${project.name}"? It will be moved out of active projects.`}
+        confirmLabel="Archive"
+        isLoading={isArchiving}
+        onConfirm={handleArchiveProject}
+      />
+
+      <ConfirmDialog
+        open={confirmStep === "delete"}
+        onOpenChange={(open) => !open && setConfirmStep(null)}
+        title="Delete project?"
+        description={`Delete "${project.name}"? This will also delete all tasks in this project.`}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => setConfirmStep("delete-final")}
+      />
+
+      <ConfirmDialog
+        open={confirmStep === "delete-final"}
+        onOpenChange={(open) => !open && setConfirmStep(null)}
+        title="Final confirmation"
+        description={`Move "${project.name}" and everything inside it to the Trash?`}
+        confirmLabel="Move to Trash"
+        destructive
+        isLoading={isDeleting}
+        onConfirm={handleDeleteProject}
+      />
     </Dialog>
   )
 }

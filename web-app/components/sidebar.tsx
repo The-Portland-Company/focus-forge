@@ -39,6 +39,7 @@ import {
 import { Database, Project } from "@/lib/types";
 import { UserAvatar } from "@/components/user-avatar";
 import { Tooltip } from "./tooltip";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatElapsed } from "@/lib/time/client";
 import { isOverdue, isToday, isTomorrow, isRestOfWeek } from "@/lib/date-utils";
 import { filterTasksByBlockedStatus } from "@/lib/dependency-utils";
@@ -141,6 +142,7 @@ export function Sidebar({
   const [calendarCopied, setCalendarCopied] = useState(false);
   const calendarPopoverRef = useRef<HTMLDivElement>(null);
   const [estimateBacklog, setEstimateBacklog] = useState<number>(0);
+  const [projectPendingDelete, setProjectPendingDelete] = useState<Project | null>(null);
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -1649,15 +1651,7 @@ export function Sidebar({
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      if (
-                                        confirm(
-                                          `Are you sure you want to delete "${project.name}"? This will also delete all tasks in this project.`,
-                                        )
-                                      ) {
-                                        if (onProjectDelete) {
-                                          onProjectDelete(project.id);
-                                        }
-                                      }
+                                      setProjectPendingDelete(project);
                                     }}
                                     className="p-1 hover:bg-zinc-700 rounded transition-colors"
                                     title="Delete project"
@@ -1751,15 +1745,7 @@ export function Sidebar({
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (
-                                    confirm(
-                                      `Delete "${project.name}"? It and all its tasks will be moved to the Trash, where you can restore them.`,
-                                    )
-                                  ) {
-                                    if (onProjectDelete) {
-                                      onProjectDelete(project.id);
-                                    }
-                                  }
+                                  setProjectPendingDelete(project);
                                 }}
                                 className="p-1 hover:bg-zinc-700 rounded transition-colors"
                                 title="Delete project"
@@ -2134,6 +2120,24 @@ export function Sidebar({
           />
         </div>
       )}
+      <ConfirmDialog
+        open={!!projectPendingDelete}
+        onOpenChange={(open) => !open && setProjectPendingDelete(null)}
+        title="Delete project?"
+        description={
+          projectPendingDelete
+            ? `Delete "${projectPendingDelete.name}"? It and all its tasks will be moved to the Trash, where you can restore them.`
+            : undefined
+        }
+        confirmLabel="Move to Trash"
+        destructive
+        onConfirm={() => {
+          if (projectPendingDelete && onProjectDelete) {
+            onProjectDelete(projectPendingDelete.id);
+          }
+          setProjectPendingDelete(null);
+        }}
+      />
     </div>
   );
 }

@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
     .from("tasks")
     .select(
       `id, name, description, priority, due_date, created_at, project_id,
+       recurring_pattern, is_recurring,
        projects:project_id ( id, name, organization_id, organizations:organization_id ( id, name ) ),
        task_tags ( tag:tag_id ( name ) )`,
       { count: "exact" },
@@ -82,6 +83,8 @@ export async function GET(request: NextRequest) {
       dueDate: t.due_date,
       createdAt: t.created_at,
       projectId: t.project_id,
+      recurringPattern: t.recurring_pattern ?? null,
+      isRecurring: Boolean(t.is_recurring || t.recurring_pattern),
       projectName: t.projects?.name ?? null,
       organizationId: t.projects?.organization_id ?? null,
       organizationName: t.projects?.organizations?.name ?? null,

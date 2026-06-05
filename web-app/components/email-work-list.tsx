@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { SnoozePopover } from "@/components/snooze-popover";
 import { Tooltip } from "@/components/tooltip";
+import { stripQuotedAndSignature } from "@/lib/email-inbox/strip-quoted";
 import {
   Dialog,
   DialogContent,
@@ -117,10 +118,10 @@ export function formatParticipantValue(participant: InboxParticipant) {
   const emailAddress = participant.emailAddress.trim();
 
   if (displayName && displayName !== emailAddress) {
-    return `${displayName} <${emailAddress}>`;
+    return emailAddress ? `${displayName} <${emailAddress}>` : displayName;
   }
 
-  return emailAddress;
+  return emailAddress || displayName || "";
 }
 
 export function getPrimarySenderParticipant(
@@ -134,14 +135,18 @@ export function getPrimarySenderParticipant(
 }
 
 export function formatParticipantName(participant: InboxParticipant | null) {
-  if (!participant) return "Unknown";
+  if (!participant) return "Unknown sender";
 
   const displayName = participant.displayName?.trim();
   const emailAddress = participant.emailAddress.trim();
 
-  return displayName && displayName !== emailAddress
-    ? displayName
-    : emailAddress;
+  if (displayName && displayName !== emailAddress) {
+    return displayName;
+  }
+
+  // Fall back to the email address before any generic label so the inbox
+  // never shows "Unknown" when we actually know who sent the message.
+  return emailAddress || "Unknown sender";
 }
 
 export function formatParticipantLine(
@@ -158,7 +163,7 @@ export function formatParticipantLine(
   );
 
   const label = role === "from" ? "From" : "CC";
-  const fallback = role === "from" ? "Unknown" : null;
+  const fallback = role === "from" ? "Unknown sender" : null;
 
   if (participantNames.length === 0) {
     return fallback ? `${label}: ${fallback}` : null;
@@ -315,10 +320,17 @@ export function formatInboxPreviewText(
 ) {
   if (!value) return "No summary available yet.";
 
-  const withoutHtml = value
-    .replace(/<br\s*\/?>/gi, " ")
-    .replace(/<\/p>/gi, " ")
+  // Convert block-level HTML to newlines (not spaces) so the quoted/signature
+  // stripper can detect line-based markers, then drop quoted prior threads and
+  // signatures before flattening to a single-line preview.
+  const asText = value
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<blockquote[^>]*>/gi, "\n>")
     .replace(/<[^>]+>/g, " ");
+
+  const withoutHtml = stripQuotedAndSignature(asText);
 
   const withoutMarkdown = withoutHtml
     .replace(/!\[[^\]]*\]\([^)]+\)/g, " ")
@@ -668,7 +680,7 @@ export function EmailWorkList({
               >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
-                  {sender?.emailAddress ? (
+                  {sender ? (
                     <span
                       className={cn(
                         "inline-flex items-center gap-1 text-xs",
@@ -677,7 +689,7 @@ export function EmailWorkList({
                     >
                       <span>From:</span>
                       <Tooltip
-                        content={sender.emailAddress}
+                        content={sender.emailAddress?.trim() || senderName}
                         className="w-auto"
                         side="top"
                       >
@@ -703,7 +715,7 @@ export function EmailWorkList({
                         isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
                       )}
                     >
-                      From: Unknown
+                      From: Unknown sender
                     </span>
                   )}
                   <span

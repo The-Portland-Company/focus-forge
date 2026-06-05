@@ -80,7 +80,7 @@ test("formatParticipantLine renders sender and cc labels with fallbacks", () => 
     "CC: Spencer Hill <spencer@example.com>",
   );
   assert.equal(formatParticipantLine([], "cc"), null);
-  assert.equal(formatParticipantLine([], "from"), "From: Unknown");
+  assert.equal(formatParticipantLine([], "from"), "From: Unknown sender");
 });
 
 test("formatParticipantValue falls back to the email when no distinct name exists", () => {

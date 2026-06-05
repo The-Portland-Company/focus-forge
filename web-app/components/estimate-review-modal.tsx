@@ -4,17 +4,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EstimatePresets } from "@/components/estimate-presets";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Button } from "@/components/ui/button";
 import {
   Calendar,
   ChevronLeft,
   ChevronRight,
   Flag,
   Loader2,
+  Repeat,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 
 interface UnestimatedTask {
@@ -27,6 +32,8 @@ interface UnestimatedTask {
   organizationName?: string | null;
   tags?: string[];
   subtaskCount?: number | null;
+  recurringPattern?: string | null;
+  isRecurring?: boolean;
 }
 
 interface AiSuggestion {
@@ -86,8 +93,20 @@ export function EstimateReviewModal({
   const [pageInput, setPageInput] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  // Delete flow state
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [recurringDeleteOpen, setRecurringDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  // For recurring tasks, which scopes to act on.
+  const [delThis, setDelThis] = useState(true);
+  const [delFuture, setDelFuture] = useState(false);
+  const [delPast, setDelPast] = useState(false);
+
   const current = tasks[index];
   const currentSuggestion = current ? suggestions[current.id] : undefined;
+  const isRecurring = Boolean(
+    current?.isRecurring || (current?.recurringPattern && current.recurringPattern.trim())
+  );
 
   const advance = useCallback(() => {
     setValue(null);
@@ -220,10 +239,119 @@ export function EstimateReviewModal({
     }
   }, [current, value, currentSuggestion, advance]);
 
+  // Remove the current card from the local list and keep the index valid.
+  const dropCurrent = useCallback(() => {
+    setTasks((prev) => prev.filter((t) => t.id !== current?.id));
+    setSuggestions((prev) => {
+      if (!current) return prev;
+      const next = { ...prev };
+      delete next[current.id];
+      return next;
+    });
+    setValue(null);
+    setError(null);
+    // Stay on the same index; the next task slides into place. Clamp on render.
+    setIndex((i) => Math.max(0, Math.min(i, tasks.length - 2)));
+  }, [current, tasks.length]);
+
+  // Open the right confirmation surface for the delete button.
+  const requestDelete = useCallback(() => {
+    if (!current) return;
+    if (isRecurring) {
+      setDelThis(true);
+      setDelFuture(false);
+      setDelPast(false);
+      setRecurringDeleteOpen(true);
+    } else {
+      setConfirmDeleteOpen(true);
+    }
+  }, [current, isRecurring]);
+
+  // Soft-delete the whole task row via the trash/soft-delete path.
+  const softDeleteCurrent = useCallback(async () => {
+    if (!current) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/tasks/${current.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || `Delete failed (${res.status})`);
+      }
+      setConfirmDeleteOpen(false);
+      dropCurrent();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }, [current, dropCurrent]);
+
+  // Recurring delete: combine the chosen scopes.
+  //  - "This task" (+ "Past"): soft-delete the entire recurring task row. Since
+  //    recurring tasks are a single row + pattern (no per-instance rows), there is
+  //    no separate past occurrence to remove; deleting the row removes its history.
+  //  - "Future" only: end the recurrence by clearing the pattern, keeping the
+  //    current occurrence as a one-off task.
+  const recurringDeleteCurrent = useCallback(async () => {
+    if (!current) return;
+    if (!delThis && !delFuture && !delPast) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      // Deleting "this" (or "past", which has no separate rows) removes the whole row.
+      const removeRow = delThis || delPast;
+      if (removeRow) {
+        const res = await fetch(`/api/tasks/${current.id}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err?.error || `Delete failed (${res.status})`);
+        }
+      } else if (delFuture) {
+        // End the recurrence: clear the pattern, keep this occurrence.
+        const res = await fetch(`/api/tasks/${current.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ recurring_pattern: null, is_recurring: false }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err?.error || `Update failed (${res.status})`);
+        }
+      }
+      setRecurringDeleteOpen(false);
+      if (removeRow) {
+        dropCurrent();
+      } else {
+        // Recurrence ended but task remains; reflect that locally and advance.
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === current.id
+              ? { ...t, isRecurring: false, recurringPattern: null }
+              : t
+          )
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }, [current, delThis, delFuture, delPast, dropCurrent]);
+
   // Keyboard shortcuts: Enter saves, S skips, Esc closes, "U" uses AI suggestion.
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
+      // Don't steal keys while a delete confirmation is open.
+      if (confirmDeleteOpen || recurringDeleteOpen) return;
       if (e.target && (e.target as HTMLElement).tagName === "INPUT") {
         // Let Enter still save when focused in the minute input.
         if (e.key === "Enter") {
@@ -249,7 +377,16 @@ export function EstimateReviewModal({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, saveCurrent, advance, currentSuggestion, goTo, index]);
+  }, [
+    isOpen,
+    saveCurrent,
+    advance,
+    currentSuggestion,
+    goTo,
+    index,
+    confirmDeleteOpen,
+    recurringDeleteOpen,
+  ]);
 
   // When we run off the end of the batch, close out.
   useEffect(() => {
@@ -322,6 +459,12 @@ export function EstimateReviewModal({
                     {due}
                   </span>
                 )}
+                {isRecurring && (
+                  <span className="inline-flex items-center gap-1 text-[rgb(var(--theme-primary-rgb))]">
+                    <Repeat className="w-3 h-3" />
+                    Recurring
+                  </span>
+                )}
                 {current.subtaskCount && current.subtaskCount > 0 ? (
                   <span className="text-zinc-500">
                     {current.subtaskCount} subtask{current.subtaskCount === 1 ? "" : "s"}
@@ -383,7 +526,21 @@ export function EstimateReviewModal({
             )}
 
             {/* Actions */}
-            <div className="flex items-center justify-end pt-2">
+            <div className="flex items-center justify-between pt-2">
+              {/* Destructive: delete the current task */}
+              <button
+                type="button"
+                onClick={requestDelete}
+                disabled={saving || deleting}
+                className="group relative rounded-md border border-red-500/40 bg-red-500/10 p-1.5 text-red-400 transition-colors hover:border-red-500/70 hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
+                aria-label="Delete task"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 whitespace-nowrap rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+                  {isRecurring ? "Delete recurring task" : "Delete task"}
+                </span>
+              </button>
+
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -457,6 +614,108 @@ export function EstimateReviewModal({
         {/* Hidden ref retained to silence unused-var; could be wired to focus input on advance */}
         <input ref={inputRef} className="hidden" />
       </DialogContent>
+
+      {/* Non-recurring: simple themed confirm */}
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={(o) => !deleting && setConfirmDeleteOpen(o)}
+        title="Delete task?"
+        description={
+          current
+            ? `"${current.name}" will be moved to trash. You can restore it from there.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        destructive
+        isLoading={deleting}
+        onConfirm={softDeleteCurrent}
+      />
+
+      {/* Recurring: multi-choice scope dialog */}
+      <Dialog
+        open={recurringDeleteOpen}
+        onOpenChange={(o) => !deleting && setRecurringDeleteOpen(o)}
+      >
+        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white">Delete recurring task</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-zinc-400">
+              {current?.name
+                ? `"${current.name}" repeats. Choose what to delete.`
+                : "This task repeats. Choose what to delete."}
+            </p>
+            <div className="space-y-2">
+              {[
+                {
+                  key: "past" as const,
+                  label: "Past instances",
+                  hint: "Removes the recurring task and its history",
+                  checked: delPast,
+                  set: setDelPast,
+                },
+                {
+                  key: "this" as const,
+                  label: "This task",
+                  hint: "Deletes the entire recurring task",
+                  checked: delThis,
+                  set: setDelThis,
+                },
+                {
+                  key: "future" as const,
+                  label: "Future instances",
+                  hint: "Ends the recurrence, keeps this occurrence",
+                  checked: delFuture,
+                  set: setDelFuture,
+                },
+              ].map((opt) => (
+                <label
+                  key={opt.key}
+                  className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 transition-colors hover:border-zinc-700"
+                >
+                  <input
+                    type="checkbox"
+                    checked={opt.checked}
+                    onChange={(e) => opt.set(e.target.checked)}
+                    disabled={deleting}
+                    className="mt-0.5 h-4 w-4 rounded border-zinc-600 bg-zinc-800 accent-red-500"
+                  />
+                  <span className="flex flex-col">
+                    <span className="text-sm text-zinc-100">{opt.label}</span>
+                    <span className="text-xs text-zinc-500">{opt.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {(delThis || delPast) && delFuture && (
+              <p className="text-xs text-amber-400/80">
+                Deleting this task removes the whole recurring task, so ending
+                future instances has no additional effect.
+              </p>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRecurringDeleteOpen(false)}
+              disabled={deleting}
+              className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={recurringDeleteCurrent}
+              disabled={deleting || (!delThis && !delFuture && !delPast)}
+              className="bg-red-500 hover:bg-red-600 text-white"
+            >
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
