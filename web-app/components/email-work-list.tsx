@@ -242,6 +242,60 @@ export function getProjectBadgeLabel(project: Pick<Project, "name"> | null) {
     .join("");
 }
 
+/** Initials for the "To" recipient avatar — derived from the recipient EMAIL
+ *  ADDRESS's local-part first (so "jane.doe@example.com" yields "JD"), falling
+ *  back to the mailbox display label only when no address is available. The To
+ *  representation is address-based to match its tooltip, which lists the actual
+ *  recipient addresses. Reuses {@link getMailboxBadgeLabel}'s word-based logic
+ *  for consistency with the rest of the inbox. */
+export function getRecipientAvatarInitials(
+  mailboxLabel: string,
+  emailAddress?: string | null,
+) {
+  const localPart = emailAddress?.split("@")[0]?.trim();
+  if (localPart) {
+    return getMailboxBadgeLabel(localPart.replace(/[._-]+/g, " "));
+  }
+
+  const trimmedLabel = mailboxLabel?.trim();
+  const looksLikeEmail = trimmedLabel ? /\S+@\S+/.test(trimmedLabel) : false;
+
+  if (trimmedLabel && !looksLikeEmail) {
+    return getMailboxBadgeLabel(trimmedLabel);
+  }
+
+  return getMailboxBadgeLabel(trimmedLabel || "");
+}
+
+/** Tooltip text for the "To" avatar, e.g. "To: name@domain.com". When the
+ *  thread carries multiple distinct "to" recipients, every address is listed
+ *  (primary mailbox first) so the compact avatar never hides who was emailed. */
+export function getRecipientTooltipContent(
+  primaryAddress: string | null | undefined,
+  participants: InboxParticipant[] | undefined,
+) {
+  const toAddresses = Array.from(
+    new Set(
+      (participants || [])
+        .filter((participant) => participant.participantRole === "to")
+        .map((participant) => participant.emailAddress.trim())
+        .filter(Boolean),
+    ),
+  );
+
+  const primary = primaryAddress?.trim() || "";
+  const ordered = [
+    ...(primary ? [primary] : []),
+    ...toAddresses.filter((address) => address !== primary),
+  ];
+
+  if (ordered.length === 0) {
+    return "To: (unknown recipient)";
+  }
+
+  return `To: ${ordered.join(", ")}`;
+}
+
 export function getInboxReviewState(
   item:
     | Pick<InboxItem, "status" | "classification">
@@ -718,113 +772,7 @@ export function EmailWorkList({
                 )}
               >
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
-                  {sender ? (
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1 text-xs",
-                        isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
-                      )}
-                    >
-                      <span>From:</span>
-                      <Tooltip
-                        content={sender.emailAddress?.trim() || senderName}
-                        className="w-auto"
-                        side="top"
-                      >
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onSenderClick?.({
-                              name: senderName,
-                              email: sender.emailAddress,
-                            });
-                          }}
-                          className="max-w-[220px] truncate cursor-pointer text-xs text-zinc-400 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-200 sm:max-w-[280px]"
-                        >
-                          {senderName}
-                        </button>
-                      </Tooltip>
-                    </span>
-                  ) : (
-                    <span
-                      className={cn(
-                        "break-words text-xs",
-                        isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
-                      )}
-                    >
-                      From: Unknown sender
-                    </span>
-                  )}
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1.5 break-words text-xs",
-                      isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
-                    )}
-                  >
-                    <span>To:</span>
-                    {(mailbox?.emailAddress || item.mailboxEmailAddress) ? (
-                      <Tooltip
-                        content={mailbox?.emailAddress || item.mailboxEmailAddress || ""}
-                        className="w-auto"
-                        side="top"
-                      >
-                        <span
-                          className="font-medium cursor-help"
-                          style={{ color: mailboxAccentColor }}
-                        >
-                          {mailboxLabel}
-                        </span>
-                      </Tooltip>
-                    ) : (
-                      <span
-                        className="font-medium"
-                        style={{ color: mailboxAccentColor }}
-                      >
-                        {mailboxLabel}
-                      </span>
-                    )}
-                  </span>
-                  {ccLine ? (
-                    <span
-                      className={cn(
-                        "break-words text-xs",
-                        isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
-                      )}
-                    >
-                      {ccLine}
-                    </span>
-                  ) : null}
-                  {/* Thread timestamp, pushed to the right side of the From/To row */}
-                  {(() => {
-                    const ts = formatThreadTimestamp(
-                      item.latestMessageAt ||
-                        item.latestInboundAt ||
-                        item.latestOutboundAt ||
-                        item.updatedAt ||
-                        item.createdAt,
-                    );
-                    return ts ? (
-                      <span
-                        className={cn(
-                          "ml-auto whitespace-nowrap text-[11px] tabular-nums",
-                          isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
-                        )}
-                        title={
-                          (item.latestMessageAt ||
-                            item.latestInboundAt ||
-                            item.latestOutboundAt ||
-                            item.updatedAt ||
-                            item.createdAt) ?? undefined
-                        }
-                      >
-                        {ts}
-                      </span>
-                    ) : null;
-                  })()}
-                </div>
-                <div className="mt-1 flex min-w-0 items-start gap-2">
+                <div className="flex min-w-0 items-start gap-2">
                   {shouldShowSpamIndicator(item) && reviewState !== "quarantine" ? (
                     canMoveToQuarantine ? (
                       <Popover.Root
@@ -1010,10 +958,97 @@ export function EmailWorkList({
 
               <div
                 className={cn(
-                  "mt-2 flex min-w-0 flex-wrap items-center gap-3 text-xs text-zinc-500 transition-opacity",
+                  "mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 transition-opacity",
                   isVisuallyUnread ? "text-zinc-400 opacity-100" : "opacity-100",
                 )}
               >
+                {/* From: sender name (falls back to email), consolidated into
+                    the single metadata row. */}
+                {sender ? (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1",
+                      isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
+                    )}
+                  >
+                    <span>From:</span>
+                    <Tooltip
+                      content={sender.emailAddress?.trim() || senderName}
+                      className="w-auto"
+                      side="top"
+                    >
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSenderClick?.({
+                            name: senderName,
+                            email: sender.emailAddress,
+                          });
+                        }}
+                        className="max-w-[180px] truncate cursor-pointer text-zinc-400 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-200 sm:max-w-[240px]"
+                      >
+                        {senderName}
+                      </button>
+                    </Tooltip>
+                  </span>
+                ) : (
+                  <span
+                    className={cn(
+                      "break-words",
+                      isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
+                    )}
+                  >
+                    From: Unknown sender
+                  </span>
+                )}
+                {/* To: single compact colored-initials avatar (address-based),
+                    with a tooltip listing the recipient addresses. */}
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1.5",
+                    isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
+                  )}
+                >
+                  <span>To:</span>
+                  {(() => {
+                    const recipientAddress =
+                      mailbox?.emailAddress || item.mailboxEmailAddress || "";
+                    const initials = getRecipientAvatarInitials(
+                      mailboxLabel,
+                      recipientAddress,
+                    );
+                    const tooltipContent = getRecipientTooltipContent(
+                      recipientAddress,
+                      item.participants,
+                    );
+                    return (
+                      <Tooltip
+                        content={tooltipContent}
+                        className="w-auto"
+                        side="top"
+                      >
+                        <span
+                          className="inline-flex h-[18px] min-w-[18px] cursor-help items-center justify-center rounded-full px-1 text-[9px] font-semibold uppercase leading-none text-black"
+                          style={{ backgroundColor: mailboxAccentColor }}
+                          aria-label={tooltipContent}
+                        >
+                          {initials}
+                        </span>
+                      </Tooltip>
+                    );
+                  })()}
+                </span>
+                {ccLine ? (
+                  <span
+                    className={cn(
+                      "break-words",
+                      isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
+                    )}
+                  >
+                    {ccLine}
+                  </span>
+                ) : null}
                 <span className="inline-flex items-center gap-1 break-words">
                   <Mail className="h-3.5 w-3.5" />
                   {mailboxLabel}
@@ -1067,6 +1102,27 @@ export function EmailWorkList({
                     {Math.round(item.actionConfidence * 100)}% confidence
                   </span>
                 ) : null}
+                {/* Thread timestamp, pushed to the right of the metadata row */}
+                {(() => {
+                  const tsSource =
+                    item.latestMessageAt ||
+                    item.latestInboundAt ||
+                    item.latestOutboundAt ||
+                    item.updatedAt ||
+                    item.createdAt;
+                  const ts = formatThreadTimestamp(tsSource);
+                  return ts ? (
+                    <span
+                      className={cn(
+                        "ml-auto whitespace-nowrap text-[11px] tabular-nums",
+                        isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
+                      )}
+                      title={tsSource ?? undefined}
+                    >
+                      {ts}
+                    </span>
+                  ) : null;
+                })()}
               </div>
 
               {isProjectPickerOpen ? (
