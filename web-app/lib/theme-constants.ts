@@ -1,5 +1,5 @@
 // Theme Types
-export type ThemePreset = 'system' | 'dark' | 'light' | 'liquid-glass-dark' | 'liquid-glass-light'
+export type ThemePreset = 'system' | 'neutral-dark' | 'neutral-light' | 'dark' | 'light' | 'liquid-glass-dark' | 'liquid-glass-light'
 
 export interface Theme {
   id: ThemePreset
@@ -19,6 +19,22 @@ export const THEME_PRESETS: Record<ThemePreset, Theme> = {
     allowsColorCustomization: true,
     defaultColor: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     cssClass: ''
+  },
+  'neutral-dark': {
+    id: 'neutral-dark',
+    name: 'Neutral Dark',
+    description: 'Subtle zinc/neutral grays on dark surfaces — no saturated brand color',
+    allowsColorCustomization: false,
+    defaultColor: '#e4e4e7', // zinc-200 — neutral accent, no brand saturation
+    cssClass: 'dark theme-dark theme-neutral'
+  },
+  'neutral-light': {
+    id: 'neutral-light',
+    name: 'Neutral Light',
+    description: 'Subtle zinc/neutral grays on light surfaces — no saturated brand color',
+    allowsColorCustomization: false,
+    defaultColor: '#3f3f46', // zinc-700 — neutral accent for light surfaces
+    cssClass: 'light theme-light theme-neutral'
   },
   dark: {
     id: 'dark',
@@ -53,7 +69,7 @@ export const THEME_PRESETS: Record<ThemePreset, Theme> = {
 }
 
 // Default theme constants  
-export const DEFAULT_THEME_PRESET: ThemePreset = 'dark'
+export const DEFAULT_THEME_PRESET: ThemePreset = 'neutral-dark'
 export const DEFAULT_GRADIENT_THEME = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
 export const DEFAULT_SOLID_COLOR = '#667eea' // Purple from the gradient
 export const DEFAULT_COLOR_RGB = '102, 126, 234' // RGB values for the primary color

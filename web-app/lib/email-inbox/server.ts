@@ -50,6 +50,7 @@ import {
   fetchMailboxFolderUids,
   fetchMailboxMessageReadStates,
   fetchMailboxMessages,
+  fetchMailboxStorageQuota,
   sendMailboxReply,
   type MailboxTransportRow,
 } from "@/lib/email-inbox/provider";
@@ -873,6 +874,7 @@ function mapThreadToInboxItem(params: {
         ? params.row.origin
         : "inbound",
     isUnread: Boolean(params.row.is_unread),
+    isStarred: Boolean(params.row.is_starred),
     workDueDate: params.row.work_due_date ?? null,
     workDueTime: params.row.work_due_time ?? null,
     needsProject: Boolean(params.row.needs_project),
@@ -1392,6 +1394,65 @@ export async function listMailboxesForUser(userId: string): Promise<Mailbox[]> {
   return rows.map((row: any) =>
     coerceMailbox(row, membersByMailbox.get(String(row.id)) || []),
   );
+}
+
+export type MailboxStorageStat = {
+  mailboxId: string;
+  label: string;
+  used: number;
+  total: number;
+};
+
+// Per-mailbox storage-quota cache (IMAP QUOTA is slow + rate-limited), keyed by
+// mailbox id, refreshed at most once per hour.
+const STORAGE_CACHE_TTL_MS = 60 * 60 * 1000;
+const mailboxStorageCache = new Map<
+  string,
+  { stat: MailboxStorageStat | null; fetchedAt: number }
+>();
+
+/**
+ * Returns per-mailbox storage usage for every mailbox the user can access that
+ * exposes an IMAP QUOTA. Mailboxes without quota data are omitted. Cached
+ * server-side for one hour per mailbox.
+ */
+export async function getMailboxStorageStatsForUser(
+  userId: string,
+): Promise<MailboxStorageStat[]> {
+  const rows = await getAccessibleMailboxRows(userId);
+  const now = Date.now();
+
+  const results = await Promise.all(
+    rows.map(async (row: any) => {
+      const mailboxId = String(row.id);
+      const cached = mailboxStorageCache.get(mailboxId);
+      if (cached && now - cached.fetchedAt < STORAGE_CACHE_TTL_MS) {
+        return cached.stat;
+      }
+
+      let stat: MailboxStorageStat | null = null;
+      try {
+        const quota = await fetchMailboxStorageQuota(
+          row as MailboxTransportRow,
+        );
+        if (quota) {
+          stat = {
+            mailboxId,
+            label: row.email_address || row.display_name || "Mailbox",
+            used: quota.used,
+            total: quota.total,
+          };
+        }
+      } catch {
+        stat = null;
+      }
+
+      mailboxStorageCache.set(mailboxId, { stat, fetchedAt: now });
+      return stat;
+    }),
+  );
+
+  return results.filter((stat): stat is MailboxStorageStat => stat !== null);
 }
 
 export async function listSummaryProfilesForUser(
@@ -2570,6 +2631,25 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
     linkedTasks: tasks || [],
     activeReplyDraft,
   };
+}
+
+/** Toggle the app-level star flag on a thread the user can access. Returns the
+ *  new starred state. Backed by email_threads.is_starred (not synced to Gmail). */
+export async function setThreadStarredForUser(
+  userId: string,
+  threadId: string,
+  isStarred: boolean,
+): Promise<{ id: string; isStarred: boolean }> {
+  const admin = getAdminClient();
+  await ensureThreadAccess(userId, threadId);
+  const { error } = await admin
+    .from("email_threads")
+    .update({ is_starred: isStarred })
+    .eq("id", threadId);
+  if (error) {
+    throw new Error(error.message || "Failed to update starred state");
+  }
+  return { id: threadId, isStarred };
 }
 
 export async function getThreadAttachmentForUser(

@@ -91,6 +91,13 @@ import {
   normalizeEmailHtmlRenderMode,
   type EmailHtmlRenderMode,
 } from "@/lib/email-html-render-mode";
+import {
+  EMAIL_THREAD_DISPLAY_MODE_OPTIONS,
+  isDockedEmailThreadDisplayMode,
+  loadEmailThreadDisplayMode,
+  saveEmailThreadDisplayMode,
+  type EmailThreadDisplayMode,
+} from "@/lib/email-thread-display-mode";
 import type {
   ConversationEntry,
   EmailReplyDraft,
@@ -244,7 +251,8 @@ export function EmailThreadModal({
   const [queuedAction, setQueuedAction] = useState<ThreadAction | null>(null);
   const [isQueuedActionNoticeVisible, setIsQueuedActionNoticeVisible] =
     useState(false);
-  const [detailDock, setDetailDock] = useState<"bottom" | "right">("bottom");
+  const [displayMode, setDisplayMode] =
+    useState<EmailThreadDisplayMode>("centered");
   // Per-thread collapse memory: which conversation messages are expanded.
   // Restored from (and persisted to) localStorage keyed by thread id.
   const [threadExpandState, setThreadExpandState] = useState<ThreadExpandState>(
@@ -322,24 +330,20 @@ export function EmailThreadModal({
     );
   };
 
-  // Task D: restore the persisted detail-dock preference on mount.
+  // Restore the persisted default display mode (centered / docked-right /
+  // docked-bottom) on mount.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem("ffEmailDetailDock");
-    if (stored === "bottom" || stored === "right") {
-      setDetailDock(stored);
-    }
+    setDisplayMode(loadEmailThreadDisplayMode());
   }, []);
 
-  const handleToggleDock = () => {
-    setDetailDock((current) => {
-      const next = current === "bottom" ? "right" : "bottom";
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("ffEmailDetailDock", next);
-      }
-      return next;
-    });
+  // Changing the mode from the modal header applies immediately AND updates the
+  // saved default preference so it sticks across threads and reloads.
+  const handleSelectDisplayMode = (mode: EmailThreadDisplayMode) => {
+    setDisplayMode(mode);
+    saveEmailThreadDisplayMode(mode);
   };
+
+  const isDocked = isDockedEmailThreadDisplayMode(displayMode);
 
   useEffect(() => {
     setReplyStyleOverrides(
@@ -881,15 +885,25 @@ export function EmailThreadModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange} modal={!isDocked}>
       <DialogPortal>
-        <DialogOverlay />
+        {/* Docked modes never render the backdrop, so the app stays usable. */}
+        {isDocked ? null : <DialogOverlay />}
         <DialogPrimitive.Content
+          // When docked, don't steal focus back to the panel so the user can
+          // keep typing in the app behind it.
+          onOpenAutoFocus={isDocked ? (event) => event.preventDefault() : undefined}
+          onInteractOutside={
+            isDocked ? (event) => event.preventDefault() : undefined
+          }
           className={cn(
             "fixed z-50 flex flex-col overflow-hidden border-zinc-800 bg-zinc-950 text-white shadow-2xl outline-none duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-            detailDock === "right"
-              ? "inset-y-0 right-0 h-full w-[min(96vw,42rem)] border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:rounded-l-2xl"
-              : "inset-x-0 bottom-0 max-h-[92vh] w-full border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom sm:rounded-t-2xl",
+            displayMode === "docked-right" &&
+              "inset-y-0 right-0 h-full w-[max(480px,40vw)] max-w-[96vw] border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:rounded-l-2xl",
+            displayMode === "docked-bottom" &&
+              "inset-x-0 bottom-0 h-[50vh] w-full border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom sm:rounded-t-2xl",
+            displayMode === "centered" &&
+              "left-1/2 top-1/2 max-h-[92vh] w-[min(96vw,52rem)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           )}
         >
           <DialogTitle className="sr-only">
@@ -940,29 +954,46 @@ export function EmailThreadModal({
                   </button>
                 </Tooltip>
               ) : null}
-              <Tooltip
-                content={
-                  detailDock === "bottom" ? "Dock to right" : "Dock to bottom"
-                }
-                className="w-auto"
-                side="bottom"
-                align="end"
+              <div
+                role="group"
+                aria-label="Thread display mode"
+                className="inline-flex items-center gap-0.5 rounded-lg border border-zinc-700 bg-zinc-900 p-0.5"
               >
-                <button
-                  type="button"
-                  onClick={handleToggleDock}
-                  aria-label={
-                    detailDock === "bottom" ? "Dock to right" : "Dock to bottom"
-                  }
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
-                >
-                  {detailDock === "bottom" ? (
-                    <PanelRight className="h-4 w-4" />
-                  ) : (
-                    <PanelBottom className="h-4 w-4" />
-                  )}
-                </button>
-              </Tooltip>
+                {EMAIL_THREAD_DISPLAY_MODE_OPTIONS.map((option) => {
+                  const isActive = displayMode === option.value;
+                  const Icon =
+                    option.value === "centered"
+                      ? Maximize2
+                      : option.value === "docked-right"
+                        ? PanelRight
+                        : PanelBottom;
+
+                  return (
+                    <Tooltip
+                      key={option.value}
+                      content={option.label}
+                      className="w-auto"
+                      side="bottom"
+                      align="end"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleSelectDisplayMode(option.value)}
+                        aria-label={option.label}
+                        aria-pressed={isActive}
+                        className={cn(
+                          "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors",
+                          isActive
+                            ? "bg-zinc-700 text-white"
+                            : "text-zinc-400 hover:text-white",
+                        )}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
+                  );
+                })}
+              </div>
               <DialogPrimitive.Close
                 aria-label="Close"
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"

@@ -6,6 +6,7 @@ import {
   normalizeDatabaseThemePreset,
   resolveThemePreset,
 } from "../theme-utils";
+import { DEFAULT_THEME_PRESET } from "../theme-constants";
 
 test("resolveThemePreset inherits dark mode when the system prefers dark", () => {
   assert.equal(resolveThemePreset("system", true), "dark");
@@ -32,5 +33,5 @@ test("getDatabaseThemePreset maps liquid glass variants to the legacy preset", (
 });
 
 test("normalizeDatabaseThemePreset maps the legacy liquid glass preset to the default", () => {
-  assert.equal(normalizeDatabaseThemePreset("liquid-glass"), "dark");
+  assert.equal(normalizeDatabaseThemePreset("liquid-glass"), DEFAULT_THEME_PRESET);
 });

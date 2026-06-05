@@ -14,6 +14,8 @@ export const EMAIL_INBOX_VIEWS = new Set([
   "email-quarantine",
   "email-rules",
   "email-ai-lab",
+  "email-drafts",
+  "email-starred",
 ]);
 
 export function isEmailInboxView(view: string) {

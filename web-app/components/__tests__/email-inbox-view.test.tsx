@@ -17,6 +17,11 @@ import {
   getConversationEntryHeaderClassName,
   getDockBadgeDocumentTitle,
   getEmailInboxSplitClassName,
+  getEmailInboxPageCount,
+  getEmailInboxPageItems,
+  clampEmailInboxPage,
+  normalizeEmailInboxPerPage,
+  EMAIL_INBOX_DEFAULT_PER_PAGE,
   isEmailInboxSearchHelpQuery,
   parseEmailInboxSearchQuery,
   getSpamScanProgressPercent,
@@ -77,6 +82,35 @@ test("filterInboxProjects returns exact matches case-insensitively", () => {
     filtered.map((project) => project.id),
     ["project-1"],
   );
+});
+
+test("normalizeEmailInboxPerPage falls back to the default for invalid values", () => {
+  assert.equal(normalizeEmailInboxPerPage(50), 50);
+  assert.equal(normalizeEmailInboxPerPage("100"), 100);
+  assert.equal(normalizeEmailInboxPerPage(33), EMAIL_INBOX_DEFAULT_PER_PAGE);
+  assert.equal(normalizeEmailInboxPerPage("nope"), EMAIL_INBOX_DEFAULT_PER_PAGE);
+});
+
+test("getEmailInboxPageCount computes ceil pages and never drops below one", () => {
+  assert.equal(getEmailInboxPageCount(0, 25), 1);
+  assert.equal(getEmailInboxPageCount(25, 25), 1);
+  assert.equal(getEmailInboxPageCount(26, 25), 2);
+  assert.equal(getEmailInboxPageCount(101, 50), 3);
+});
+
+test("clampEmailInboxPage keeps the page within range", () => {
+  assert.equal(clampEmailInboxPage(0, 3), 1);
+  assert.equal(clampEmailInboxPage(5, 3), 3);
+  assert.equal(clampEmailInboxPage(2, 3), 2);
+  assert.equal(clampEmailInboxPage(Number.NaN, 3), 1);
+});
+
+test("getEmailInboxPageItems slices the requested page and clamps overflow", () => {
+  const items = Array.from({ length: 7 }, (_, index) => index);
+  assert.deepEqual(getEmailInboxPageItems(items, 1, 3), [0, 1, 2]);
+  assert.deepEqual(getEmailInboxPageItems(items, 3, 3), [6]);
+  // Out-of-range page falls back to the last valid page.
+  assert.deepEqual(getEmailInboxPageItems(items, 9, 3), [6]);
 });
 
 test("getEmailInboxSplitClassName constrains the detail pane without content-sized overflow", () => {

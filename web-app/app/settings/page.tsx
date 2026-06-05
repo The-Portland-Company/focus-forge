@@ -65,6 +65,13 @@ import {
   normalizeEmailHtmlRenderMode,
   type EmailHtmlRenderMode,
 } from "@/lib/email-html-render-mode";
+import {
+  DEFAULT_EMAIL_THREAD_DISPLAY_MODE,
+  EMAIL_THREAD_DISPLAY_MODE_OPTIONS,
+  loadEmailThreadDisplayMode,
+  saveEmailThreadDisplayMode,
+  type EmailThreadDisplayMode,
+} from "@/lib/email-thread-display-mode";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -141,6 +148,8 @@ export default function SettingsPage() {
   );
   const [defaultEmailHtmlRenderMode, setDefaultEmailHtmlRenderMode] =
     useState<EmailHtmlRenderMode>(DEFAULT_EMAIL_HTML_RENDER_MODE);
+  const [emailThreadDisplayMode, setEmailThreadDisplayMode] =
+    useState<EmailThreadDisplayMode>(DEFAULT_EMAIL_THREAD_DISPLAY_MODE);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setSectionFromUrl(params.get("section"));
@@ -199,6 +208,12 @@ export default function SettingsPage() {
       ),
     );
   }, [preferences?.default_email_html_render_mode]);
+
+  // The thread display-mode default is stored in localStorage (no server
+  // preference column fits), so hydrate it once on mount.
+  useEffect(() => {
+    setEmailThreadDisplayMode(loadEmailThreadDisplayMode());
+  }, []);
 
   const isSuperOrAdmin = ["admin", "super_admin"].includes(
     String(profile?.role || ""),
@@ -926,6 +941,45 @@ export default function SettingsPage() {
                       className={cn(
                         "rounded-xl border px-4 py-3 text-left transition-colors",
                         defaultEmailHtmlRenderMode === option.value
+                          ? "border-theme-primary bg-zinc-800 text-white"
+                          : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:border-zinc-500",
+                      )}
+                    >
+                      <div className="text-sm font-medium">{option.label}</div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {option.description}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <div className="mb-6 flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-medium mb-2 flex items-center gap-2">
+                      <Mail className="w-5 h-5" />
+                      Email Thread Display
+                    </h3>
+                    <p className="text-sm text-zinc-400">
+                      Choose how an email thread opens by default when you click
+                      it. You can still switch modes from the thread header while
+                      reading.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {EMAIL_THREAD_DISPLAY_MODE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setEmailThreadDisplayMode(option.value);
+                        saveEmailThreadDisplayMode(option.value);
+                      }}
+                      className={cn(
+                        "rounded-xl border px-4 py-3 text-left transition-colors",
+                        emailThreadDisplayMode === option.value
                           ? "border-theme-primary bg-zinc-800 text-white"
                           : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:border-zinc-500",
                       )}

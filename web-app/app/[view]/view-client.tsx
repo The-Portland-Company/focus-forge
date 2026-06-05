@@ -228,6 +228,18 @@ const EmailInboxView = dynamic(
     import("@/components/email-inbox-view").then((mod) => mod.EmailInboxView),
   { ssr: false },
 );
+const EmailDraftsView = dynamic(
+  () =>
+    import("@/components/email-drafts-view").then((mod) => mod.EmailDraftsView),
+  { ssr: false },
+);
+const EmailStarredView = dynamic(
+  () =>
+    import("@/components/email-starred-view").then(
+      (mod) => mod.EmailStarredView,
+    ),
+  { ssr: false },
+);
 const EmailSpamReviewModal = dynamic(
   () =>
     import("@/components/email-spam-review-modal").then(
@@ -3305,6 +3317,14 @@ export default function ViewPage({
       .toLowerCase();
 
   const renderContent = () => {
+    if (view === "email-drafts") {
+      return <EmailDraftsView />;
+    }
+
+    if (view === "email-starred") {
+      return <EmailStarredView data={database} onRefresh={fetchData} />;
+    }
+
     if (
       view === "email-inbox" ||
       view === "email-sent" ||

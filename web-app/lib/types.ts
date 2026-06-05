@@ -408,6 +408,9 @@ export interface InboxItem {
   latestOutboundAt?: string | null;
   origin?: "inbound" | "outbound" | "mixed";
   isUnread?: boolean;
+  /** App-level (not Gmail) star flag, toggled from the inbox. Backed by
+   *  email_threads.is_starred. Powers the Starred sidebar view. */
+  isStarred?: boolean;
   workDueDate?: string | null;
   workDueTime?: string | null;
   needsProject: boolean;
