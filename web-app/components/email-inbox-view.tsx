@@ -44,6 +44,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { SkeletonEmailRow } from "@/components/skeleton-loader";
 import {
   EmailWorkList,
   getEmailReadStateBadgeClassName,
@@ -166,6 +167,9 @@ type EmailInboxViewProps = {
   data: Database;
   onRefresh: () => Promise<void> | void;
   currentUserId?: string;
+  isDataLoading?: boolean;
+  isRefreshing?: boolean;
+  freshlyUpdatedInboxIds?: Set<string>;
 };
 
 type ComposerAttachment = EmailReplyAttachment & {
@@ -1202,6 +1206,9 @@ export function EmailInboxView({
   data,
   onRefresh,
   currentUserId,
+  isDataLoading = false,
+  isRefreshing = false,
+  freshlyUpdatedInboxIds,
 }: EmailInboxViewProps) {
   const isInboxView = view === "email-inbox";
   const isSentView = view === "email-sent";
@@ -1719,6 +1726,9 @@ export function EmailInboxView({
 
   const handleSelectThread = (item: InboxItem) => {
     setSelectedThreadId(item.id);
+    // Clicking an inbox row opens the full thread modal (collapsed-thread view)
+    // rather than only populating the right-side detail pane.
+    setIsThreadModalOpen(true);
 
     if (!item.isUnread) {
       return;
@@ -3968,6 +3978,15 @@ export function EmailInboxView({
                         {visibleInboxItems.length}
                       </span>
                     </Tooltip>
+                    {isRefreshing ? (
+                      <Tooltip
+                        content="Refreshing…"
+                        className="w-auto"
+                        side="bottom"
+                      >
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
+                      </Tooltip>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -4448,12 +4467,19 @@ export function EmailInboxView({
                 </div>
               </div>
             ) : null}
-            {!isInboxView || replyQueueTab === "threads" ? (
+            {isDataLoading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 7 }).map((_, i) => (
+                  <SkeletonEmailRow key={i} />
+                ))}
+              </div>
+            ) : !isInboxView || replyQueueTab === "threads" ? (
               <EmailWorkList
                 items={visibleInboxItems}
                 mailboxes={mailboxes}
                 projects={data.projects}
                 selectedId={selectedThreadId}
+                freshlyUpdatedIds={freshlyUpdatedInboxIds}
                 alwaysShowSummary={alwaysShowSummary}
                 alwaysShowExcerpt={alwaysShowExcerpt}
                 activeProjectPickerThreadId={inlineProjectPickerThreadId}

@@ -15,12 +15,14 @@ import {
   Skull,
   Sparkles,
   SquareCheckBig,
+  Text,
   Trash2,
   Wand2,
 } from "lucide-react";
 import { SnoozePopover } from "@/components/snooze-popover";
 import { Tooltip } from "@/components/tooltip";
 import { stripQuotedAndSignature } from "@/lib/email-inbox/strip-quoted";
+import { formatEmailTimestamp } from "@/lib/email-inbox/format-timestamp";
 import {
   Dialog,
   DialogContent,
@@ -46,6 +48,7 @@ type EmailWorkListProps = {
   mailboxes: Mailbox[];
   projects: Project[];
   selectedId?: string | null;
+  freshlyUpdatedIds?: Set<string>; // ids new/changed via background refetch (green flash)
   alwaysShowSummary?: boolean;
   alwaysShowExcerpt?: boolean;
   onSelect?: (item: InboxItem) => void;
@@ -69,19 +72,11 @@ type EmailWorkListProps = {
   emptyLabel?: string;
 };
 
-/** Compact thread timestamp with BOTH date and time:
- *  same-year → "Jun 2, 2:13 PM"; older → "Jun 2 '25, 2:13 PM". */
+/** Thread timestamp shown on inbox rows, e.g. "Jan. 1st, 2026 2:01 PM".
+ *  Delegates to the shared {@link formatEmailTimestamp} so every email view
+ *  renders dates identically. */
 export function formatThreadTimestamp(iso?: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return "";
-  const now = new Date();
-  const sameYear = d.getFullYear() === now.getFullYear();
-  const datePart = sameYear
-    ? d.toLocaleDateString([], { month: "short", day: "numeric" })
-    : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} '${String(d.getFullYear()).slice(-2)}`;
-  const timePart = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return `${datePart}, ${timePart}`;
+  return formatEmailTimestamp(iso);
 }
 
 export function formatEmailSubject(subject: string) {
@@ -475,6 +470,7 @@ export function EmailWorkList({
   mailboxes,
   projects,
   selectedId,
+  freshlyUpdatedIds,
   alwaysShowSummary = false,
   alwaysShowExcerpt = false,
   onSelect,
@@ -639,26 +635,21 @@ export function EmailWorkList({
             role="button"
             tabIndex={0}
             onClick={() => onSelect?.(item)}
-            onMouseEnter={(event) => {
-              if (!item.previewText) return;
-              const rect = event.currentTarget.getBoundingClientRect();
-              setHoverPreview({
-                text: previewText,
-                top: rect.bottom + 8,
-                left: rect.left + 16,
-              });
-            }}
-            onMouseLeave={() => setHoverPreview(null)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
                 onSelect?.(item);
               }
             }}
-            className={getEmailWorkItemClassName({
-              isSelected,
-              isUnread: isVisuallyUnread,
-            })}
+            className={cn(
+              getEmailWorkItemClassName({
+                isSelected,
+                isUnread: isVisuallyUnread,
+              }),
+              freshlyUpdatedIds?.has(item.id) && !isSelected
+                ? "fresh-data-highlight"
+                : "",
+            )}
             style={getEmailWorkItemStyle({
               isSelected,
               isUnread: isVisuallyUnread,
@@ -843,23 +834,49 @@ export function EmailWorkList({
                   <div className="min-w-0">
                     <div
                       className={cn(
-                        "flex min-w-0 items-start gap-1.5 break-words text-white",
+                        "flex min-w-0 items-center gap-1.5 leading-5 break-words text-white",
                         isVisuallyUnread ? "font-semibold" : "font-medium",
                       )}
                     >
-                      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-400" />
-                      <span className="min-w-0 break-words">{aiTitle}</span>
+                      <Tooltip
+                        content={`Original Subject: ${
+                          item.subject?.trim() || "(no subject)"
+                        }`}
+                        className="w-auto"
+                        side="top"
+                      >
+                        <span className="inline-flex shrink-0 cursor-help items-center">
+                          <Text className="h-3.5 w-3.5 text-zinc-400" />
+                        </span>
+                      </Tooltip>
+                      <Sparkles className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                      <span
+                        className="min-w-0 break-words"
+                        onMouseEnter={(event) => {
+                          if (!item.previewText) return;
+                          const rect =
+                            event.currentTarget.getBoundingClientRect();
+                          setHoverPreview({
+                            text: previewText,
+                            top: rect.bottom + 8,
+                            left: rect.left,
+                          });
+                        }}
+                        onMouseLeave={() => setHoverPreview(null)}
+                      >
+                        {aiTitle}
+                      </span>
                     </div>
-                    {hasAiTitle ? (
-                      <div className="mt-0.5 break-words text-xs text-zinc-500">
-                        Subject: {formatEmailSubject(item.subject)}
-                      </div>
-                    ) : null}
                   </div>
                 </div>
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                {shouldShowStatusBadge(item) && reviewBadgeLabel ? (
+                {/* Quarantine threads keep a distinct text badge; the SPAM /
+                    "Flagged" text label is removed because the left-aligned
+                    skull icon already signals spam-classified rows. */}
+                {shouldShowStatusBadge(item) &&
+                reviewBadgeLabel &&
+                reviewState === "quarantine" ? (
                   <div className="rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-rose-300">
                     {reviewBadgeLabel}
                   </div>
@@ -1132,7 +1149,7 @@ export function EmailWorkList({
           className="pointer-events-none fixed z-50 w-[min(720px,90vw)] rounded-lg border border-zinc-700 bg-zinc-950/95 px-4 py-3 text-xs leading-5 text-zinc-200 shadow-2xl backdrop-blur"
           style={{ top: `${hoverPreview.top}px`, left: `${hoverPreview.left}px` }}
         >
-          {/* Arrow pointing up at the hovered email row */}
+          {/* Arrow pointing up at the hovered AI title */}
           <div
             aria-hidden
             className="absolute -top-[5px] left-8 h-2.5 w-2.5 rotate-45 border-l border-t border-zinc-700 bg-zinc-950"

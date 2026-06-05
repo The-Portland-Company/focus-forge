@@ -7,11 +7,14 @@ import {
   Bot,
   Check,
   ChevronDown,
+  ChevronRight,
   ExternalLink,
   FolderSearch,
   Loader2,
   MailCheck,
   MailPlus,
+  Maximize2,
+  Minimize2,
   PanelBottom,
   PanelRight,
   Search,
@@ -64,6 +67,16 @@ import {
   requiresThreadActionConfirmation,
   type ThreadAction,
 } from "@/lib/email-inbox/thread-actions";
+import { formatEmailTimestamp } from "@/lib/email-inbox/format-timestamp";
+import {
+  areAllThreadMessagesExpanded,
+  isThreadMessageExpanded,
+  loadThreadExpandState,
+  saveThreadExpandState,
+  toggleThreadMessageExpanded,
+  type ThreadExpandState,
+} from "@/lib/email-inbox/thread-expand-state";
+import { stripQuotedAndSignature } from "@/lib/email-inbox/strip-quoted";
 import { useUserPreferences, useUserProfile } from "@/lib/supabase/hooks";
 import {
   DEFAULT_EMAIL_REPLY_SETTINGS,
@@ -151,6 +164,31 @@ async function fetchThreadDetail(threadId: string) {
   );
 }
 
+/** Collapse a message body to a single-line preview for the collapsed row. */
+function getThreadEntryPreview(
+  entry: Pick<ConversationEntry, "content" | "contentHtml">,
+  maxLength = 140,
+): string {
+  const source = entry.contentHtml || entry.content || "";
+  const asText = source
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<blockquote[^>]*>/gi, "\n>")
+    .replace(/<[^>]+>/g, " ");
+  const flattened = stripQuotedAndSignature(asText)
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!flattened) {
+    return "No preview available.";
+  }
+
+  return flattened.length <= maxLength
+    ? flattened
+    : `${flattened.slice(0, maxLength).trimEnd()}…`;
+}
+
 function EmailActorAvatar({
   name,
   email,
@@ -203,6 +241,11 @@ export function EmailThreadModal({
   const [isQueuedActionNoticeVisible, setIsQueuedActionNoticeVisible] =
     useState(false);
   const [detailDock, setDetailDock] = useState<"bottom" | "right">("bottom");
+  // Per-thread collapse memory: which conversation messages are expanded.
+  // Restored from (and persisted to) localStorage keyed by thread id.
+  const [threadExpandState, setThreadExpandState] = useState<ThreadExpandState>(
+    () => new Set<string>(),
+  );
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
   const queuedActionTimeoutRef = useRef<number | null>(null);
   const { profile } = useUserProfile();
@@ -232,6 +275,48 @@ export function EmailThreadModal({
   const conversationEntries = getConversationEntriesExcludingPrimary(
     thread?.conversation,
   );
+
+  const conversationEntryIds = useMemo(
+    () => conversationEntries.map((entry) => entry.id),
+    [conversationEntries],
+  );
+  const allConversationExpanded = areAllThreadMessagesExpanded(
+    threadExpandState,
+    conversationEntryIds,
+  );
+
+  // Restore per-thread expand memory whenever the modal opens for a thread, so
+  // an "Expand All" (or per-message) choice survives navigation and reloads.
+  useEffect(() => {
+    if (!open || !threadId) {
+      setThreadExpandState(new Set<string>());
+      return;
+    }
+    setThreadExpandState(loadThreadExpandState(threadId));
+  }, [open, threadId]);
+
+  const persistThreadExpandState = (next: ThreadExpandState) => {
+    setThreadExpandState(next);
+    if (threadId) {
+      saveThreadExpandState(threadId, next);
+    }
+  };
+
+  const handleToggleThreadMessage = (messageId: string) => {
+    persistThreadExpandState(
+      toggleThreadMessageExpanded(
+        threadExpandState,
+        messageId,
+        conversationEntryIds,
+      ),
+    );
+  };
+
+  const handleToggleExpandAll = () => {
+    persistThreadExpandState(
+      allConversationExpanded ? new Set<string>() : "all",
+    );
+  };
 
   // Task D: restore the persisted detail-dock preference on mount.
   useEffect(() => {
@@ -814,6 +899,38 @@ export function EmailThreadModal({
                 : "Email thread"}
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {conversationEntries.length > 0 ? (
+                <Tooltip
+                  content={
+                    allConversationExpanded
+                      ? "Collapse all messages"
+                      : "Expand all messages"
+                  }
+                  className="w-auto"
+                  side="bottom"
+                  align="end"
+                >
+                  <button
+                    type="button"
+                    onClick={handleToggleExpandAll}
+                    aria-label={
+                      allConversationExpanded
+                        ? "Collapse all messages"
+                        : "Expand all messages"
+                    }
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                  >
+                    {allConversationExpanded ? (
+                      <Minimize2 className="h-3.5 w-3.5" />
+                    ) : (
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    )}
+                    <span className="hidden sm:inline">
+                      {allConversationExpanded ? "Collapse All" : "Expand All"}
+                    </span>
+                  </button>
+                </Tooltip>
+              ) : null}
               <Tooltip
                 content={
                   detailDock === "bottom" ? "Dock to right" : "Dock to bottom"
@@ -1391,42 +1508,70 @@ export function EmailThreadModal({
                   Conversation
                 </div>
                 <div className="space-y-3">
-                  {conversationEntries.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3"
-                    >
-                      <div className="flex items-start gap-3">
-                        <EmailActorAvatar
-                          name={entry.authorName}
-                          email={entry.authorEmail}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-medium text-zinc-100">
-                                {getEmailActorName(
-                                  entry.authorName,
-                                  entry.authorEmail,
+                  {conversationEntries.map((entry) => {
+                    const isExpanded = isThreadMessageExpanded(
+                      threadExpandState,
+                      entry.id,
+                    );
+
+                    return (
+                      <div
+                        key={entry.id}
+                        className="rounded-2xl border border-zinc-800 bg-zinc-900/60"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleToggleThreadMessage(entry.id)}
+                          aria-expanded={isExpanded}
+                          className="flex w-full items-start gap-3 rounded-2xl p-3 text-left transition-colors hover:bg-zinc-900"
+                        >
+                          <EmailActorAvatar
+                            name={entry.authorName}
+                            email={entry.authorEmail}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-medium text-zinc-100">
+                                  {getEmailActorName(
+                                    entry.authorName,
+                                    entry.authorEmail,
+                                  )}
+                                </div>
+                                {entry.authorEmail &&
+                                entry.authorEmail !== entry.authorName ? (
+                                  <div className="truncate text-xs text-zinc-500">
+                                    {entry.authorEmail}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2 text-xs text-zinc-500">
+                                <span>
+                                  {formatEmailTimestamp(entry.createdAt)}
+                                </span>
+                                {isExpanded ? (
+                                  <ChevronDown className="h-4 w-4" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4" />
                                 )}
                               </div>
-                              {entry.authorEmail &&
-                              entry.authorEmail !== entry.authorName ? (
-                                <div className="truncate text-xs text-zinc-500">
-                                  {entry.authorEmail}
-                                </div>
-                              ) : null}
                             </div>
-                            <div className="text-xs text-zinc-500">
-                              {new Date(entry.createdAt).toLocaleString()}
-                            </div>
+                            {!isExpanded ? (
+                              <div className="mt-1 truncate text-xs text-zinc-400">
+                                {getThreadEntryPreview(entry)}
+                              </div>
+                            ) : null}
                           </div>
-                          <div className="mt-3">
+                        </button>
+                        {isExpanded ? (
+                          <div className="px-3 pb-3 pl-[3.25rem]">
                             <EmailSignatureContent
                               html={entry.contentHtml}
                               text={entry.content}
                               contentKind={
-                                entry.type === "internal_note" ? "rich_text" : "email"
+                                entry.type === "internal_note"
+                                  ? "rich_text"
+                                  : "email"
                               }
                               hideSignatures={hideEmailSignatures}
                               renderMode={emailHtmlRenderMode}
@@ -1434,10 +1579,10 @@ export function EmailThreadModal({
                               signatureClassName="break-words text-sm leading-6 text-zinc-300 opacity-90"
                             />
                           </div>
-                        </div>
+                        ) : null}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>

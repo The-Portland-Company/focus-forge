@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { EstimateReviewModal } from "@/components/estimate-review-modal";
-import { Hourglass, Play, Sparkles, Loader2, Trash2 } from "lucide-react";
+import { Hourglass, Play, Sparkles, Trash2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface PreviewTask {
   id: string;
@@ -148,9 +149,35 @@ export default function EstimatesPage() {
       </div>
 
       {tab === "queue" ? (
-        loading ? (
-          <div className="py-16 flex items-center justify-center text-zinc-500">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading…
+        loading && preview.length === 0 ? (
+          <div className="rounded-lg border border-zinc-800 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wide">
+                <tr>
+                  <th className="text-left px-4 py-2">Task</th>
+                  <th className="text-left px-4 py-2">Project</th>
+                  <th className="text-left px-4 py-2">Due</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i} className="border-t border-zinc-800">
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="w-2 h-2 rounded-full" />
+                        <Skeleton className="h-4 w-48" />
+                      </div>
+                    </td>
+                    <td className="px-4 py-2">
+                      <Skeleton className="h-4 w-32" />
+                    </td>
+                    <td className="px-4 py-2">
+                      <Skeleton className="h-4 w-12" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : preview.length === 0 ? (
           <div className="py-16 text-center text-zinc-400">
@@ -211,9 +238,32 @@ export default function EstimatesPage() {
             pace, so future suggestions match how long things actually take
             you. Deleting one removes it from the AI's training signal.
           </p>
-          {examplesLoading ? (
-            <div className="py-16 flex items-center justify-center text-zinc-500">
-              <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading…
+          {examplesLoading && examples.length === 0 ? (
+            <div className="rounded-lg border border-zinc-800 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wide">
+                  <tr>
+                    <th className="text-left px-4 py-2">Task</th>
+                    <th className="text-left px-4 py-2">Project</th>
+                    <th className="text-right px-4 py-2">AI suggested</th>
+                    <th className="text-right px-4 py-2">You approved</th>
+                    <th className="text-left px-4 py-2">When</th>
+                    <th className="px-2 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i} className="border-t border-zinc-800">
+                      <td className="px-4 py-2"><Skeleton className="h-4 w-40" /></td>
+                      <td className="px-4 py-2"><Skeleton className="h-4 w-28" /></td>
+                      <td className="px-4 py-2"><Skeleton className="h-4 w-12 ml-auto" /></td>
+                      <td className="px-4 py-2"><Skeleton className="h-4 w-10 ml-auto" /></td>
+                      <td className="px-4 py-2"><Skeleton className="h-4 w-12" /></td>
+                      <td className="px-2 py-2"><Skeleton className="h-4 w-4 ml-auto" /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : examples.length === 0 ? (
             <div className="py-16 text-center text-zinc-400">

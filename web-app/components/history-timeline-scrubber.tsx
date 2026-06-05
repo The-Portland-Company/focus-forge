@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import {
   CheckCircle2,
+  ChevronRight,
   Circle,
   Clock,
   History,
@@ -50,6 +51,27 @@ export function HistoryTimelineScrubber({
   const [events, setEvents] = useState<EntityEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sliderValue, setSliderValue] = useState(SLIDER_STEPS);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setCollapsed(
+      window.localStorage.getItem("history-scrubber-collapsed") === "true",
+    );
+  }, []);
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          "history-scrubber-collapsed",
+          String(next),
+        );
+      }
+      return next;
+    });
+  };
 
   const query = buildQuery(scope);
 
@@ -129,12 +151,24 @@ export function HistoryTimelineScrubber({
       aria-label={title}
       data-testid="history-timeline-scrubber"
     >
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-300">
-          <History className="h-4 w-4" />
-          {title}
-        </h2>
-        {range && (
+      <div
+        className={`flex items-center justify-between gap-2 ${collapsed ? "" : "mb-3"}`}
+      >
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-expanded={!collapsed}
+          className="group flex items-center gap-2 text-left"
+        >
+          <ChevronRight
+            className={`h-4 w-4 text-zinc-500 transition-transform group-hover:text-zinc-300 ${collapsed ? "" : "rotate-90"}`}
+          />
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-300">
+            <History className="h-4 w-4" />
+            {title}
+          </h2>
+        </button>
+        {!collapsed && range && (
           <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-xs text-zinc-200">
             <Clock className="mr-1 inline h-3 w-3" />
             {format(selectedTime, "MMM d, yyyy h:mm a")}
@@ -142,6 +176,8 @@ export function HistoryTimelineScrubber({
         )}
       </div>
 
+      {!collapsed && (
+        <>
       {error && (
         <p className="rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-3 text-sm text-red-300">
           {error}
@@ -235,6 +271,8 @@ export function HistoryTimelineScrubber({
               ))}
             </ul>
           </div>
+        </>
+      )}
         </>
       )}
     </section>

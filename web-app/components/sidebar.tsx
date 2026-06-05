@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonOrganization } from "@/components/skeleton-loader";
 import { useRouter } from "next/navigation";
 import {
   Plus,
@@ -31,6 +33,7 @@ import {
   Copy,
   Check,
   RefreshCw,
+  Loader2,
   FileCode2,
   Play,
   Square,
@@ -76,6 +79,8 @@ interface SidebarProps {
   onProjectsReorder?: (organizationId: string, projectIds: string[]) => void;
   onOrganizationsReorder?: (organizationIds: string[]) => void;
   isAddingTask?: boolean; // Whether the add task modal is open
+  isLoading?: boolean; // True on first load before the org/project tree data exists
+  isRefreshing?: boolean; // True while a background refetch runs with data present
 }
 
 /** Two-tone count badge: unread in the theme accent, read in muted zinc.
@@ -110,6 +115,8 @@ export function Sidebar({
   onProjectsReorder,
   onOrganizationsReorder,
   isAddingTask,
+  isLoading,
+  isRefreshing,
 }: SidebarProps) {
   const router = useRouter();
   // Initialize with collapsed state by default
@@ -684,7 +691,7 @@ export function Sidebar({
         <div className="flex items-center justify-between mb-3">
           {!isCollapsed ? (
             <>
-              <div className="flex items-center gap-3 px-3 py-2 rounded-lg min-w-0">
+              <div className="flex items-center gap-2 rounded-lg min-w-0">
                 <UserAvatar
                   name={
                     data.users?.[0]?.name ||
@@ -1216,6 +1223,9 @@ export function Sidebar({
           <div className="flex items-center justify-between px-3 py-1 mb-0">
             <span className="flex items-center gap-2 text-xs font-medium text-zinc-500 uppercase">
               Organizations
+              {isRefreshing ? (
+                <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />
+              ) : null}
               {orgTaskCounts.total > 0 ? (
                 <span
                   className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] tracking-wide text-zinc-400"
@@ -1253,7 +1263,20 @@ export function Sidebar({
         )}
 
         <div className="space-y-0">
-          {isCollapsed
+          {isLoading && !isCollapsed ? (
+            <div className="space-y-4 px-1 pt-1">
+              <SkeletonOrganization />
+              <SkeletonOrganization />
+            </div>
+          ) : isLoading && isCollapsed ? (
+            <div className="space-y-2 pt-1">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex justify-center px-2 py-2">
+                  <Skeleton className="w-5 h-5 rounded-full" />
+                </div>
+              ))}
+            </div>
+          ) : isCollapsed
             ? // Collapsed view - show only organization dots
               data.organizations
                 .sort((a, b) => (a.order || 0) - (b.order || 0))

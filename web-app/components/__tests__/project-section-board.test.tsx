@@ -93,6 +93,7 @@ test("renders project sections as horizontal board columns", () => {
       loadingTaskIds={new Set()}
       animatingOutTaskIds={new Set()}
       optimisticCompletedIds={new Set()}
+      deletingTaskIds={new Set()}
       sectionTasksBySectionId={new Map([[section.id, [sectionTask]]])}
       childSectionsByParentId={new Map()}
       autoSectioning={false}
