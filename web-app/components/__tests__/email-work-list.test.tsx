@@ -9,6 +9,8 @@ import {
   getMailboxAccentColor,
   getMailboxBadgeLabel,
   getMailboxDisplayLabel,
+  getRecipientAvatarInitials,
+  getRecipientTooltipContent,
   getProjectBadgeLabel,
   formatParticipantName,
   formatParticipantLine,
@@ -199,6 +201,45 @@ test("getMailboxBadgeLabel creates compact mailbox initials", () => {
   assert.equal(getMailboxBadgeLabel("Politogy VRM"), "PV");
   assert.equal(getMailboxBadgeLabel("support@example.com"), "SU");
   assert.equal(getMailboxBadgeLabel(""), "MB");
+});
+
+test("getRecipientAvatarInitials prefers the email address local-part, falls back to label", () => {
+  // Address local-part wins over the mailbox label so the avatar matches the
+  // address-based tooltip ("vrm@..." -> "VR", not the "Politogy VRM" label).
+  assert.equal(getRecipientAvatarInitials("Politogy VRM", "vrm@example.com"), "VR");
+  assert.equal(
+    getRecipientAvatarInitials("support@example.com", "support@example.com"),
+    "SU",
+  );
+  assert.equal(
+    getRecipientAvatarInitials("", "jane.doe@example.com"),
+    "JD",
+  );
+  // No address -> fall back to the (non-email) label.
+  assert.equal(getRecipientAvatarInitials("Politogy VRM", ""), "PV");
+  assert.equal(getRecipientAvatarInitials("", ""), "MB");
+});
+
+test("getRecipientTooltipContent lists the primary mailbox then other To recipients", () => {
+  const participants = [
+    { id: "to-1", emailAddress: "support@example.com", participantRole: "to" },
+    { id: "to-2", emailAddress: "ops@example.com", participantRole: "to" },
+    { id: "to-3", emailAddress: "ops@example.com", participantRole: "to" },
+    { id: "cc-1", emailAddress: "watcher@example.com", participantRole: "cc" },
+  ];
+
+  assert.equal(
+    getRecipientTooltipContent("support@example.com", participants as any),
+    "To: support@example.com, ops@example.com",
+  );
+  assert.equal(
+    getRecipientTooltipContent("", [] as any),
+    "To: (unknown recipient)",
+  );
+  assert.equal(
+    getRecipientTooltipContent("support@example.com", undefined),
+    "To: support@example.com",
+  );
 });
 
 test("getProjectBadgeLabel creates compact initials for linked projects", () => {
