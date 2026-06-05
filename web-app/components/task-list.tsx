@@ -190,7 +190,7 @@ export function TaskList({
   emailThreadIdByTaskId,
   onOpenEmailThread,
   onAddDependency,
-  showDescriptions = true,
+  showDescriptions = false,
   enableDueDateQuickEdit,
   onTaskFocus,
   onTaskUpdate,
@@ -571,17 +571,17 @@ export function TaskList({
         : isToday(ddOnly)
           ? "text-orange-300"
           : "text-zinc-400";
-      // Date text is collapsed by default and revealed on row/badge hover via a
-      // max-width transition (no layout shift for surrounding content).
+      // Date text is hidden by default and revealed on badge hover as an
+      // absolutely-positioned overlay so it never affects row layout.
       const revealText = (
-        <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:max-w-[200px] group-hover:opacity-100 group-hover/datebadge:max-w-[200px] group-hover/datebadge:opacity-100">
+        <span className="pointer-events-none absolute right-full top-1/2 z-10 mr-1.5 hidden -translate-y-1/2 whitespace-nowrap rounded-md border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-200 shadow-lg group-hover/datebadge:block">
           {formatted}
         </span>
       );
       if (!enableDueDateQuickEdit || !onTaskUpdate) {
         return (
           <span
-            className="group/datebadge flex items-center gap-1 text-[11px] flex-shrink-0"
+            className="group/datebadge relative flex items-center gap-1 text-[11px] flex-shrink-0"
             title={formatted}
           >
             <Calendar className={`w-3.5 h-3.5 ${iconColorClass}`} />
@@ -605,7 +605,7 @@ export function TaskList({
             <button
               type="button"
               onClick={(e) => e.stopPropagation()}
-              className="group/datebadge flex items-center gap-1 text-[11px] flex-shrink-0"
+              className="group/datebadge relative flex items-center gap-1 text-[11px] flex-shrink-0"
               aria-label="Edit due date"
               title={formatted}
             >
