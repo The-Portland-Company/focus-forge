@@ -981,9 +981,11 @@ export function TaskList({
               </div>
             </div>
 
-            <div className="flex items-center text-xs flex-shrink-0">
+            <div className="relative flex items-center text-xs flex-shrink-0">
+              {/* Hover actions are absolutely positioned so they reserve no row
+                  width when hidden — prevents premature title wrapping. */}
               <div
-                className={`mr-2 flex translate-x-3 items-center gap-3 rounded-md bg-zinc-800/95 px-2 py-1 transition-all duration-200 group-hover:translate-x-0 ${actionVisibilityClass}`}
+                className={`absolute right-full top-1/2 z-30 mr-1 flex -translate-y-1/2 items-center gap-3 rounded-md bg-zinc-800/95 px-2 py-1 shadow-lg transition-opacity duration-200 ${actionVisibilityClass}`}
               >
                 {((task as any).due_date || task.dueDate) && onTaskUpdate ? (
                   <span className="relative group/removedate flex items-center justify-center w-4">
@@ -1201,20 +1203,36 @@ export function TaskList({
 
                 {taskTagBadges.length > 0 ? (
                   <div className="flex items-center gap-1.5 max-w-[220px] overflow-hidden">
-                    {taskTagBadges.slice(0, 3).map((tag) => (
-                      <span
-                        key={tag.id}
-                        className="inline-flex max-w-[88px] items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] truncate"
-                        style={{
-                          color: tag.color,
-                          borderColor: `${tag.color}66`,
-                          backgroundColor: `${tag.color}1a`,
-                        }}
-                        title={tag.name}
-                      >
-                        {tag.name}
-                      </span>
-                    ))}
+                    {taskTagBadges.slice(0, 3).map((tag) =>
+                      tag.name.toLowerCase() === "devnotes" ? (
+                        // DevNotes renders as an icon-only badge instead of a text chip
+                        <span
+                          key={tag.id}
+                          className="inline-flex items-center rounded-full border p-1"
+                          style={{
+                            color: tag.color,
+                            borderColor: `${tag.color}66`,
+                            backgroundColor: `${tag.color}1a`,
+                          }}
+                          title="DevNotes"
+                        >
+                          <StickyNote className="h-3 w-3" />
+                        </span>
+                      ) : (
+                        <span
+                          key={tag.id}
+                          className="inline-flex max-w-[88px] items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] truncate"
+                          style={{
+                            color: tag.color,
+                            borderColor: `${tag.color}66`,
+                            backgroundColor: `${tag.color}1a`,
+                          }}
+                          title={tag.name}
+                        >
+                          {tag.name}
+                        </span>
+                      ),
+                    )}
                     {taskTagBadges.length > 3 ? (
                       <span
                         className="text-[10px] text-zinc-500"
