@@ -1,7 +1,7 @@
 "use client";
 
 import * as Popover from "@radix-ui/react-popover";
-import { useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import {
   Check,
   ChevronDown,
@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { SnoozePopover } from "@/components/snooze-popover";
 import { Tooltip } from "@/components/tooltip";
+import { EmailHtmlContent } from "@/components/ui/email-html-content";
 import { stripQuotedAndSignature } from "@/lib/email-inbox/strip-quoted";
 import { formatEmailTimestamp } from "@/lib/email-inbox/format-timestamp";
 import {
@@ -30,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type {
+  ConversationEntry,
   InboxItem,
   InboxParticipant,
   Mailbox,
@@ -497,12 +499,57 @@ export function EmailWorkList({
   const [spamActionThreadId, setSpamActionThreadId] = useState<string | null>(
     null,
   );
-  // Task C: rendered hover tooltip showing the first lines of the email body.
+  // Task C: rendered hover popover showing a mini preview of the actual email
+  // message — real HTML (images, formatting, links) reused from the same safe
+  // renderer used in the thread modal. The inbox payload only carries
+  // `previewText`, so the full HTML body is lazy-fetched per thread on hover
+  // (via the same /api/email/threads/{id} endpoint the modal uses) and cached.
   const [hoverPreview, setHoverPreview] = useState<{
-    text: string;
+    threadId: string;
+    fallbackText: string;
     top: number;
     left: number;
   } | null>(null);
+  // Cache of fetched bodies keyed by thread id. Value is the sanitized-ready
+  // HTML (or null if the thread had no HTML body), `loading`, or `error`.
+  const bodyCacheRef = useRef<
+    Map<string, { html: string | null } | "loading" | "error">
+  >(new Map());
+  // Bump to force a re-render when an async fetch resolves (refs don't trigger).
+  const [, setBodyCacheVersion] = useState(0);
+
+  const ensureThreadBody = (threadId: string) => {
+    const cache = bodyCacheRef.current;
+    const existing = cache.get(threadId);
+    if (existing !== undefined) return;
+
+    cache.set(threadId, "loading");
+    setBodyCacheVersion((value) => value + 1);
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/email/threads/${threadId}`, {
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error("Failed to load message");
+        const payload = (await response.json()) as {
+          conversation?: ConversationEntry[];
+        };
+        const conversation = payload.conversation ?? [];
+        // Prefer the most recent entry that actually carries HTML; fall back to
+        // the first entry. This mirrors the thread modal's "primary" message.
+        const withHtml = [...conversation]
+          .reverse()
+          .find((entry) => entry.contentHtml?.trim());
+        const html = withHtml?.contentHtml?.trim() || null;
+        cache.set(threadId, { html });
+      } catch {
+        cache.set(threadId, "error");
+      } finally {
+        setBodyCacheVersion((value) => value + 1);
+      }
+    })();
+  };
   // Task E: AI task-generation modal state.
   const [taskGenItem, setTaskGenItem] = useState<InboxItem | null>(null);
   const [taskGenPhase, setTaskGenPhase] = useState<
@@ -843,7 +890,7 @@ export function EmailWorkList({
                           item.subject?.trim() || "(no subject)"
                         }`}
                         className="w-auto"
-                        side="top"
+                        side="right"
                       >
                         <span className="inline-flex shrink-0 cursor-help items-center">
                           <Text className="h-3.5 w-3.5 text-zinc-400" />
@@ -853,14 +900,25 @@ export function EmailWorkList({
                       <span
                         className="min-w-0 break-words"
                         onMouseEnter={(event) => {
-                          if (!item.previewText) return;
                           const rect =
                             event.currentTarget.getBoundingClientRect();
+                          // Clamp horizontally so a wide card near the right
+                          // edge shifts left instead of overflowing the viewport.
+                          const cardWidth = Math.min(512, window.innerWidth - 24);
+                          const left = Math.max(
+                            12,
+                            Math.min(
+                              rect.left,
+                              window.innerWidth - cardWidth - 12,
+                            ),
+                          );
                           setHoverPreview({
-                            text: previewText,
+                            threadId: item.id,
+                            fallbackText: previewText,
                             top: rect.bottom + 8,
-                            left: rect.left,
+                            left,
                           });
+                          ensureThreadBody(item.id);
                         }}
                         onMouseLeave={() => setHoverPreview(null)}
                       >
@@ -1144,19 +1202,43 @@ export function EmailWorkList({
         })}
       </div>
 
-      {hoverPreview ? (
-        <div
-          className="pointer-events-none fixed z-50 w-[min(720px,90vw)] rounded-lg border border-zinc-700 bg-zinc-950/95 px-4 py-3 text-xs leading-5 text-zinc-200 shadow-2xl backdrop-blur"
-          style={{ top: `${hoverPreview.top}px`, left: `${hoverPreview.left}px` }}
-        >
-          {/* Arrow pointing up at the hovered AI title */}
-          <div
-            aria-hidden
-            className="absolute -top-[5px] left-8 h-2.5 w-2.5 rotate-45 border-l border-t border-zinc-700 bg-zinc-950"
-          />
-          <span className="line-clamp-4 break-words">{hoverPreview.text}</span>
-        </div>
-      ) : null}
+      {hoverPreview
+        ? (() => {
+            const entry = bodyCacheRef.current.get(hoverPreview.threadId);
+            return (
+              <div
+                className="pointer-events-none fixed z-50 w-[min(512px,90vw)] max-h-[60vh] overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950/95 px-4 py-3 text-xs leading-5 text-zinc-200 shadow-2xl backdrop-blur"
+                style={{
+                  top: `${hoverPreview.top}px`,
+                  left: `${hoverPreview.left}px`,
+                }}
+              >
+                {/* Arrow pointing up at the hovered AI title */}
+                <div
+                  aria-hidden
+                  className="absolute -top-[5px] left-8 h-2.5 w-2.5 rotate-45 border-l border-t border-zinc-700 bg-zinc-950"
+                />
+                {entry === "loading" || entry === undefined ? (
+                  <div className="flex items-center gap-2 text-zinc-400">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Loading message…
+                  </div>
+                ) : entry === "error" || entry.html === null ? (
+                  // No HTML body available (or fetch failed) → plain-text preview.
+                  <span className="line-clamp-6 break-words">
+                    {hoverPreview.fallbackText}
+                  </span>
+                ) : (
+                  // Reuse the same sanitized HTML renderer as the thread modal.
+                  <EmailHtmlContent
+                    html={entry.html}
+                    className="max-h-[calc(60vh-1.5rem)] overflow-hidden break-words [&_img]:max-w-full [&_img]:h-auto"
+                  />
+                )}
+              </div>
+            );
+          })()
+        : null}
 
       <Dialog
         open={isLinkedTasksModalOpen}
