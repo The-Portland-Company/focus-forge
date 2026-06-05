@@ -579,6 +579,8 @@ export function Sidebar({
       (item) =>
         item.status !== "quarantine" &&
         item.status !== "deleted" &&
+        item.status !== "archived" &&
+        item.status !== "resolved" &&
         item.origin !== "outbound",
     );
 
