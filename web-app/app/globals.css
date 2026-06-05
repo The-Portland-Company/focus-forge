@@ -241,6 +241,16 @@ input[type="checkbox"]:focus {
   max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
+  /* Light surface baseline: guarantees readable contrast regardless of
+     sender-defined inline colors (or the lack thereof). The wrapping element
+     supplies bg-white + text-zinc-900; this color-scheme hint keeps form
+     controls and default UA colors light-themed too. */
+  color: #18181b;
+  color-scheme: light;
+}
+
+.focus-forge-email-content a {
+  color: #1d4ed8;
 }
 
 .focus-forge-email-content table {

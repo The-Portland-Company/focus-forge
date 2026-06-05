@@ -84,7 +84,12 @@ export function Tooltip({
       </div>
       {isVisible && (
         <div
-          className="fixed z-50 rounded-md px-2 py-1 text-xs text-white shadow-lg pointer-events-none whitespace-nowrap border border-white/10 bg-[image:var(--user-profile-gradient)]"
+          className={
+            "fixed z-50 rounded-md px-2 py-1 text-xs text-white shadow-lg pointer-events-none border border-white/10 bg-[image:var(--user-profile-gradient)] " +
+            (side === "right"
+              ? "max-w-[320px] whitespace-normal break-words"
+              : "whitespace-nowrap")
+          }
           style={{
             top: `${position.top}px`,
             left: `${position.left}px`,
