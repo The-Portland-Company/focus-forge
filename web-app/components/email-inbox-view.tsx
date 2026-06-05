@@ -696,6 +696,11 @@ export function filterInboxItemsForView(params: {
       return false;
     }
 
+    // Mirrored provider-side archiving (and resolved threads) leave the inbox.
+    if (item.status === "archived" || item.status === "resolved") {
+      return false;
+    }
+
     if (item.status === "quarantine") {
       return params.retainedSpamThreadIds.includes(item.id);
     }
