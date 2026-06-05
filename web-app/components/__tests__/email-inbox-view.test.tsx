@@ -831,9 +831,11 @@ test("filterInboxItemsForView returns only spam-marked inbox items on the spam t
     view: "email-inbox",
   });
 
+  // Quarantined threads (thread-3) belong exclusively to the Quarantine
+  // folder — they never surface in inbox tabs, even when retained.
   assert.deepEqual(
     filtered.map((item) => item.id),
-    ["thread-2", "thread-3"],
+    ["thread-2"],
   );
 });
 
