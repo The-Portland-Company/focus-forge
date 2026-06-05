@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 import { format } from "date-fns";
 import {
   AlertCircle,
   Bot,
   Calendar,
   CheckCircle2,
+  Loader2,
   Circle,
   Clock,
   Edit,
@@ -27,6 +28,19 @@ type TaskWithSnakeCase = Task & {
   time_estimate?: number | null;
 };
 
+// Background-save indicators (spinner while saving, fading green check after
+// success) are provided via context so they don't have to be drilled through
+// every section/column layer.
+const SaveIndicatorContext = createContext<{
+  savingTaskIds: Set<string>;
+  recentlySavedTaskIds: Set<string>;
+  freshlyUpdatedTaskIds: Set<string>;
+}>({
+  savingTaskIds: new Set(),
+  recentlySavedTaskIds: new Set(),
+  freshlyUpdatedTaskIds: new Set(),
+});
+
 const PRIORITY_FLAG_COLORS: Record<number, string> = {
   1: "#ef4444",
   2: "#f97316",
@@ -46,6 +60,10 @@ interface ProjectSectionBoardProps {
   loadingTaskIds: Set<string>;
   animatingOutTaskIds: Set<string>;
   optimisticCompletedIds: Set<string>;
+  deletingTaskIds: Set<string>;
+  savingTaskIds?: Set<string>;
+  recentlySavedTaskIds?: Set<string>;
+  freshlyUpdatedTaskIds?: Set<string>;
   sectionTasksBySectionId: Map<string, Task[]>;
   childSectionsByParentId: Map<string, Section[]>;
   autoSectioning: boolean;
@@ -104,6 +122,7 @@ function BoardTaskCard({
   loadingTaskIds,
   animatingOutTaskIds,
   optimisticCompletedIds,
+  deletingTaskIds,
   blockedTaskIds,
   onTaskFocus,
   onTaskToggle,
@@ -119,6 +138,7 @@ function BoardTaskCard({
   loadingTaskIds: Set<string>;
   animatingOutTaskIds: Set<string>;
   optimisticCompletedIds: Set<string>;
+  deletingTaskIds: Set<string>;
   blockedTaskIds: Set<string>;
   onTaskFocus: (taskId: string) => void;
   onTaskToggle: (taskId: string) => void;
@@ -128,9 +148,17 @@ function BoardTaskCard({
 }) {
   const typedTask = task as TaskWithSnakeCase;
   const isBlocked = blockedTaskIds.has(task.id);
-  const isCompleted = task.completed || optimisticCompletedIds.has(task.id);
+  const isOptimisticCompleted = optimisticCompletedIds.has(task.id);
+  const isCompleted = task.completed || isOptimisticCompleted;
   const isLoading = loadingTaskIds.has(task.id);
   const isAnimatingOut = animatingOutTaskIds.has(task.id);
+  const isDeleting = deletingTaskIds.has(task.id);
+  const { savingTaskIds, recentlySavedTaskIds, freshlyUpdatedTaskIds } =
+    useContext(SaveIndicatorContext);
+  const isSaving = savingTaskIds.has(task.id);
+  const isRecentlySaved = recentlySavedTaskIds.has(task.id);
+  const isFreshlyUpdated =
+    freshlyUpdatedTaskIds.has(task.id) && !isRecentlySaved && !isSaving;
   const dueDateLabel = formatTaskDate(typedTask.due_date ?? task.dueDate);
   const deadlineLabel = formatTaskDate(task.deadline);
   const estimateLabel = formatEstimate(typedTask);
@@ -150,8 +178,18 @@ function BoardTaskCard({
         event.dataTransfer.setData("taskId", task.id);
       }}
       className={`task-list-row group rounded-lg border border-zinc-800 bg-zinc-950/70 p-3 transition-colors hover:border-zinc-700 hover:bg-zinc-900 ${
+        isFreshlyUpdated ? "fresh-data-highlight" : ""
+      } ${
         isCompleted ? "opacity-60" : ""
-      } ${isAnimatingOut ? "animate-slide-fade-out" : ""}`}
+      } ${isAnimatingOut ? "animate-slide-fade-out" : ""} ${
+        isOptimisticCompleted && !isAnimatingOut
+          ? "gradient-strikethrough gradient-strikethrough-complete"
+          : ""
+      } ${
+        isDeleting
+          ? "gradient-strikethrough gradient-strikethrough-delete animate-breathe pointer-events-none"
+          : ""
+      }`}
     >
       <div className="flex min-w-0 items-start gap-3">
         {bulkSelectMode ? (
@@ -179,12 +217,20 @@ function BoardTaskCard({
               event.stopPropagation();
               if (!isBlocked) onTaskToggle(task.id);
             }}
-            disabled={isBlocked || isLoading}
-            className="mt-0.5 shrink-0 text-zinc-400 transition-colors hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+            disabled={isBlocked || isLoading || isDeleting}
+            className={`mt-0.5 shrink-0 transition-colors hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 ${
+              isDeleting
+                ? "text-red-400"
+                : isCompleted
+                  ? "text-green-500"
+                  : "text-zinc-400"
+            }`}
             title={isBlocked ? "Complete dependencies first" : "Toggle task"}
             aria-label={isCompleted ? "Mark incomplete" : "Mark complete"}
           >
-            {isCompleted ? (
+            {isDeleting || isLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : isCompleted ? (
               <CheckCircle2 className="h-5 w-5" />
             ) : isBlocked ? (
               <AlertCircle className="h-5 w-5" />
@@ -203,11 +249,24 @@ function BoardTaskCard({
           className="min-w-0 flex-1 text-left"
         >
           <div
-            className={`whitespace-normal break-words text-sm font-medium leading-5 ${
-              isCompleted ? "line-through text-zinc-500" : "text-zinc-100"
+            className={`flex items-start gap-1.5 whitespace-normal break-words text-sm font-medium leading-5 ${
+              isDeleting
+                ? "line-through text-red-400"
+                : isCompleted
+                  ? "line-through text-green-500"
+                  : "text-zinc-100"
             }`}
           >
-            {task.name}
+            {isSaving && (
+              <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin text-[rgb(var(--theme-primary-rgb))]" />
+            )}
+            {!isSaving && isRecentlySaved && (
+              <CheckCircle2
+                className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-green-500"
+                style={{ animation: "task-save-check-fade 3s ease-out forwards" }}
+              />
+            )}
+            <span className="min-w-0 flex-1">{task.name}</span>
           </div>
           {description ? (
             <p className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-500">
@@ -272,8 +331,11 @@ function BoardTaskCard({
             P{task.priority}
           </span>
         ) : null}
-        {task.assignedToName && !assignedToCurrentUser ? (
-          <span className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-1.5 py-0.5">
+        {task.assignedToName ? (
+          <span
+            className="group/assignee relative inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-1.5 py-0.5"
+            title={task.assignedToName}
+          >
             <UserAvatar
               name={task.assignedToName}
               profileColor={(task as any).assignedToColor}
@@ -281,7 +343,9 @@ function BoardTaskCard({
               size={14}
               className="text-[8px]"
             />
-            <span className="max-w-[110px] truncate">{task.assignedToName}</span>
+            <span className="max-w-[110px] truncate">
+              {assignedToCurrentUser ? "You" : task.assignedToName}
+            </span>
           </span>
         ) : null}
         {tags.slice(0, 2).map((tag) => (
@@ -321,6 +385,7 @@ function SectionColumn({
   loadingTaskIds,
   animatingOutTaskIds,
   optimisticCompletedIds,
+  deletingTaskIds,
   blockedTaskIds,
   dragOverSectionId,
   onDragOverSection,
@@ -348,6 +413,7 @@ function SectionColumn({
   loadingTaskIds: Set<string>;
   animatingOutTaskIds: Set<string>;
   optimisticCompletedIds: Set<string>;
+  deletingTaskIds: Set<string>;
   blockedTaskIds: Set<string>;
   dragOverSectionId: string | null;
   onDragOverSection: (sectionId: string) => void;
@@ -464,6 +530,7 @@ function SectionColumn({
               loadingTaskIds={loadingTaskIds}
               animatingOutTaskIds={animatingOutTaskIds}
               optimisticCompletedIds={optimisticCompletedIds}
+              deletingTaskIds={deletingTaskIds}
               blockedTaskIds={blockedTaskIds}
               onTaskFocus={onTaskFocus}
               onTaskToggle={onTaskToggle}
@@ -497,6 +564,7 @@ function SectionColumn({
                       loadingTaskIds={loadingTaskIds}
                       animatingOutTaskIds={animatingOutTaskIds}
                       optimisticCompletedIds={optimisticCompletedIds}
+              deletingTaskIds={deletingTaskIds}
                       blockedTaskIds={blockedTaskIds}
                       onTaskFocus={onTaskFocus}
                       onTaskToggle={onTaskToggle}
@@ -541,6 +609,10 @@ export function ProjectSectionBoard({
   loadingTaskIds,
   animatingOutTaskIds,
   optimisticCompletedIds,
+  deletingTaskIds,
+  savingTaskIds,
+  recentlySavedTaskIds,
+  freshlyUpdatedTaskIds,
   sectionTasksBySectionId,
   childSectionsByParentId,
   autoSectioning,
@@ -578,7 +650,17 @@ export function ProjectSectionBoard({
     }
   };
 
+  const saveIndicatorValue = useMemo(
+    () => ({
+      savingTaskIds: savingTaskIds ?? new Set<string>(),
+      recentlySavedTaskIds: recentlySavedTaskIds ?? new Set<string>(),
+      freshlyUpdatedTaskIds: freshlyUpdatedTaskIds ?? new Set<string>(),
+    }),
+    [savingTaskIds, recentlySavedTaskIds, freshlyUpdatedTaskIds],
+  );
+
   return (
+    <SaveIndicatorContext.Provider value={saveIndicatorValue}>
     <div className="w-full overflow-x-auto overscroll-x-contain pb-4">
       <div className="grid min-w-full grid-flow-col auto-cols-[minmax(340px,1fr)] gap-4 lg:auto-cols-[minmax(390px,1fr)]">
         {sections.map((section) => {
@@ -601,6 +683,7 @@ export function ProjectSectionBoard({
               loadingTaskIds={loadingTaskIds}
               animatingOutTaskIds={animatingOutTaskIds}
               optimisticCompletedIds={optimisticCompletedIds}
+              deletingTaskIds={deletingTaskIds}
               blockedTaskIds={blockedTaskIds}
               dragOverSectionId={dragOverSectionId}
               onDragOverSection={setDragOverSectionId}
@@ -680,6 +763,7 @@ export function ProjectSectionBoard({
                   loadingTaskIds={loadingTaskIds}
                   animatingOutTaskIds={animatingOutTaskIds}
                   optimisticCompletedIds={optimisticCompletedIds}
+              deletingTaskIds={deletingTaskIds}
                   blockedTaskIds={blockedTaskIds}
                   onTaskFocus={onTaskFocus}
                   onTaskToggle={onTaskToggle}
@@ -708,5 +792,6 @@ export function ProjectSectionBoard({
         </button>
       </div>
     </div>
+    </SaveIndicatorContext.Provider>
   );
 }

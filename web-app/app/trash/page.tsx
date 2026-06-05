@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type TrashRow = Record<string, any>;
 
@@ -238,9 +239,27 @@ export default function TrashPage() {
         )}
 
         {trash === null && !error && (
-          <p className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-8 text-center text-sm text-zinc-500">
-            Loading trash…
-          </p>
+          <ul className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <li
+                key={i}
+                className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-900/70 p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-4 w-4 shrink-0 rounded" />
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-4 w-16 rounded" />
+                  </div>
+                  <Skeleton className="h-3 w-56" />
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Skeleton className="h-7 w-20 rounded-md" />
+                  <Skeleton className="h-7 w-36 rounded-md" />
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
 
         {trash !== null && batches.length === 0 && (

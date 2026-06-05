@@ -7,6 +7,7 @@ import { format, startOfDay, addDays, parseISO, isSameDay } from 'date-fns'
 import { Trash2, Plus, Clock, Calendar, GripVertical } from 'lucide-react'
 import { useToast } from '@/contexts/ToastContext'
 import { CalendarChat } from '@/components/calendar-chat'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export default function CalendarPage() {
   const { user } = useAuth()
@@ -162,14 +163,6 @@ export default function CalendarPage() {
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-zinc-950">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <div className="container mx-auto p-6 max-w-7xl">
@@ -186,6 +179,15 @@ export default function CalendarPage() {
           <div className="bg-gray-800 rounded-lg p-4">
             <h3 className="text-lg font-semibold text-gray-100 mb-4">Unscheduled Tasks</h3>
             <div className="space-y-2 max-h-96 overflow-y-auto">
+              {loading && tasks.length === 0 &&
+                Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="bg-gray-700 p-3 rounded">
+                    <div className="flex items-center gap-2">
+                      <GripVertical className="w-4 h-4 text-gray-500" />
+                      <Skeleton className="h-4 w-3/4 bg-gray-600" />
+                    </div>
+                  </div>
+                ))}
               {tasks.filter(t => !t.completed).map(task => (
                 <div
                   key={task.id}
@@ -234,7 +236,21 @@ export default function CalendarPage() {
                   </div>
                 </div>
 
-                {dayBlocks.length > 0 ? (
+                {loading && dayBlocks.length === 0 ? (
+                  <div className="p-4 space-y-3">
+                    {Array.from({ length: isToday ? 2 : 1 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-4 border-b border-gray-700 pb-3 last:border-0 last:pb-0"
+                      >
+                        <Skeleton className="h-4 w-16 bg-gray-700" />
+                        <Skeleton className="h-4 w-16 bg-gray-700" />
+                        <Skeleton className="h-4 flex-1 bg-gray-700" />
+                        <Skeleton className="h-4 w-16 bg-gray-700" />
+                      </div>
+                    ))}
+                  </div>
+                ) : dayBlocks.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>

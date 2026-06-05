@@ -50,6 +50,9 @@ interface TaskListProps {
   animatingOutTaskIds?: Set<string>; // Tasks animating out after processing
   optimisticCompletedIds?: Set<string>; // Tasks optimistically marked as completed
   deletingTaskIds?: Set<string>; // Tasks currently being deleted (loader + breathe)
+  savingTaskIds?: Set<string>; // Tasks whose edit is being saved in the background (spinner)
+  recentlySavedTaskIds?: Set<string>; // Tasks that just saved successfully (fading green check)
+  freshlyUpdatedTaskIds?: Set<string>; // Tasks new/changed from a background refetch (fading green row)
   emailThreadIdByTaskId?: Record<string, string>; // task id -> linked email thread id
   onOpenEmailThread?: (threadId: string) => void;
   onAddDependency?: (task: Task) => void;
@@ -181,6 +184,9 @@ export function TaskList({
   animatingOutTaskIds,
   optimisticCompletedIds,
   deletingTaskIds,
+  savingTaskIds,
+  recentlySavedTaskIds,
+  freshlyUpdatedTaskIds,
   emailThreadIdByTaskId,
   onOpenEmailThread,
   onAddDependency,
@@ -534,6 +540,12 @@ export function TaskList({
     const isAnimatingOut = animatingOutTaskIds?.has(task.id);
     const isOptimisticCompleted = optimisticCompletedIds?.has(task.id);
     const isDeleting = deletingTaskIds?.has(task.id);
+    const isSaving = savingTaskIds?.has(task.id);
+    const isRecentlySaved = recentlySavedTaskIds?.has(task.id);
+    // Highlight rows that arrived/changed via a background refetch — but not
+    // ones the user just saved themselves (those already get the green check).
+    const isFreshlyUpdated =
+      freshlyUpdatedTaskIds?.has(task.id) && !isRecentlySaved && !isSaving;
     const taskTagBadges = task.tagBadges?.length
       ? task.tagBadges
       : (task.tags || []).reduce<NonNullable<Task["tagBadges"]>>(
@@ -704,10 +716,11 @@ export function TaskList({
           e.dataTransfer.setData("taskId", task.id);
         }}
         className={`task-list-row group relative z-0 hover:z-40 flex items-center gap-3 px-4 py-1 rounded-lg hover:bg-zinc-800/50 cursor-move ${
-          isCompleted ? "opacity-50" : ""
-        } ${isAnimatingOut ? "animate-slide-fade-out" : ""} ${isOptimisticCompleted && !isAnimatingOut ? "gradient-strikethrough" : ""} ${isLoading ? "opacity-70" : ""} ${
+          isFreshlyUpdated ? "fresh-data-highlight" : ""
+        } ${isCompleted ? "opacity-50" : ""
+        } ${isAnimatingOut ? "animate-slide-fade-out" : ""} ${isOptimisticCompleted && !isAnimatingOut ? "gradient-strikethrough gradient-strikethrough-complete" : ""} ${isLoading ? "opacity-70" : ""} ${
           isDeleting
-            ? "gradient-strikethrough animate-breathe pointer-events-none"
+            ? "gradient-strikethrough gradient-strikethrough-delete animate-breathe pointer-events-none"
             : ""
         } ${
           hasSubtasks && !isCollapsed
@@ -793,13 +806,15 @@ export function TaskList({
             }
           }}
           className={`transition-colors flex-shrink-0 ${
-            isCompleted
-              ? "text-zinc-400"
-              : isBlocked
-                ? "text-zinc-500 cursor-not-allowed"
-                : isDueToday
-                  ? "text-zinc-400"
-                  : ""
+            isDeleting
+              ? "text-red-400"
+              : isCompleted
+                ? "text-green-500"
+                : isBlocked
+                  ? "text-zinc-500 cursor-not-allowed"
+                  : isDueToday
+                    ? "text-zinc-400"
+                    : ""
           }`}
           style={
             !isCompleted && !isBlocked && !isDueToday
@@ -856,15 +871,30 @@ export function TaskList({
                 <div className="flex flex-col gap-1 min-w-0 flex-1">
                   <div
                     className={`flex items-start gap-1.5 text-left text-sm leading-5 ${
-                      isCompleted
-                        ? "line-through text-zinc-500"
-                        : isBlocked
-                          ? "text-zinc-400"
-                          : "text-white"
+                      isDeleting
+                        ? "line-through text-red-400"
+                        : isCompleted
+                          ? "line-through text-green-500"
+                          : isBlocked
+                            ? "text-zinc-400"
+                            : "text-white"
                     }`}
                   >
                     {(isLoading || isDeleting) && (
-                      <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin text-zinc-400" />
+                      <Loader2
+                        className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin ${
+                          isDeleting ? "text-red-400" : "text-zinc-400"
+                        }`}
+                      />
+                    )}
+                    {isSaving && (
+                      <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin text-[rgb(var(--theme-primary-rgb))]" />
+                    )}
+                    {!isSaving && isRecentlySaved && (
+                      <CheckCircle2
+                        className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-green-500 transition-opacity duration-1000 ease-out opacity-0"
+                        style={{ animation: "task-save-check-fade 3s ease-out forwards" }}
+                      />
                     )}
                     <span className="min-w-0 flex-1 whitespace-normal break-words">
                       {task.name}
@@ -1053,9 +1083,7 @@ export function TaskList({
                   </span>
                 ) : null}
 
-                {task.assignedToName &&
-                (!currentUserId ||
-                  (task as any).assigned_to !== currentUserId) ? (
+                {task.assignedToName ? (
                   <span className="relative group/assignee flex items-center justify-center w-4">
                     <UserAvatar
                       name={(task as any).assignedToName}

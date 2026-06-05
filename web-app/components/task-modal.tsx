@@ -6,6 +6,7 @@ import {
   useRef,
   useEffect,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import {
   X,
@@ -67,6 +68,13 @@ import {
 } from "@/lib/recurring-utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { nullableEditFieldValue } from "@/lib/task-modal-payload";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+
+interface PendingSubtask {
+  name: string;
+  timeEstimate?: string;
+  dueDate?: string;
+}
 
 const quickProjectColors = [
   "#ef4444",
@@ -161,8 +169,25 @@ export function TaskModal({
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const modalRef = useRef<HTMLDivElement>(null);
   const [newSubtaskName, setNewSubtaskName] = useState("");
+  const [newSubtaskEstimate, setNewSubtaskEstimate] = useState("");
+  const [newSubtaskDueDate, setNewSubtaskDueDate] = useState("");
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
-  const [pendingSubtasks, setPendingSubtasks] = useState<string[]>([]);
+  const [pendingSubtasks, setPendingSubtasks] = useState<PendingSubtask[]>([]);
+  // Inline subtask-title editing. For existing subtasks we key by id; for
+  // pending subtasks we key by `pending:<index>`.
+  const [editingSubtaskKey, setEditingSubtaskKey] = useState<string | null>(
+    null,
+  );
+  const [editingSubtaskValue, setEditingSubtaskValue] = useState("");
+  const editingSubtaskInputRef = useRef<HTMLInputElement>(null);
+  // Subtask deletion confirmation. For pending subtasks we store the index
+  // (kind "pending"); for existing subtasks we store the task id (kind "existing").
+  const [subtaskToDelete, setSubtaskToDelete] = useState<
+    | { kind: "pending"; index: number; name: string }
+    | { kind: "existing"; id: string; name: string }
+    | null
+  >(null);
+  const [isDeletingSubtask, setIsDeletingSubtask] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [tagSuggestions, setTagSuggestions] = useState<typeof data.tags>([]);
   const [bouncingTagId, setBouncingTagId] = useState<string | null>(null);
@@ -173,6 +198,24 @@ export function TaskModal({
   const [dependencies, setDependencies] = useState<string[]>([]);
   const [showDependencyPicker, setShowDependencyPicker] = useState(false);
   const [dependencySearchQuery, setDependencySearchQuery] = useState("");
+  // "%" blocking-task mention state
+  const [blockerMention, setBlockerMention] = useState<{
+    field: "title" | "description";
+    query: string;
+    start: number; // index of the "%" character
+  } | null>(null);
+  const [blockerMentionIndex, setBlockerMentionIndex] = useState(0);
+  // "@" user-assignment mention state
+  const [userMention, setUserMention] = useState<{
+    field: "title" | "description";
+    query: string;
+    start: number; // index of the "@" character
+  } | null>(null);
+  const [userMentionIndex, setUserMentionIndex] = useState(0);
+  const descriptionInputRef = useRef<HTMLTextAreaElement>(null);
+  const [expandedBlockerId, setExpandedBlockerId] = useState<string | null>(
+    null,
+  );
   const [recurringConfig, setRecurringConfig] =
     useState<RecurringConfig | null>(null);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
@@ -299,10 +342,21 @@ export function TaskModal({
       setDependencies([]);
       setShowDependencyPicker(false);
       setDependencySearchQuery("");
+      setBlockerMention(null);
+      setBlockerMentionIndex(0);
+      setUserMention(null);
+      setUserMentionIndex(0);
+      setExpandedBlockerId(null);
       setRecurringConfig(null);
       setPendingSubtasks([]);
       setNewSubtaskName("");
+      setNewSubtaskEstimate("");
+      setNewSubtaskDueDate("");
       setIsAddingSubtask(false);
+      setEditingSubtaskKey(null);
+      setEditingSubtaskValue("");
+      setSubtaskToDelete(null);
+      setIsDeletingSubtask(false);
       setShowProjectDropdown(false);
       setProjectFilterQuery("");
       setShowPriorityDropdown(false);
@@ -761,6 +815,160 @@ export function TaskModal({
     );
   };
 
+  // --- "%" blocking-task mention ---------------------------------------
+  // Tasks eligible to be selected as a blocker via the "%" mention: exclude
+  // the task itself, its subtasks, completed/circular candidates, and any
+  // already-linked blockers.
+  const getBlockerCandidates = (query: string): Task[] => {
+    const q = query.toLowerCase();
+    return data.tasks.filter((t) => {
+      if (dependencies.includes(t.id)) return false;
+      if (task && (t.id === task.id || t.parentId === task.id)) return false;
+      const validation = canBeSelectedAsDependency(
+        task?.id || "new-task",
+        t.id,
+        data.tasks,
+      );
+      if (!validation.canSelect) return false;
+      return q === "" ? true : t.name.toLowerCase().includes(q);
+    });
+  };
+
+  // Detect a "%" mention immediately before the cursor in the given text.
+  // A mention is active from a "%" up to the cursor as long as the typed
+  // query contains no whitespace (mirrors the "#" project mention behavior).
+  const detectBlockerMention = (
+    value: string,
+    cursorPos: number,
+  ): { query: string; start: number } | null => {
+    const beforeCursor = value.substring(0, cursorPos);
+    const lastPercent = beforeCursor.lastIndexOf("%");
+    if (lastPercent === -1) return null;
+    const afterPercent = value.substring(lastPercent + 1, cursorPos);
+    if (/\s/.test(afterPercent)) return null;
+    return { query: afterPercent, start: lastPercent };
+  };
+
+  const closeBlockerMention = () => {
+    setBlockerMention(null);
+    setBlockerMentionIndex(0);
+  };
+
+  // Complete a "%" mention: strip the "%query" text from the source field and
+  // add the chosen task as a blocking dependency.
+  const completeBlockerMention = (blocker: Task) => {
+    if (!blockerMention) return;
+    const { field, start, query } = blockerMention;
+    const removeLen = 1 + query.length; // "%" + query
+    if (field === "title") {
+      const next =
+        taskName.substring(0, start) + taskName.substring(start + removeLen);
+      setTaskName(next);
+      requestAnimationFrame(() => {
+        titleInputRef.current?.focus();
+        titleInputRef.current?.setSelectionRange(start, start);
+      });
+    } else {
+      const next =
+        description.substring(0, start) +
+        description.substring(start + removeLen);
+      setDescription(next);
+      requestAnimationFrame(() => {
+        descriptionInputRef.current?.focus();
+        descriptionInputRef.current?.setSelectionRange(start, start);
+      });
+    }
+    if (!dependencies.includes(blocker.id)) {
+      setDependencies((prev) => [...prev, blocker.id]);
+    }
+    closeBlockerMention();
+  };
+
+  // Shared keydown handler for the "%" mention popover (title + description).
+  const handleBlockerMentionKeyDown = (
+    e: React.KeyboardEvent,
+  ): boolean => {
+    if (!blockerMention) return false;
+    const candidates = getBlockerCandidates(blockerMention.query);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeBlockerMention();
+      return true;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setBlockerMentionIndex((i) =>
+        candidates.length ? (i + 1) % candidates.length : 0,
+      );
+      return true;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setBlockerMentionIndex((i) =>
+        candidates.length ? (i - 1 + candidates.length) % candidates.length : 0,
+      );
+      return true;
+    }
+    if (e.key === "Enter" || e.key === ",") {
+      if (candidates.length > 0) {
+        e.preventDefault();
+        const chosen =
+          candidates[Math.min(blockerMentionIndex, candidates.length - 1)];
+        completeBlockerMention(chosen);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const renderBlockerMentionPopover = (field: "title" | "description") => {
+    if (!blockerMention || blockerMention.field !== field) return null;
+    const candidates = getBlockerCandidates(blockerMention.query);
+    return (
+      <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+        <div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500 border-b border-zinc-700 flex items-center gap-1.5">
+          <Link2 className="w-3 h-3" />
+          Blocked by…
+        </div>
+        {candidates.length === 0 ? (
+          <div className="px-3 py-2 text-sm text-zinc-500">No tasks found</div>
+        ) : (
+          candidates.map((t, i) => {
+            const tProject = data.projects.find(
+              (p) => p.id === (t as any).projectId || p.id === (t as any).project_id,
+            );
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  completeBlockerMention(t);
+                }}
+                onMouseEnter={() => setBlockerMentionIndex(i)}
+                className={`w-full px-3 py-2 text-left flex items-center gap-2 transition-colors ${
+                  i === blockerMentionIndex
+                    ? "bg-zinc-700"
+                    : "hover:bg-zinc-700"
+                }`}
+              >
+                <Link2 className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
+                <span className="text-sm text-zinc-200 truncate flex-1">
+                  {t.name}
+                </span>
+                {tProject && (
+                  <span className="text-xs text-zinc-500 flex-shrink-0">
+                    {tProject.name}
+                  </span>
+                )}
+              </button>
+            );
+          })
+        )}
+      </div>
+    );
+  };
+
   const handleSelectTagSuggestion = (tag: (typeof data.tags)[0]) => {
     if (selectedTags.includes(tag.id)) {
       // Tag is already selected, bounce it and close the input
@@ -842,6 +1050,176 @@ export function TaskModal({
     handleAssignUser(currentUserId);
   };
 
+  // --- "@" user-assignment mention ------------------------------------
+  // Users eligible for the "@" mention. Mirrors the existing assignee picker
+  // (which does NOT exclude pending users), filtered by first/last/full name
+  // or email, case-insensitive, and sorted with the current user first.
+  const getUserMentionCandidates = (query: string) => {
+    const q = query.toLowerCase();
+    return [...data.users]
+      .filter((user) => {
+        if (q === "") return true;
+        const name = getUserDisplayName(user).toLowerCase();
+        const first = (user.firstName || "").toLowerCase();
+        const last = (user.lastName || "").toLowerCase();
+        const email = (user.email || "").toLowerCase();
+        return (
+          name.includes(q) ||
+          first.includes(q) ||
+          last.includes(q) ||
+          email.includes(q)
+        );
+      })
+      .sort((a, b) => {
+        if (isCurrentUserProfile(a)) return -1;
+        if (isCurrentUserProfile(b)) return 1;
+        return getUserDisplayName(a).localeCompare(getUserDisplayName(b));
+      });
+  };
+
+  // Detect an "@" mention immediately before the cursor in the given text.
+  // Active from an "@" up to the cursor as long as the typed query contains no
+  // whitespace (mirrors the "%" / "#" mention behavior).
+  const detectUserMention = (
+    value: string,
+    cursorPos: number,
+  ): { query: string; start: number } | null => {
+    const beforeCursor = value.substring(0, cursorPos);
+    const lastAt = beforeCursor.lastIndexOf("@");
+    if (lastAt === -1) return null;
+    const afterAt = value.substring(lastAt + 1, cursorPos);
+    if (/\s/.test(afterAt)) return null;
+    return { query: afterAt, start: lastAt };
+  };
+
+  const closeUserMention = () => {
+    setUserMention(null);
+    setUserMentionIndex(0);
+  };
+
+  // Complete an "@" mention: strip the "@query" text from the source field and
+  // assign the task to the chosen user.
+  const completeUserMention = (user: (typeof data.users)[number]) => {
+    if (!userMention) return;
+    const { field, start, query } = userMention;
+    const removeLen = 1 + query.length; // "@" + query
+    if (field === "title") {
+      const next =
+        taskName.substring(0, start) + taskName.substring(start + removeLen);
+      setTaskName(next);
+      requestAnimationFrame(() => {
+        titleInputRef.current?.focus();
+        titleInputRef.current?.setSelectionRange(start, start);
+      });
+    } else {
+      const next =
+        description.substring(0, start) +
+        description.substring(start + removeLen);
+      setDescription(next);
+      requestAnimationFrame(() => {
+        descriptionInputRef.current?.focus();
+        descriptionInputRef.current?.setSelectionRange(start, start);
+      });
+    }
+    setAssignedTo(user.id);
+    closeUserMention();
+  };
+
+  // Shared keydown handler for the "@" mention popover. Returns true if the key
+  // was consumed. Note: "," does NOT complete (names contain none) — only
+  // Enter or click selects.
+  const handleUserMentionKeyDown = (e: React.KeyboardEvent): boolean => {
+    if (!userMention) return false;
+    const candidates = getUserMentionCandidates(userMention.query);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeUserMention();
+      return true;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setUserMentionIndex((i) =>
+        candidates.length ? (i + 1) % candidates.length : 0,
+      );
+      return true;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setUserMentionIndex((i) =>
+        candidates.length ? (i - 1 + candidates.length) % candidates.length : 0,
+      );
+      return true;
+    }
+    if (e.key === "Enter") {
+      if (candidates.length > 0) {
+        e.preventDefault();
+        const chosen =
+          candidates[Math.min(userMentionIndex, candidates.length - 1)];
+        completeUserMention(chosen);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const renderUserMentionPopover = (field: "title" | "description") => {
+    if (!userMention || userMention.field !== field) return null;
+    const candidates = getUserMentionCandidates(userMention.query);
+    return (
+      <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+        <div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500 border-b border-zinc-700 flex items-center gap-1.5">
+          <User className="w-3 h-3" />
+          Assign to…
+        </div>
+        {candidates.length === 0 ? (
+          <div className="px-3 py-2 text-sm text-zinc-500">No users found</div>
+        ) : (
+          candidates.map((user, i) => {
+            const displayName = getUserDisplayName(user);
+            return (
+              <button
+                key={user.id}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  completeUserMention(user);
+                }}
+                onMouseEnter={() => setUserMentionIndex(i)}
+                className={`w-full px-3 py-2 text-left flex items-center gap-3 transition-colors ${
+                  i === userMentionIndex ? "bg-zinc-700" : "hover:bg-zinc-700"
+                }`}
+              >
+                <UserAvatar
+                  name={displayName}
+                  profileColor={user.profileColor}
+                  memoji={user.profileMemoji}
+                  size={24}
+                  className="text-xs font-medium flex-shrink-0"
+                />
+                <div className="flex-1 min-w-0 text-sm">
+                  <p className="font-medium text-zinc-200 truncate">
+                    {displayName}
+                    {isCurrentUserProfile(user) && (
+                      <span className="ml-2 text-xs text-[rgb(var(--theme-primary-rgb))]">
+                        You
+                      </span>
+                    )}
+                    {isPendingUser(user) && (
+                      <span className="ml-2 text-xs text-yellow-500">
+                        (Pending)
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-zinc-500 truncate">{user.email}</p>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+    );
+  };
+
   // Get assigned user details
   const assignedUser =
     data.users.find((u) => u.id === assignedTo) ||
@@ -861,7 +1239,7 @@ export function TaskModal({
   const handleAddSubtask = async () => {
     if (!newSubtaskName.trim() || !task) return;
 
-    const subtask: Omit<Task, "id" | "createdAt" | "updatedAt"> = {
+    const subtask: any = {
       name: newSubtaskName.trim(),
       completed: false,
       priority: 4,
@@ -871,6 +1249,12 @@ export function TaskModal({
       files: [],
       reminders: [],
     };
+    if (newSubtaskEstimate.trim() !== "") {
+      subtask.timeEstimate = parseInt(newSubtaskEstimate, 10);
+    }
+    if (newSubtaskDueDate) {
+      subtask.dueDate = newSubtaskDueDate;
+    }
 
     try {
       const response = await fetch("/api/tasks", {
@@ -881,11 +1265,78 @@ export function TaskModal({
 
       if (response.ok) {
         setNewSubtaskName("");
+        setNewSubtaskEstimate("");
+        setNewSubtaskDueDate("");
         setIsAddingSubtask(false);
         if (onDataRefresh) onDataRefresh();
       }
     } catch (error) {
       console.error("Failed to create subtask:", error);
+    }
+  };
+
+  const commitPendingSubtask = () => {
+    if (!newSubtaskName.trim()) return;
+    setPendingSubtasks((prev) => [
+      ...prev,
+      {
+        name: newSubtaskName.trim(),
+        timeEstimate:
+          newSubtaskEstimate.trim() !== "" ? newSubtaskEstimate.trim() : undefined,
+        dueDate: newSubtaskDueDate || undefined,
+      },
+    ]);
+    setNewSubtaskName("");
+    setNewSubtaskEstimate("");
+    setNewSubtaskDueDate("");
+  };
+
+  // --- Inline subtask-title editing (double-click) --------------------
+  const startEditingSubtask = (key: string, currentName: string) => {
+    setEditingSubtaskKey(key);
+    setEditingSubtaskValue(currentName);
+    requestAnimationFrame(() => {
+      const input = editingSubtaskInputRef.current;
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    });
+  };
+
+  const cancelEditingSubtask = () => {
+    setEditingSubtaskKey(null);
+    setEditingSubtaskValue("");
+  };
+
+  // Commit a pending (add-mode) subtask rename. Empty name reverts.
+  const commitPendingSubtaskEdit = (index: number) => {
+    const trimmed = editingSubtaskValue.trim();
+    if (trimmed) {
+      setPendingSubtasks((prev) =>
+        prev.map((s, i) => (i === index ? { ...s, name: trimmed } : s)),
+      );
+    }
+    cancelEditingSubtask();
+  };
+
+  // Commit an existing (edit-mode) subtask rename, persisting via the same
+  // PUT path used by toggleSubtaskComplete. Empty name reverts (no request).
+  const commitExistingSubtaskEdit = async (subtask: Task) => {
+    const trimmed = editingSubtaskValue.trim();
+    cancelEditingSubtask();
+    if (!trimmed || trimmed === subtask.name) return;
+    try {
+      const response = await fetch(`/api/tasks/${subtask.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (response.ok && onDataRefresh) {
+        onDataRefresh();
+      }
+    } catch (error) {
+      console.error("Failed to rename subtask:", error);
     }
   };
 
@@ -902,6 +1353,30 @@ export function TaskModal({
       }
     } catch (error) {
       console.error("Failed to update subtask:", error);
+    }
+  };
+
+  const confirmDeleteSubtask = async () => {
+    if (!subtaskToDelete) return;
+    if (subtaskToDelete.kind === "pending") {
+      const { index } = subtaskToDelete;
+      setPendingSubtasks((prev) => prev.filter((_, i) => i !== index));
+      setSubtaskToDelete(null);
+      return;
+    }
+    setIsDeletingSubtask(true);
+    try {
+      const response = await fetch(`/api/tasks/${subtaskToDelete.id}`, {
+        method: "DELETE",
+      });
+      if (response.ok && onDataRefresh) {
+        onDataRefresh();
+      }
+    } catch (error) {
+      console.error("Failed to delete subtask:", error);
+    } finally {
+      setIsDeletingSubtask(false);
+      setSubtaskToDelete(null);
     }
   };
 
@@ -999,6 +1474,24 @@ export function TaskModal({
                 setTaskName(value);
                 setCursorPosition(cursorPos);
 
+                // Check for a "%" blocking-task mention
+                const mention = detectBlockerMention(value, cursorPos);
+                if (mention) {
+                  setBlockerMention({ field: "title", ...mention });
+                  setBlockerMentionIndex(0);
+                } else {
+                  closeBlockerMention();
+                }
+
+                // Check for an "@" user-assignment mention
+                const uMention = detectUserMention(value, cursorPos);
+                if (uMention) {
+                  setUserMention({ field: "title", ...uMention });
+                  setUserMentionIndex(0);
+                } else {
+                  closeUserMention();
+                }
+
                 // Check if user typed #
                 const beforeCursor = value.substring(0, cursorPos);
                 const lastHashIndex = beforeCursor.lastIndexOf("#");
@@ -1023,6 +1516,8 @@ export function TaskModal({
                 }
               }}
               onKeyDown={(e) => {
+                if (handleUserMentionKeyDown(e)) return;
+                if (handleBlockerMentionKeyDown(e)) return;
                 if (
                   showProjectSuggestions &&
                   (e.key === "Escape" ||
@@ -1036,6 +1531,9 @@ export function TaskModal({
               required
               autoFocus
             />
+
+            {renderBlockerMentionPopover("title")}
+            {renderUserMentionPopover("title")}
 
             {/* Project Suggestions Dropdown */}
             {showProjectSuggestions && (
@@ -1145,7 +1643,7 @@ export function TaskModal({
           </div>
 
           {/* Description */}
-          <div>
+          <div className="relative">
             <label
               htmlFor={descriptionInputId}
               className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-zinc-400"
@@ -1154,11 +1652,27 @@ export function TaskModal({
             </label>
             <textarea
               id={descriptionInputId}
+              ref={descriptionInputRef}
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Description"
+              onChange={(e) => {
+                const value = e.target.value;
+                const cursorPos = e.target.selectionStart || 0;
+                setDescription(value);
+                const mention = detectBlockerMention(value, cursorPos);
+                if (mention) {
+                  setBlockerMention({ field: "description", ...mention });
+                  setBlockerMentionIndex(0);
+                } else {
+                  closeBlockerMention();
+                }
+              }}
+              onKeyDown={(e) => {
+                handleBlockerMentionKeyDown(e);
+              }}
+              placeholder="Description (type % to link a blocking task)"
               className="min-h-[100px] w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-white transition-colors placeholder-zinc-500 focus-theme"
             />
+            {renderBlockerMentionPopover("description")}
           </div>
 
           {/* Attachments */}
@@ -2260,6 +2774,69 @@ export function TaskModal({
               )}
             </div>
 
+            {/* Compact blocker badges (icon-only, reveal on hover/click) */}
+            {dependencies.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {dependencies.map((depId) => {
+                  const depTask = data.tasks.find((t) => t.id === depId);
+                  if (!depTask) return null;
+                  const expanded = expandedBlockerId === depId;
+                  return (
+                    <div
+                      key={`badge-${depId}`}
+                      className="relative group/blocker"
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedBlockerId(expanded ? null : depId)
+                        }
+                        className="flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-800 px-2 py-1 text-[rgb(var(--theme-primary-rgb))] hover:bg-zinc-700 transition-colors"
+                        title={`Blocked by: ${depTask.name}`}
+                      >
+                        <Link2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDependencies(
+                            dependencies.filter((id) => id !== depId),
+                          )
+                        }
+                        className="absolute -top-1 -right-1 rounded-full bg-zinc-700 text-zinc-300 hover:bg-red-500 hover:text-white p-0.5 opacity-0 group-hover/blocker:opacity-100 transition-opacity"
+                        aria-label="Remove blocker"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                      {/* Reveal full task on hover or click */}
+                      <div
+                        className={`absolute left-0 bottom-full mb-1 w-56 rounded-lg border border-zinc-700 bg-black px-3 py-2 shadow-lg z-50 transition-opacity ${
+                          expanded
+                            ? "opacity-100"
+                            : "opacity-0 pointer-events-none group-hover/blocker:opacity-100"
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400 mb-1">
+                          <Link2 className="w-3 h-3" />
+                          Blocked by
+                        </div>
+                        <div
+                          className={`text-sm ${depTask.completed ? "line-through text-zinc-500" : "text-white"}`}
+                        >
+                          {depTask.name}
+                        </div>
+                        {depTask.description && (
+                          <div className="mt-1 text-xs text-zinc-400 line-clamp-3">
+                            {depTask.description}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Current Dependencies */}
             {dependencies.length > 0 && (
               <div className="space-y-2 mb-3">
@@ -2318,65 +2895,133 @@ export function TaskModal({
                 />
 
                 <div className="absolute top-full mt-1 w-full bg-zinc-800 rounded-lg shadow-lg border border-zinc-700 max-h-48 overflow-y-auto z-50">
-                  {data.tasks
-                    .filter((t) => {
-                      // Don't show the current task or its subtasks
-                      if (task && (t.id === task.id || t.parentId === task.id))
-                        return false;
-                      // Filter by search
-                      return t.name
-                        .toLowerCase()
-                        .includes(dependencySearchQuery.toLowerCase());
-                    })
-                    .map((t) => {
+                  {(() => {
+                    const query = dependencySearchQuery.toLowerCase().trim();
+
+                    // Tasks that are structurally excluded from the picker
+                    // entirely (the current task and its own subtasks).
+                    const isExcluded = (t: Task) =>
+                      !!task && (t.id === task.id || t.parentId === task.id);
+
+                    const matchesSearch = (t: Task) =>
+                      !query || t.name.toLowerCase().includes(query);
+
+                    const byParent = new Map<string, Task[]>();
+                    const roots: Task[] = [];
+                    const byId = new Map<string, Task>();
+                    for (const t of data.tasks) {
+                      byId.set(t.id, t);
+                    }
+                    for (const t of data.tasks) {
+                      if (isExcluded(t)) continue;
+                      const parentId = t.parentId;
+                      // Treat a task as a root in the picker if it has no
+                      // parent, or its parent is not present/visible here.
+                      if (parentId && byId.has(parentId) && !isExcluded(byId.get(parentId)!)) {
+                        const arr = byParent.get(parentId) ?? [];
+                        arr.push(t);
+                        byParent.set(parentId, arr);
+                      } else {
+                        roots.push(t);
+                      }
+                    }
+
+                    // When searching, only render branches that contain at
+                    // least one matching descendant (or match themselves).
+                    const branchMatches = (t: Task): boolean => {
+                      if (matchesSearch(t)) return true;
+                      return (byParent.get(t.id) ?? []).some(branchMatches);
+                    };
+
+                    const rows: ReactNode[] = [];
+
+                    const renderTask = (t: Task, depth: number) => {
+                      const children = byParent.get(t.id) ?? [];
+                      const selfMatches = matchesSearch(t);
+                      const childrenToShow = query
+                        ? children.filter(branchMatches)
+                        : children;
+
+                      // While searching, skip tasks that neither match nor
+                      // have matching descendants.
+                      if (query && !selfMatches && childrenToShow.length === 0) {
+                        return;
+                      }
+
                       const validation = canBeSelectedAsDependency(
                         task?.id || "new-task",
                         t.id,
                         data.tasks,
                       );
+                      // A non-matching parent that only exists to give context
+                      // to matching children renders as a non-selectable header.
+                      const isContextHeader = query
+                        ? !selfMatches && childrenToShow.length > 0
+                        : false;
+                      const selectable = validation.canSelect && !isContextHeader;
 
-                      return (
+                      rows.push(
                         <button
                           key={t.id}
                           type="button"
                           onClick={() => {
-                            if (validation.canSelect) {
+                            if (selectable) {
                               setDependencies([...dependencies, t.id]);
                               setShowDependencyPicker(false);
                               setDependencySearchQuery("");
                             }
                           }}
-                          disabled={!validation.canSelect}
-                          className="w-full px-3 py-2 text-left hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                          disabled={!selectable}
+                          className="w-full px-3 py-1.5 text-left hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                          style={{ paddingLeft: `${12 + depth * 16}px` }}
                         >
-                          <div className="flex-1">
-                            <div className="text-sm text-zinc-300">
+                          {depth > 0 && (
+                            <CornerDownRight className="w-3 h-3 text-zinc-500 shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div
+                              className={`text-sm truncate ${
+                                isContextHeader
+                                  ? "text-zinc-500 font-medium"
+                                  : "text-zinc-300"
+                              }`}
+                            >
                               {t.name}
                             </div>
-                            {!validation.canSelect && (
+                            {!selectable && !isContextHeader && (
                               <div className="text-xs text-red-400">
                                 {validation.reason}
                               </div>
                             )}
                           </div>
                           {t.completed && (
-                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                            <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
                           )}
-                        </button>
+                        </button>,
                       );
-                    })}
 
-                  {data.tasks.filter(
-                    (t) =>
-                      t.name
-                        .toLowerCase()
-                        .includes(dependencySearchQuery.toLowerCase()) &&
-                      (!task || t.id !== task.id),
-                  ).length === 0 && (
-                    <div className="px-3 py-2 text-sm text-zinc-500">
-                      No tasks found
-                    </div>
-                  )}
+                      for (const child of childrenToShow) {
+                        renderTask(child, depth + 1);
+                      }
+                    };
+
+                    const rootsToRender = query
+                      ? roots.filter(branchMatches)
+                      : roots;
+                    for (const root of rootsToRender) {
+                      renderTask(root, 0);
+                    }
+
+                    if (rows.length === 0) {
+                      return (
+                        <div className="px-3 py-2 text-sm text-zinc-500">
+                          No tasks found
+                        </div>
+                      );
+                    }
+
+                    return rows;
+                  })()}
                 </div>
 
                 <button
@@ -2437,11 +3082,55 @@ export function TaskModal({
                       <Circle className="w-4 h-4" />
                     )}
                   </button>
-                  <span
-                    className={`flex-1 ${subtask.completed ? "line-through text-zinc-500" : "text-zinc-300"}`}
-                  >
-                    {subtask.name}
-                  </span>
+                  {editingSubtaskKey === subtask.id ? (
+                    <input
+                      ref={editingSubtaskInputRef}
+                      type="text"
+                      value={editingSubtaskValue}
+                      onChange={(e) => setEditingSubtaskValue(e.target.value)}
+                      onBlur={() => commitExistingSubtaskEdit(subtask)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitExistingSubtaskEdit(subtask);
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          cancelEditingSubtask();
+                        }
+                      }}
+                      className="flex-1 bg-zinc-800 text-white rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                    />
+                  ) : (
+                    <span
+                      onDoubleClick={() =>
+                        startEditingSubtask(subtask.id, subtask.name)
+                      }
+                      title="Double-click to rename"
+                      className={`flex-1 cursor-text ${subtask.completed ? "line-through text-zinc-500" : "text-zinc-300"}`}
+                    >
+                      {subtask.name}
+                    </span>
+                  )}
+                  {(() => {
+                    const est =
+                      (subtask as any).time_estimate ?? subtask.timeEstimate;
+                    return est != null ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-zinc-400 flex-shrink-0">
+                        <Clock className="w-3 h-3" />
+                        {est}m
+                      </span>
+                    ) : null;
+                  })()}
+                  {(() => {
+                    const dd =
+                      (subtask as any).due_date ?? subtask.dueDate;
+                    return dd ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-zinc-400 flex-shrink-0">
+                        <Calendar className="w-3 h-3" />
+                        {dd}
+                      </span>
+                    ) : null;
+                  })()}
                   {onTaskSelect && (
                     <button
                       type="button"
@@ -2451,29 +3140,86 @@ export function TaskModal({
                       Open
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSubtaskToDelete({
+                        kind: "existing",
+                        id: subtask.id,
+                        name: subtask.name,
+                      })
+                    }
+                    title="Delete subtask"
+                    className="text-red-300 hover:text-red-400 flex-shrink-0"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               ))}
             {/* Pending subtasks (add mode) */}
             {!isEditMode &&
-              pendingSubtasks.map((name, index) => (
+              pendingSubtasks.map((sub, index) => (
                 <div key={index} className="flex items-center gap-2 mb-2">
-                  <Circle className="w-4 h-4 text-zinc-400" />
-                  <span className="flex-1 text-sm text-zinc-300">{name}</span>
+                  <Circle className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+                  {editingSubtaskKey === `pending:${index}` ? (
+                    <input
+                      ref={editingSubtaskInputRef}
+                      type="text"
+                      value={editingSubtaskValue}
+                      onChange={(e) => setEditingSubtaskValue(e.target.value)}
+                      onBlur={() => commitPendingSubtaskEdit(index)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitPendingSubtaskEdit(index);
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          cancelEditingSubtask();
+                        }
+                      }}
+                      className="flex-1 min-w-[100px] bg-zinc-800 text-white rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                    />
+                  ) : (
+                    <span
+                      onDoubleClick={() =>
+                        startEditingSubtask(`pending:${index}`, sub.name)
+                      }
+                      title="Double-click to rename"
+                      className="flex-1 text-sm text-zinc-300 truncate cursor-text"
+                    >
+                      {sub.name}
+                    </span>
+                  )}
+                  {sub.timeEstimate && (
+                    <span className="inline-flex items-center gap-1 text-xs text-zinc-400 flex-shrink-0">
+                      <Clock className="w-3 h-3" />
+                      {sub.timeEstimate}m
+                    </span>
+                  )}
+                  {sub.dueDate && (
+                    <span className="inline-flex items-center gap-1 text-xs text-zinc-400 flex-shrink-0">
+                      <Calendar className="w-3 h-3" />
+                      {sub.dueDate}
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={() =>
-                      setPendingSubtasks((prev) =>
-                        prev.filter((_, i) => i !== index),
-                      )
+                      setSubtaskToDelete({
+                        kind: "pending",
+                        index,
+                        name: sub.name,
+                      })
                     }
-                    className="text-zinc-500 hover:text-red-400"
+                    title="Delete subtask"
+                    className="text-red-300 hover:text-red-400 flex-shrink-0"
                   >
-                    <X className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               ))}
             {isAddingSubtask ? (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="text"
                   value={newSubtaskName}
@@ -2483,30 +3229,42 @@ export function TaskModal({
                       e.preventDefault();
                       if (isEditMode) {
                         handleAddSubtask();
-                      } else if (newSubtaskName.trim()) {
-                        setPendingSubtasks((prev) => [
-                          ...prev,
-                          newSubtaskName.trim(),
-                        ]);
-                        setNewSubtaskName("");
+                      } else {
+                        commitPendingSubtask();
                       }
                     }
                   }}
                   placeholder="Subtask name"
-                  className="flex-1 bg-zinc-800 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                  className="flex-1 min-w-[140px] bg-zinc-800 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
                   autoFocus
                 />
+                <div className="bg-zinc-800 rounded flex items-center pr-1.5 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
+                  <Clock className="ml-2 w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+                  <input
+                    type="number"
+                    min="0"
+                    value={newSubtaskEstimate}
+                    onChange={(e) => setNewSubtaskEstimate(e.target.value)}
+                    placeholder="min"
+                    className="w-14 bg-transparent text-white pl-2 pr-1 py-1.5 text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                </div>
+                <div className="bg-zinc-800 rounded flex items-center pr-1.5 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
+                  <Calendar className="ml-2 w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+                  <input
+                    type="date"
+                    value={newSubtaskDueDate}
+                    onChange={(e) => setNewSubtaskDueDate(e.target.value)}
+                    className="bg-transparent text-white pl-2 pr-1 py-1.5 text-sm focus:outline-none themed-date-input"
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={() => {
                     if (isEditMode) {
                       handleAddSubtask();
-                    } else if (newSubtaskName.trim()) {
-                      setPendingSubtasks((prev) => [
-                        ...prev,
-                        newSubtaskName.trim(),
-                      ]);
-                      setNewSubtaskName("");
+                    } else {
+                      commitPendingSubtask();
                     }
                   }}
                   className="btn-theme-primary text-white rounded px-3 py-1.5 text-sm transition-all"
@@ -2518,6 +3276,8 @@ export function TaskModal({
                   onClick={() => {
                     setIsAddingSubtask(false);
                     setNewSubtaskName("");
+                    setNewSubtaskEstimate("");
+                    setNewSubtaskDueDate("");
                   }}
                   className="text-zinc-400 hover:text-white"
                 >
@@ -2594,6 +3354,23 @@ export function TaskModal({
           </div>
         </form>
       </div>
+
+      <ConfirmDialog
+        open={subtaskToDelete !== null}
+        onOpenChange={(next) => {
+          if (!next) setSubtaskToDelete(null);
+        }}
+        title="Delete subtask?"
+        description={
+          subtaskToDelete
+            ? `"${subtaskToDelete.name}" will be deleted.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        destructive
+        isLoading={isDeletingSubtask}
+        onConfirm={confirmDeleteSubtask}
+      />
     </div>
   );
 }

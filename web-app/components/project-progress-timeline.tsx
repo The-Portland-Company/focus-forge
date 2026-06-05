@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { format } from "date-fns";
+import { ChevronRight } from "lucide-react";
 import { Project, Task } from "@/lib/types";
 import {
   ProjectTimelinePoint,
@@ -91,6 +92,27 @@ export function ProjectProgressTimeline({
   today,
 }: ProjectProgressTimelineProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setCollapsed(
+      window.localStorage.getItem("project-timeline-collapsed") === "true",
+    );
+  }, []);
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          "project-timeline-collapsed",
+          String(next),
+        );
+      }
+      return next;
+    });
+  };
 
   const timeline = useMemo(
     () => buildProjectProgressTimeline(project, tasks, today),
@@ -142,10 +164,22 @@ export function ProjectProgressTimeline({
       className="mb-4 rounded-lg border border-zinc-800 bg-zinc-900/70 p-3"
       aria-label={`Progress timeline for ${project.name}`}
     >
-      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">
-          Progress Timeline
-        </h2>
+      <div
+        className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${collapsed ? "" : "mb-3"}`}
+      >
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-expanded={!collapsed}
+          className="group flex items-center gap-2 text-left"
+        >
+          <ChevronRight
+            className={`h-4 w-4 text-zinc-500 transition-transform group-hover:text-zinc-300 ${collapsed ? "" : "rotate-90"}`}
+          />
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">
+            Progress Timeline
+          </h2>
+        </button>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-zinc-200">
             {timeline.usesTimeEstimates ? "Estimated work" : "Task count"}
@@ -162,7 +196,7 @@ export function ProjectProgressTimeline({
         </div>
       </div>
 
-      {!hasTasks ? (
+      {!collapsed && (!hasTasks ? (
         <p className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-5 text-center text-sm text-zinc-500">
           No tasks yet for this project.
         </p>
@@ -314,7 +348,7 @@ export function ProjectProgressTimeline({
             {timeline.startDate} to {timeline.endDate}
           </p>
         </div>
-      )}
+      ))}
     </section>
   );
 }

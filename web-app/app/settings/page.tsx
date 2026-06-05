@@ -66,6 +66,7 @@ import {
   type EmailHtmlRenderMode,
 } from "@/lib/email-html-render-mode";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const dynamic = "force-dynamic";
 
@@ -1595,9 +1596,13 @@ export default function SettingsPage() {
             <div className="space-y-6">
               {profileLoading ? (
                 <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
-                  <p className="text-sm text-zinc-400">
-                    Loading integrations...
-                  </p>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Skeleton className="h-5 w-5 rounded" />
+                    <Skeleton className="h-5 w-40" />
+                  </div>
+                  <Skeleton className="h-4 w-3/4 mb-2" />
+                  <Skeleton className="h-4 w-1/2 mb-6" />
+                  <Skeleton className="h-10 w-44" />
                 </div>
               ) : profile?.id ? (
                 <TodoistIntegration userId={profile.id} />
@@ -1747,8 +1752,25 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              {personalTokensLoading && (
-                <p className="text-sm text-zinc-500 mt-3">Loading keys...</p>
+              {personalTokensLoading && personalAccessTokens.length === 0 && (
+                <div className="mt-4 grid gap-3">
+                  {Array.from({ length: 2 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="rounded-lg border border-zinc-800 p-3 bg-zinc-950/60"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-40" />
+                          <Skeleton className="h-3 w-56" />
+                          <Skeleton className="h-3 w-48" />
+                          <Skeleton className="h-3 w-32" />
+                        </div>
+                        <Skeleton className="h-7 w-16 rounded" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
               {personalAccessTokens.length === 0 && !personalTokensLoading ? (
                 <div className="text-sm text-zinc-500 mt-4">
@@ -1863,9 +1885,11 @@ export default function SettingsPage() {
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-zinc-500">
-                  Loading calendar feed...
-                </p>
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-[42px] flex-1 rounded-lg" />
+                  <Skeleton className="h-[42px] w-[42px] rounded-lg" />
+                  <Skeleton className="h-[42px] w-[42px] rounded-lg" />
+                </div>
               )}
             </div>
           </div>
@@ -1944,9 +1968,27 @@ export default function SettingsPage() {
                     </div>
                   ))}
                 </div>
-              ) : (
+              ) : database ? (
                 <div className="p-8 text-center text-zinc-500">
                   No organizations found
+                </div>
+              ) : (
+                <div className="divide-y divide-zinc-800">
+                  {Array.from({ length: 2 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="p-4 flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="w-10 h-10 rounded-lg flex-shrink-0" />
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-40" />
+                          <Skeleton className="h-3 w-24" />
+                        </div>
+                      </div>
+                      <Skeleton className="w-8 h-8 rounded-lg" />
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
