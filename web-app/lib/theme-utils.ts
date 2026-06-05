@@ -62,7 +62,7 @@ export function persistThemePreference(themePreset: ThemePreset, userId?: string
 export function getDatabaseThemePreset(
   themePreset: ThemePreset,
   prefersDark: boolean,
-): "dark" | "light" | "liquid-glass" {
+): "dark" | "light" | "liquid-glass" | "neutral-dark" | "neutral-light" {
   if (themePreset === "system") {
     return prefersDark ? "dark" : "light";
   }

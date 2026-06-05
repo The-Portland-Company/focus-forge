@@ -38,6 +38,12 @@ import {
   Play,
   Square,
   Hourglass,
+  Inbox,
+  ShieldAlert,
+  Send,
+  SlidersHorizontal,
+  FlaskConical,
+  FileText,
 } from "lucide-react";
 import { Database, Project } from "@/lib/types";
 import { UserAvatar } from "@/components/user-avatar";
@@ -149,6 +155,30 @@ export function Sidebar({
   const [calendarCopied, setCalendarCopied] = useState(false);
   const calendarPopoverRef = useRef<HTMLDivElement>(null);
   const [estimateBacklog, setEstimateBacklog] = useState<number>(0);
+  const [storageStats, setStorageStats] = useState<
+    Array<{ mailboxId: string; label: string; used: number; total: number }>
+  >([]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/email/storage", {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled && Array.isArray(json?.mailboxes)) {
+          setStorageStats(json.mailboxes);
+        }
+      } catch {
+        /* non-fatal */
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [projectPendingDelete, setProjectPendingDelete] = useState<Project | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -670,6 +700,8 @@ export function Sidebar({
       })
       .sort((a, b) => (a.order || 0) - (b.order || 0));
 
+  const formatGb = (bytes: number) => (bytes / 1024 ** 3).toFixed(1);
+
   const getProjectAcronym = (name: string) => {
     const words = name.split(/\s+/);
     if (words.length === 1) {
@@ -687,7 +719,7 @@ export function Sidebar({
       className={`group/sidebar relative ${isCollapsed ? "w-[60px]" : ""} h-full shrink-0 overflow-hidden bg-zinc-900 border-r border-zinc-800 flex flex-col ${isResizingSidebar ? "" : "transition-all duration-300"}`}
       style={isCollapsed ? undefined : { width: sidebarWidth }}
     >
-      <div className={`${isCollapsed ? "p-2" : "p-3"}`}>
+      <div className={`${isCollapsed ? "p-2" : "px-1.5 py-3"}`}>
         <div className="flex items-center justify-between mb-3">
           {!isCollapsed ? (
             <>
@@ -872,7 +904,7 @@ export function Sidebar({
           <div className="mt-1 flex items-center gap-2">
             <Link
               href="/time"
-              className={`flex-1 flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+              className={`flex-1 flex items-center justify-between gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
                 currentView === "time"
                   ? "bg-zinc-800 text-white"
                   : currentTimerStartedAt
@@ -926,7 +958,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/search"
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "search"
                 ? "bg-zinc-800 text-white"
                 : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
@@ -953,7 +985,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/today"
-            className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center justify-between gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "today"
                 ? "bg-zinc-800 text-white"
                 : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
@@ -964,9 +996,11 @@ export function Sidebar({
               Today
             </span>
             {todayBadgeCount > 0 ? (
-              <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                {todayBadgeCount}
-              </span>
+              <Tooltip content="Tasks due today" className="">
+                <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                  {todayBadgeCount}
+                </span>
+              </Tooltip>
             ) : null}
           </Link>
         )}
@@ -1003,7 +1037,7 @@ export function Sidebar({
             <div className="flex items-center gap-1">
               <Link
                 href="/email-inbox"
-                className={`flex-1 flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                className={`flex-1 flex items-center justify-between gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
                   currentView.startsWith("email-")
                     ? "bg-zinc-800 text-white"
                     : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
@@ -1014,9 +1048,11 @@ export function Sidebar({
                   Email Inbox
                 </span>
                 {inboxItemsCount.unread > 0 ? (
-                  <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                    {inboxItemsCount.unread}
-                  </span>
+                  <Tooltip content="Unread emails" className="">
+                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                      {inboxItemsCount.unread}
+                    </span>
+                  </Tooltip>
                 ) : null}
               </Link>
               <button
@@ -1040,8 +1076,39 @@ export function Sidebar({
                       : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
                   }`}
                 >
-                  <span>Inbox</span>
-                  <UnreadReadBadge unread={inboxItemsCount.unread} total={inboxItemsCount.total} />
+                  <span className="flex items-center gap-2">
+                    <Inbox className="w-4 h-4" />
+                    Inbox
+                  </span>
+                  <Tooltip content="Unread / read emails" className="">
+                    <UnreadReadBadge unread={inboxItemsCount.unread} total={inboxItemsCount.total} />
+                  </Tooltip>
+                </Link>
+                <Link
+                  href="/email-starred"
+                  className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
+                    currentView === "email-starred"
+                      ? "bg-zinc-800 text-white"
+                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Star className="w-4 h-4" />
+                    Starred
+                  </span>
+                </Link>
+                <Link
+                  href="/email-drafts"
+                  className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
+                    currentView === "email-drafts"
+                      ? "bg-zinc-800 text-white"
+                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    Drafts
+                  </span>
                 </Link>
                 <Link
                   href="/email-quarantine"
@@ -1051,8 +1118,13 @@ export function Sidebar({
                       : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
                   }`}
                 >
-                  <span>Quarantine</span>
-                  <UnreadReadBadge unread={quarantineItemsCount.unread} total={quarantineItemsCount.total} />
+                  <span className="flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4" />
+                    Quarantine
+                  </span>
+                  <Tooltip content="Unread / read quarantined emails" className="">
+                    <UnreadReadBadge unread={quarantineItemsCount.unread} total={quarantineItemsCount.total} />
+                  </Tooltip>
                 </Link>
                 <Link
                   href="/email-trash"
@@ -1062,8 +1134,13 @@ export function Sidebar({
                       : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
                   }`}
                 >
-                  <span>Trash</span>
-                  <UnreadReadBadge unread={trashItemsCount.unread} total={trashItemsCount.total} />
+                  <span className="flex items-center gap-2">
+                    <Trash2 className="w-4 h-4" />
+                    Trash
+                  </span>
+                  <Tooltip content="Unread / read deleted emails" className="">
+                    <UnreadReadBadge unread={trashItemsCount.unread} total={trashItemsCount.total} />
+                  </Tooltip>
                 </Link>
                 <Link
                   href="/email-sent"
@@ -1073,8 +1150,13 @@ export function Sidebar({
                       : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
                   }`}
                 >
-                  <span>Sent</span>
-                  <UnreadReadBadge unread={sentItemsCount.unread} total={sentItemsCount.total} />
+                  <span className="flex items-center gap-2">
+                    <Send className="w-4 h-4" />
+                    Sent
+                  </span>
+                  <Tooltip content="Unread / read sent emails" className="">
+                    <UnreadReadBadge unread={sentItemsCount.unread} total={sentItemsCount.total} />
+                  </Tooltip>
                 </Link>
                 <Link
                   href="/email-rules"
@@ -1084,19 +1166,25 @@ export function Sidebar({
                       : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
                   }`}
                 >
-                  <span>Rules</span>
+                  <span className="flex items-center gap-2">
+                    <SlidersHorizontal className="w-4 h-4" />
+                    Rules
+                  </span>
                   {rulesCount > 0 ? (
-                    <span className="text-[10px] text-zinc-500">{rulesCount}</span>
+                    <Tooltip content="Active rules" className="">
+                      <span className="text-[10px] text-zinc-500">{rulesCount}</span>
+                    </Tooltip>
                   ) : null}
                 </Link>
                 <Link
                   href="/email-ai-lab"
-                  className={`block rounded-md px-2 py-1 text-sm transition-colors ${
+                  className={`flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors ${
                     currentView === "email-ai-lab"
                       ? "bg-zinc-800 text-white"
                       : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
                   }`}
                 >
+                  <FlaskConical className="w-4 h-4" />
                   AI Lab
                 </Link>
               </div>
@@ -1120,7 +1208,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/upcoming"
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "upcoming"
                 ? "bg-zinc-800 text-white"
                 : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
@@ -1147,7 +1235,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/estimates"
-            className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center justify-between gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "estimates"
                 ? "bg-zinc-800 text-white"
                 : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
@@ -1158,9 +1246,11 @@ export function Sidebar({
               Estimates
             </span>
             {estimateBacklog > 0 ? (
-              <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                {estimateBacklog}
-              </span>
+              <Tooltip content="Tasks awaiting estimate" className="">
+                <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                  {estimateBacklog}
+                </span>
+              </Tooltip>
             ) : null}
           </Link>
         )}
@@ -1181,7 +1271,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/calendar"
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "calendar"
                 ? "bg-zinc-800 text-white"
                 : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
@@ -1208,7 +1298,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/favorites"
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors mb-4 ${
+            className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors mb-4 ${
               currentView === "favorites"
                 ? "bg-zinc-800 text-white"
                 : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
@@ -1227,12 +1317,14 @@ export function Sidebar({
                 <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />
               ) : null}
               {orgTaskCounts.total > 0 ? (
-                <span
-                  className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] tracking-wide text-zinc-400"
-                  title={`${orgTaskCounts.total} active tasks across all organizations`}
+                <Tooltip
+                  content={`${orgTaskCounts.total} active tasks across all organizations`}
+                  className=""
                 >
-                  {orgTaskCounts.total}
-                </span>
+                  <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] tracking-wide text-zinc-400">
+                    {orgTaskCounts.total}
+                  </span>
+                </Tooltip>
               ) : null}
             </span>
             <button
@@ -1413,12 +1505,14 @@ export function Sidebar({
                   >
                     <div className="relative flex items-center px-3 py-1">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <span
-                          className="flex-shrink-0 min-w-[18px] text-right text-[10px] tabular-nums text-zinc-500"
-                          title={`${orgTaskCounts.byOrg.get(org.id) || 0} active tasks in ${org.name}`}
+                        <Tooltip
+                          content={`${orgTaskCounts.byOrg.get(org.id) || 0} active tasks in ${org.name}`}
+                          className="flex-shrink-0"
                         >
-                          {orgTaskCounts.byOrg.get(org.id) || 0}
-                        </span>
+                          <span className="block min-w-[18px] text-right text-[10px] tabular-nums text-zinc-500">
+                            {orgTaskCounts.byOrg.get(org.id) || 0}
+                          </span>
+                        </Tooltip>
                         <span className="relative flex items-center flex-shrink-0">
                           <button
                             onClick={(event) => copyOrgId(org.id, event)}
@@ -1624,12 +1718,14 @@ export function Sidebar({
                                   : ""
                               }`}
                             >
-                              <span
-                                className="flex-shrink-0 min-w-[16px] text-right text-[10px] tabular-nums text-zinc-500"
-                                title={`${orgTaskCounts.byProject.get(project.id) || 0} active tasks`}
+                              <Tooltip
+                                content="Active tasks"
+                                className="flex-shrink-0"
                               >
-                                {orgTaskCounts.byProject.get(project.id) || 0}
-                              </span>
+                                <span className="block min-w-[16px] text-right text-[10px] tabular-nums text-zinc-500">
+                                  {orgTaskCounts.byProject.get(project.id) || 0}
+                                </span>
+                              </Tooltip>
                               <GripVertical className="w-3 h-3 opacity-40" />
                               <Link
                                 href={`/project-${project.id}`}
@@ -1845,6 +1941,35 @@ export function Sidebar({
           </div>
         )}
       </nav>
+
+      {/* Email storage usage — only rendered when at least one mailbox exposes
+          IMAP QUOTA storage stats. Hidden entirely otherwise. */}
+      {!isCollapsed && storageStats.length > 0 && (
+        <div className="border-t border-zinc-800 px-3 py-2 space-y-1.5">
+          {storageStats.map((stat) => {
+            const pct = Math.min(
+              100,
+              Math.max(0, (stat.used / stat.total) * 100),
+            );
+            return (
+              <div key={stat.mailboxId} className="space-y-0.5">
+                <div className="flex items-center justify-between gap-2 text-[10px] text-zinc-500">
+                  <span className="truncate">{stat.label}</span>
+                  <span className="shrink-0 tabular-nums">
+                    {formatGb(stat.used)} / {formatGb(stat.total)} GB
+                  </span>
+                </div>
+                <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className="h-full rounded-full bg-zinc-500"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Bottom section */}
       <div

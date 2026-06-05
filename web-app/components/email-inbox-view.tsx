@@ -15,11 +15,12 @@ import {
 import {
   Archive,
   ArrowUpDown,
-  BellRing,
   Bot,
   Check,
   CircleHelp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Expand,
   ExternalLink,
@@ -38,6 +39,7 @@ import {
   RefreshCw,
   Search,
   SendHorizontal,
+  SlidersHorizontal,
   Sparkles,
   Shield,
   ShieldAlert,
@@ -58,7 +60,10 @@ import {
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
-import { EmailOutboundComposerModal } from "@/components/email-outbound-composer-modal";
+import {
+  EmailOutboundComposerModal,
+  type EmailComposerInitialDraft,
+} from "@/components/email-outbound-composer-modal";
 import { EmailSignatureContent } from "@/components/email-signature-content";
 import { EmailSpamReviewModal } from "@/components/email-spam-review-modal";
 import { EmailThreadAttachments } from "@/components/email-thread-attachments";
@@ -195,6 +200,46 @@ const EMAIL_DETAIL_PANEL_STORAGE_KEY =
   "focus-forge.email-inbox.detail-panel-width";
 const EMAIL_INBOX_FILTER_BAR_STORAGE_KEY =
   "focus-forge.email-inbox.filter-bar-collapsed";
+const EMAIL_INBOX_PER_PAGE_STORAGE_KEY =
+  "focus-forge.email-inbox.per-page";
+export const EMAIL_INBOX_PER_PAGE_OPTIONS = [25, 50, 100] as const;
+export const EMAIL_INBOX_DEFAULT_PER_PAGE = 50;
+
+export function normalizeEmailInboxPerPage(value: unknown): number {
+  const parsed =
+    typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  return (EMAIL_INBOX_PER_PAGE_OPTIONS as readonly number[]).includes(parsed)
+    ? parsed
+    : EMAIL_INBOX_DEFAULT_PER_PAGE;
+}
+
+export function getEmailInboxPageCount(
+  totalItems: number,
+  perPage: number,
+): number {
+  if (totalItems <= 0 || perPage <= 0) {
+    return 1;
+  }
+  return Math.ceil(totalItems / perPage);
+}
+
+export function clampEmailInboxPage(page: number, pageCount: number): number {
+  if (!Number.isFinite(page)) {
+    return 1;
+  }
+  return Math.min(Math.max(Math.trunc(page), 1), Math.max(pageCount, 1));
+}
+
+export function getEmailInboxPageItems<T>(
+  items: T[],
+  page: number,
+  perPage: number,
+): T[] {
+  const pageCount = getEmailInboxPageCount(items.length, perPage);
+  const safePage = clampEmailInboxPage(page, pageCount);
+  const start = (safePage - 1) * perPage;
+  return items.slice(start, start + perPage);
+}
 
 type EmailInboxSearchHelpToken = {
   value: string;
@@ -1284,7 +1329,10 @@ export function EmailInboxView({
   const [copiedSearchHelpValue, setCopiedSearchHelpValue] = useState<
     string | null
   >(null);
-  const [isFilterBarCollapsed, setIsFilterBarCollapsed] = useState(false);
+  const [isFilterBarCollapsed, setIsFilterBarCollapsed] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [perPage, setPerPage] = useState<number>(EMAIL_INBOX_DEFAULT_PER_PAGE);
+  const [pageJumpInput, setPageJumpInput] = useState("");
   const [alwaysShowSummary, setAlwaysShowSummary] = useState(false);
   const [alwaysShowExcerpt, setAlwaysShowExcerpt] = useState(false);
   const [sortBy, setSortBy] = useState<EmailInboxSortOption>("received_desc");
@@ -1310,6 +1358,8 @@ export function EmailInboxView({
   const [isThreadModalOpen, setIsThreadModalOpen] = useState(false);
   const [isReplyDragActive, setIsReplyDragActive] = useState(false);
   const [isOutboundComposerOpen, setIsOutboundComposerOpen] = useState(false);
+  const [outboundComposerInitialDraft, setOutboundComposerInitialDraft] =
+    useState<EmailComposerInitialDraft | null>(null);
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
   const projectSearchInputRef = useRef<HTMLInputElement | null>(null);
   const replyFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1369,6 +1419,18 @@ export function EmailInboxView({
   const visibleInboxItems = useMemo(
     () => sortInboxItemsForView(searchedInboxItems, sortBy),
     [searchedInboxItems, sortBy],
+  );
+  const pageCount = useMemo(
+    () => getEmailInboxPageCount(visibleInboxItems.length, perPage),
+    [visibleInboxItems.length, perPage],
+  );
+  const safeCurrentPage = useMemo(
+    () => clampEmailInboxPage(currentPage, pageCount),
+    [currentPage, pageCount],
+  );
+  const pagedInboxItems = useMemo(
+    () => getEmailInboxPageItems(visibleInboxItems, safeCurrentPage, perPage),
+    [visibleInboxItems, safeCurrentPage, perPage],
   );
 
   const visibleSyncError = useMemo(
@@ -1488,6 +1550,15 @@ export function EmailInboxView({
   const selectedThreadConversationEntries =
     getConversationEntriesExcludingPrimary(selectedThread?.conversation);
   const isEditingMailbox = editingMailboxId !== null;
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (inboxSearchQuery.trim()) count += 1;
+    if (selectedMailboxId !== "all") count += 1;
+    if (sortBy !== "received_desc") count += 1;
+    if (inboxFilterTab !== "all") count += 1;
+    return count;
+  }, [inboxSearchQuery, selectedMailboxId, sortBy, inboxFilterTab]);
+  const hasActiveFilters = activeFilterCount > 0;
   const splitLayoutStyle = {
     "--email-detail-width": `${detailPanelWidth}px`,
     ...(isDesktopSplitLayout
@@ -1591,6 +1662,48 @@ export function EmailInboxView({
       String(detailPanelWidth),
     );
   }, [detailPanelWidth]);
+
+  // Load the persisted per-page choice once on mount.
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const stored = window.localStorage.getItem(
+      EMAIL_INBOX_PER_PAGE_STORAGE_KEY,
+    );
+    if (stored) {
+      setPerPage(normalizeEmailInboxPerPage(stored));
+    }
+  }, []);
+
+  // Persist the per-page choice.
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(
+      EMAIL_INBOX_PER_PAGE_STORAGE_KEY,
+      String(perPage),
+    );
+  }, [perPage]);
+
+  // Reset to the first page whenever the filtered/searched/sorted set changes
+  // (search query, filter tab, mailbox, sort order, per-page size, or view).
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    inboxSearchQuery,
+    inboxFilterTab,
+    selectedMailboxId,
+    sortBy,
+    perPage,
+    view,
+  ]);
+
+  // Keep the active page in range as items are removed (triage, refetch).
+  useEffect(() => {
+    setCurrentPage((current) => clampEmailInboxPage(current, pageCount));
+  }, [pageCount]);
 
   const dispatchBrowserNotification = (item: InboxItem) => {
     if (typeof window === "undefined" || !("Notification" in window)) {
@@ -2176,46 +2289,6 @@ export function EmailInboxView({
       window.clearInterval(interval);
     };
   }, [view]);
-
-  const handleBrowserNotificationTest = async () => {
-    const currentPermission = getBrowserNotificationPermission();
-    if (currentPermission === "unsupported") {
-      updateStatus("Browser notifications are not supported here.");
-      return;
-    }
-
-    let nextPermission = currentPermission;
-
-    if (nextPermission === "default") {
-      nextPermission = await window.Notification.requestPermission();
-      setBrowserNotificationPermission(nextPermission);
-    } else {
-      setBrowserNotificationPermission(nextPermission);
-    }
-
-    if (nextPermission === "denied") {
-      updateStatus("Browser notifications are blocked in this browser.");
-      return;
-    }
-
-    if (nextPermission !== "granted") {
-      updateStatus("Browser notifications were not enabled.");
-      return;
-    }
-
-    const testItem = visibleInboxItems[0] || inboxItems[0] || null;
-
-    if (testItem) {
-      dispatchBrowserNotification(testItem);
-    } else {
-      new window.Notification("Email Inbox", {
-        body: "Browser notifications are enabled for Focus Forge.",
-        tag: "email-inbox-browser-test",
-      });
-    }
-
-    updateStatus("Browser notification sent.");
-  };
 
   const openMailboxCreateForm = () => {
     setEditingMailboxId(null);
@@ -3529,15 +3602,37 @@ export function EmailInboxView({
     <div className="min-w-0 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">
-            {isQuarantineView
-              ? "Quarantine"
-              : isSentView
-                ? "Sent"
-              : isTrashView
-                ? "Trash"
-                : "Email Inbox"}
-          </h1>
+          <div className="flex items-center gap-2.5">
+            {!isQuarantineView ? (
+              <div className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-2 py-1 text-xs font-medium">
+                <Tooltip content="Unread" className="w-auto" side="bottom">
+                  <span className="cursor-default text-[rgb(var(--theme-primary-rgb))]">
+                    {unreadInboxCount}
+                  </span>
+                </Tooltip>
+                <span className="text-zinc-600">/</span>
+                <Tooltip content="Total" className="w-auto" side="bottom">
+                  <span className="cursor-default text-zinc-400">
+                    {visibleInboxItems.length}
+                  </span>
+                </Tooltip>
+                {isRefreshing ? (
+                  <Tooltip content="Refreshing…" className="w-auto" side="bottom">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
+                  </Tooltip>
+                ) : null}
+              </div>
+            ) : null}
+            <h1 className="text-2xl font-bold">
+              {isQuarantineView
+                ? "Quarantine"
+                : isSentView
+                  ? "Sent"
+                : isTrashView
+                  ? "Trash"
+                  : "Email Inbox"}
+            </h1>
+          </div>
           <p className="mt-1 text-sm text-zinc-500">
             {isQuarantineView
               ? "Review suspected spam and decide what Fluid should do next."
@@ -3549,6 +3644,82 @@ export function EmailInboxView({
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {visibleInboxItems.length > 0 ? (
+            <div className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-1.5 py-1 text-xs text-zinc-400">
+              <Tooltip content="Previous page" className="w-auto" side="bottom">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCurrentPage((current) =>
+                      clampEmailInboxPage(current - 1, pageCount),
+                    )
+                  }
+                  disabled={safeCurrentPage <= 1}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+              </Tooltip>
+              <span className="whitespace-nowrap tabular-nums">
+                Page{" "}
+                <input
+                  type="number"
+                  min={1}
+                  max={pageCount}
+                  value={pageJumpInput || String(safeCurrentPage)}
+                  onChange={(event) => setPageJumpInput(event.target.value)}
+                  onFocus={() => setPageJumpInput(String(safeCurrentPage))}
+                  onBlur={() => {
+                    const next = clampEmailInboxPage(
+                      Number.parseInt(pageJumpInput, 10),
+                      pageCount,
+                    );
+                    setCurrentPage(next);
+                    setPageJumpInput("");
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  className="w-9 rounded-md border border-zinc-700 bg-zinc-950/70 px-1 py-0.5 text-center text-xs tabular-nums text-white focus:outline-none focus:ring-1 ring-theme [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  aria-label="Jump to page"
+                />{" "}
+                of {pageCount}
+              </span>
+              <Tooltip content="Next page" className="w-auto" side="bottom">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCurrentPage((current) =>
+                      clampEmailInboxPage(current + 1, pageCount),
+                    )
+                  }
+                  disabled={safeCurrentPage >= pageCount}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </Tooltip>
+              <span className="mx-0.5 h-4 w-px bg-zinc-700" aria-hidden />
+              <select
+                value={perPage}
+                onChange={(event) =>
+                  setPerPage(normalizeEmailInboxPerPage(event.target.value))
+                }
+                className="rounded-md border border-zinc-700 bg-zinc-950/70 py-0.5 pl-1 pr-5 text-xs tabular-nums text-zinc-200 focus:outline-none focus:ring-1 ring-theme"
+                aria-label="Emails per page"
+              >
+                {EMAIL_INBOX_PER_PAGE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}/page
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           {isTrashView ? (
             isEmptyTrashConfirmVisible ? (
               <>
@@ -3605,32 +3776,6 @@ export function EmailInboxView({
               </button>
             </Tooltip>
           ) : null}
-          <Tooltip
-            content={
-              browserNotificationPermission === "granted"
-                ? "Send Test Alert"
-                : browserNotificationPermission === "denied"
-                  ? "Alerts Blocked"
-                  : "Enable Alerts"
-            }
-            className="w-auto"
-            side="bottom"
-          >
-            <button
-              type="button"
-              onClick={handleBrowserNotificationTest}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
-              aria-label={
-                browserNotificationPermission === "granted"
-                  ? "Send Test Alert"
-                  : browserNotificationPermission === "denied"
-                    ? "Alerts Blocked"
-                    : "Enable Alerts"
-              }
-            >
-              <BellRing className="h-4 w-4" />
-            </button>
-          </Tooltip>
           <Tooltip content="AI + Spam" className="w-auto" side="bottom">
             <button
               type="button"
@@ -3695,28 +3840,24 @@ export function EmailInboxView({
         </div>
       ) : null}
 
-      {showMailboxForm ? (
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-          <div className="mb-4 flex items-start justify-between gap-4">
-            <div>
-              <div className="text-lg font-semibold text-white">
-                {isEditingMailbox ? "Update Mailbox" : "Connect Mailbox"}
-              </div>
-              <div className="mt-1 text-sm text-zinc-500">
-                {isEditingMailbox
-                  ? "Replace the mailbox password with a new App Password, then save to reconnect."
-                  : "Add a new mailbox connection for Fluid to sync and process."}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={closeMailboxForm}
-              className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
-            >
-              Cancel
-            </button>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <Dialog
+        open={showMailboxForm}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeMailboxForm();
+          }
+        }}
+      >
+        <DialogContent className="max-h-[92vh] w-[min(96vw,920px)] max-w-[96vw] overflow-y-auto border-zinc-800 bg-zinc-950 text-zinc-100">
+          <DialogTitle className="text-lg font-semibold text-white">
+            {isEditingMailbox ? "Update Mailbox" : "Connect Mailbox"}
+          </DialogTitle>
+          <DialogDescription className="text-sm text-zinc-500">
+            {isEditingMailbox
+              ? "Replace the mailbox password with a new App Password, then save to reconnect."
+              : "Add a new mailbox connection for Fluid to sync and process."}
+          </DialogDescription>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
             <Select
               value={mailboxForm.provider}
               onValueChange={(value) =>
@@ -3944,8 +4085,8 @@ export function EmailInboxView({
                   : "Save Mailbox"}
             </button>
           </div>
-        </div>
-      ) : null}
+        </DialogContent>
+      </Dialog>
 
       <div
         ref={splitContainerRef}
@@ -3953,112 +4094,107 @@ export function EmailInboxView({
         style={splitLayoutStyle}
       >
         <div className="min-w-0 space-y-3">
-          <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-400">
-                <div className="inline-flex items-center gap-2">
+          <div className="min-w-0">
+            {isQuarantineView || isTrashView ? (
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="inline-flex items-center gap-2 text-sm text-zinc-400">
                   {isQuarantineView ? (
                     <ShieldAlert className="h-4 w-4 text-amber-400" />
-                  ) : isTrashView ? (
-                    <Trash2 className="h-4 w-4 text-red-300" />
                   ) : (
-                    <Mail className="h-4 w-4" />
+                    <Trash2 className="h-4 w-4 text-red-300" />
                   )}
                 </div>
-                {!isQuarantineView ? (
-                  <div className="inline-flex items-center gap-1.5 text-xs font-medium">
-                    <Tooltip content="Unread" className="w-auto" side="bottom">
-                      <span className="cursor-default text-[rgb(var(--theme-primary-rgb))]">
-                        {unreadInboxCount}
-                      </span>
-                    </Tooltip>
-                    <span className="text-zinc-600">/</span>
-                    <Tooltip content="Total" className="w-auto" side="bottom">
-                      <span className="cursor-default text-zinc-400">
-                        {visibleInboxItems.length}
-                      </span>
-                    </Tooltip>
-                    {isRefreshing ? (
-                      <Tooltip
-                        content="Refreshing…"
-                        className="w-auto"
-                        side="bottom"
-                      >
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
-                      </Tooltip>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                {isQuarantineView ? (
-                  <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                    {quarantineCount} quarantined
-                  </div>
-                ) : isTrashView ? (
-                  <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                    {trashedThreadCount} in trash
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <div className="mb-3 rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-300">
-                    <Search className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-white">
-                      Search & Filters
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  {isQuarantineView ? (
+                    <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                      {quarantineCount} quarantined
                     </div>
-                    <div className="text-xs text-zinc-500">
-                      Search sender, subject, project, preview, or mailbox.
+                  ) : (
+                    <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                      {trashedThreadCount} in trash
                     </div>
-                  </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  {inboxSearchQuery.trim() ? (
-                    <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
-                      {visibleInboxItems.length} match
-                      {visibleInboxItems.length === 1 ? "" : "es"}
-                    </div>
-                  ) : null}
-                  <Tooltip content="Search help" className="w-auto" side="bottom">
-                    <button
-                      type="button"
-                      onClick={() => setIsSearchHelpDialogOpen(true)}
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-300 transition-colors hover:text-white"
-                      aria-label="Open search help"
-                    >
-                      <CircleHelp className="h-4 w-4" />
-                    </button>
-                  </Tooltip>
+              </div>
+            ) : null}
+            <div className="mb-3">
+              <div className="flex items-center gap-2">
+                <Tooltip
+                  content={
+                    isFilterBarCollapsed
+                      ? "Search & filters"
+                      : "Hide search & filters"
+                  }
+                  className="w-auto"
+                  side="bottom"
+                >
                   <button
                     type="button"
                     onClick={() =>
                       setIsFilterBarCollapsed((current) => !current)
                     }
-                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/80 px-3 text-sm text-zinc-300 transition-colors hover:text-white"
+                    className={cn(
+                      "relative inline-flex h-9 w-9 items-center justify-center rounded-xl border bg-zinc-900/80 text-zinc-300 transition-colors hover:text-white",
+                      isFilterBarCollapsed
+                        ? "border-zinc-800"
+                        : "border-[rgb(var(--theme-primary-rgb))]/45 text-white",
+                    )}
                     aria-expanded={!isFilterBarCollapsed}
                     aria-label={
                       isFilterBarCollapsed
-                        ? "Expand search and filters"
-                        : "Collapse search and filters"
+                        ? "Show search and filters"
+                        : "Hide search and filters"
                     }
                   >
-                    {isFilterBarCollapsed ? "Show" : "Hide"}
-                    <ChevronDown
-                      className={cn(
-                        "h-4 w-4 transition-transform",
-                        isFilterBarCollapsed ? "" : "rotate-180",
-                      )}
-                    />
+                    <SlidersHorizontal className="h-4 w-4" />
+                    {isFilterBarCollapsed && hasActiveFilters ? (
+                      <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1 text-[9px] font-semibold leading-none text-white">
+                        {activeFilterCount}
+                      </span>
+                    ) : null}
                   </button>
-                </div>
+                </Tooltip>
+                {isFilterBarCollapsed && inboxSearchQuery.trim() ? (
+                  <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                    {visibleInboxItems.length} match
+                    {visibleInboxItems.length === 1 ? "" : "es"}
+                  </div>
+                ) : null}
               </div>
-              {!isFilterBarCollapsed ? (
-                <div className="mt-3 space-y-3">
+              <div
+                className={cn(
+                  "grid transition-[grid-template-rows,opacity,margin] duration-300 ease-out",
+                  isFilterBarCollapsed
+                    ? "mt-0 grid-rows-[0fr] opacity-0"
+                    : "mt-2 grid-rows-[1fr] opacity-100",
+                )}
+                aria-hidden={isFilterBarCollapsed}
+              >
+                <div className="overflow-hidden">
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
+                    <div className="mb-3 flex items-center justify-end gap-2">
+                      {inboxSearchQuery.trim() ? (
+                        <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                          {visibleInboxItems.length} match
+                          {visibleInboxItems.length === 1 ? "" : "es"}
+                        </div>
+                      ) : null}
+                      <Tooltip
+                        content="Search help"
+                        className="w-auto"
+                        side="bottom"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setIsSearchHelpDialogOpen(true)}
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-300 transition-colors hover:text-white"
+                          aria-label="Open search help"
+                        >
+                          <CircleHelp className="h-4 w-4" />
+                        </button>
+                      </Tooltip>
+                    </div>
+                    <div className="space-y-3">
                   <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.8fr)_minmax(240px,0.9fr)]">
                     <div className="relative">
                       <FloatingFieldLabel label="Search inbox" />
@@ -4439,8 +4575,10 @@ export function EmailInboxView({
                       </div>
                     </div>
                   ) : null}
+                    </div>
+                  </div>
                 </div>
-              ) : null}
+              </div>
             </div>
             {isInboxView && spamScanProgress ? (
               <div className="mb-3 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-3">
@@ -4475,7 +4613,7 @@ export function EmailInboxView({
               </div>
             ) : !isInboxView || replyQueueTab === "threads" ? (
               <EmailWorkList
-                items={visibleInboxItems}
+                items={pagedInboxItems}
                 mailboxes={mailboxes}
                 projects={data.projects}
                 selectedId={selectedThreadId}
@@ -4501,6 +4639,28 @@ export function EmailInboxView({
                   })
                 }
                 onProjectPickerClose={closeInlineProjectPicker}
+                onForwardAttachment={(item, attachment) => {
+                  // One-click forward: seed the outbound composer with a
+                  // "Fwd:" subject, a brief forwarded-message note, and the
+                  // attachment itself. The composer fetches the attachment
+                  // binary from the streaming route and runs it through its
+                  // normal upload path, turning it into a real
+                  // Supabase-storage draft attachment.
+                  const subject = `Fwd: ${formatEmailSubject(item.subject)}`;
+                  const fileName = attachment.filename || "attachment";
+                  setOutboundComposerInitialDraft({
+                    subject,
+                    body: "<p><br></p><p>---------- Forwarded message ----------</p>",
+                    attachments: [
+                      {
+                        sourceUrl: attachment.url,
+                        name: fileName,
+                        mimeType: attachment.contentType,
+                      },
+                    ],
+                  });
+                  setIsOutboundComposerOpen(true);
+                }}
                 onThreadAction={(item, action) =>
                   handleInboxItemThreadAction(item, action)
                 }
@@ -5728,7 +5888,11 @@ export function EmailInboxView({
         projects={data.projects}
         signatures={emailSignatures}
         selectedMailboxId={selectedMailboxId}
-        onOpenChange={setIsOutboundComposerOpen}
+        initialDraft={outboundComposerInitialDraft}
+        onOpenChange={(open) => {
+          setIsOutboundComposerOpen(open);
+          if (!open) setOutboundComposerInitialDraft(null);
+        }}
         onSent={(result) => {
           void handleOutboundComposerSent(result);
         }}

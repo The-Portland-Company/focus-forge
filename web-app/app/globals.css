@@ -71,6 +71,37 @@
   }
 }
 
+/* ---------------------------------------------------------------------------
+   Content link underlines (inverse-hover)
+   Real "looks-like-a-link" anchors are underlined by default, and the
+   underline DISAPPEARS on hover. Scoped to main content areas only so the
+   sidebar nav, toolbars, and the many <Link>s that are styled as buttons /
+   nav rows (which live OUTSIDE <main>) are never underlined.
+
+   Exclusions inside <main>:
+   - anchors with a button-ish class (class*="btn")
+   - anchors with role="button"
+   - anchors carrying utility flex/inline-flex layout (i.e. visually a chip /
+     button / icon row, not running text)
+   - the .no-underline-link escape hatch
+   - prose/email rich-content links, which define their own link styling
+   --------------------------------------------------------------------------- */
+main a:not([class*="btn"]):not([role="button"]):not(.no-underline-link):not([class*="inline-flex"]):not([class*="flex"]) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+main a:not([class*="btn"]):not([role="button"]):not(.no-underline-link):not([class*="inline-flex"]):not([class*="flex"]):hover {
+  text-decoration: none;
+}
+
+/* Belt-and-suspenders: rich-content / email links keep their own decoration
+   regardless of the content-link rule above. */
+main .focus-forge-rich-content a,
+main .focus-forge-email-content a {
+  text-decoration: underline !important;
+}
+
 /* Drag and drop styles */
 .dragging {
   opacity: 0.5;
@@ -369,6 +400,50 @@ input[type="checkbox"]:focus {
 
 .theme-dark body {
   color: rgb(250 250 250); /* zinc-50 */
+}
+
+/* Neutral Theme — subtle zinc/neutral grays, no saturated brand color.
+   Layered on top of .theme-dark / .theme-light. Only overrides the theme
+   accent variables and a few accent-driven surfaces. Crucially it does NOT
+   touch org/project entity colors (those are applied via inline styles /
+   per-entity classes, never via --theme-primary). */
+.theme-neutral {
+  --theme-primary: #e4e4e7; /* zinc-200 */
+  --theme-gradient: #e4e4e7;
+  --theme-primary-rgb: 228, 228, 231;
+}
+
+.theme-neutral.theme-light,
+.light.theme-neutral {
+  --theme-primary: #3f3f46; /* zinc-700 */
+  --theme-gradient: #3f3f46;
+  --theme-primary-rgb: 63, 63, 70;
+}
+
+/* Primary buttons: the neutral accent is light, so flip the foreground to a
+   dark zinc and use a flat neutral surface instead of a saturated gradient. */
+.theme-neutral .btn-theme-primary,
+.theme-neutral .bg-theme-primary {
+  background: var(--theme-primary);
+  color: #18181b; /* zinc-900 */
+}
+
+.theme-neutral .btn-theme-primary:hover {
+  background: #f4f4f5; /* zinc-100 */
+  opacity: 1;
+}
+
+/* On light surfaces the neutral accent is dark, so use light text. */
+.theme-neutral.theme-light .btn-theme-primary,
+.light.theme-neutral .btn-theme-primary,
+.theme-neutral.theme-light .bg-theme-primary,
+.light.theme-neutral .bg-theme-primary {
+  color: #fafafa; /* zinc-50 */
+}
+
+.theme-neutral.theme-light .btn-theme-primary:hover,
+.light.theme-neutral .btn-theme-primary:hover {
+  background: #27272a; /* zinc-800 */
 }
 
 /* Liquid Glass Theme Base - Apple-inspired glassmorphism */

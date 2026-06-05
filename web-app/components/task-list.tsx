@@ -20,7 +20,7 @@ import {
   Square,
   CheckSquare,
   Loader2,
-  FileText,
+  AlignLeft,
   MessageCircle,
   Mail,
   StickyNote,
@@ -398,33 +398,18 @@ export function TaskList({
       const month = `${format(fallback, "MMM")}.`;
       const day = format(fallback, "do");
       const year = `'${format(fallback, "yy")}`;
-      const timePart = forceTime ? ` ${format(fallback, "h:mm a")}` : "";
-      return `${month} ${day} ${year}${timePart}`;
+      // Midnight is treated as "no time set" — suppress the time part.
+      return `${month} ${day} ${year}`;
     }
 
     const month = `${format(parsed, "MMM")}.`;
     const day = format(parsed, "do");
     const year = `'${format(parsed, "yy")}`;
-    const timePart = hasTime ? ` ${format(parsed, "h:mm a")}` : "";
+    // Suppress time display when it's exactly midnight (00:00) — our convention
+    // for "no time set" — even if forceTime was requested.
+    const isMidnight = parsed.getHours() === 0 && parsed.getMinutes() === 0;
+    const timePart = hasTime && !isMidnight ? ` ${format(parsed, "h:mm a")}` : "";
     return `${month} ${day} ${year}${timePart}`;
-  };
-
-  // Returns badge styling for due date
-  const getDueDateStyle = (date: string): { className: string } => {
-    // Handle both YYYY-MM-DD and ISO timestamp formats
-    const dateOnly = date.includes("T") ? date.split("T")[0] : date;
-    const overdueColor = getOverdueColor(dateOnly);
-    if (overdueColor) {
-      return {
-        className: "bg-red-500/20 text-red-200 border border-red-500/30",
-      };
-    } else if (isToday(dateOnly)) {
-      return {
-        className:
-          "bg-orange-500/20 text-orange-200 border border-orange-500/30",
-      };
-    }
-    return { className: "bg-zinc-800 text-zinc-300 border border-zinc-700" };
   };
 
   const hasChildren = useCallback(
@@ -576,19 +561,31 @@ export function TaskList({
       const dd = (task as any).due_date || task.dueDate;
       const dt = (task as any).due_time || task.dueTime;
       if (!dd) return null;
-      const dateStyle = getDueDateStyle(dd);
       const formatted = formatFullDueDate(dd, dt || undefined, true);
-      const uniformBadgeClass =
-        uniformDueBadgeWidth && dueDateLayout === "inline"
-          ? "w-[160px] justify-center"
-          : "";
+      // Overdue urgency stays visible via a red icon even when the date text
+      // is hidden behind hover.
+      const ddOnly = dd.includes("T") ? dd.split("T")[0] : dd;
+      const isOverdueDate = !!getOverdueColor(ddOnly);
+      const iconColorClass = isOverdueDate
+        ? "text-red-400"
+        : isToday(ddOnly)
+          ? "text-orange-300"
+          : "text-zinc-400";
+      // Date text is collapsed by default and revealed on row/badge hover via a
+      // max-width transition (no layout shift for surrounding content).
+      const revealText = (
+        <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:max-w-[200px] group-hover:opacity-100 group-hover/datebadge:max-w-[200px] group-hover/datebadge:opacity-100">
+          {formatted}
+        </span>
+      );
       if (!enableDueDateQuickEdit || !onTaskUpdate) {
         return (
           <span
-            className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full flex-shrink-0 ${uniformBadgeClass} ${dateStyle.className}`}
+            className="group/datebadge flex items-center gap-1 text-[11px] flex-shrink-0"
+            title={formatted}
           >
-            <Calendar className="w-3.5 h-3.5" />
-            <span className="whitespace-nowrap">{formatted}</span>
+            <Calendar className={`w-3.5 h-3.5 ${iconColorClass}`} />
+            {revealText}
           </span>
         );
       }
@@ -608,11 +605,12 @@ export function TaskList({
             <button
               type="button"
               onClick={(e) => e.stopPropagation()}
-              className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full flex-shrink-0 ${uniformBadgeClass} ${dateStyle.className}`}
+              className="group/datebadge flex items-center gap-1 text-[11px] flex-shrink-0"
               aria-label="Edit due date"
+              title={formatted}
             >
-              <Calendar className="w-3.5 h-3.5" />
-              <span className="whitespace-nowrap">{formatted}</span>
+              <Calendar className={`w-3.5 h-3.5 ${iconColorClass}`} />
+              {revealText}
             </button>
           </Popover.Trigger>
           <Popover.Portal>
@@ -731,6 +729,38 @@ export function TaskList({
         }`}
         style={{ paddingLeft: `${16 + indentLevel * 24}px` }}
       >
+        {/* Fixed-width expander slot (far left) — always reserved so parent and
+            non-parent rows align identically with zero layout shift. */}
+        <div className="flex w-4 flex-shrink-0 items-center justify-center">
+          {hasSubtasks ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setCollapsedTasks((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(task.id)) {
+                    next.delete(task.id);
+                  } else {
+                    next.add(task.id);
+                  }
+                  return next;
+                });
+              }}
+              className="relative group/expand text-zinc-400 hover:text-zinc-300 transition-colors"
+              aria-label={isCollapsed ? "Show subtasks" : "Hide subtasks"}
+            >
+              {isCollapsed ? (
+                <ChevronRight className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+              <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/expand:opacity-100 transition-opacity pointer-events-none z-50">
+                {isCollapsed ? "Show subtasks" : "Hide subtasks"}
+              </span>
+            </button>
+          ) : null}
+        </div>
+
         <div className="relative flex flex-shrink-0 items-center justify-center">
           <span className="relative group/copyid flex items-center justify-center">
             <button
@@ -771,33 +801,6 @@ export function TaskList({
               )}
             </button>
           ))}
-
-        {hasSubtasks && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setCollapsedTasks((prev) => {
-                const next = new Set(prev);
-                if (next.has(task.id)) {
-                  next.delete(task.id);
-                } else {
-                  next.add(task.id);
-                }
-                return next;
-              });
-            }}
-            className="relative group/expand text-zinc-400 hover:text-zinc-300 transition-colors -mr-1.5"
-          >
-            {isCollapsed ? (
-              <ChevronRight className="w-4 h-4" />
-            ) : (
-              <ChevronDown className="w-4 h-4" />
-            )}
-            <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/expand:opacity-100 transition-opacity pointer-events-none z-50">
-              {isCollapsed ? "Show subtasks" : "Hide subtasks"}
-            </span>
-          </button>
-        )}
 
         <button
           onClick={() => {
@@ -901,35 +904,55 @@ export function TaskList({
                     </span>
                   </div>
                   {task.description &&
-                    (showDescriptions ||
-                    expandedDescriptions.has(task.id) ? (
-                      <div className="relative group/desc">
-                        <div className="text-xs text-zinc-500 line-clamp-2 text-left">
-                          {task.description}
+                    (() => {
+                      const isDescOpen =
+                        showDescriptions ||
+                        expandedDescriptions.has(task.id);
+                      return (
+                        <div className="flex flex-col">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedDescriptions((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(task.id)) {
+                                  next.delete(task.id);
+                                } else {
+                                  next.add(task.id);
+                                }
+                                return next;
+                              });
+                            }}
+                            className="flex w-fit items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                            aria-label={
+                              isDescOpen ? "Hide description" : "Show description"
+                            }
+                            aria-expanded={isDescOpen}
+                          >
+                            <AlignLeft className="h-3 w-3" />
+                            <ChevronDown
+                              className={`h-3 w-3 transition-transform duration-200 ${
+                                isDescOpen ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+                          {/* Animated slide-down reveal via grid-rows transition */}
+                          <div
+                            className={`grid transition-all duration-200 ease-out ${
+                              isDescOpen
+                                ? "grid-rows-[1fr] opacity-100 mt-1"
+                                : "grid-rows-[0fr] opacity-0"
+                            }`}
+                          >
+                            <div className="overflow-hidden">
+                              <div className="text-xs text-zinc-400 text-left">
+                                {renderRichDescription(task.description)}
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <div className="absolute left-0 bottom-full z-50 mb-1 hidden w-[28rem] max-w-[80vw] max-h-80 overflow-auto rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-xs text-zinc-200 shadow-xl group-hover/desc:block">
-                          {renderRichDescription(task.description)}
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setExpandedDescriptions((prev) => {
-                            const next = new Set(prev);
-                            next.add(task.id);
-                            return next;
-                          });
-                        }}
-                        className="relative group/descbtn flex w-fit items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300"
-                      >
-                        <FileText className="h-3 w-3" />
-                        <span>Show description</span>
-                        <span className="absolute left-0 bottom-full z-50 mb-1 hidden w-[28rem] max-w-[80vw] max-h-80 overflow-auto rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-left text-xs text-zinc-200 shadow-xl group-hover/descbtn:block">
-                          {renderRichDescription(task.description)}
-                        </span>
-                      </button>
-                    ))}
+                      );
+                    })()}
                   {dueDateLayout === "below" && dueDateBadge && (
                     <div className="mt-1">{dueDateBadge}</div>
                   )}

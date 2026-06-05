@@ -48,6 +48,24 @@ type ComposerAttachment = EmailReplyDraftAttachment & {
   isImage?: boolean;
 };
 
+type InitialDraftAttachment = {
+  /**
+   * Source URL to fetch the binary from (e.g. the thread attachment streaming
+   * route `/api/email/messages/{messageId}/attachments/{index}`). The composer
+   * fetches this as a blob client-side and runs it through the normal upload
+   * path so it becomes a real Supabase-storage draft attachment.
+   */
+  sourceUrl: string;
+  name: string;
+  mimeType?: string | null;
+};
+
+export type EmailComposerInitialDraft = {
+  subject?: string;
+  body?: string;
+  attachments?: InitialDraftAttachment[];
+};
+
 type EmailOutboundComposerModalProps = {
   open: boolean;
   mailboxes: Mailbox[];
@@ -57,6 +75,7 @@ type EmailOutboundComposerModalProps = {
   onOpenChange: (open: boolean) => void;
   onSent?: (result: { mailboxId: string; threadId?: string | null }) => void;
   onScheduled?: (draft: EmailOutboundDraft) => void;
+  initialDraft?: EmailComposerInitialDraft | null;
 };
 
 function parseRecipientAddress(value: string): EmailReplyAddress | null {
@@ -93,6 +112,7 @@ export function EmailOutboundComposerModal({
   onOpenChange,
   onSent,
   onScheduled,
+  initialDraft,
 }: EmailOutboundComposerModalProps) {
   const [draftId, setDraftId] = useState<string | null>(null);
   const [mailboxId, setMailboxId] = useState("");
@@ -110,6 +130,9 @@ export function EmailOutboundComposerModal({
   const [busyState, setBusyState] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  // While true, an initialDraft attachment is being copied in (fetch blob +
+  // upload). Send/Schedule stay disabled until it lands or fails-with-notice.
+  const [importingAttachment, setImportingAttachment] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const applicableSignatures = useMemo(
@@ -140,10 +163,14 @@ export function EmailOutboundComposerModal({
       setBusyState(null);
       setErrorMessage(null);
       setStatusMessage(null);
+      setImportingAttachment(false);
       return;
     }
 
     setMailboxId(selectedMailboxId !== "all" ? selectedMailboxId : "");
+    setSubject(initialDraft?.subject ?? "");
+    setContent(initialDraft?.body ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectedMailboxId]);
 
   useEffect(() => {
@@ -151,6 +178,67 @@ export function EmailOutboundComposerModal({
     const defaultSignature = getDefaultEmailSignature(signatures, mailboxId || null);
     setSelectedSignatureId(defaultSignature?.id || null);
   }, [mailboxId, open, signatures]);
+
+  // Import any pre-populated attachments (e.g. a forwarded thread attachment).
+  // The binary lives behind the streaming download route, so we fetch it as a
+  // blob, wrap it in a File, and run it through the normal upload path — turning
+  // it into a real Supabase-storage draft attachment with no server duplication.
+  useEffect(() => {
+    if (!open) return;
+    const sources = initialDraft?.attachments;
+    if (!sources || sources.length === 0) return;
+
+    let cancelled = false;
+    setImportingAttachment(true);
+    setErrorMessage(null);
+    setStatusMessage(
+      sources.length === 1
+        ? `Attaching "${sources[0].name}"…`
+        : `Attaching ${sources.length} files…`,
+    );
+
+    (async () => {
+      try {
+        const imported: ComposerAttachment[] = [];
+        for (const source of sources) {
+          const response = await fetch(source.sourceUrl, {
+            credentials: "include",
+          });
+          if (!response.ok) {
+            throw new Error(`Failed to fetch "${source.name}"`);
+          }
+          const blob = await response.blob();
+          const file = new File([blob], source.name, {
+            type: source.mimeType || blob.type || "application/octet-stream",
+          });
+          imported.push(await uploadFile(file));
+        }
+        if (cancelled) return;
+        setAttachments((current) => [...current, ...imported]);
+        setStatusMessage(
+          imported.length === 1
+            ? `Attached "${imported[0].name}".`
+            : `Attached ${imported.length} files.`,
+        );
+      } catch (error) {
+        if (cancelled) return;
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Failed to attach forwarded file",
+        );
+        setStatusMessage(null);
+      } finally {
+        if (!cancelled) setImportingAttachment(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Seed once per open; initialDraft identity is stable per open from caller.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const selectedMailbox =
     mailboxes.find((mailbox) => mailbox.id === mailboxId) || null;
@@ -209,6 +297,40 @@ export function EmailOutboundComposerModal({
     return result as EmailOutboundDraft;
   };
 
+  // Uploads a single File through the shared attachment upload route and maps
+  // the response into a ComposerAttachment. Reused by the file picker and by the
+  // forward-attachment import (which fetches a blob and wraps it in a File).
+  const uploadFile = async (file: File): Promise<ComposerAttachment> => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch("/api/attachments/upload", {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload.error || `Failed to upload ${file.name}`);
+    }
+
+    return {
+      id: payload.id,
+      name: payload.name,
+      url: payload.url,
+      type: payload.type,
+      sizeBytes: payload.size_bytes,
+      mimeType: payload.mime_type,
+      storageProvider: payload.storage_provider,
+      inline: false,
+      isImage: file.type.startsWith("image/"),
+      previewUrl: file.type.startsWith("image/")
+        ? URL.createObjectURL(file)
+        : null,
+    };
+  };
+
   const handleFilesAdded = async (files: File[]) => {
     if (files.length === 0 || busyState === "upload") return;
 
@@ -219,34 +341,7 @@ export function EmailOutboundComposerModal({
       const uploadedAttachments: ComposerAttachment[] = [];
 
       for (const file of files) {
-        const formData = new FormData();
-        formData.append("file", file);
-
-        const response = await fetch("/api/attachments/upload", {
-          method: "POST",
-          body: formData,
-          credentials: "include",
-        });
-        const payload = await response.json();
-
-        if (!response.ok) {
-          throw new Error(payload.error || `Failed to upload ${file.name}`);
-        }
-
-        uploadedAttachments.push({
-          id: payload.id,
-          name: payload.name,
-          url: payload.url,
-          type: payload.type,
-          sizeBytes: payload.size_bytes,
-          mimeType: payload.mime_type,
-          storageProvider: payload.storage_provider,
-          inline: false,
-          isImage: file.type.startsWith("image/"),
-          previewUrl: file.type.startsWith("image/")
-            ? URL.createObjectURL(file)
-            : null,
-        });
+        uploadedAttachments.push(await uploadFile(file));
       }
 
       setAttachments((current) => [...current, ...uploadedAttachments]);
@@ -520,6 +615,7 @@ export function EmailOutboundComposerModal({
                 disabled={
                   busyState === "schedule" ||
                   busyState === "upload" ||
+                  importingAttachment ||
                   !mailboxId ||
                   !hasRichTextContent(content)
                 }
@@ -538,6 +634,7 @@ export function EmailOutboundComposerModal({
                 disabled={
                   busyState === "send" ||
                   busyState === "upload" ||
+                  importingAttachment ||
                   !mailboxId ||
                   !hasRichTextContent(content)
                 }

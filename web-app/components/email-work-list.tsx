@@ -19,7 +19,13 @@ import {
   Trash2,
   Wand2,
 } from "lucide-react";
+import { Paperclip } from "lucide-react";
 import { SnoozePopover } from "@/components/snooze-popover";
+import { EmailAttachmentLightbox } from "@/components/email-attachment-lightbox";
+import {
+  collectThreadAttachments,
+  type ThreadAttachment,
+} from "@/lib/email-inbox/attachments";
 import { Tooltip } from "@/components/tooltip";
 import { EmailHtmlContent } from "@/components/ui/email-html-content";
 import { stripQuotedAndSignature } from "@/lib/email-inbox/strip-quoted";
@@ -73,6 +79,13 @@ type EmailWorkListProps = {
   ) => Promise<void> | void;
   showTodayTriageActions?: boolean;
   emptyLabel?: string;
+  /**
+   * Forward a single attachment from the lightbox. Optional — when omitted the
+   * Forward action is hidden. The compose/forward pipeline lives in
+   * email-inbox-view (off-limits to this component), so it must wire this prop
+   * to open its outbound composer pre-populated with the attachment.
+   */
+  onForwardAttachment?: (item: InboxItem, attachment: ThreadAttachment) => void;
 };
 
 /** Thread timestamp shown on inbox rows, e.g. "Jan. 1st, 2026 2:01 PM".
@@ -545,6 +558,7 @@ export function EmailWorkList({
   onThreadAction,
   showTodayTriageActions = false,
   emptyLabel = "No email work yet.",
+  onForwardAttachment,
 }: EmailWorkListProps) {
   const [linkedTasksThreadTitle, setLinkedTasksThreadTitle] = useState("");
   const [linkedTasks, setLinkedTasks] = useState<LinkedTaskSummary[]>([]);
@@ -605,6 +619,51 @@ export function EmailWorkList({
       }
     })();
   };
+  // Attachment lightbox. The inbox payload does not carry attachments, so we
+  // lazy-fetch the full thread (same /api/email/threads/{id} endpoint used by
+  // the hover preview and modal) and flatten its attachments. Results are
+  // cached per thread id and reused by both the paperclip badge and the
+  // gallery.
+  const attachmentCacheRef = useRef<
+    Map<string, ThreadAttachment[] | "loading" | "error">
+  >(new Map());
+  const [, setAttachmentCacheVersion] = useState(0);
+  const [lightboxThread, setLightboxThread] = useState<{
+    threadId: string;
+    title: string;
+  } | null>(null);
+
+  const ensureThreadAttachments = (threadId: string) => {
+    const cache = attachmentCacheRef.current;
+    const existing = cache.get(threadId);
+    if (existing !== undefined) return;
+
+    cache.set(threadId, "loading");
+    setAttachmentCacheVersion((value) => value + 1);
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/email/threads/${threadId}`, {
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error("Failed to load attachments");
+        const payload = (await response.json()) as {
+          conversation?: ConversationEntry[];
+        };
+        cache.set(threadId, collectThreadAttachments(payload.conversation));
+      } catch {
+        cache.set(threadId, "error");
+      } finally {
+        setAttachmentCacheVersion((value) => value + 1);
+      }
+    })();
+  };
+
+  const getCachedAttachments = (
+    threadId: string,
+  ): ThreadAttachment[] | "loading" | "error" | undefined =>
+    attachmentCacheRef.current.get(threadId);
+
   // Task E: AI task-generation modal state.
   const [taskGenItem, setTaskGenItem] = useState<InboxItem | null>(null);
   const [taskGenPhase, setTaskGenPhase] = useState<
@@ -730,12 +789,19 @@ export function EmailWorkList({
         const reviewBadgeLabel = getInboxReviewBadgeLabel(item);
         const canMoveToQuarantine =
           reviewState === "spam" && item.status !== "quarantine";
+        // Lazily-resolved attachments for the paperclip badge + lightbox.
+        const cachedAttachments = getCachedAttachments(item.id);
+        const attachmentCount = Array.isArray(cachedAttachments)
+          ? cachedAttachments.length
+          : 0;
 
         return (
           <div
             key={item.id}
             role="button"
             tabIndex={0}
+            onMouseEnter={() => ensureThreadAttachments(item.id)}
+            onFocus={() => ensureThreadAttachments(item.id)}
             onClick={() => onSelect?.(item)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
@@ -1102,6 +1168,28 @@ export function EmailWorkList({
                     {Math.round(item.actionConfidence * 100)}% confidence
                   </span>
                 ) : null}
+                {attachmentCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setLightboxThread({
+                        threadId: item.id,
+                        title: formatEmailSubject(item.subject),
+                      });
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-zinc-800/70 hover:text-white"
+                    aria-label={`${attachmentCount} attachment${
+                      attachmentCount === 1 ? "" : "s"
+                    }`}
+                    title={`${attachmentCount} attachment${
+                      attachmentCount === 1 ? "" : "s"
+                    }`}
+                  >
+                    <Paperclip className="h-3.5 w-3.5" />
+                    {attachmentCount}
+                  </button>
+                ) : null}
                 {/* Thread timestamp, pushed to the right of the metadata row */}
                 {(() => {
                   const tsSource =
@@ -1434,6 +1522,35 @@ export function EmailWorkList({
           ) : null}
         </DialogContent>
       </Dialog>
+
+      {lightboxThread
+        ? (() => {
+            const cached = getCachedAttachments(lightboxThread.threadId);
+            const attachments = Array.isArray(cached) ? cached : [];
+            return (
+              <EmailAttachmentLightbox
+                open
+                title={lightboxThread.title}
+                attachments={attachments}
+                loading={cached === "loading" || cached === undefined}
+                error={cached === "error" ? "Failed to load attachments." : null}
+                onClose={() => setLightboxThread(null)}
+                onForward={
+                  onForwardAttachment
+                    ? (attachment) => {
+                        const item = items.find(
+                          (candidate) => candidate.id === lightboxThread.threadId,
+                        );
+                        if (item) {
+                          onForwardAttachment(item, attachment);
+                        }
+                      }
+                    : undefined
+                }
+              />
+            );
+          })()
+        : null}
     </>
   );
 }

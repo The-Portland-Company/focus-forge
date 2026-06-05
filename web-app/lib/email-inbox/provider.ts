@@ -333,6 +333,36 @@ export async function fetchMailboxMessages(
   }
 }
 
+export type MailboxStorageQuota = {
+  used: number;
+  total: number;
+};
+
+/**
+ * Fetch storage usage for a mailbox via the IMAP QUOTA extension (RFC 2087).
+ * Returns null when the server does not advertise QUOTA or reports no storage
+ * limit (common for Gmail, which does not expose per-account quota over IMAP).
+ */
+export async function fetchMailboxStorageQuota(
+  mailbox: MailboxTransportRow,
+): Promise<MailboxStorageQuota | null> {
+  return await withImapClient(mailbox, async (client) => {
+    try {
+      const quota = await client.getQuota(mailbox.sync_folder || "INBOX");
+      if (!quota || typeof quota === "boolean") return null;
+      const storage = (quota as any).storage;
+      const used = Number(storage?.used);
+      const total = Number(storage?.limit);
+      if (!Number.isFinite(used) || !Number.isFinite(total) || total <= 0) {
+        return null;
+      }
+      return { used, total };
+    } catch {
+      return null;
+    }
+  });
+}
+
 export async function fetchMailboxMessageReadStates(
   mailbox: MailboxTransportRow,
   providerMessageIds: string[],
