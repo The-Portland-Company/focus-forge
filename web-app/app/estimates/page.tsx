@@ -93,7 +93,8 @@ export default function EstimatesPage() {
   );
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-10">
+    <div className="min-h-screen bg-zinc-950 text-white">
+      <div className="max-w-3xl mx-auto px-6 py-10">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <div className="inline-flex items-center gap-2 text-zinc-400 text-sm mb-2">
@@ -341,6 +342,7 @@ export default function EstimatesPage() {
         }}
         batchSize={20}
       />
+      </div>
     </div>
   );
 }
