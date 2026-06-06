@@ -868,13 +868,13 @@ export function TaskList({
           className="flex-1 min-w-0 cursor-pointer"
           onClick={() => onTaskEdit(task)}
         >
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center justify-between gap-2">
             <div className="flex-1 min-w-0">
-              <div className="flex items-start gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
                 {dueDateLayout === "inline" && dueDateBadge}
                 <div className="flex flex-col gap-1 min-w-0 flex-1">
                   <div
-                    className={`flex items-start gap-1.5 text-left text-sm leading-5 ${
+                    className={`flex items-center gap-1.5 text-left text-sm leading-5 ${
                       isDeleting
                         ? "line-through text-red-400"
                         : isCompleted
@@ -886,17 +886,17 @@ export function TaskList({
                   >
                     {(isLoading || isDeleting) && (
                       <Loader2
-                        className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin ${
+                        className={`h-3.5 w-3.5 flex-shrink-0 animate-spin ${
                           isDeleting ? "text-red-400" : "text-zinc-400"
                         }`}
                       />
                     )}
                     {isSaving && (
-                      <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin text-[rgb(var(--theme-primary-rgb))]" />
+                      <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-[rgb(var(--theme-primary-rgb))]" />
                     )}
                     {!isSaving && isRecentlySaved && (
                       <CheckCircle2
-                        className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-green-500 transition-opacity duration-1000 ease-out opacity-0"
+                        className="h-3.5 w-3.5 flex-shrink-0 text-green-500 transition-opacity duration-1000 ease-out opacity-0"
                         style={{ animation: "task-save-check-fade 3s ease-out forwards" }}
                       />
                     )}
@@ -914,7 +914,7 @@ export function TaskList({
                             return next;
                           });
                         }}
-                        className="mt-0.5 flex flex-shrink-0 items-center text-zinc-500 hover:text-zinc-300 transition-colors"
+                        className="flex flex-shrink-0 items-center text-zinc-500 hover:text-zinc-300 transition-colors"
                         aria-label={
                           showDescriptions || expandedDescriptions.has(task.id)
                             ? "Hide description"
