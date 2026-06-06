@@ -16,11 +16,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Flag,
+  FolderX,
   Loader2,
   Repeat,
   Sparkles,
   Trash2,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
 interface UnestimatedTask {
   id: string;
@@ -28,6 +30,7 @@ interface UnestimatedTask {
   description?: string | null;
   priority?: number | null;
   dueDate?: string | null;
+  projectId?: string | null;
   projectName?: string | null;
   organizationName?: string | null;
   tags?: string[];
@@ -101,6 +104,11 @@ export function EstimateReviewModal({
   const [delThis, setDelThis] = useState(true);
   const [delFuture, setDelFuture] = useState(false);
   const [delPast, setDelPast] = useState(false);
+
+  // Project delete flow state
+  const [confirmDeleteProjectOpen, setConfirmDeleteProjectOpen] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
+  const [projectNameConfirm, setProjectNameConfirm] = useState("");
 
   const current = tasks[index];
   const currentSuggestion = current ? suggestions[current.id] : undefined;
@@ -346,12 +354,64 @@ export function EstimateReviewModal({
     }
   }, [current, delThis, delFuture, delPast, dropCurrent]);
 
+  // Open the project-delete confirmation (type-to-confirm).
+  const requestDeleteProject = useCallback(() => {
+    if (!current?.projectId) return;
+    setProjectNameConfirm("");
+    setConfirmDeleteProjectOpen(true);
+  }, [current]);
+
+  // Soft-delete the whole project (and its tasks) via the trash/soft-delete path,
+  // then drop all of that project's tasks from the local queue.
+  const softDeleteProject = useCallback(async () => {
+    if (!current?.projectId) return;
+    const projectId = current.projectId;
+    setDeletingProject(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || `Delete failed (${res.status})`);
+      }
+      // Remove every queued task belonging to the deleted project.
+      setTasks((prev) => {
+        const removedIds = new Set(
+          prev.filter((t) => t.projectId === projectId).map((t) => t.id)
+        );
+        setSuggestions((s) => {
+          const next = { ...s };
+          for (const id of removedIds) delete next[id];
+          return next;
+        });
+        const remaining = prev.filter((t) => t.projectId !== projectId);
+        // Keep the index valid against the shrunken list.
+        setIndex((i) => Math.max(0, Math.min(i, remaining.length - 1)));
+        return remaining;
+      });
+      setValue(null);
+      setConfirmDeleteProjectOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeletingProject(false);
+    }
+  }, [current]);
+
+  const projectConfirmMatches =
+    Boolean(current?.projectName) &&
+    projectNameConfirm.trim() === (current?.projectName ?? "").trim();
+
   // Keyboard shortcuts: Enter saves, S skips, Esc closes, "U" uses AI suggestion.
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
       // Don't steal keys while a delete confirmation is open.
-      if (confirmDeleteOpen || recurringDeleteOpen) return;
+      if (confirmDeleteOpen || recurringDeleteOpen || confirmDeleteProjectOpen)
+        return;
       if (e.target && (e.target as HTMLElement).tagName === "INPUT") {
         // Let Enter still save when focused in the minute input.
         if (e.key === "Enter") {
@@ -386,6 +446,7 @@ export function EstimateReviewModal({
     index,
     confirmDeleteOpen,
     recurringDeleteOpen,
+    confirmDeleteProjectOpen,
   ]);
 
   // When we run off the end of the batch, close out.
@@ -527,19 +588,37 @@ export function EstimateReviewModal({
 
             {/* Actions */}
             <div className="flex items-center justify-between pt-2">
-              {/* Destructive: delete the current task */}
-              <button
-                type="button"
-                onClick={requestDelete}
-                disabled={saving || deleting}
-                className="group relative rounded-md border border-red-500/40 bg-red-500/10 p-1.5 text-red-400 transition-colors hover:border-red-500/70 hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
-                aria-label="Delete task"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 whitespace-nowrap rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
-                  {isRecurring ? "Delete recurring task" : "Delete task"}
-                </span>
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Destructive: delete the current task */}
+                <button
+                  type="button"
+                  onClick={requestDelete}
+                  disabled={saving || deleting || deletingProject}
+                  className="group relative rounded-md border border-red-500/40 bg-red-500/10 p-1.5 text-red-400 transition-colors hover:border-red-500/70 hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
+                  aria-label="Delete task"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 whitespace-nowrap rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+                    {isRecurring ? "Delete recurring task" : "Delete task"}
+                  </span>
+                </button>
+
+                {/* Destructive: delete the associated project */}
+                {current.projectId && (
+                  <button
+                    type="button"
+                    onClick={requestDeleteProject}
+                    disabled={saving || deleting || deletingProject}
+                    className="group relative rounded-md border border-red-500/40 bg-red-500/10 p-1.5 text-red-400 transition-colors hover:border-red-500/70 hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
+                    aria-label="Delete project"
+                  >
+                    <FolderX className="w-4 h-4" />
+                    <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 whitespace-nowrap rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+                      Delete project
+                    </span>
+                  </button>
+                )}
+              </div>
 
               <div className="flex items-center gap-2">
                 <button
@@ -712,6 +791,75 @@ export function EstimateReviewModal({
               className="bg-red-500 hover:bg-red-600 text-white"
             >
               {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Project delete: type-to-confirm */}
+      <Dialog
+        open={confirmDeleteProjectOpen}
+        onOpenChange={(o) => !deletingProject && setConfirmDeleteProjectOpen(o)}
+      >
+        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white">Delete project?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-zinc-400">
+              This will delete{" "}
+              <span className="font-semibold text-zinc-100">
+                {current?.projectName}
+              </span>{" "}
+              and all of its tasks. Everything is moved to Trash and can be
+              restored from there.
+            </p>
+            <div className="space-y-1.5">
+              <label className="text-xs text-zinc-400">
+                Type{" "}
+                <span className="font-mono text-zinc-200">
+                  &quot;{current?.projectName}&quot;
+                </span>{" "}
+                to confirm
+              </label>
+              <Input
+                autoFocus
+                value={projectNameConfirm}
+                onChange={(e) => setProjectNameConfirm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && projectConfirmMatches && !deletingProject) {
+                    e.preventDefault();
+                    softDeleteProject();
+                  }
+                }}
+                disabled={deletingProject}
+                placeholder={current?.projectName ?? ""}
+                className="bg-zinc-950/60 border-zinc-700 text-zinc-100"
+              />
+            </div>
+            {error && <div className="text-xs text-red-400">{error}</div>}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmDeleteProjectOpen(false)}
+              disabled={deletingProject}
+              className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={softDeleteProject}
+              disabled={deletingProject || !projectConfirmMatches}
+              className="bg-red-500 hover:bg-red-600 text-white"
+            >
+              {deletingProject ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                "Delete project"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
