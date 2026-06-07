@@ -407,3 +407,10 @@ CREATE POLICY "Users can insert their own preferences" ON user_preferences
 -- Functions: log_entity_event() trigger, soft_delete_entity(), restore_entity().
 -- See that migration file for the canonical DDL (kept in one place to avoid drift).
 -- ============================================================================
+
+-- ============================================================================
+-- AI MEMORY (retrieval memory + playbooks + decision traces)
+-- Applied via supabase/migrations/20260607000000_ai_memory.sql (canonical DDL).
+-- Tables: ai_memory_events, ai_memories (pgvector embedding), ai_playbooks,
+-- ai_decision_traces. RPC: match_ai_memories(). RLS: own-user + org-scoped.
+-- ============================================================================

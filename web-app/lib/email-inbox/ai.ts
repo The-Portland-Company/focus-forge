@@ -23,6 +23,9 @@ export type EmailThreadAIInput = {
     name: string;
     description?: string | null;
   }>;
+  // Optional AI-memory context blocks appended to the system prompt.
+  memoryBlock?: string;
+  playbookBlock?: string;
 };
 
 export type EmailThreadAIOutput = {
@@ -905,7 +908,7 @@ ${
   input.preventSpamClassification
     ? "A user rule already decided this sender must not be treated as spam. Do not return spam or quarantine."
     : ""
-}`,
+}${input.playbookBlock ? `\n\n${input.playbookBlock}` : ""}${input.memoryBlock ? `\n\n${input.memoryBlock}` : ""}`,
         },
         {
           role: "user",

@@ -7,6 +7,14 @@ import {
   getAuthorizedProject,
   validatePlanDraftQuality,
 } from "@/lib/ai-planner/persistence";
+import { getAdminClient } from "@/lib/supabase/admin";
+import { retrieveRelevantAIMemory } from "@/lib/ai-memory/retrieval";
+import { getLatestActivePlaybook } from "@/lib/ai-memory/playbook";
+import {
+  buildAIMemoryPromptBlock,
+  buildPlaybookPromptBlock,
+} from "@/lib/ai-memory/prompt";
+import { recordDecisionTrace } from "@/lib/ai-memory/trace";
 
 export async function POST(request: NextRequest) {
   try {
@@ -134,11 +142,64 @@ export async function POST(request: NextRequest) {
       }))
       .filter((msg: any) => msg.content.trim().length > 0);
 
+    // Retrieve AI-memory precedents + playbook (best-effort).
+    const memoryInputText = `Project: ${project.name}\n${message}`.slice(
+      0,
+      4000,
+    );
+    let memoryBlock = "";
+    let playbookBlock = "";
+    let selectedMemoryIds: string[] = [];
+    let selectedPlaybookId: string | null = null;
+    try {
+      const memAdmin = getAdminClient();
+      const [memories, playbook] = await Promise.all([
+        retrieveRelevantAIMemory(memAdmin, {
+          userId: session.user.id,
+          inputText: memoryInputText,
+          memoryTypes: ["general_preference", "priority_judgment"],
+        }),
+        getLatestActivePlaybook(memAdmin, {
+          userId: session.user.id,
+          playbookType: "global",
+        }),
+      ]);
+      memoryBlock = buildAIMemoryPromptBlock(memories);
+      playbookBlock = buildPlaybookPromptBlock(playbook);
+      selectedMemoryIds = memories.map((m) => m.id);
+      selectedPlaybookId = playbook?.id ?? null;
+    } catch (e) {
+      console.error("AI-memory retrieval (planner) failed:", e);
+    }
+
     const modelOutput = await runPlannerModel({
       mode,
       projectName: project.name,
       conversation,
+      memoryBlock,
+      playbookBlock,
     });
+
+    try {
+      await recordDecisionTrace(getAdminClient(), {
+        userId: session.user.id,
+        sourceType: "project",
+        sourceId: projectId,
+        aiCallType: "planning",
+        inputText: memoryInputText,
+        selectedMemoryIds,
+        selectedPlaybookId,
+        matchedRuleIds: [],
+        promptContextSummary: `${selectedMemoryIds.length} memories | mode ${mode}`,
+        aiOutput: modelOutput as unknown as Record<string, unknown>,
+        finalOutput: modelOutput as unknown as Record<string, unknown>,
+        overriddenByRule: false,
+        modelProvider: "openai",
+        modelName: "gpt-4.1",
+      });
+    } catch (e) {
+      console.error("recordDecisionTrace (planner) failed:", e);
+    }
 
     let readiness = modelOutput.readiness;
     let missingInfo = [...modelOutput.missingInfo];

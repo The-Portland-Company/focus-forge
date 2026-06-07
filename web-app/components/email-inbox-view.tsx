@@ -60,6 +60,7 @@ import {
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
+import AiRulesTabs from "@/components/ai-rules-tabs";
 import {
   EmailOutboundComposerModal,
   type EmailComposerInitialDraft,
@@ -3443,9 +3444,10 @@ export function EmailInboxView({
 
   if (view === "email-rules") {
     return (
-      <EmailRulesPanel
-        rules={data.emailRules}
+      <AiRulesTabs
+        data={data}
         mailboxes={mailboxes}
+        currentUserId={currentUserId}
         onRefresh={onRefresh}
       />
     );

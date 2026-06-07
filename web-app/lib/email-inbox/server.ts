@@ -79,6 +79,14 @@ import type {
   SummaryProfile,
 } from "@/lib/types";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { retrieveRelevantAIMemory } from "@/lib/ai-memory/retrieval";
+import { getLatestActivePlaybook } from "@/lib/ai-memory/playbook";
+import {
+  buildAIMemoryPromptBlock,
+  buildPlaybookPromptBlock,
+} from "@/lib/ai-memory/prompt";
+import { maybeCreateAIMemoryFromEvent } from "@/lib/ai-memory/write";
+import { recordDecisionTrace } from "@/lib/ai-memory/trace";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
 import {
   buildReplyHtml,
@@ -1950,6 +1958,41 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
     mailbox.owner_user_id,
     mailbox.organization_id,
   );
+  // Retrieve AI-memory precedents + playbook (best-effort; never breaks AI).
+  const memoryInputText = `${latestMessage.subject || thread.subject || ""}\n${
+    latestMessage.body_text || ""
+  }`.slice(0, 4000);
+  let memoryBlock = "";
+  let playbookBlock = "";
+  let selectedMemoryIds: string[] = [];
+  let selectedPlaybookId: string | null = null;
+  try {
+    const [memories, playbook] = await Promise.all([
+      retrieveRelevantAIMemory(admin, {
+        userId: mailbox.owner_user_id,
+        organizationId: mailbox.organization_id ?? undefined,
+        inputText: memoryInputText,
+        memoryTypes: [
+          "email_categorization",
+          "project_routing",
+          "priority_judgment",
+          "urgency_judgment",
+        ],
+      }),
+      getLatestActivePlaybook(admin, {
+        userId: mailbox.owner_user_id,
+        organizationId: mailbox.organization_id ?? undefined,
+        playbookType: "email_categorization",
+      }),
+    ]);
+    memoryBlock = buildAIMemoryPromptBlock(memories);
+    playbookBlock = buildPlaybookPromptBlock(playbook);
+    selectedMemoryIds = memories.map((m) => m.id);
+    selectedPlaybookId = playbook?.id ?? null;
+  } catch (e) {
+    console.error("AI-memory retrieval (email classify) failed:", e);
+  }
+
   const aiResult = await analyzeThreadWithAI({
     subject: latestMessage.subject || thread.subject || "",
     bodyText: latestMessage.body_text || "",
@@ -1962,6 +2005,8 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
       name: project.name,
       description: project.description,
     })),
+    memoryBlock,
+    playbookBlock,
   });
 
   const ruleActions = new Set(appliedRules.actions);
@@ -2020,6 +2065,43 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", thread.id);
+
+  // Record a decision trace (best-effort).
+  try {
+    const matchedRuleIds = appliedRules.matchedRules.map((rule) => rule.id);
+    const overriddenByRule =
+      matchedRuleIds.length > 0 && ruleActions.size > 0;
+    await recordDecisionTrace(admin, {
+      userId: mailbox.owner_user_id,
+      organizationId: mailbox.organization_id ?? undefined,
+      sourceType: "email",
+      sourceId: String(thread.id),
+      aiCallType: "email_classification",
+      inputText: memoryInputText,
+      selectedMemoryIds,
+      selectedPlaybookId,
+      matchedRuleIds,
+      promptContextSummary: `${selectedMemoryIds.length} memories, playbook ${
+        selectedPlaybookId ? "v-active" : "none"
+      }`,
+      aiOutput: aiResult as unknown as Record<string, unknown>,
+      finalOutput: {
+        classification,
+        status,
+        needsProject,
+        projectId,
+        alwaysDelete,
+      },
+      overriddenByRule,
+      overrideReason: overriddenByRule
+        ? `Rules applied: ${Array.from(ruleActions).join(", ")}`
+        : null,
+      modelProvider: "openai",
+      modelName: "gpt-4.1",
+    });
+  } catch (e) {
+    console.error("recordDecisionTrace (email) failed:", e);
+  }
 
   if (
     projectId &&
@@ -2740,13 +2822,34 @@ export async function createTasksForThread(
           },
         ];
 
-  return createTasksForThreadInternal({
+  const created = await createTasksForThreadInternal({
     actorUserId: userId,
     thread,
     projectId: targetProjectId,
     suggestions: taskSuggestions,
     generatedBy: "user",
   });
+
+  // AI-memory hook: user taskified an email (best-effort).
+  try {
+    await maybeCreateAIMemoryFromEvent(admin, {
+      user_id: userId,
+      source_type: "email",
+      source_id: String(thread.id),
+      event_type: "email_taskified",
+      after_json: {
+        subject: thread.subject,
+        summary: thread.summary_text,
+        project_id: targetProjectId,
+        task_count: taskSuggestions.length,
+      },
+      reason: "user_approved",
+    });
+  } catch (e) {
+    console.error("AI-memory email_taskified hook failed:", e);
+  }
+
+  return created;
 }
 
 function uniqueStrings(values: string[]) {
@@ -4289,6 +4392,26 @@ export async function applyThreadAction(params: {
         updated_at: new Date().toISOString(),
       })
       .eq("id", params.threadId);
+
+    // AI-memory hook: user approved this thread's classification (best-effort).
+    try {
+      await maybeCreateAIMemoryFromEvent(admin, {
+        user_id: params.userId,
+        source_type: "email",
+        source_id: String(thread.id),
+        event_type: "email_classified",
+        after_json: {
+          subject: thread.subject,
+          summary: thread.summary_text,
+          classification: thread.classification,
+          project_id: thread.project_id ?? null,
+        },
+        reason: "user_approved",
+      });
+    } catch (e) {
+      console.error("AI-memory email approve hook failed:", e);
+    }
+
     return reprocessThread(params.threadId, params.userId);
   }
 
@@ -4567,6 +4690,31 @@ export async function createRule(userId: string, payload: any) {
     .select()
     .single();
 
+  // AI-memory hook: a user-approved AI-suggested rule is a strong precedent.
+  try {
+    const isAiApproved =
+      payload.aiApproved === true ||
+      payload.source === "ai" ||
+      payload.source === "ai_suggested" ||
+      payload.source === "spam_exception";
+    if (isAiApproved && data) {
+      await maybeCreateAIMemoryFromEvent(admin, {
+        user_id: payload.userId ?? userId,
+        source_type: "rule",
+        source_id: String(data.id),
+        event_type: "email_rule_approved",
+        after_json: {
+          name: data.name,
+          conditions: data.conditions_json,
+          actions: data.actions_json,
+        },
+        reason: "user_approved",
+      });
+    }
+  } catch (e) {
+    console.error("AI-memory rule_approved (create) hook failed:", e);
+  }
+
   return coerceRule(data);
 }
 
@@ -4600,6 +4748,30 @@ export async function updateRule(userId: string, ruleId: string, payload: any) {
     .eq("id", ruleId)
     .select()
     .single();
+
+  // AI-memory hook: user activating/approving an AI-suggested rule.
+  try {
+    const isAiApproved =
+      payload.aiApproved === true ||
+      (payload.isActive === true && rule.source === "ai") ||
+      rule.source === "ai_suggested";
+    if (isAiApproved && data) {
+      await maybeCreateAIMemoryFromEvent(admin, {
+        user_id: userId,
+        source_type: "rule",
+        source_id: String(data.id),
+        event_type: "email_rule_approved",
+        after_json: {
+          name: data.name,
+          conditions: data.conditions_json,
+          actions: data.actions_json,
+        },
+        reason: "user_approved",
+      });
+    }
+  } catch (e) {
+    console.error("AI-memory rule_approved (update) hook failed:", e);
+  }
 
   return coerceRule(data);
 }

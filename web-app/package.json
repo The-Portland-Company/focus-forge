@@ -16,7 +16,9 @@
     "logs:clean": "./scripts/clean-logs.sh",
     "logs:view": "tail -f logs/latest.log",
     "logs:list": "ls -la logs/",
-    "check:api-docs": "tsx scripts/check-api-docs-coverage.ts"
+    "check:api-docs": "tsx scripts/check-api-docs-coverage.ts",
+    "typecheck": "tsc --noEmit",
+    "ai-memory:evaluate": "tsx scripts/ai-memory-evaluate.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.14",
