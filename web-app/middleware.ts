@@ -20,6 +20,10 @@ const publicRoutes = [
   "/auth/forgot-password",
   "/auth/reset-password",
   "/auth/accept-invite",
+  // Public legal/support pages — must be reachable without an account
+  // (App Store review requires a publicly accessible privacy policy).
+  "/privacy",
+  "/support",
   "/docs/focus-time-agent",
   "/docs/focus-time-openapi",
   "/developer/api",
