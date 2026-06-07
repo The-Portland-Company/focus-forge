@@ -184,6 +184,8 @@ async function runAutoSectionBatch(input: {
   projectName: string;
   existingSections: ExistingSectionInput[];
   unassignedTasks: UnassignedTaskInput[];
+  memoryBlock?: string;
+  playbookBlock?: string;
 }): Promise<{ summary: string; suggestions: AutoSectionSuggestion[] }> {
   let lastError: string | null = null;
 
@@ -214,7 +216,7 @@ Rules:
 - Create a new section only when no existing section is a good fit.
 - Reuse concise, human project-management section names.
 - targetSectionName must be non-empty for every task.
-- reason must be one short sentence.`,
+- reason must be one short sentence.${input.playbookBlock ? `\n\n${input.playbookBlock}` : ""}${input.memoryBlock ? `\n\n${input.memoryBlock}` : ""}`,
           },
           {
             role: "user",
@@ -274,6 +276,8 @@ export async function runAutoSectionModel(input: {
   projectName: string;
   existingSections: ExistingSectionInput[];
   unassignedTasks: UnassignedTaskInput[];
+  memoryBlock?: string;
+  playbookBlock?: string;
 }): Promise<{ summary: string; suggestions: AutoSectionSuggestion[] }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -292,6 +296,8 @@ export async function runAutoSectionModel(input: {
       projectName: input.projectName,
       existingSections: sanitizedSections,
       unassignedTasks: batch,
+      memoryBlock: input.memoryBlock,
+      playbookBlock: input.playbookBlock,
     });
 
     if (result.summary.trim()) {

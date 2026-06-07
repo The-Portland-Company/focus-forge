@@ -196,6 +196,8 @@ export async function runPlannerModel(input: {
   mode: PlannerMode;
   projectName: string;
   conversation: ChatMessage[];
+  memoryBlock?: string;
+  playbookBlock?: string;
 }): Promise<PlannerModelOutput> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -221,7 +223,9 @@ export async function runPlannerModel(input: {
         messages: [
           {
             role: "system",
-            content: getSystemPrompt(input.mode, input.projectName),
+            content: `${getSystemPrompt(input.mode, input.projectName)}${
+              input.playbookBlock ? `\n\n${input.playbookBlock}` : ""
+            }${input.memoryBlock ? `\n\n${input.memoryBlock}` : ""}`,
           },
           ...input.conversation.map((message) => ({
             role: message.role,

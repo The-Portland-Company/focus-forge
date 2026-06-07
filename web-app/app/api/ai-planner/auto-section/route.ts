@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createPlannerAdminClient, getAuthorizedProject } from "@/lib/ai-planner/persistence";
 import { runAutoSectionModel } from "@/lib/ai-planner/auto-section";
+import { getAdminClient } from "@/lib/supabase/admin";
+import { retrieveRelevantAIMemory } from "@/lib/ai-memory/retrieval";
+import { getLatestActivePlaybook } from "@/lib/ai-memory/playbook";
+import {
+  buildAIMemoryPromptBlock,
+  buildPlaybookPromptBlock,
+} from "@/lib/ai-memory/prompt";
+import { recordDecisionTrace } from "@/lib/ai-memory/trace";
 
 export async function POST(request: NextRequest) {
   try {
@@ -72,11 +80,63 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Retrieve AI-memory precedents + playbook (best-effort).
+    const memoryInputText = `Project: ${project.name}\n${unassignedTasks
+      .map((t) => t.name)
+      .join("\n")}`.slice(0, 4000);
+    let memoryBlock = "";
+    let playbookBlock = "";
+    let selectedMemoryIds: string[] = [];
+    let selectedPlaybookId: string | null = null;
+    try {
+      const memAdmin = getAdminClient();
+      const [memories, playbook] = await Promise.all([
+        retrieveRelevantAIMemory(memAdmin, {
+          userId: session.user.id,
+          inputText: memoryInputText,
+          memoryTypes: ["task_categorization", "project_routing"],
+        }),
+        getLatestActivePlaybook(memAdmin, {
+          userId: session.user.id,
+          playbookType: "task_categorization",
+        }),
+      ]);
+      memoryBlock = buildAIMemoryPromptBlock(memories);
+      playbookBlock = buildPlaybookPromptBlock(playbook);
+      selectedMemoryIds = memories.map((m) => m.id);
+      selectedPlaybookId = playbook?.id ?? null;
+    } catch (e) {
+      console.error("AI-memory retrieval (auto-section) failed:", e);
+    }
+
     const aiResult = await runAutoSectionModel({
       projectName: project.name,
       existingSections,
       unassignedTasks,
+      memoryBlock,
+      playbookBlock,
     });
+
+    try {
+      await recordDecisionTrace(getAdminClient(), {
+        userId: session.user.id,
+        sourceType: "task",
+        sourceId: projectId,
+        aiCallType: "task_categorization",
+        inputText: memoryInputText,
+        selectedMemoryIds,
+        selectedPlaybookId,
+        matchedRuleIds: [],
+        promptContextSummary: `${selectedMemoryIds.length} memories`,
+        aiOutput: aiResult as unknown as Record<string, unknown>,
+        finalOutput: aiResult as unknown as Record<string, unknown>,
+        overriddenByRule: false,
+        modelProvider: "openai",
+        modelName: "gpt-4.1-mini",
+      });
+    } catch (e) {
+      console.error("recordDecisionTrace (auto-section) failed:", e);
+    }
 
     const sectionIdByName = new Map(
       existingSections.map((section) => [section.name.trim().toLowerCase(), section.id]),

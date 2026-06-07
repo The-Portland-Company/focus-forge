@@ -20,6 +20,9 @@ export interface EstimateTaskInput {
   subtaskCount?: number | null;
   /** Up to ~12 recent calibrations from this user, used as few-shot signal. */
   examples?: CalibrationExample[];
+  /** Optional AI-memory context blocks appended to the system prompt. */
+  memoryBlock?: string;
+  playbookBlock?: string;
 }
 
 const ESTIMATE_SCHEMA = {
@@ -143,7 +146,12 @@ export async function estimateTaskMinutes(
         json_schema: ESTIMATE_SCHEMA,
       },
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "system",
+          content: `${SYSTEM_PROMPT}${
+            input.playbookBlock ? `\n\n${input.playbookBlock}` : ""
+          }${input.memoryBlock ? `\n\n${input.memoryBlock}` : ""}`,
+        },
         { role: "user", content: buildUserMessage(input) },
       ],
     }),
