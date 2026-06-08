@@ -27,7 +27,12 @@ import {
   shouldShowSpamIndicator,
   shouldShowStatusBadge,
   parseLinkedTasksResponse,
+  VerificationCodePill,
 } from "../email-work-list";
+
+test("VerificationCodePill is exported as a component", () => {
+  assert.equal(typeof VerificationCodePill, "function");
+});
 
 test("formatEmailSubject returns the normalized subject without a prefix", () => {
   assert.equal(formatEmailSubject(" Security alert "), "Security alert");

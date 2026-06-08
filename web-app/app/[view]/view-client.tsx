@@ -98,7 +98,13 @@ import {
 } from "@/lib/fresh-data-diff";
 import { DailyPlanCard } from "@/components/daily-plan-card";
 
-const EMAIL_BACKGROUND_SYNC_INTERVAL_MS = 15 * 1000;
+// How often the app asks the server to pull new mail (POST /sync-due). The
+// server enforces its own per-mailbox poll floor, so these only bound how
+// quickly a *server-side* change is surfaced to this client. We poll faster
+// when the tab is visible (user is actively waiting on mail) and back off when
+// hidden to avoid needless round-trips and provider pressure.
+const EMAIL_BACKGROUND_SYNC_INTERVAL_VISIBLE_MS = 15 * 1000;
+const EMAIL_BACKGROUND_SYNC_INTERVAL_HIDDEN_MS = 60 * 1000;
 const DATABASE_CORE_CACHE_VERSION = 1;
 const DATABASE_CORE_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 const PROJECT_SECTION_LAYOUT_STORAGE_KEY = "focus-forge:project-section-layout";
@@ -1090,13 +1096,40 @@ export default function ViewPage({
 
     void runBackgroundEmailSync();
 
-    const interval = window.setInterval(() => {
-      void runBackgroundEmailSync();
-    }, EMAIL_BACKGROUND_SYNC_INTERVAL_MS);
+    let interval: number | undefined;
+
+    const scheduleInterval = () => {
+      if (interval !== undefined) {
+        window.clearInterval(interval);
+      }
+      const hidden =
+        typeof document !== "undefined" && document.visibilityState === "hidden";
+      const delay = hidden
+        ? EMAIL_BACKGROUND_SYNC_INTERVAL_HIDDEN_MS
+        : EMAIL_BACKGROUND_SYNC_INTERVAL_VISIBLE_MS;
+      interval = window.setInterval(() => {
+        void runBackgroundEmailSync();
+      }, delay);
+    };
+
+    const handleVisibilityChange = () => {
+      // Re-pace the timer, and sync immediately on becoming visible so mail
+      // that arrived while the tab was hidden shows up without waiting a tick.
+      if (document.visibilityState === "visible") {
+        void runBackgroundEmailSync();
+      }
+      scheduleInterval();
+    };
+
+    scheduleInterval();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (interval !== undefined) {
+        window.clearInterval(interval);
+      }
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [fetchData, isEmailThreadPopout, user, view]);
 

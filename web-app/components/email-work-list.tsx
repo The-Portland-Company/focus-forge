@@ -1,11 +1,12 @@
 "use client";
 
 import * as Popover from "@radix-ui/react-popover";
-import { useRef, useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import {
   Check,
   ChevronDown,
   Clock,
+  Copy,
   FolderSearch,
   Loader2,
   Mail,
@@ -30,6 +31,7 @@ import { Tooltip } from "@/components/tooltip";
 import { EmailHtmlContent } from "@/components/ui/email-html-content";
 import { stripQuotedAndSignature } from "@/lib/email-inbox/strip-quoted";
 import { selectPrimarySender } from "@/lib/email-inbox/parse-sender";
+import { extractVerificationCode } from "@/lib/email-inbox/verification-code";
 import { formatEmailTimestamp } from "@/lib/email-inbox/format-timestamp";
 import {
   Dialog,
@@ -91,6 +93,49 @@ type EmailWorkListProps = {
 /** Thread timestamp shown on inbox rows, e.g. "Jan. 1st, 2026 2:01 PM".
  *  Delegates to the shared {@link formatEmailTimestamp} so every email view
  *  renders dates identically. */
+/**
+ * Small click-to-copy pill that surfaces a detected verification/OTP code in
+ * the inbox row metadata. Renders the code in a monospace font with a copy
+ * icon; clicking copies it and shows brief "Copied" feedback.
+ */
+export function VerificationCodePill({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleCopy = (event: MouseEvent) => {
+    event.stopPropagation();
+    void navigator.clipboard?.writeText(code).then(() => {
+      setCopied(true);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="inline-flex items-center gap-1.5 self-center rounded-md border border-zinc-700/70 bg-zinc-800/60 px-1.5 py-0.5 text-zinc-200 transition-colors hover:bg-zinc-700/70 hover:text-white"
+      aria-label={`Copy verification code ${code}`}
+      title={`Copy verification code ${code}`}
+    >
+      <span className="font-mono text-[11px] leading-none tracking-wide">
+        {code}
+      </span>
+      {copied ? (
+        <>
+          <Check className="h-3 w-3 shrink-0 text-emerald-400" />
+          <span className="whitespace-nowrap text-[10px] text-emerald-400">
+            Copied
+          </span>
+        </>
+      ) : (
+        <Copy className="h-3 w-3 shrink-0" />
+      )}
+    </button>
+  );
+}
+
 export function formatThreadTimestamp(iso?: string | null): string {
   return formatEmailTimestamp(iso);
 }
@@ -794,6 +839,14 @@ export function EmailWorkList({
         const attachmentCount = Array.isArray(cachedAttachments)
           ? cachedAttachments.length
           : 0;
+        // Detect a verification/OTP code from the subject + available preview
+        // text. The full HTML body isn't in the inbox payload, so codes that
+        // live only deep in the body won't be surfaced here (most OTP emails
+        // put the code in the subject or first preview line).
+        const verificationCode = extractVerificationCode(
+          item.subject,
+          item.previewText,
+        );
 
         return (
           <div
@@ -1167,6 +1220,9 @@ export function EmailWorkList({
                     <Sparkles className="h-3.5 w-3.5" />
                     {Math.round(item.actionConfidence * 100)}% confidence
                   </span>
+                ) : null}
+                {verificationCode ? (
+                  <VerificationCodePill code={verificationCode} />
                 ) : null}
                 {attachmentCount > 0 ? (
                   <button
