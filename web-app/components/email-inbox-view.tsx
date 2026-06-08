@@ -176,6 +176,7 @@ type EmailInboxViewProps = {
   isDataLoading?: boolean;
   isRefreshing?: boolean;
   freshlyUpdatedInboxIds?: Set<string>;
+  onEditTask?: (taskId: string) => void;
 };
 
 type ComposerAttachment = EmailReplyAttachment & {
@@ -1255,6 +1256,7 @@ export function EmailInboxView({
   isDataLoading = false,
   isRefreshing = false,
   freshlyUpdatedInboxIds,
+  onEditTask,
 }: EmailInboxViewProps) {
   const isInboxView = view === "email-inbox";
   const isSentView = view === "email-sent";
@@ -5952,6 +5954,7 @@ export function EmailInboxView({
         projects={data.projects}
         hideEmailSignatures={hideEmailSignatures}
         onRefresh={onRefresh}
+        onEditTask={onEditTask}
         onOpenChange={setIsThreadModalOpen}
       />
     </div>

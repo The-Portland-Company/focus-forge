@@ -1178,16 +1178,19 @@ export function EmailWorkList({
                         title: formatEmailSubject(item.subject),
                       });
                     }}
-                    className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-zinc-800/70 hover:text-white"
-                    aria-label={`${attachmentCount} attachment${
+                    className="inline-flex items-center gap-1.5 self-center rounded-md px-1.5 py-0.5 text-zinc-400 transition-colors hover:bg-zinc-800/70 hover:text-white"
+                    aria-label={`${attachmentCount} Attachment${
                       attachmentCount === 1 ? "" : "s"
                     }`}
-                    title={`${attachmentCount} attachment${
+                    title={`${attachmentCount} Attachment${
                       attachmentCount === 1 ? "" : "s"
                     }`}
                   >
-                    <Paperclip className="h-3.5 w-3.5" />
-                    {attachmentCount}
+                    <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                    <span className="whitespace-nowrap">
+                      {attachmentCount} Attachment
+                      {attachmentCount === 1 ? "" : "s"}
+                    </span>
                   </button>
                 ) : null}
                 {/* Thread timestamp, pushed to the right of the metadata row */}

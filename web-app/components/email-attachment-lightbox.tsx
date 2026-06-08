@@ -137,18 +137,35 @@ export function EmailAttachmentLightbox({
 
   const active = activeIndex !== null ? attachments[activeIndex] : null;
 
-  const renderActions = (attachment: ThreadAttachment) => (
+  const renderActions = (
+    attachment: ThreadAttachment,
+    options?: { prominent?: boolean },
+  ) => (
     <div className="flex items-center gap-1.5">
-      <a
-        href={attachment.url}
-        download={attachment.filename || "attachment"}
-        onClick={(event) => event.stopPropagation()}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/80 text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-white"
-        title="Download"
-        aria-label="Download attachment"
-      >
-        <Download className="h-4 w-4" />
-      </a>
+      {options?.prominent ? (
+        <a
+          href={attachment.url}
+          download={attachment.filename || "attachment"}
+          onClick={(event) => event.stopPropagation()}
+          className="inline-flex h-9 items-center gap-2 rounded-lg bg-zinc-100 px-4 text-sm font-medium text-zinc-900 transition-colors hover:bg-white"
+          title="Download"
+          aria-label="Download attachment"
+        >
+          <Download className="h-4 w-4" />
+          Download
+        </a>
+      ) : (
+        <a
+          href={attachment.url}
+          download={attachment.filename || "attachment"}
+          onClick={(event) => event.stopPropagation()}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/80 text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-white"
+          title="Download"
+          aria-label="Download attachment"
+        >
+          <Download className="h-4 w-4" />
+        </a>
+      )}
       {attachment.isImage ? (
         <button
           type="button"
@@ -275,7 +292,7 @@ export function EmailAttachmentLightbox({
               <div className="max-w-[40vw] truncate text-sm text-zinc-300">
                 {active.filename || "Attachment"}
               </div>
-              {renderActions(active)}
+              {renderActions(active, { prominent: true })}
             </div>
           </div>
 

@@ -1,13 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ExternalLink, FileText, Paperclip } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  ChevronDown,
+  ChevronRight,
+  Download,
+  FileText,
+  Film,
+  ImageIcon,
+  Loader2,
+  Music,
+  Paperclip,
+  X,
+} from "lucide-react";
 import { formatReplyAttachmentSize } from "@/lib/email-reply";
 import { isPreviewableThreadAttachment } from "@/lib/email-thread-ui";
 import type { ConversationEntry } from "@/lib/types";
@@ -16,24 +21,213 @@ type ThreadAttachment = NonNullable<ConversationEntry["attachments"]>[number];
 
 type EmailThreadAttachmentsProps = {
   attachments: ThreadAttachment[];
+  /** Open the section expanded by default. Defaults to collapsed. */
+  defaultOpen?: boolean;
 };
+
+type AttachmentKind = "image" | "video" | "audio" | "pdf" | "text" | "other";
+
+function getAttachmentKind(attachment: {
+  contentType?: string | null;
+  filename?: string | null;
+}): AttachmentKind {
+  const type = (attachment.contentType || "").toLowerCase();
+  const name = (attachment.filename || "").toLowerCase();
+
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("audio/")) return "audio";
+  if (type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+  if (
+    type.startsWith("text/") ||
+    name.endsWith(".txt") ||
+    name.endsWith(".md") ||
+    name.endsWith(".csv") ||
+    name.endsWith(".log")
+  ) {
+    return "text";
+  }
+  return "other";
+}
+
+function AttachmentKindIcon({ kind }: { kind: AttachmentKind }) {
+  const className = "h-6 w-6 text-zinc-400";
+  switch (kind) {
+    case "image":
+      return <ImageIcon className={className} />;
+    case "video":
+      return <Film className={className} />;
+    case "audio":
+      return <Music className={className} />;
+    default:
+      return <FileText className={className} />;
+  }
+}
+
+function AttachmentFullscreenPreview({
+  attachment,
+  onClose,
+}: {
+  attachment: ThreadAttachment;
+  onClose: () => void;
+}) {
+  const kind = getAttachmentKind(attachment);
+  const url = attachment.url || "";
+  const [textContent, setTextContent] = useState<string | null>(null);
+  const [textError, setTextError] = useState<string | null>(null);
+  const [loadingText, setLoadingText] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  useEffect(() => {
+    if (kind !== "text" || !url) return;
+
+    let cancelled = false;
+    setLoadingText(true);
+    setTextError(null);
+    setTextContent(null);
+
+    fetch(url, { credentials: "include" })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Failed to load (${response.status})`);
+        return response.text();
+      })
+      .then((value) => {
+        if (!cancelled) setTextContent(value);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setTextError(
+            error instanceof Error ? error.message : "Failed to load text",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingText(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, url]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[120] flex flex-col bg-black/90 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={attachment.filename || "Attachment preview"}
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+        <div className="min-w-0 truncate text-sm font-medium text-zinc-100">
+          {attachment.filename || "Attachment preview"}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {url ? (
+            <a
+              href={url}
+              download={attachment.filename || undefined}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+            >
+              <Download className="h-4 w-4" />
+              <span className="hidden sm:inline">Download</span>
+            </a>
+          ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close preview"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-1 items-center justify-center overflow-auto p-4">
+        {!url ? (
+          <div className="text-sm text-zinc-400">
+            No preview available for this attachment.
+          </div>
+        ) : kind === "image" ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={url}
+            alt={attachment.filename || "Attachment preview"}
+            className="max-h-full max-w-full object-contain"
+          />
+        ) : kind === "video" ? (
+          <video
+            src={url}
+            controls
+            className="max-h-full max-w-full"
+            preload="metadata"
+          />
+        ) : kind === "audio" ? (
+          <audio src={url} controls className="w-full max-w-2xl" />
+        ) : kind === "pdf" ? (
+          <iframe
+            src={url}
+            title={attachment.filename || "PDF preview"}
+            className="h-full w-full rounded-lg border border-zinc-800 bg-white"
+          />
+        ) : kind === "text" ? (
+          <div className="h-full w-full max-w-4xl overflow-auto rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+            {loadingText ? (
+              <div className="flex items-center gap-2 text-sm text-zinc-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading…
+              </div>
+            ) : textError ? (
+              <div className="text-sm text-red-300">{textError}</div>
+            ) : (
+              <pre className="whitespace-pre-wrap break-words text-xs leading-5 text-zinc-200">
+                {textContent}
+              </pre>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 text-center">
+            <FileText className="h-12 w-12 text-zinc-500" />
+            <div className="text-sm text-zinc-300">
+              No inline preview for this file type.
+            </div>
+            <a
+              href={url}
+              download={attachment.filename || undefined}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+            >
+              <Download className="h-4 w-4" />
+              Download
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function EmailThreadAttachments({
   attachments,
+  defaultOpen = false,
 }: EmailThreadAttachmentsProps) {
-  const [activeAttachment, setActiveAttachment] = useState<ThreadAttachment | null>(
-    null,
-  );
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [activeAttachment, setActiveAttachment] =
+    useState<ThreadAttachment | null>(null);
 
-  const { imageAttachments, fileAttachments } = useMemo(
-    () => ({
-      imageAttachments: attachments.filter((attachment) =>
-        isPreviewableThreadAttachment(attachment),
-      ),
-      fileAttachments: attachments.filter(
-        (attachment) => !isPreviewableThreadAttachment(attachment),
-      ),
-    }),
+  const cards = useMemo(
+    () =>
+      attachments.map((attachment) => ({
+        attachment,
+        kind: getAttachmentKind(attachment),
+        isImage: isPreviewableThreadAttachment(attachment),
+      })),
     [attachments],
   );
 
@@ -44,33 +238,46 @@ export function EmailThreadAttachments({
   return (
     <>
       <div className="mt-4 border-t border-zinc-800 pt-3">
-        <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+        <button
+          type="button"
+          onClick={() => setIsOpen((current) => !current)}
+          aria-expanded={isOpen}
+          className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400 transition-colors hover:text-zinc-200"
+        >
+          {isOpen ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
           <Paperclip className="h-3.5 w-3.5" />
           <span>
-            {attachments.length} attachment{attachments.length === 1 ? "" : "s"}
+            Attachments ({attachments.length})
           </span>
-        </div>
+        </button>
 
-        {imageAttachments.length > 0 ? (
-          <div className="mb-3 grid gap-3 sm:grid-cols-2">
-            {imageAttachments.map((attachment) => (
+        {isOpen ? (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {cards.map(({ attachment, kind, isImage }) => (
               <button
-                key={`${attachment.filename || "attachment"}-${attachment.attachmentIndex || 0}`}
+                key={`${attachment.filename || "attachment"}-${attachment.attachmentIndex ?? 0}`}
                 type="button"
                 onClick={() => setActiveAttachment(attachment)}
                 className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/70 text-left transition-colors hover:border-zinc-700"
               >
-                <div className="relative aspect-[4/3] w-full bg-zinc-950">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={attachment.url || ""}
-                    alt={attachment.filename || "Attachment preview"}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                  />
+                <div className="relative flex aspect-[4/3] w-full items-center justify-center bg-zinc-950">
+                  {isImage && attachment.url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={attachment.url}
+                      alt={attachment.filename || "Attachment preview"}
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <AttachmentKindIcon kind={kind} />
+                  )}
                 </div>
                 <div className="flex items-center gap-3 px-3 py-2 text-sm text-zinc-300">
-                  <FileText className="h-4 w-4 shrink-0 text-zinc-400" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium text-zinc-200">
                       {attachment.filename || "Unnamed attachment"}
@@ -87,63 +294,14 @@ export function EmailThreadAttachments({
             ))}
           </div>
         ) : null}
-
-        {fileAttachments.length > 0 ? (
-          <div className="space-y-2">
-            {fileAttachments.map((attachment) => (
-              <a
-                key={`${attachment.filename || "attachment"}-${attachment.attachmentIndex || 0}`}
-                href={attachment.url || undefined}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-700"
-              >
-                <FileText className="h-4 w-4 shrink-0 text-zinc-400" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-zinc-200">
-                    {attachment.filename || "Unnamed attachment"}
-                  </div>
-                  <div className="truncate text-xs text-zinc-500">
-                    {attachment.contentType || "Attachment"}
-                    {attachment.size > 0
-                      ? ` · ${formatReplyAttachmentSize(attachment.size)}`
-                      : ""}
-                  </div>
-                </div>
-                <ExternalLink className="h-4 w-4 shrink-0 text-zinc-500" />
-              </a>
-            ))}
-          </div>
-        ) : null}
       </div>
 
-      <Dialog
-        open={Boolean(activeAttachment)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setActiveAttachment(null);
-          }
-        }}
-      >
-        <DialogContent className="w-[min(96vw,72rem)] max-w-[72rem] border-zinc-800 bg-zinc-950 p-4 text-white sm:rounded-2xl">
-          <DialogTitle className="truncate pr-8 text-base text-white">
-            {activeAttachment?.filename || "Attachment preview"}
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            Attachment preview dialog
-          </DialogDescription>
-          {activeAttachment?.url ? (
-            <div className="flex max-h-[80vh] items-center justify-center overflow-auto rounded-xl bg-zinc-900">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={activeAttachment.url}
-                alt={activeAttachment.filename || "Attachment preview"}
-                className="h-auto max-h-[80vh] w-auto max-w-full object-contain"
-              />
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+      {activeAttachment ? (
+        <AttachmentFullscreenPreview
+          attachment={activeAttachment}
+          onClose={() => setActiveAttachment(null)}
+        />
+      ) : null}
     </>
   );
 }

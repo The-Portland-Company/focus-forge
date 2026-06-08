@@ -1516,6 +1516,15 @@ export default function ViewPage({
     setShowEditTask(true);
   };
 
+  // Open the unified task edit modal given only a task id (e.g. from the
+  // EmailThreadModal "Linked Tasks" Edit button). Looks the task up from the
+  // current database snapshot and reuses the standard edit flow.
+  const handleEditTaskById = (taskId: string) => {
+    const task = database?.tasks.find((candidate) => candidate.id === taskId);
+    if (!task) return;
+    handleTaskEdit(task);
+  };
+
   const handleTaskSave = (taskData: Partial<Task>) => {
     // Capture the id of the task being edited NOW (synchronously). The modal
     // closes itself immediately on submit and `editingTask` may be reassigned
@@ -3322,7 +3331,13 @@ export default function ViewPage({
     }
 
     if (view === "email-starred") {
-      return <EmailStarredView data={database} onRefresh={fetchData} />;
+      return (
+        <EmailStarredView
+          data={database}
+          onRefresh={fetchData}
+          onEditTask={handleEditTaskById}
+        />
+      );
     }
 
     if (
@@ -3342,6 +3357,7 @@ export default function ViewPage({
           freshlyUpdatedInboxIds={freshlyUpdatedInboxIds}
           onRefresh={fetchData}
           currentUserId={currentUserId}
+          onEditTask={handleEditTaskById}
         />
       );
     }
@@ -5562,6 +5578,7 @@ export default function ViewPage({
           threadId={popoutThreadId}
           projects={database.projects}
           onRefresh={fetchData}
+          onEditTask={handleEditTaskById}
           onOpenChange={(nextOpen) => {
             if (!nextOpen) {
               handleCloseEmailThreadPopout();
@@ -5627,6 +5644,7 @@ export default function ViewPage({
           threadId={selectedTodayEmailId}
           projects={database.projects}
           onRefresh={fetchData}
+          onEditTask={handleEditTaskById}
           onOpenChange={(nextOpen) => {
             if (!nextOpen) {
               setSelectedTodayEmailId(null);
@@ -5723,6 +5741,7 @@ export default function ViewPage({
           threadId={taskEmailThreadId}
           projects={database?.projects || []}
           onRefresh={fetchData}
+          onEditTask={handleEditTaskById}
           onOpenChange={(nextOpen) => {
             if (!nextOpen) setTaskEmailThreadId(null);
           }}

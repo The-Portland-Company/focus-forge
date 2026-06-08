@@ -20,9 +20,11 @@ const EmailThreadModal = dynamic(
 export function EmailStarredView({
   data,
   onRefresh,
+  onEditTask,
 }: {
   data: Database;
   onRefresh?: () => void;
+  onEditTask?: (taskId: string) => void;
 }) {
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -120,6 +122,7 @@ export function EmailStarredView({
         threadId={openThreadId}
         projects={data.projects}
         onRefresh={onRefresh}
+        onEditTask={onEditTask}
         onOpenChange={setIsModalOpen}
       />
     </div>
