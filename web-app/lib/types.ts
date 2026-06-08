@@ -377,6 +377,10 @@ export interface InboxItem {
   mailboxName?: string;
   mailboxEmailAddress?: string;
   projectId?: string | null;
+  /** Full set of project ids this thread is associated with (multi-project).
+   *  Backed by the email_thread_projects join table; the first id is the
+   *  primary (mirrors projectId / email_threads.project_id). */
+  projectIds?: string[];
   ownerUserId?: string | null;
   summaryProfileId?: string | null;
   status:

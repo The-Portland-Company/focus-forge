@@ -855,13 +855,27 @@ function mapThreadToInboxItem(params: {
   mailbox: Mailbox | undefined;
   participants: InboxParticipant[];
   taskCount: number;
+  projectIds?: string[];
 }): InboxItem {
+  // Full project association list: the primary project_id first (for back-compat
+  // and as the default task target), then any additional links from the
+  // email_thread_projects join table, de-duped.
+  const primaryProjectId = params.row.project_id
+    ? String(params.row.project_id)
+    : null;
+  const projectIds: string[] = [];
+  if (primaryProjectId) projectIds.push(primaryProjectId);
+  for (const id of params.projectIds || []) {
+    const value = String(id);
+    if (value && !projectIds.includes(value)) projectIds.push(value);
+  }
   return {
     id: params.row.id,
     mailboxId: params.row.mailbox_id,
     mailboxName: params.mailbox?.name,
     mailboxEmailAddress: params.mailbox?.emailAddress,
     projectId: params.row.project_id ?? null,
+    projectIds,
     ownerUserId: params.row.owner_user_id ?? null,
     summaryProfileId: params.row.summary_profile_id ?? null,
     status: params.row.status,
@@ -1603,13 +1617,29 @@ export async function listInboxItemsForUser(
   }
 
   const threadIds = threads.map((thread: any) => thread.id);
-  const [{ data: participantRows }, { data: taskLinks }] = await Promise.all([
-    admin.from("email_participants").select("*").in("thread_id", threadIds),
-    admin
-      .from("email_thread_tasks")
-      .select("thread_id,task_id")
-      .in("thread_id", threadIds),
-  ]);
+  const [{ data: participantRows }, { data: taskLinks }, { data: projectLinks }] =
+    await Promise.all([
+      admin.from("email_participants").select("*").in("thread_id", threadIds),
+      admin
+        .from("email_thread_tasks")
+        .select("thread_id,task_id")
+        .in("thread_id", threadIds),
+      admin
+        .from("email_thread_projects")
+        .select("thread_id,project_id")
+        .in("thread_id", threadIds),
+    ]);
+
+  const projectIdsByThread = ((projectLinks || []) as any[]).reduce(
+    (map: Map<string, string[]>, row: any) => {
+      const key = String(row.thread_id);
+      const current = map.get(key) || [];
+      current.push(String(row.project_id));
+      map.set(key, current);
+      return map;
+    },
+    new Map<string, string[]>(),
+  );
 
   const participantsByThread = new Map<string, InboxParticipant[]>();
   (participantRows || []).forEach((row: any) => {
@@ -1637,6 +1667,7 @@ export async function listInboxItemsForUser(
         mailbox: mailboxMap.get(String(row.mailbox_id)),
         participants: participantsByThread.get(String(row.id)) || [],
         taskCount: taskCounts.get(String(row.id)) || 0,
+        projectIds: projectIdsByThread.get(String(row.id)) || [],
       }),
     ),
   );
@@ -1716,21 +1747,40 @@ export async function listSenderHistoryForUser(
     return [];
   }
 
-  const [{ data: threads }, { data: participantRows }, { data: messageRows }] =
-    await Promise.all([
-      admin
-        .from("email_threads")
-        .select("*")
-        .in("id", threadIds)
-        .order("latest_message_at", { ascending: false }),
-      admin.from("email_participants").select("*").in("thread_id", threadIds),
-      admin
-        .from("email_messages")
-        .select("*")
-        .in("thread_id", threadIds)
-        .order("received_at", { ascending: true })
-        .order("sent_at", { ascending: true }),
-    ]);
+  const [
+    { data: threads },
+    { data: participantRows },
+    { data: messageRows },
+    { data: projectLinks },
+  ] = await Promise.all([
+    admin
+      .from("email_threads")
+      .select("*")
+      .in("id", threadIds)
+      .order("latest_message_at", { ascending: false }),
+    admin.from("email_participants").select("*").in("thread_id", threadIds),
+    admin
+      .from("email_messages")
+      .select("*")
+      .in("thread_id", threadIds)
+      .order("received_at", { ascending: true })
+      .order("sent_at", { ascending: true }),
+    admin
+      .from("email_thread_projects")
+      .select("thread_id,project_id")
+      .in("thread_id", threadIds),
+  ]);
+
+  const projectIdsByThread = ((projectLinks || []) as any[]).reduce(
+    (map: Map<string, string[]>, row: any) => {
+      const key = String(row.thread_id);
+      const current = map.get(key) || [];
+      current.push(String(row.project_id));
+      map.set(key, current);
+      return map;
+    },
+    new Map<string, string[]>(),
+  );
 
   const participantsByThread = new Map<string, InboxParticipant[]>();
   const participantsByMessage = new Map<string, InboxParticipant[]>();
@@ -1766,6 +1816,7 @@ export async function listSenderHistoryForUser(
         mailbox: mailboxMap.get(String(row.mailbox_id)),
         participants: participantsByThread.get(String(row.id)) || [],
         taskCount: 0,
+        projectIds: projectIdsByThread.get(String(row.id)) || [],
       });
 
       const conversation = (messagesByThread.get(String(row.id)) || []).map(
@@ -2686,12 +2737,20 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
     new Map<string, InboxParticipant[]>(),
   );
 
+  const { data: projectLinkRows } = await admin
+    .from("email_thread_projects")
+    .select("project_id")
+    .eq("thread_id", threadId);
+
   const mappedMailbox = mailboxes.find((entry) => entry.id === mailbox.id);
   const item = mapThreadToInboxItem({
     row: thread,
     mailbox: mappedMailbox,
     participants: participantMap.get("__thread__") || [],
     taskCount: (taskLinks || []).length,
+    projectIds: ((projectLinkRows || []) as any[]).map((row) =>
+      String(row.project_id),
+    ),
   });
 
   const conversation: ConversationEntry[] = (messageRows || []).map(
@@ -2789,7 +2848,110 @@ export async function assignProjectToThread(
     })
     .eq("id", threadId);
 
+  // Keep the multi-project join table in sync: setting the primary also ensures
+  // a membership row exists for it.
+  await admin
+    .from("email_thread_projects")
+    .upsert(
+      { thread_id: threadId, project_id: projectId },
+      { onConflict: "thread_id,project_id", ignoreDuplicates: true },
+    );
+
   return await reprocessThread(thread.id, userId);
+}
+
+/** Returns the full ordered set of project ids a thread is associated with:
+ *  the primary email_threads.project_id first, then any join-table links. */
+export async function listThreadProjects(
+  userId: string,
+  threadId: string,
+): Promise<string[]> {
+  const admin = getAdminClient();
+  const thread = await ensureThreadAccess(userId, threadId);
+  const { data: rows } = await admin
+    .from("email_thread_projects")
+    .select("project_id")
+    .eq("thread_id", threadId);
+
+  const ids: string[] = [];
+  const primary = thread.project_id ? String(thread.project_id) : null;
+  if (primary) ids.push(primary);
+  for (const row of (rows || []) as any[]) {
+    const value = String(row.project_id);
+    if (value && !ids.includes(value)) ids.push(value);
+  }
+  return ids;
+}
+
+/** Adds an additional project association to a thread. If the thread has no
+ *  primary project yet, the added project becomes the primary (mirrors
+ *  assignProjectToThread); otherwise it is purely an extra membership. Returns
+ *  the refreshed thread detail. */
+export async function addProjectToThread(
+  userId: string,
+  threadId: string,
+  projectId: string,
+) {
+  const admin = getAdminClient();
+  const thread = await ensureThreadAccess(userId, threadId);
+  await ensureProjectAccess(userId, projectId);
+
+  if (!thread.project_id) {
+    // No primary yet — promote this to primary (runs reprocess + status update).
+    return await assignProjectToThread(userId, threadId, projectId);
+  }
+
+  await admin
+    .from("email_thread_projects")
+    .upsert(
+      { thread_id: threadId, project_id: projectId },
+      { onConflict: "thread_id,project_id", ignoreDuplicates: true },
+    );
+
+  return await getThreadDetailForUser(userId, threadId);
+}
+
+/** Removes a project association from a thread. If the removed project was the
+ *  primary, the next remaining association (if any) is promoted to primary;
+ *  otherwise the primary is cleared. Returns the refreshed thread detail. */
+export async function removeProjectFromThread(
+  userId: string,
+  threadId: string,
+  projectId: string,
+) {
+  const admin = getAdminClient();
+  const thread = await ensureThreadAccess(userId, threadId);
+
+  await admin
+    .from("email_thread_projects")
+    .delete()
+    .eq("thread_id", threadId)
+    .eq("project_id", projectId);
+
+  if (String(thread.project_id || "") === String(projectId)) {
+    const { data: remaining } = await admin
+      .from("email_thread_projects")
+      .select("project_id")
+      .eq("thread_id", threadId)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    const nextPrimary = remaining?.project_id
+      ? String(remaining.project_id)
+      : null;
+
+    await admin
+      .from("email_threads")
+      .update({
+        project_id: nextPrimary,
+        needs_project: nextPrimary ? false : true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", threadId);
+  }
+
+  return await getThreadDetailForUser(userId, threadId);
 }
 
 export async function createTasksForThread(

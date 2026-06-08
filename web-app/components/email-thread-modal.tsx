@@ -4,19 +4,23 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Archive,
+  Ban,
   Bot,
   Check,
   ChevronDown,
   ChevronRight,
   ExternalLink,
   FolderSearch,
+  LayoutTemplate,
   Loader2,
+  Mail,
   MailCheck,
   MailPlus,
   Maximize2,
   Minimize2,
   PanelBottom,
   PanelRight,
+  Pencil,
   Search,
   SendHorizontal,
   ShieldAlert,
@@ -25,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 import { EmailThreadAttachments } from "@/components/email-thread-attachments";
+import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Tooltip } from "@/components/tooltip";
 import { EmailSignatureContent } from "@/components/email-signature-content";
 import {
@@ -124,6 +129,12 @@ type EmailThreadModalProps = {
   hideEmailSignatures?: boolean;
   onOpenChange: (open: boolean) => void;
   onRefresh?: () => Promise<void> | void;
+  /**
+   * Opens the full task edit modal for a linked task. Wired by the parent view
+   * (it owns the TaskModal/EditTaskModal). When omitted, the Edit button on a
+   * linked task is hidden.
+   */
+  onEditTask?: (taskId: string) => void | Promise<void>;
 };
 
 export function shouldCloseEmailThreadModalAfterAction(action: ThreadAction) {
@@ -221,6 +232,7 @@ export function EmailThreadModal({
   hideEmailSignatures = true,
   onOpenChange,
   onRefresh,
+  onEditTask,
 }: EmailThreadModalProps) {
   const [thread, setThread] = useState<EmailThreadDetail | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
@@ -253,6 +265,11 @@ export function EmailThreadModal({
     useState(false);
   const [displayMode, setDisplayMode] =
     useState<EmailThreadDisplayMode>("centered");
+  // Linked task delete confirmation + per-row busy state.
+  const [pendingDeleteTaskId, setPendingDeleteTaskId] = useState<string | null>(
+    null,
+  );
+  const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
   // Per-thread collapse memory: which conversation messages are expanded.
   // Restored from (and persisted to) localStorage keyed by thread id.
   const [threadExpandState, setThreadExpandState] = useState<ThreadExpandState>(
@@ -275,18 +292,48 @@ export function EmailThreadModal({
     [projectSearchQuery, sortedInboxProjects],
   );
   const selectedProjectId = getThreadProjectId(thread);
-  const selectedProject = useMemo(
+  // Ordered, de-duped list of project ids associated with this thread. The
+  // server is the source of truth (thread.projectIds, backed by the
+  // email_thread_projects join table); the primary project_id is always first.
+  const associatedProjectIds = useMemo(() => {
+    const ids: string[] = [];
+    if (selectedProjectId) ids.push(selectedProjectId);
+    for (const id of thread?.projectIds || []) {
+      if (id && !ids.includes(id)) ids.push(id);
+    }
+    return ids;
+  }, [selectedProjectId, thread?.projectIds]);
+  const associatedProjects = useMemo(
     () =>
-      sortedInboxProjects.find((project) => project.id === selectedProjectId) ||
-      null,
-    [selectedProjectId, sortedInboxProjects],
+      associatedProjectIds
+        .map((id) => sortedInboxProjects.find((project) => project.id === id))
+        .filter((project): project is Project => Boolean(project)),
+    [associatedProjectIds, sortedInboxProjects],
   );
+  // The reply composer now emits HTML, so "empty" is e.g. "<p></p>". Strip tags
+  // and entities to decide whether there is real content to send/schedule.
+  const hasReplyText = useMemo(() => {
+    const text = replyContent
+      .replace(/<[^>]*>/g, "")
+      .replace(/&nbsp;/gi, " ")
+      .trim();
+    return text.length > 0;
+  }, [replyContent]);
   const primaryThreadEntry = getPrimaryThreadRenderEntry(thread?.conversation);
   const primaryThreadAttachments =
     getDisplayableThreadAttachments(primaryThreadEntry);
   const conversationEntries = getConversationEntriesExcludingPrimary(
     thread?.conversation,
   );
+  // Real AI summary for the thread. Prefer the AI-generated summaryText; fall
+  // back to the secondary action title when it adds info beyond the subject.
+  const aiSummaryText =
+    thread?.summaryText?.trim() ||
+    (thread &&
+    shouldShowSecondaryActionTitle(thread.actionTitle, thread.subject) &&
+    thread.actionTitle?.trim()
+      ? thread.actionTitle.trim()
+      : "");
 
   const conversationEntryIds = useMemo(
     () => conversationEntries.map((entry) => entry.id),
@@ -429,6 +476,8 @@ export function EmailThreadModal({
     setQueuedAction(null);
     setIsQueuedActionNoticeVisible(false);
     setReplyError(null);
+    setPendingDeleteTaskId(null);
+    setTaskBusyId(null);
   }, [threadId]);
 
   useEffect(() => {
@@ -513,38 +562,67 @@ export function EmailThreadModal({
     setProjectSearchQuery("");
   };
 
-  const handleProjectAssign = async (projectId: string) => {
+  const handleProjectPickerSelect = (projectId: string) => {
+    closeProjectPicker();
+
+    if (associatedProjectIds.includes(projectId)) {
+      return;
+    }
+
+    // Every chip is now persisted via the join table. Adding a chip POSTs to
+    // /projects; the server promotes it to primary if none exists yet.
+    void handleAddProjectLink(projectId);
+  };
+
+  const handleAddProjectLink = async (projectId: string) => {
     if (!threadId) return;
 
     setBusyState("project");
 
     try {
-      const response = await fetch(`/api/email/threads/${threadId}/project`, {
-        method: "PUT",
+      const response = await fetch(`/api/email/threads/${threadId}/projects`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ projectId }),
       });
 
-      await parseApiResponse(response, "Failed to assign project");
-      closeProjectPicker();
+      await parseApiResponse(response, "Failed to add project");
       await refreshParent();
       await reloadThread(threadId);
-      updateStatus("Project assigned.");
+      updateStatus("Project added.");
     } catch (error) {
       updateStatus(
-        error instanceof Error ? error.message : "Failed to assign project",
+        error instanceof Error ? error.message : "Failed to add project",
       );
     } finally {
       setBusyState(null);
     }
   };
 
-  const handleProjectPickerSelect = (projectId: string) => {
-    closeProjectPicker();
+  const handleRemoveProjectChip = async (projectId: string) => {
+    if (!threadId) return;
 
-    if (projectId !== selectedProjectId) {
-      void handleProjectAssign(projectId);
+    setBusyState("project");
+
+    try {
+      const response = await fetch(`/api/email/threads/${threadId}/projects`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ projectId }),
+      });
+
+      await parseApiResponse(response, "Failed to remove project");
+      await refreshParent();
+      await reloadThread(threadId);
+      updateStatus("Project removed.");
+    } catch (error) {
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to remove project",
+      );
+    } finally {
+      setBusyState(null);
     }
   };
 
@@ -579,6 +657,36 @@ export function EmailThreadModal({
       );
     } finally {
       setBusyState(null);
+    }
+  };
+
+  const handleEditLinkedTask = (taskId: string) => {
+    if (!onEditTask) return;
+    void onEditTask(taskId);
+  };
+
+  const handleDeleteLinkedTask = async (taskId: string) => {
+    setTaskBusyId(taskId);
+
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      await parseApiResponse(response, "Failed to delete task");
+      setPendingDeleteTaskId(null);
+      await refreshParent();
+      if (threadId) {
+        await reloadThread(threadId);
+      }
+      updateStatus("Task deleted.");
+    } catch (error) {
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to delete task",
+      );
+    } finally {
+      setTaskBusyId(null);
     }
   };
 
@@ -626,7 +734,7 @@ export function EmailThreadModal({
   };
 
   const handleReply = async () => {
-    if (!threadId || !replyContent.trim()) return;
+    if (!threadId || !hasReplyText) return;
 
     setBusyState("reply");
     setReplyError(null);
@@ -658,7 +766,7 @@ export function EmailThreadModal({
   };
 
   const handleScheduleReply = async () => {
-    if (!threadId || !replyContent.trim() || !scheduledReplyAt) return;
+    if (!threadId || !hasReplyText || !scheduledReplyAt) return;
 
     setBusyState("reply_schedule");
     setReplyError(null);
@@ -828,9 +936,9 @@ export function EmailThreadModal({
     const isQueued = queuedAction === action;
     const isBusy = busyState === action;
     const label = options.label ?? getThreadActionLabel(action);
-    const baseClassName = options.destructive
-      ? "inline-flex items-center gap-2 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
-      : "inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50";
+    const iconButtonClassName = options.destructive
+      ? "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-900/50 bg-red-950/40 text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
+      : "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50";
 
     if (isPendingConfirm) {
       return (
@@ -857,16 +965,24 @@ export function EmailThreadModal({
     }
 
     return (
-      <button
+      <Tooltip
         key={action}
-        type="button"
-        onClick={() => handleThreadAction(action)}
-        disabled={Boolean(busyState) || Boolean(queuedAction)}
-        className={baseClassName}
+        content={isQueued ? `${label} queued` : label}
+        className="w-auto"
+        side="bottom"
+        align="end"
       >
-        {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : options.icon}
-        {isQueued ? `${label} queued` : label}
-      </button>
+        <button
+          type="button"
+          onClick={() => handleThreadAction(action)}
+          disabled={Boolean(busyState) || Boolean(queuedAction)}
+          aria-label={label}
+          title={label}
+          className={iconButtonClassName}
+        >
+          {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : options.icon}
+        </button>
+      </Tooltip>
     );
   };
 
@@ -1013,24 +1129,26 @@ export function EmailThreadModal({
               <div className="border-b border-zinc-800 pb-4">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0 flex-1 space-y-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
-                      <Sparkles className="h-3.5 w-3.5" />
-                      {thread.status}
-                      {canMarkThreadAsRead(thread) ? (
-                        <span className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] tracking-wide text-[rgb(var(--theme-primary-rgb))]">
-                          Unread
-                        </span>
-                      ) : null}
-                    </div>
-                    <h2 className="text-xl font-semibold text-white">
-                      {formatEmailSubject(thread.subject)}
-                    </h2>
-                    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <div className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
-                          <MailCheck className="h-3.5 w-3.5" />
-                          <span>Email Body</span>
+                    {aiSummaryText ? (
+                      <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
+                        <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                          <Sparkles className="h-3.5 w-3.5" />
+                          <span>AI Summary</span>
                         </div>
+                        <div className="break-words text-sm leading-6 text-zinc-300">
+                          {aiSummaryText}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="relative rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
+                      <Tooltip
+                        content={getEmailHtmlRenderModeToggleLabel(
+                          emailHtmlRenderMode,
+                        )}
+                        className="w-auto"
+                        side="bottom"
+                        align="end"
+                      >
                         <button
                           type="button"
                           onClick={() =>
@@ -1038,23 +1156,30 @@ export function EmailThreadModal({
                               current === "preserve" ? "simplified" : "preserve",
                             )
                           }
-                          className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                          aria-label={getEmailHtmlRenderModeToggleLabel(
+                            emailHtmlRenderMode,
+                          )}
+                          title={getEmailHtmlRenderModeToggleLabel(
+                            emailHtmlRenderMode,
+                          )}
+                          className={cn(
+                            "absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full border bg-zinc-900/80 transition-colors",
+                            emailHtmlRenderMode === "simplified"
+                              ? "border-theme-primary text-white"
+                              : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
+                          )}
                         >
-                          {getEmailHtmlRenderModeToggleLabel(emailHtmlRenderMode)}
+                          {emailHtmlRenderMode === "simplified" ? (
+                            <Sparkles className="h-4 w-4" />
+                          ) : (
+                            <LayoutTemplate className="h-4 w-4" />
+                          )}
                         </button>
+                      </Tooltip>
+                      <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                        <Mail className="h-3.5 w-3.5" />
+                        <span>Message</span>
                       </div>
-                      <div className="mb-3 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
-                        <Sparkles className="h-3.5 w-3.5" />
-                        <span>AI Summary:</span>
-                      </div>
-                      {shouldShowSecondaryActionTitle(
-                        thread.actionTitle,
-                        thread.subject,
-                      ) && thread.actionTitle ? (
-                        <div className="mb-3 break-words text-sm text-zinc-400">
-                          {thread.actionTitle}
-                        </div>
-                      ) : null}
                       {primaryThreadEntry?.contentHtml ||
                       primaryThreadEntry?.content ? (
                         <EmailSignatureContent
@@ -1077,9 +1202,11 @@ export function EmailThreadModal({
                             "No message body available yet."}
                         </div>
                       )}
-                      <EmailThreadAttachments
-                        attachments={primaryThreadAttachments}
-                      />
+                      {primaryThreadAttachments.length > 0 ? (
+                        <EmailThreadAttachments
+                          attachments={primaryThreadAttachments}
+                        />
+                      ) : null}
                     </div>
                   </div>
 
@@ -1091,7 +1218,8 @@ export function EmailThreadModal({
                       icon: <Archive className="h-4 w-4" />,
                     })}
                     {renderThreadActionButton("spam", {
-                      icon: <ShieldAlert className="h-4 w-4" />,
+                      icon: <Ban className="h-4 w-4" />,
+                      destructive: true,
                     })}
                     {renderThreadActionButton("delete", {
                       icon: <Trash2 className="h-4 w-4" />,
@@ -1101,7 +1229,7 @@ export function EmailThreadModal({
                 </div>
               </div>
 
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+              <div>
                 <div ref={projectPickerRef} className="relative pt-2">
                   <FloatingFieldLabel label="Project" />
                   <div className="relative">
@@ -1131,11 +1259,7 @@ export function EmailThreadModal({
                           );
                         }
                       }}
-                      placeholder={
-                        selectedProject
-                          ? `Search projects… Current: ${selectedProject.name}`
-                          : "Search projects..."
-                      }
+                      placeholder="Search projects to add..."
                       disabled={busyState === "project"}
                       className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2.5 pl-10 pr-10 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
                     />
@@ -1158,20 +1282,39 @@ export function EmailThreadModal({
                       )}
                     </button>
                   </div>
-                  {selectedProject ? (
-                    <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-900/70 px-3 py-1 text-xs text-zinc-300">
-                      <div
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: selectedProject.color }}
-                      />
-                      <span className="truncate">{selectedProject.name}</span>
+                  {associatedProjects.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {associatedProjects.map((project) => (
+                        <span
+                          key={project.id}
+                          className="inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-900/70 py-1 pl-3 pr-1.5 text-xs text-zinc-300"
+                        >
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: project.color }}
+                          />
+                          <span className="truncate">{project.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveProjectChip(project.id)}
+                            disabled={busyState === "project"}
+                            aria-label={`Remove ${project.name}`}
+                            title={`Remove ${project.name}`}
+                            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-white disabled:opacity-50"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
                     </div>
                   ) : null}
                   {isProjectPickerOpen ? (
                     <div className="absolute top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
                       {filteredInboxProjects.length > 0 ? (
                         filteredInboxProjects.map((project) => {
-                          const isSelected = project.id === selectedProjectId;
+                          const isSelected = associatedProjectIds.includes(
+                            project.id,
+                          );
 
                           return (
                             <button
@@ -1207,50 +1350,6 @@ export function EmailThreadModal({
                     </div>
                   ) : null}
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleGenerateTasks}
-                  disabled={busyState === "tasks"}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                >
-                  <FolderSearch className="h-4 w-4" />
-                  Generate Tasks
-                </button>
-              </div>
-
-              <div className="flex justify-end pt-1">
-                {pendingConfirmAction === "delete" ? (
-                  <div className="inline-flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => queueThreadAction("delete")}
-                      disabled={Boolean(busyState) || Boolean(queuedAction)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-red-800/60 bg-red-950/50 px-3 py-2 text-sm font-medium text-red-100 transition-colors hover:border-red-700 hover:text-white disabled:opacity-50"
-                    >
-                      <Check className="h-4 w-4" />
-                      Confirm Delete
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingConfirmAction(null)}
-                      disabled={Boolean(busyState) || Boolean(queuedAction)}
-                      className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => handleThreadAction("delete")}
-                    disabled={Boolean(busyState) || Boolean(queuedAction)}
-                    className="inline-flex items-center gap-2 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm font-medium text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Delete Email
-                  </button>
-                )}
               </div>
 
               {queuedAction && isQueuedActionNoticeVisible ? (
@@ -1280,23 +1379,115 @@ export function EmailThreadModal({
                 </div>
               ) : null}
 
-              {thread.linkedTasks?.length ? (
-                <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                  <div className="mb-2 text-xs uppercase tracking-wide text-zinc-500">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div className="text-xs uppercase tracking-wide text-zinc-500">
                     Linked Tasks
                   </div>
-                  <div className="space-y-2">
-                    {thread.linkedTasks.map((task) => (
-                      <div
-                        key={task.id}
-                        className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-300"
-                      >
-                        {task.name}
-                      </div>
-                    ))}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleGenerateTasks}
+                    disabled={busyState === "tasks"}
+                    className="inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 text-xs text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                  >
+                    {busyState === "tasks" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <FolderSearch className="h-3.5 w-3.5" />
+                    )}
+                    Generate Tasks
+                  </button>
                 </div>
-              ) : null}
+                {thread.linkedTasks?.length ? (
+                  <div className="space-y-2">
+                    {thread.linkedTasks.map((task) => {
+                      const isConfirmingDelete = pendingDeleteTaskId === task.id;
+                      const isTaskBusy = taskBusyId === task.id;
+
+                      return (
+                        <div
+                          key={task.id}
+                          className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-300"
+                        >
+                          <span className="min-w-0 flex-1 truncate">
+                            {task.name}
+                          </span>
+                          {isConfirmingDelete ? (
+                            <div className="flex shrink-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleDeleteLinkedTask(task.id)
+                                }
+                                disabled={isTaskBusy}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-red-900/60 bg-red-950/40 px-2.5 py-1 text-xs text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
+                              >
+                                {isTaskBusy ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Check className="h-3.5 w-3.5" />
+                                )}
+                                Confirm
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPendingDeleteTaskId(null)}
+                                disabled={isTaskBusy}
+                                className="rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex shrink-0 items-center gap-1">
+                              {onEditTask ? (
+                                <Tooltip
+                                  content="Edit task"
+                                  className="w-auto"
+                                  side="bottom"
+                                  align="end"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleEditLinkedTask(task.id)
+                                    }
+                                    aria-label="Edit task"
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                </Tooltip>
+                              ) : null}
+                              <Tooltip
+                                content="Delete task"
+                                className="w-auto"
+                                side="bottom"
+                                align="end"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPendingDeleteTaskId(task.id)
+                                  }
+                                  aria-label="Delete task"
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-900/50 bg-red-950/40 text-red-200 transition-colors hover:border-red-800 hover:text-white"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </Tooltip>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-4 text-center text-xs text-zinc-500">
+                    No linked tasks yet.
+                  </div>
+                )}
+              </div>
 
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
                 <div className="mb-3 flex items-center justify-end gap-2">
@@ -1504,19 +1695,21 @@ export function EmailThreadModal({
                       </button>
                     </div>
                   ) : null}
-                  <textarea
+                  <RichTextEditor
                     value={replyContent}
-                    onChange={(event) => {
-                      setReplyContent(event.target.value);
+                    onChange={(value) => {
+                      setReplyContent(value);
                       if (replyError) setReplyError(null);
                     }}
-                    rows={5}
+                    minHeightClassName="min-h-[120px]"
                     placeholder={
                       replyMode === "internal_note"
                         ? "Write an internal note for linked Forge tasks…"
                         : "Reply to all participants…"
                     }
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white transition-[height] duration-200"
+                    disabled={
+                      busyState === "reply" || busyState === "reply_schedule"
+                    }
                   />
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     {replyMode === "reply_all" ? (
@@ -1537,7 +1730,7 @@ export function EmailThreadModal({
                         type="button"
                         onClick={() => void handleScheduleReply()}
                         disabled={
-                          busyState === "reply_schedule" || !replyContent.trim()
+                          busyState === "reply_schedule" || !hasReplyText
                         }
                         className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
                       >
@@ -1552,7 +1745,7 @@ export function EmailThreadModal({
                     <button
                       type="button"
                       onClick={handleReply}
-                      disabled={busyState === "reply" || !replyContent.trim()}
+                      disabled={busyState === "reply" || !hasReplyText}
                       className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-theme-gradient px-3 text-sm text-white shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
                     >
                       {busyState === "reply" ? (
