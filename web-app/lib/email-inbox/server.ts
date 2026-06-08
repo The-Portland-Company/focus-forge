@@ -2636,6 +2636,18 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
   }
 }
 
+// Minimum interval between background IMAP polls per mailbox, in ms.
+//
+// The user-facing `syncFrequencyMinutes` (default 5) was historically used as
+// the gate here, which capped worst-case "new mail -> shown" latency at ~5
+// minutes regardless of how fast the client polled `sync-due`. We decouple the
+// two: the actual poll floor is `min(syncFrequencyMinutes, FLOOR)` so a focused
+// client can surface mail within ~1 minute while still respecting provider
+// rate limits (60s polls are well within Gmail/IMAP allowances and far gentler
+// on the server than a long-lived IDLE connection on Railway). Mailboxes
+// configured to sync *less* often than the floor still honor their setting.
+const BACKGROUND_SYNC_FLOOR_MS = 60 * 1000;
+
 export async function syncDueMailboxesForUser(userId: string) {
   const mailboxes = await listMailboxesForUser(userId);
   const now = Date.now();
@@ -2648,7 +2660,12 @@ export async function syncDueMailboxesForUser(userId: string) {
       ? new Date(mailbox.lastSyncedAt).getTime()
       : 0;
 
-    return now - lastSyncedAt >= mailbox.syncFrequencyMinutes * 60 * 1000;
+    const dueAfterMs = Math.min(
+      mailbox.syncFrequencyMinutes * 60 * 1000,
+      BACKGROUND_SYNC_FLOOR_MS,
+    );
+
+    return now - lastSyncedAt >= dueAfterMs;
   });
 
   const results = await Promise.allSettled(
