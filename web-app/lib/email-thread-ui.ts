@@ -73,14 +73,19 @@ export function getPrimaryThreadRenderEntry(
     return null;
   }
 
-  for (let index = conversation.length - 1; index >= 0; index -= 1) {
+  // The "primary" entry anchors the body / AI Summary panel. It must be the
+  // FIRST email in the thread (the original message), not the latest — sending
+  // a reply otherwise replaces the body with the user's own reply. Replies and
+  // later messages flow into the Conversation list via
+  // getConversationEntriesExcludingPrimary().
+  for (let index = 0; index < conversation.length; index += 1) {
     const entry = conversation[index];
     if (entry?.type === "email") {
       return entry;
     }
   }
 
-  return conversation[conversation.length - 1] || null;
+  return conversation[0] || null;
 }
 
 export function getConversationEntriesExcludingPrimary(
