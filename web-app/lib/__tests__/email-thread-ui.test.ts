@@ -39,7 +39,7 @@ test("getEmailActorGradient is deterministic for the same sender", () => {
   assert.match(first, /^linear-gradient/);
 });
 
-test("getPrimaryThreadRenderEntry prefers the latest email body", () => {
+test("getPrimaryThreadRenderEntry anchors on the FIRST email so replies don't replace the body", () => {
   const entry = getPrimaryThreadRenderEntry([
     {
       id: "1",
@@ -67,7 +67,9 @@ test("getPrimaryThreadRenderEntry prefers the latest email body", () => {
     },
   ]);
 
-  assert.equal(entry?.id, "3");
+  // Original email anchors the body; the outbound reply (id=3) appears in the
+  // Conversation list via getConversationEntriesExcludingPrimary instead.
+  assert.equal(entry?.id, "1");
 });
 
 test("getConversationEntriesExcludingPrimary removes the primary email from the thread list", () => {
@@ -98,9 +100,11 @@ test("getConversationEntriesExcludingPrimary removes the primary email from the 
     },
   ]);
 
+  // Primary is now the first email (id=1); the internal note and the outbound
+  // reply remain in the conversation list, in order.
   assert.deepEqual(
     entries.map((entry) => entry.id),
-    ["1", "2"],
+    ["2", "3"],
   );
 });
 
