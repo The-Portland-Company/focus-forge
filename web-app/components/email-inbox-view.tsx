@@ -3608,7 +3608,7 @@ export function EmailInboxView({
         <div>
           <div className="flex items-center gap-2.5">
             {!isQuarantineView ? (
-              <div className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-2 py-1 text-xs font-medium">
+              <div className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-3 text-sm font-medium">
                 <Tooltip content="Unread" className="w-auto" side="bottom">
                   <span className="cursor-default text-[rgb(var(--theme-primary-rgb))]">
                     {unreadInboxCount}
@@ -3649,7 +3649,7 @@ export function EmailInboxView({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {visibleInboxItems.length > 0 ? (
-            <div className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-1.5 py-1 text-xs text-zinc-400">
+            <div className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-1.5 text-sm text-zinc-400">
               <Tooltip content="Previous page" className="w-auto" side="bottom">
                 <button
                   type="button"
@@ -3659,7 +3659,7 @@ export function EmailInboxView({
                     )
                   }
                   disabled={safeCurrentPage <= 1}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label="Previous page"
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -3687,7 +3687,7 @@ export function EmailInboxView({
                       event.currentTarget.blur();
                     }
                   }}
-                  className="w-9 rounded-md border border-zinc-700 bg-zinc-950/70 px-1 py-0.5 text-center text-xs tabular-nums text-white focus:outline-none focus:ring-1 ring-theme [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  className="w-9 rounded-md border border-zinc-700 bg-zinc-950/70 px-1 py-0.5 text-center text-sm tabular-nums text-white focus:outline-none focus:ring-1 ring-theme [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   aria-label="Jump to page"
                 />{" "}
                 of {pageCount}
@@ -3701,7 +3701,7 @@ export function EmailInboxView({
                     )
                   }
                   disabled={safeCurrentPage >= pageCount}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label="Next page"
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -3713,7 +3713,7 @@ export function EmailInboxView({
                 onChange={(event) =>
                   setPerPage(normalizeEmailInboxPerPage(event.target.value))
                 }
-                className="rounded-md border border-zinc-700 bg-zinc-950/70 py-0.5 pl-1 pr-5 text-xs tabular-nums text-zinc-200 focus:outline-none focus:ring-1 ring-theme"
+                className="rounded-md border border-zinc-700 bg-zinc-950/70 py-0.5 pl-1 pr-5 text-sm tabular-nums text-zinc-200 focus:outline-none focus:ring-1 ring-theme"
                 aria-label="Emails per page"
               >
                 {EMAIL_INBOX_PER_PAGE_OPTIONS.map((option) => (
@@ -3731,7 +3731,7 @@ export function EmailInboxView({
                   type="button"
                   onClick={() => void handleEmptyTrashPermanently()}
                   disabled={busyState === "empty_trash"}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-800/60 bg-red-950/50 px-3 text-sm font-medium text-red-100 transition-colors hover:border-red-700 hover:text-white disabled:opacity-50"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-red-800/60 bg-red-950/50 px-3 text-sm font-medium text-red-100 transition-colors hover:border-red-700 hover:text-white disabled:opacity-50"
                 >
                   {busyState === "empty_trash" ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -3744,7 +3744,7 @@ export function EmailInboxView({
                   type="button"
                   onClick={() => setIsEmptyTrashConfirmVisible(false)}
                   disabled={busyState === "empty_trash"}
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -3756,7 +3756,7 @@ export function EmailInboxView({
                 disabled={
                   trashedThreadCount === 0 || busyState === "empty_trash"
                 }
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-900/50 bg-red-950/30 px-3 text-sm font-medium text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-red-900/50 bg-red-950/30 px-3 text-sm font-medium text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
               >
                 {busyState === "empty_trash" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -3772,7 +3772,7 @@ export function EmailInboxView({
               <button
                 type="button"
                 onClick={() => setIsOutboundComposerOpen(true)}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
                 aria-label="New Email"
               >
                 <SendHorizontal className="h-4 w-4" />
@@ -3784,7 +3784,7 @@ export function EmailInboxView({
             <button
               type="button"
               onClick={() => setIsSpamReviewOpen(true)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
               aria-label="AI + Spam"
             >
               <Bot className="h-4 w-4" />
@@ -3804,7 +3804,7 @@ export function EmailInboxView({
             <button
               type="button"
               onClick={handleMailboxFormToggle}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
               aria-label={
                 showMailboxForm
                   ? "Close Mailbox"
@@ -3825,7 +3825,7 @@ export function EmailInboxView({
               type="button"
               onClick={handleSync}
               disabled={mailboxes.length === 0 || busyState === "sync"}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-theme-gradient text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-theme-gradient text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               aria-label={selectedMailboxId === "all" ? "Sync All" : "Sync"}
             >
               {busyState === "sync" ? (
@@ -3833,6 +3833,39 @@ export function EmailInboxView({
               ) : (
                 <RefreshCw className="h-4 w-4" />
               )}
+            </button>
+          </Tooltip>
+          <Tooltip
+            content={
+              isFilterBarCollapsed
+                ? "Search & filters"
+                : "Hide search & filters"
+            }
+            className="w-auto"
+            side="bottom"
+          >
+            <button
+              type="button"
+              onClick={() => setIsFilterBarCollapsed((current) => !current)}
+              className={cn(
+                "relative inline-flex h-9 w-9 items-center justify-center rounded-lg border bg-zinc-900 text-sm text-zinc-200 transition-colors hover:text-white",
+                isFilterBarCollapsed
+                  ? "border-zinc-700 hover:border-zinc-600"
+                  : "border-[rgb(var(--theme-primary-rgb))]/45 text-white",
+              )}
+              aria-expanded={!isFilterBarCollapsed}
+              aria-label={
+                isFilterBarCollapsed
+                  ? "Show search and filters"
+                  : "Hide search and filters"
+              }
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              {isFilterBarCollapsed && hasActiveFilters ? (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1 text-[9px] font-semibold leading-none text-white">
+                  {activeFilterCount}
+                </span>
+              ) : null}
             </button>
           </Tooltip>
         </div>
@@ -4122,49 +4155,14 @@ export function EmailInboxView({
               </div>
             ) : null}
             <div className="mb-3">
-              <div className="flex items-center gap-2">
-                <Tooltip
-                  content={
-                    isFilterBarCollapsed
-                      ? "Search & filters"
-                      : "Hide search & filters"
-                  }
-                  className="w-auto"
-                  side="bottom"
-                >
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setIsFilterBarCollapsed((current) => !current)
-                    }
-                    className={cn(
-                      "relative inline-flex h-9 w-9 items-center justify-center rounded-xl border bg-zinc-900/80 text-zinc-300 transition-colors hover:text-white",
-                      isFilterBarCollapsed
-                        ? "border-zinc-800"
-                        : "border-[rgb(var(--theme-primary-rgb))]/45 text-white",
-                    )}
-                    aria-expanded={!isFilterBarCollapsed}
-                    aria-label={
-                      isFilterBarCollapsed
-                        ? "Show search and filters"
-                        : "Hide search and filters"
-                    }
-                  >
-                    <SlidersHorizontal className="h-4 w-4" />
-                    {isFilterBarCollapsed && hasActiveFilters ? (
-                      <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1 text-[9px] font-semibold leading-none text-white">
-                        {activeFilterCount}
-                      </span>
-                    ) : null}
-                  </button>
-                </Tooltip>
-                {isFilterBarCollapsed && inboxSearchQuery.trim() ? (
+              {isFilterBarCollapsed && inboxSearchQuery.trim() ? (
+                <div className="mb-2 flex items-center gap-2">
                   <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
                     {visibleInboxItems.length} match
                     {visibleInboxItems.length === 1 ? "" : "es"}
                   </div>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
               <div
                 className={cn(
                   "grid transition-[grid-template-rows,opacity,margin] duration-300 ease-out",
