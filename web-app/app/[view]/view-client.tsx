@@ -653,6 +653,47 @@ export default function ViewPage({
   // connected mailbox's last sync timestamp.
   const [todayEmailSort, setTodayEmailSort] = useState<"newest" | "oldest">("newest");
   const [todayEmailClass, setTodayEmailClass] = useState<string>("all");
+  // Persist Today → Email Work sort/filter across page loads via localStorage.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const storedSort = window.localStorage.getItem("todayEmailSort");
+      if (storedSort === "newest" || storedSort === "oldest") {
+        setTodayEmailSort(storedSort);
+      }
+      const storedClass = window.localStorage.getItem("todayEmailClass");
+      const allowedClasses = [
+        "all",
+        "actionable",
+        "newsletter",
+        "waiting",
+        "reference",
+        "spam",
+        "unknown",
+      ];
+      if (storedClass && allowedClasses.includes(storedClass)) {
+        setTodayEmailClass(storedClass);
+      }
+    } catch {
+      // Ignore (private mode / quota / SSR).
+    }
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("todayEmailSort", todayEmailSort);
+    } catch {
+      // Ignore.
+    }
+  }, [todayEmailSort]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("todayEmailClass", todayEmailClass);
+    } catch {
+      // Ignore.
+    }
+  }, [todayEmailClass]);
   const [syncingMailboxes, setSyncingMailboxes] = useState(false);
   const [showMailboxSyncModal, setShowMailboxSyncModal] = useState(false);
   const [showAddSection, setShowAddSection] = useState(false);

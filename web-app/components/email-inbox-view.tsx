@@ -15,6 +15,7 @@ import {
 import {
   Archive,
   ArrowUpDown,
+  Ban,
   Bot,
   Check,
   CircleHelp,
@@ -202,6 +203,7 @@ const EMAIL_DETAIL_PANEL_STORAGE_KEY =
   "focus-forge.email-inbox.detail-panel-width";
 const EMAIL_INBOX_FILTER_BAR_STORAGE_KEY =
   "focus-forge.email-inbox.filter-bar-collapsed";
+const EMAIL_INBOX_SHOW_SPAM_STORAGE_KEY = "emailInboxShowSpam";
 const EMAIL_INBOX_PER_PAGE_STORAGE_KEY =
   "focus-forge.email-inbox.per-page";
 export const EMAIL_INBOX_PER_PAGE_OPTIONS = [25, 50, 100] as const;
@@ -1333,6 +1335,7 @@ export function EmailInboxView({
     string | null
   >(null);
   const [isFilterBarCollapsed, setIsFilterBarCollapsed] = useState(true);
+  const [showSpamInInbox, setShowSpamInInbox] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [perPage, setPerPage] = useState<number>(EMAIL_INBOX_DEFAULT_PER_PAGE);
   const [pageJumpInput, setPageJumpInput] = useState("");
@@ -1409,15 +1412,30 @@ export function EmailInboxView({
       view,
     ],
   );
+  const spamGatedInboxItems = useMemo(() => {
+    // Only the main /email-inbox list hides spam by default. Quarantine, Trash,
+    // and Sent views are unaffected. The user can opt-in via the toolbar
+    // toggle (persisted in localStorage as `emailInboxShowSpam`).
+    if (view !== "email-inbox" || showSpamInInbox) {
+      return filteredInboxItems;
+    }
+    if (inboxFilterTab === "spam") {
+      // Honor the explicit "Spam" filter tab even when the toggle is off.
+      return filteredInboxItems;
+    }
+    return filteredInboxItems.filter(
+      (item) => item.classification !== "spam",
+    );
+  }, [filteredInboxItems, inboxFilterTab, showSpamInInbox, view]);
   const searchedInboxItems = useMemo(
     () =>
       filterInboxItemsBySearchQuery({
-        items: filteredInboxItems,
+        items: spamGatedInboxItems,
         query: inboxSearchQuery,
         mailboxes,
         projects: data.projects,
       }),
-    [data.projects, filteredInboxItems, inboxSearchQuery, mailboxes],
+    [data.projects, spamGatedInboxItems, inboxSearchQuery, mailboxes],
   );
   const visibleInboxItems = useMemo(
     () => sortInboxItemsForView(searchedInboxItems, sortBy),
@@ -1988,6 +2006,27 @@ export function EmailInboxView({
       isFilterBarCollapsed ? "1" : "0",
     );
   }, [isFilterBarCollapsed]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setShowSpamInInbox(
+      window.localStorage.getItem(EMAIL_INBOX_SHOW_SPAM_STORAGE_KEY) === "true",
+    );
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      EMAIL_INBOX_SHOW_SPAM_STORAGE_KEY,
+      showSpamInInbox ? "true" : "false",
+    );
+  }, [showSpamInInbox]);
 
   useEffect(() => {
     void refreshReplyDraftState().catch((error) => {
@@ -4522,6 +4561,34 @@ export function EmailInboxView({
                             )}
                           </button>
                         </Tooltip>
+                        {isInboxView ? (
+                          <Tooltip
+                            content={
+                              showSpamInInbox
+                                ? "Hide spam from inbox"
+                                : "Show spam in inbox"
+                            }
+                            className="w-auto"
+                            side="bottom"
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setShowSpamInInbox((current) => !current)
+                              }
+                              aria-pressed={showSpamInInbox}
+                              aria-label="Toggle spam visibility in inbox"
+                              className={cn(
+                                "inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors",
+                                showSpamInInbox
+                                  ? "border-red-900/60 bg-red-950/40 text-red-200"
+                                  : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:text-white",
+                              )}
+                            >
+                              <Ban className="h-4 w-4" />
+                            </button>
+                          </Tooltip>
+                        ) : null}
                         <Tooltip
                           content={
                             alwaysShowSummary
@@ -4962,6 +5029,12 @@ export function EmailInboxView({
                       disabled={busyState === "project" || isCreatingProject}
                       className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2.5 pl-10 pr-10 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
                     />
+                    {busyState === "project" ? (
+                      <div className="pointer-events-none absolute inset-y-0 left-10 right-10 flex items-center gap-2 text-sm text-zinc-300">
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-zinc-400" />
+                        <span className="truncate">Saving…</span>
+                      </div>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() =>
@@ -4988,7 +5061,12 @@ export function EmailInboxView({
                           Current Project
                         </div>
                         <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-950/80 px-3 py-1 text-xs text-zinc-300">
-                          {selectedProject ? (
+                          {busyState === "project" ? (
+                            <>
+                              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-zinc-400" />
+                              <span className="truncate">Saving…</span>
+                            </>
+                          ) : selectedProject ? (
                             <>
                               <div
                                 className="h-2.5 w-2.5 shrink-0 rounded-full"
