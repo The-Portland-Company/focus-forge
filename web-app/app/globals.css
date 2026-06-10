@@ -971,6 +971,14 @@ input[type="datetime-local"].themed-date-input {
 
 /* App shell: the full-screen radial-gradient background is always dark. Give
    light themes a clean light shell instead. */
+/* Unread email rows tint their row with an inline backgroundImage that layers a
+   solid tint over the user's profile gradient. The default tint is near-black
+   (set inline as the var fallback); in light mode flip it to a light tint so
+   unread rows stay light while still showing the gradient accent. */
+:is(.light, .theme-light) {
+  --email-unread-tint: rgba(255, 255, 255, 0.9);
+}
+
 :is(.light, .theme-light) .app-shell-background {
   background-color: #f5f5f7;
   background-image:

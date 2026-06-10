@@ -869,10 +869,10 @@ export function Sidebar({
                 href="/time"
                 className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
                   currentView === "time"
-                    ? "bg-zinc-800 text-white"
+                    ? "text-white"
                     : currentTimerStartedAt
-                      ? "text-emerald-300 hover:bg-zinc-800/50 hover:text-white"
-                      : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                      ? "text-emerald-300 hover:text-white"
+                      : "text-zinc-400 hover:text-white"
                 }`}
               >
                 <Clock className="w-4 h-4" />
@@ -906,10 +906,10 @@ export function Sidebar({
               href="/time"
               className={`flex-1 flex items-center justify-between gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
                 currentView === "time"
-                  ? "bg-zinc-800 text-white"
+                  ? "text-white"
                   : currentTimerStartedAt
-                    ? "text-emerald-300 hover:bg-zinc-800/50 hover:text-white"
-                    : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                    ? "text-emerald-300 hover:text-white"
+                    : "text-zinc-400 hover:text-white"
               }`}
             >
               <span className="flex min-w-0 items-center gap-3">
@@ -948,8 +948,8 @@ export function Sidebar({
               href="/search"
               className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
                 currentView === "search"
-                  ? "bg-zinc-800 text-white"
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                  ? "text-white"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
               <Search className="w-4 h-4" />
@@ -960,8 +960,8 @@ export function Sidebar({
             href="/search"
             className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "search"
-                ? "bg-zinc-800 text-white"
-                : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                ? "text-white"
+                : "text-zinc-400 hover:text-white"
             }`}
           >
             <Search className="w-4 h-4" />
@@ -975,8 +975,8 @@ export function Sidebar({
               href="/today"
               className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
                 currentView === "today"
-                  ? "bg-zinc-800 text-white"
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                  ? "text-white"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
               <Calendar className="w-4 h-4" />
@@ -987,8 +987,8 @@ export function Sidebar({
             href="/today"
             className={`w-full flex items-center justify-between gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "today"
-                ? "bg-zinc-800 text-white"
-                : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                ? "text-white"
+                : "text-zinc-400 hover:text-white"
             }`}
           >
             <span className="flex items-center gap-3">
@@ -1017,8 +1017,8 @@ export function Sidebar({
               href="/email-inbox"
               className={`relative w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
                 currentView.startsWith("email-")
-                  ? "bg-zinc-800 text-white"
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                  ? "text-white"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
               <Mail className="w-4 h-4" />
@@ -1039,8 +1039,8 @@ export function Sidebar({
                 href="/email-inbox"
                 className={`flex-1 flex items-center justify-between gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
                   currentView.startsWith("email-")
-                    ? "bg-zinc-800 text-white"
-                    : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                    ? "text-white"
+                    : "text-zinc-400 hover:text-white"
                 }`}
               >
                 <span className="flex items-center gap-3">
@@ -1067,13 +1067,13 @@ export function Sidebar({
               </button>
             </div>
             {emailInboxExpanded && (
-              <div className="mt-0.5 space-y-0.5 border-t border-zinc-800 pt-0.5">
+              <div className="mt-1 ml-4 space-y-0.5 rounded-lg bg-zinc-800/40 p-1">
                 <Link
                   href="/email-inbox"
                   className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
                     currentView === "email-inbox"
-                      ? "bg-zinc-800 text-white"
-                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                      ? "text-white"
+                      : "text-zinc-500 hover:text-zinc-200"
                   }`}
                 >
                   <span className="flex items-center gap-2">
@@ -1088,8 +1088,8 @@ export function Sidebar({
                   href="/email-starred"
                   className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
                     currentView === "email-starred"
-                      ? "bg-zinc-800 text-white"
-                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                      ? "text-white"
+                      : "text-zinc-500 hover:text-zinc-200"
                   }`}
                 >
                   <span className="flex items-center gap-2">
@@ -1101,8 +1101,8 @@ export function Sidebar({
                   href="/email-drafts"
                   className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
                     currentView === "email-drafts"
-                      ? "bg-zinc-800 text-white"
-                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                      ? "text-white"
+                      : "text-zinc-500 hover:text-zinc-200"
                   }`}
                 >
                   <span className="flex items-center gap-2">
@@ -1114,8 +1114,8 @@ export function Sidebar({
                   href="/email-quarantine"
                   className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
                     currentView === "email-quarantine"
-                      ? "bg-zinc-800 text-white"
-                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                      ? "text-white"
+                      : "text-zinc-500 hover:text-zinc-200"
                   }`}
                 >
                   <span className="flex items-center gap-2">
@@ -1130,8 +1130,8 @@ export function Sidebar({
                   href="/email-trash"
                   className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
                     currentView === "email-trash"
-                      ? "bg-zinc-800 text-white"
-                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                      ? "text-white"
+                      : "text-zinc-500 hover:text-zinc-200"
                   }`}
                 >
                   <span className="flex items-center gap-2">
@@ -1146,8 +1146,8 @@ export function Sidebar({
                   href="/email-sent"
                   className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
                     currentView === "email-sent"
-                      ? "bg-zinc-800 text-white"
-                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                      ? "text-white"
+                      : "text-zinc-500 hover:text-zinc-200"
                   }`}
                 >
                   <span className="flex items-center gap-2">
@@ -1162,8 +1162,8 @@ export function Sidebar({
                   href="/email-rules"
                   className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors ${
                     currentView === "email-rules"
-                      ? "bg-zinc-800 text-white"
-                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                      ? "text-white"
+                      : "text-zinc-500 hover:text-zinc-200"
                   }`}
                 >
                   <span className="flex items-center gap-2">
@@ -1180,8 +1180,8 @@ export function Sidebar({
                   href="/email-ai-lab"
                   className={`flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors ${
                     currentView === "email-ai-lab"
-                      ? "bg-zinc-800 text-white"
-                      : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-200"
+                      ? "text-white"
+                      : "text-zinc-500 hover:text-zinc-200"
                   }`}
                 >
                   <FlaskConical className="w-4 h-4" />
@@ -1198,8 +1198,8 @@ export function Sidebar({
               href="/upcoming"
               className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
                 currentView === "upcoming"
-                  ? "bg-zinc-800 text-white"
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                  ? "text-white"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
               <CalendarDays className="w-4 h-4" />
@@ -1210,8 +1210,8 @@ export function Sidebar({
             href="/upcoming"
             className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "upcoming"
-                ? "bg-zinc-800 text-white"
-                : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                ? "text-white"
+                : "text-zinc-400 hover:text-white"
             }`}
           >
             <CalendarDays className="w-4 h-4" />
@@ -1225,8 +1225,8 @@ export function Sidebar({
               href="/estimates"
               className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
                 currentView === "estimates"
-                  ? "bg-zinc-800 text-white"
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                  ? "text-white"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
               <Hourglass className="w-4 h-4" />
@@ -1237,8 +1237,8 @@ export function Sidebar({
             href="/estimates"
             className={`w-full flex items-center justify-between gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "estimates"
-                ? "bg-zinc-800 text-white"
-                : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                ? "text-white"
+                : "text-zinc-400 hover:text-white"
             }`}
           >
             <span className="flex items-center gap-3">
@@ -1261,8 +1261,8 @@ export function Sidebar({
               href="/calendar"
               className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
                 currentView === "calendar"
-                  ? "bg-zinc-800 text-white"
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                  ? "text-white"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
               <Calendar className="w-4 h-4" />
@@ -1273,8 +1273,8 @@ export function Sidebar({
             href="/calendar"
             className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "calendar"
-                ? "bg-zinc-800 text-white"
-                : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                ? "text-white"
+                : "text-zinc-400 hover:text-white"
             }`}
           >
             <Calendar className="w-4 h-4" />
@@ -1288,8 +1288,8 @@ export function Sidebar({
               href="/favorites"
               className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors mb-4 ${
                 currentView === "favorites"
-                  ? "bg-zinc-800 text-white"
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                  ? "text-white"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
               <Star className="w-4 h-4" />
@@ -1300,8 +1300,8 @@ export function Sidebar({
             href="/favorites"
             className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors mb-4 ${
               currentView === "favorites"
-                ? "bg-zinc-800 text-white"
-                : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                ? "text-white"
+                : "text-zinc-400 hover:text-white"
             }`}
           >
             <Star className="w-4 h-4" />
@@ -1378,8 +1378,8 @@ export function Sidebar({
                       href={`/org-${org.id}`}
                       className={`w-full flex items-center justify-center px-2 py-2 rounded-lg transition-colors ${
                         currentView === `org-${org.id}`
-                          ? "bg-zinc-800"
-                          : "hover:bg-zinc-800/50"
+                          ? "ring-1 ring-inset ring-zinc-500"
+                          : ""
                       }`}
                     >
                       <div
@@ -1704,8 +1704,8 @@ export function Sidebar({
                             <div
                               className={`relative w-full flex items-center gap-2 px-3 py-0.5 rounded-lg text-sm transition-all ${
                                 currentView === `project-${project.id}`
-                                  ? "bg-zinc-800 text-white"
-                                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                                  ? "text-white"
+                                  : "text-zinc-400 hover:text-white"
                               } ${
                                 dragOverProject === project.id &&
                                 dragOverPosition === "top"
@@ -1824,8 +1824,8 @@ export function Sidebar({
                         <div
                           className={`relative w-full flex items-center gap-2 px-3 py-0.5 rounded-lg text-sm transition-all ${
                             currentView === `project-${project.id}`
-                              ? "bg-zinc-800 text-white"
-                              : "text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-400"
+                              ? "text-white"
+                              : "text-zinc-500 hover:text-zinc-400"
                           }`}
                         >
                           <Link
@@ -1917,7 +1917,7 @@ export function Sidebar({
                   return (
                     <div
                       key={user.id}
-                      className="flex items-center justify-between px-3 py-1.5 rounded-lg text-sm text-zinc-500 hover:bg-zinc-800/50 group"
+                      className="flex items-center justify-between px-3 py-1.5 rounded-lg text-sm text-zinc-500 group"
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <Clock className="w-3 h-3 text-zinc-600 flex-shrink-0" />
@@ -2015,14 +2015,14 @@ export function Sidebar({
           <div className="space-y-1">
             <button
               onClick={() => setShowCalendarPopover(!showCalendarPopover)}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:bg-zinc-800/50 hover:text-white transition-colors"
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-white transition-colors"
             >
               <Rss className="w-4 h-4" />
               Calendar Feed
             </button>
             <Link
               href="/developer/api"
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:bg-zinc-800/50 hover:text-white transition-colors"
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-white transition-colors"
             >
               <FileCode2 className="w-4 h-4" />
               API Docs
