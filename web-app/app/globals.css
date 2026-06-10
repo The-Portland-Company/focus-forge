@@ -947,3 +947,133 @@ input[type="datetime-local"].themed-date-input {
 .fresh-data-highlight {
   animation: fresh-data-highlight-fade 2.5s ease-out forwards;
 }
+
+/* ===========================================================================
+   UNIVERSAL LIGHT-MODE UTILITY REMAPS
+   ---------------------------------------------------------------------------
+   This app is dark-first: components hardcode dark Tailwind utilities
+   (bg-zinc-950/900/800/700, bg-black, text-white, text-zinc-400/500,
+   border-zinc-800/700) directly in markup, and the full-screen app shell is
+   forced dark via `.app-shell-background`. The light theme presets only swap
+   CSS variables + the <body> background, so those hardcoded dark surfaces and
+   the dark app shell leaked through — leaving "dark backgrounds and buttons"
+   in every light theme (Light, Neutral Light, Liquid Glass Light, and
+   system-resolved light).
+
+   These rules remap those hardcoded dark utilities to light equivalents
+   whenever the root carries `.light` (added for every light preset). They are
+   placed at the very end of the file so they win over the dark-valued
+   `.theme-liquid-glass` surface overrides above for the `.light.theme-liquid-glass`
+   case via source order (equal specificity + !important). Substring attribute
+   selectors catch the many opacity variants (e.g. bg-zinc-900/60) without
+   enumerating each one.
+   ======================================================================== */
+
+/* App shell: the full-screen radial-gradient background is always dark. Give
+   light themes a clean light shell instead. */
+:is(.light, .theme-light) .app-shell-background {
+  background-color: #f5f5f7;
+  background-image:
+    radial-gradient(circle at 24% 12%, rgba(0, 122, 255, 0.06) 0, transparent 34rem),
+    radial-gradient(circle at 80% 20%, rgba(88, 86, 214, 0.05) 0, transparent 38rem),
+    linear-gradient(135deg, #f7f7f9 0%, #eef0f3 48%, #f5f5f7 100%);
+}
+
+/* Dark surface backgrounds -> light. zinc-950/900/black become the base/card
+   white; zinc-800/700 become a faint elevated gray. Light themes lean on the
+   remapped borders below for separation rather than surface contrast. */
+/* Note: `bg-black/NN` scrims (modal backdrops) are intentionally NOT remapped —
+   they must stay dark to dim underlying content in light mode too. */
+:is(.light, .theme-light) [class*="bg-zinc-950"],
+:is(.light, .theme-light) [class*="bg-zinc-900"] {
+  background-color: #ffffff !important;
+}
+
+:is(.light, .theme-light) [class*="bg-zinc-800"],
+:is(.light, .theme-light) [class*="bg-zinc-700"] {
+  background-color: #f4f4f5 !important; /* zinc-100 */
+}
+
+/* Hover feedback for the (now light) interactive surfaces. */
+:is(.light, .theme-light) [class*="hover:bg-zinc-950"]:hover,
+:is(.light, .theme-light) [class*="hover:bg-zinc-900"]:hover,
+:is(.light, .theme-light) [class*="hover:bg-zinc-800"]:hover {
+  background-color: #ececef !important;
+}
+:is(.light, .theme-light) [class*="hover:bg-zinc-700"]:hover {
+  background-color: #e4e4e7 !important; /* zinc-200 */
+}
+
+/* Borders -> light gray so cards/sections stay visually separated. */
+:is(.light, .theme-light) [class*="border-zinc-950"],
+:is(.light, .theme-light) [class*="border-zinc-900"],
+:is(.light, .theme-light) [class*="border-zinc-800"],
+:is(.light, .theme-light) [class*="border-zinc-700"],
+:is(.light, .theme-light) [class*="border-zinc-600"] {
+  border-color: #e4e4e7 !important; /* zinc-200 */
+}
+:is(.light, .theme-light) [class*="divide-zinc-800"],
+:is(.light, .theme-light) [class*="divide-zinc-700"] {
+  border-color: #e4e4e7 !important;
+}
+
+/* Text colors. Default body/heading text flips to near-black; muted greys are
+   darkened enough to stay legible on white. */
+:is(.light, .theme-light) .text-white,
+:is(.light, .theme-light) [class*="text-zinc-100"],
+:is(.light, .theme-light) [class*="text-zinc-200"],
+:is(.light, .theme-light) [class*="text-zinc-300"] {
+  color: #18181b !important; /* zinc-900 */
+}
+:is(.light, .theme-light) [class*="text-zinc-400"] {
+  color: #52525b !important; /* zinc-600 */
+}
+:is(.light, .theme-light) [class*="text-zinc-500"],
+:is(.light, .theme-light) [class*="text-zinc-600"] {
+  color: #71717a !important; /* zinc-500 */
+}
+
+/* Preserve white text on colored/branded buttons and gradient surfaces, which
+   keep a saturated background in light mode and therefore still need light
+   text. This must come AFTER the text remaps above. */
+:is(.light, .theme-light) .btn-theme-primary,
+:is(.light, .theme-light) .btn-theme-primary *,
+:is(.light, .theme-light) .bg-theme-primary,
+:is(.light, .theme-light) .bg-theme-primary *,
+:is(.light, .theme-light) .bg-theme-gradient,
+:is(.light, .theme-light) .bg-theme-gradient *,
+:is(.light, .theme-light) [class*="bg-theme-gradient"],
+:is(.light, .theme-light) [class*="bg-theme-gradient"] *,
+:is(.light, .theme-light) [class*="bg-gradient-to"],
+:is(.light, .theme-light) [class*="bg-gradient-to"] * {
+  color: #ffffff !important;
+}
+
+/* Branded/gradient buttons must keep their colored fill — undo the zinc->white
+   surface remap when an element is also a theme/gradient surface. */
+:is(.light, .theme-light) .bg-theme-primary {
+  background: var(--theme-primary) !important;
+}
+:is(.light, .theme-light) .bg-theme-gradient,
+:is(.light, .theme-light) [class*="bg-theme-gradient"] {
+  background: var(--theme-gradient) !important;
+}
+
+/* Liquid Glass Light: the dark-valued glass surface overrides earlier in this
+   file are neutralized by the rules above; re-assert the proper light glass
+   surfaces and sidebar so the glass look is preserved in light mode. */
+.light.theme-liquid-glass .bg-zinc-950 {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-right: 1px solid var(--glass-border) !important;
+}
+.light.theme-liquid-glass .bg-zinc-900,
+.light.theme-liquid-glass .bg-zinc-800 {
+  background: var(--glass-surface) !important;
+  border: 1px solid var(--glass-border);
+}
+.light.theme-liquid-glass input,
+.light.theme-liquid-glass textarea,
+.light.theme-liquid-glass select {
+  background: rgba(0, 0, 0, 0.03) !important;
+  color: var(--glass-text) !important;
+}
