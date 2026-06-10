@@ -86,3 +86,6 @@ web-app/logs/
 # scan/tooling cache
 .cache_ggshield
 .playwright-cli/
+
+# agent scratch worktrees
+.claude/worktrees/
