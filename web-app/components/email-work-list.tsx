@@ -523,7 +523,7 @@ export function getEmailWorkItemStyle(params: {
   if (params.isUnread) {
     return {
       backgroundImage:
-        "linear-gradient(rgba(10, 10, 11, 0.9), rgba(10, 10, 11, 0.9)), var(--user-profile-gradient)",
+        "linear-gradient(var(--email-unread-tint, rgba(10, 10, 11, 0.9)), var(--email-unread-tint, rgba(10, 10, 11, 0.9))), var(--user-profile-gradient)",
     };
   }
 
