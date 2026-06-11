@@ -37,6 +37,8 @@ import {
   LayoutGrid,
   Columns3,
   LayoutList,
+  History,
+  ChevronRight,
 } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 import { TimeTrackingView } from "@/components/time-tracking-view";
@@ -726,6 +728,25 @@ export default function ViewPage({
   const [dueDateLayout, setDueDateLayout] = useState<
     "inline" | "below" | "right"
   >("inline");
+  const [showProjectHistory, setShowProjectHistory] = useState(false);
+  const [projectFiltersExpanded, setProjectFiltersExpanded] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setProjectFiltersExpanded(
+      window.localStorage.getItem("projectFiltersExpanded") === "true",
+    );
+  }, []);
+
+  const toggleProjectFiltersExpanded = useCallback(() => {
+    setProjectFiltersExpanded((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("projectFiltersExpanded", String(next));
+      }
+      return next;
+    });
+  }, []);
   const [lastSelectedTaskId, setLastSelectedTaskId] = useState<string | null>(
     null,
   );
@@ -5152,15 +5173,42 @@ export default function ViewPage({
                     <Edit className="h-4 w-4" />
                   </button>
                   <ProjectAiExportControls projectId={project.id} />
+                  <Tooltip
+                    content="Browse previous versions of this project's tasks and settings"
+                    side="bottom"
+                    align="end"
+                    className="inline-flex"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setShowProjectHistory((prev) => !prev)}
+                      aria-pressed={showProjectHistory}
+                      className={`rounded-lg border p-2 transition-colors ${
+                        showProjectHistory
+                          ? "border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))]"
+                          : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
+                      }`}
+                      aria-label="Project history"
+                    >
+                      <History className="h-4 w-4" />
+                    </button>
+                  </Tooltip>
                 </>
               ) : null}
-              <button
-                onClick={() => openAddTask(project?.id)}
-                className="btn-theme-primary text-white rounded-lg px-3 py-2 flex items-center gap-2 text-sm font-medium transition-all"
+              <Tooltip
+                content="New task"
+                side="bottom"
+                align="end"
+                className="inline-flex"
               >
-                <Plus className="w-4 h-4" />
-                Task
-              </button>
+                <button
+                  onClick={() => openAddTask(project?.id)}
+                  className="btn-theme-primary text-white rounded-lg p-2 flex items-center justify-center transition-all"
+                  aria-label="New task"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </Tooltip>
             </div>
           </div>
 
@@ -5168,10 +5216,12 @@ export default function ViewPage({
             <ProjectProgressTimeline project={project} tasks={projectTasks} />
           )}
 
-          {project && (
+          {project && showProjectHistory && (
             <HistoryTimelineScrubber
               scope={{ projectId: project.id }}
               title="History"
+              description="Browse previous versions of this project's tasks and settings over time."
+              collapsible={false}
               className="mb-4"
             />
           )}
@@ -5194,12 +5244,20 @@ export default function ViewPage({
               <>
                 <div className="mb-5">
                   <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-zinc-500">
+                    <button
+                      type="button"
+                      onClick={toggleProjectFiltersExpanded}
+                      aria-expanded={projectFiltersExpanded}
+                      className="group flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-500 transition-colors hover:text-zinc-300"
+                    >
+                      <ChevronRight
+                        className={`h-3.5 w-3.5 transition-transform ${projectFiltersExpanded ? "rotate-90" : ""}`}
+                      />
                       Project Task Filters
                       {isRefreshing && (
                         <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />
                       )}
-                    </div>
+                    </button>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -5225,7 +5283,7 @@ export default function ViewPage({
                           aria-pressed={projectSectionLayout === "list"}
                           className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                             projectSectionLayout === "list"
-                              ? "bg-[rgb(var(--theme-primary-rgb))] text-white"
+                              ? "bg-[image:var(--user-profile-gradient)] text-white"
                               : "text-zinc-400 hover:text-white"
                           }`}
                           title="Section list layout"
@@ -5239,7 +5297,7 @@ export default function ViewPage({
                           aria-pressed={projectSectionLayout === "board"}
                           className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                             projectSectionLayout === "board"
-                              ? "bg-[rgb(var(--theme-primary-rgb))] text-white"
+                              ? "bg-[image:var(--user-profile-gradient)] text-white"
                               : "text-zinc-400 hover:text-white"
                           }`}
                           title="Horizontal section board"
@@ -5314,6 +5372,7 @@ export default function ViewPage({
                       )}
                     </div>
                   </div>
+                  {projectFiltersExpanded && (
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
@@ -5428,6 +5487,7 @@ export default function ViewPage({
                       </SelectContent>
                     </Select>
                   </div>
+                  )}
                 </div>
 
                 {isDataLoading ? (

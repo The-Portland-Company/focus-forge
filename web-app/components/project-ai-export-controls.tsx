@@ -2,12 +2,15 @@
 
 import Link from "next/link"
 import { useState } from "react"
-import { Check, ExternalLink, Link2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Check, FileJson, Link2 } from "lucide-react"
+import { Tooltip } from "@/components/tooltip"
 
 interface ProjectAiExportControlsProps {
   projectId: string
 }
+
+const iconButtonClass =
+  "inline-flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
 
 export function ProjectAiExportControls({
   projectId,
@@ -33,26 +36,40 @@ export function ProjectAiExportControls({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button
-        type="button"
-        variant="outline"
-        onClick={() => void copyLink()}
-        className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
+      <Tooltip
+        content={copied ? "Copied!" : "Copy JSON link"}
+        side="bottom"
+        align="end"
+        className="inline-flex"
       >
-        {copied ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
-        Copy JSON Link
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        asChild
-        className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
+        <button
+          type="button"
+          onClick={() => void copyLink()}
+          className={iconButtonClass}
+          aria-label="Copy JSON link"
+        >
+          {copied ? (
+            <Check className="h-4 w-4" />
+          ) : (
+            <Link2 className="h-4 w-4" />
+          )}
+        </button>
+      </Tooltip>
+      <Tooltip
+        content="Open JSON page"
+        side="bottom"
+        align="end"
+        className="inline-flex"
       >
-        <Link href={exportPagePath} target="_blank">
-          <ExternalLink className="w-4 h-4" />
-          JSON Page
+        <Link
+          href={exportPagePath}
+          target="_blank"
+          className={iconButtonClass}
+          aria-label="Open JSON page"
+        >
+          <FileJson className="h-4 w-4" />
         </Link>
-      </Button>
+      </Tooltip>
     </div>
   )
 }

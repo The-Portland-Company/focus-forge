@@ -25,7 +25,14 @@ type HistoryScope =
 type HistoryTimelineScrubberProps = {
   scope: HistoryScope;
   title?: string;
+  description?: string;
   className?: string;
+  /**
+   * When false, the panel is always expanded and the chevron collapse toggle
+   * is hidden (used when an external trigger, e.g. a top-right icon button,
+   * already controls visibility). Defaults to true.
+   */
+  collapsible?: boolean;
 };
 
 const SLIDER_STEPS = 500;
@@ -46,19 +53,22 @@ function buildQuery(scope: HistoryScope): string {
 export function HistoryTimelineScrubber({
   scope,
   title = "History Timeline",
+  description,
   className,
+  collapsible = true,
 }: HistoryTimelineScrubberProps) {
   const [events, setEvents] = useState<EntityEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sliderValue, setSliderValue] = useState(SLIDER_STEPS);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsedState, setCollapsed] = useState(false);
+  const collapsed = collapsible ? collapsedState : false;
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !collapsible) return;
     setCollapsed(
       window.localStorage.getItem("history-scrubber-collapsed") === "true",
     );
-  }, []);
+  }, [collapsible]);
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -152,22 +162,29 @@ export function HistoryTimelineScrubber({
       data-testid="history-timeline-scrubber"
     >
       <div
-        className={`flex items-center justify-between gap-2 ${collapsed ? "" : "mb-3"}`}
+        className={`flex items-center justify-between gap-2 ${collapsed ? "" : description ? "mb-1" : "mb-3"}`}
       >
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          aria-expanded={!collapsed}
-          className="group flex items-center gap-2 text-left"
-        >
-          <ChevronRight
-            className={`h-4 w-4 text-zinc-500 transition-transform group-hover:text-zinc-300 ${collapsed ? "" : "rotate-90"}`}
-          />
+        {collapsible ? (
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-expanded={!collapsed}
+            className="group flex items-center gap-2 text-left"
+          >
+            <ChevronRight
+              className={`h-4 w-4 text-zinc-500 transition-transform group-hover:text-zinc-300 ${collapsed ? "" : "rotate-90"}`}
+            />
+            <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-300">
+              <History className="h-4 w-4" />
+              {title}
+            </h2>
+          </button>
+        ) : (
           <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-300">
             <History className="h-4 w-4" />
             {title}
           </h2>
-        </button>
+        )}
         {!collapsed && range && (
           <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-xs text-zinc-200">
             <Clock className="mr-1 inline h-3 w-3" />
@@ -175,6 +192,10 @@ export function HistoryTimelineScrubber({
           </span>
         )}
       </div>
+
+      {!collapsed && description && (
+        <p className="mb-3 text-xs text-zinc-500">{description}</p>
+      )}
 
       {!collapsed && (
         <>
