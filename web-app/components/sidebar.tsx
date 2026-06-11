@@ -45,9 +45,12 @@ import {
   FlaskConical,
   FileText,
   FolderTree,
+  Download,
+  X,
 } from "lucide-react";
-import { Database, Project } from "@/lib/types";
+import { Database, Project, Task } from "@/lib/types";
 import { UserAvatar } from "@/components/user-avatar";
+import { NavTasksBadge } from "@/components/nav-tasks-modal";
 import { Tooltip } from "./tooltip";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatElapsed } from "@/lib/time/client";
@@ -127,6 +130,204 @@ function UnreadReadBadge({ unread, total }: { unread: number; total: number }) {
       </span>
       <span className="text-zinc-600">/{read}</span>
     </span>
+  );
+}
+
+// --- Email "Folders" submenu: dedupe + hierarchy helpers ------------------
+//
+// Special-use flags (and name fallbacks) for folders that ALREADY have a
+// dedicated sidebar item (Inbox, Sent, Drafts, Spam/Junk, Trash) or are noise
+// (Gmail "All Mail"). These are hidden from the live Folders tree so the list
+// only shows the user's own custom folders/labels. Filtering is done here on
+// the client; the API still returns every folder for other consumers.
+const REDUNDANT_SPECIAL_USE = new Set([
+  "\\Inbox",
+  "\\All",
+  "\\Drafts",
+  "\\Sent",
+  "\\Junk",
+  "\\Trash",
+]);
+const REDUNDANT_FOLDER_NAMES = new Set([
+  "inbox",
+  "all mail",
+  "drafts",
+  "draft",
+  "sent",
+  "sent mail",
+  "sent items",
+  "spam",
+  "junk",
+  "trash",
+  "bin",
+  "deleted",
+  "deleted items",
+  "deleted messages",
+  // "Starred" already exists as a dedicated sidebar item above the Folders
+  // area (like Drafts/Sent/Spam/Trash). Gmail's "Important" is intentionally
+  // NOT hidden — it has no dedicated sidebar item.
+  "starred",
+]);
+
+// Strip a leading "[Gmail]/" container so "[Gmail]/All Mail" matches "all mail".
+function normalizeFolderKey(value: string): string {
+  return value
+    .replace(/^\[Gmail\]\//i, "")
+    .trim()
+    .toLowerCase();
+}
+
+/** True when a folder duplicates an existing sidebar item or is redundant
+ *  noise. Matches primarily on the IMAP special-use flag, then falls back to
+ *  a case-insensitive name/path match (top-level only, so a nested custom
+ *  folder like "Clients/Sent" is never accidentally hidden). */
+function isRedundantFolder(folder: SidebarFolder): boolean {
+  if (folder.specialUse && REDUNDANT_SPECIAL_USE.has(folder.specialUse)) {
+    return true;
+  }
+  const path = normalizeFolderKey(folder.path);
+  if (REDUNDANT_FOLDER_NAMES.has(path)) return true;
+  const delimiter = folder.delimiter || "/";
+  const isTopLevel = !folder.path
+    .replace(/^\[Gmail\]\//i, "")
+    .includes(delimiter);
+  if (isTopLevel && REDUNDANT_FOLDER_NAMES.has(normalizeFolderKey(folder.name))) {
+    return true;
+  }
+  return false;
+}
+
+/** A node in the folder hierarchy built from each folder's delimiter. */
+type FolderNode = {
+  folder: SidebarFolder;
+  children: FolderNode[];
+};
+
+/** Builds a tree from a flat folder list using each folder's delimiter
+ *  (e.g. "Clients/Acme" nests "Acme" under "Clients"). When a parent is
+ *  missing from the list (filtered out above, or \Noselect), its children are
+ *  promoted to roots so nothing disappears. Counts stay per-folder. */
+function buildFolderTree(folders: SidebarFolder[]): FolderNode[] {
+  const nodeByPath = new Map<string, FolderNode>();
+  for (const folder of folders) {
+    nodeByPath.set(folder.path, { folder, children: [] });
+  }
+  const roots: FolderNode[] = [];
+  for (const folder of folders) {
+    const node = nodeByPath.get(folder.path)!;
+    const delimiter = folder.delimiter || "/";
+    const idx = delimiter ? folder.path.lastIndexOf(delimiter) : -1;
+    const parentPath = idx > 0 ? folder.path.slice(0, idx) : "";
+    const parent = parentPath ? nodeByPath.get(parentPath) : undefined;
+    if (parent) {
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  const sortNodes = (nodes: FolderNode[]) => {
+    nodes.sort((a, b) =>
+      a.folder.name.localeCompare(b.folder.name, undefined, {
+        sensitivity: "base",
+      }),
+    );
+    for (const n of nodes) sortNodes(n.children);
+  };
+  sortNodes(roots);
+  return roots;
+}
+
+/** One folder row (used by both the tree and the flat search results).
+ *  NOTE on colors: plain IMAP (app-password mailboxes) does NOT expose Gmail
+ *  label colors — those require the Gmail REST API with OAuth, which this app
+ *  doesn't use. So folders render without colors. We deliberately do NOT
+ *  synthesize colors from a hash. */
+function FolderRow({
+  folder,
+  depth,
+  hasChildren,
+  collapsed,
+  onToggle,
+}: {
+  folder: SidebarFolder;
+  depth: number;
+  hasChildren: boolean;
+  collapsed: boolean;
+  onToggle?: () => void;
+}) {
+  return (
+    <div
+      className="flex items-center justify-between gap-2 rounded-md py-1 pr-2 text-sm text-zinc-500"
+      style={{ paddingLeft: `${8 + depth * 12}px` }}
+      title={folder.path}
+    >
+      <span className="flex min-w-0 items-center gap-1.5">
+        {hasChildren ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="shrink-0 rounded p-0.5 text-zinc-600 transition-colors hover:text-zinc-300"
+            aria-label={collapsed ? "Expand folder" : "Collapse folder"}
+            aria-expanded={!collapsed}
+          >
+            <ChevronRight
+              className={`w-3 h-3 transition-transform ${collapsed ? "" : "rotate-90"}`}
+            />
+          </button>
+        ) : (
+          <span className="w-[18px] shrink-0" />
+        )}
+        <Folder className="w-3.5 h-3.5 shrink-0" />
+        <span className="truncate">{folder.name || folder.path}</span>
+      </span>
+      <UnreadReadBadge unread={folder.unseen} total={folder.total} />
+    </div>
+  );
+}
+
+/** Recursively renders folder nodes with indent + per-parent expand/collapse
+ *  (default expanded; a node is collapsed when its key is in `collapsed`). */
+function FolderTreeNodes({
+  nodes,
+  mailboxId,
+  depth,
+  collapsed,
+  onToggle,
+}: {
+  nodes: FolderNode[];
+  mailboxId: string;
+  depth: number;
+  collapsed: Set<string>;
+  onToggle: (key: string) => void;
+}) {
+  return (
+    <>
+      {nodes.map((node) => {
+        const key = `${mailboxId}:${node.folder.path}`;
+        const hasChildren = node.children.length > 0;
+        const isCollapsed = collapsed.has(key);
+        return (
+          <div key={key}>
+            <FolderRow
+              folder={node.folder}
+              depth={depth}
+              hasChildren={hasChildren}
+              collapsed={isCollapsed}
+              onToggle={() => onToggle(key)}
+            />
+            {hasChildren && !isCollapsed ? (
+              <FolderTreeNodes
+                nodes={node.children}
+                mailboxId={mailboxId}
+                depth={depth + 1}
+                collapsed={collapsed}
+                onToggle={onToggle}
+              />
+            ) : null}
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -217,6 +418,20 @@ export function Sidebar({
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [foldersError, setFoldersError] = useState<string | null>(null);
   const foldersFetchedAtRef = useRef<number>(0);
+  // Folder tree UI state: live search query + the set of collapsed parent keys
+  // ("<mailboxId>:<path>"). Folders default to expanded (absent from the set).
+  const [folderSearch, setFolderSearch] = useState("");
+  const [collapsedFolderKeys, setCollapsedFolderKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleFolderCollapsed = (key: string) => {
+    setCollapsedFolderKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -778,6 +993,44 @@ export function Sidebar({
     return { byProject, byOrg, total };
   }, [data.tasks, data.projects]);
 
+  // All tasks (complete + incomplete) grouped by project and by org, plus a
+  // project-id → name map. Reused by the click/hover task modal so it shows the
+  // full list behind each badge count without a new API call.
+  const tasksByProjectId = useMemo(() => {
+    const m = new Map<string, Task[]>();
+    for (const task of data.tasks) {
+      const pid = (task as any).project_id || task.projectId;
+      if (typeof pid !== "string") continue;
+      const arr = m.get(pid);
+      if (arr) arr.push(task);
+      else m.set(pid, [task]);
+    }
+    return m;
+  }, [data.tasks]);
+
+  const tasksByOrgId = useMemo(() => {
+    const projectOrg = new Map<string, string>();
+    for (const project of data.projects) {
+      const oid = (project as any).organization_id || project.organizationId;
+      if (typeof oid === "string") projectOrg.set(project.id, oid);
+    }
+    const m = new Map<string, Task[]>();
+    for (const [pid, arr] of tasksByProjectId.entries()) {
+      const oid = projectOrg.get(pid);
+      if (!oid) continue;
+      const existing = m.get(oid);
+      if (existing) existing.push(...arr);
+      else m.set(oid, [...arr]);
+    }
+    return m;
+  }, [tasksByProjectId, data.projects]);
+
+  const projectNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const project of data.projects) m.set(project.id, project.name);
+    return m;
+  }, [data.projects]);
+
   const sentItemsCount = useMemo(() => {
     const sentItems = data.inboxItems.filter(
       (item) =>
@@ -914,36 +1167,45 @@ export function Sidebar({
 
         {!isCollapsed ? (
           <div className="flex gap-2">
-            <button
-              onClick={onAddTask}
-              className={`flex-1 text-white rounded-lg px-3 py-2 flex items-center justify-center gap-1 text-sm font-medium transition-all ${
-                isAddingTask ? "" : "btn-theme-primary"
-              }`}
-              style={
-                isAddingTask && data.users?.[0]?.profileColor
-                  ? { background: data.users[0].profileColor }
-                  : undefined
-              }
-              title="Add Task"
-            >
-              <CheckSquare className="w-4 h-4" />
-            </button>
+            <Tooltip content="Add Task" side="bottom" className="flex-1">
+              <button
+                onClick={onAddTask}
+                aria-label="Add Task"
+                className={`w-full text-white rounded-lg px-3 py-2 flex items-center justify-center gap-1 text-sm font-medium transition-all ${
+                  isAddingTask ? "" : "btn-theme-primary"
+                }`}
+                style={
+                  isAddingTask && data.users?.[0]?.profileColor
+                    ? { background: data.users[0].profileColor }
+                    : undefined
+                }
+                title="Add Task"
+              >
+                <CheckSquare className="w-4 h-4" />
+              </button>
+            </Tooltip>
 
-            <button
-              onClick={onAddProjectGeneral}
-              className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg px-3 py-2 flex items-center justify-center gap-1 text-sm font-medium transition-colors"
-              title="Add Project"
-            >
-              <Folder className="w-4 h-4" />
-            </button>
+            <Tooltip content="Add Project" side="bottom" className="flex-1">
+              <button
+                onClick={onAddProjectGeneral}
+                aria-label="Add Project"
+                className="w-full bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg px-3 py-2 flex items-center justify-center gap-1 text-sm font-medium transition-colors"
+                title="Add Project"
+              >
+                <Folder className="w-4 h-4" />
+              </button>
+            </Tooltip>
 
-            <button
-              onClick={onAddOrganization}
-              className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg px-3 py-2 flex items-center justify-center gap-1 text-sm font-medium transition-colors"
-              title="Add Organization"
-            >
-              <Building2 className="w-4 h-4" />
-            </button>
+            <Tooltip content="Add Organization" side="bottom" className="flex-1">
+              <button
+                onClick={onAddOrganization}
+                aria-label="Add Organization"
+                className="w-full bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg px-3 py-2 flex items-center justify-center gap-1 text-sm font-medium transition-colors"
+                title="Add Organization"
+              >
+                <Building2 className="w-4 h-4" />
+              </button>
+            </Tooltip>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
@@ -1049,15 +1311,30 @@ export function Sidebar({
               </span>
               <span className="font-mono text-xs">{currentTimerElapsed}</span>
             </Link>
+            {/* Desktop (macOS) app download. No in-repo URL exists yet; the
+                docs designate GitHub Releases as the distribution channel, so
+                this links to the latest published build. */}
+            <Tooltip content="Download desktop app" className="shrink-0">
+              <a
+                href="https://github.com/s3w47m88/focus-forge/releases/latest"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Download desktop app"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950/70 text-zinc-400 transition-colors hover:border-zinc-700 hover:text-white"
+              >
+                <Download className="h-4 w-4" />
+              </a>
+            </Tooltip>
             <Tooltip
               content={currentTimerStartedAt ? "Stop timer" : "Start timer"}
+              className="shrink-0"
             >
               <button
                 type="button"
                 onClick={() =>
                   openTimerModal(currentTimerStartedAt ? "stop" : "start")
                 }
-                className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors ${
                   currentTimerStartedAt
                     ? "border-emerald-800/70 bg-emerald-950/40 text-emerald-200 hover:border-emerald-700 hover:text-white"
                     : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:border-zinc-700 hover:text-white"
@@ -1161,7 +1438,7 @@ export function Sidebar({
             </Link>
           </Tooltip>
         ) : (
-          <div className="mb-1">
+          <div>
             {/* Email Inbox: a Link for navigation + a chevron to toggle the
                 accordion of sub-items (Inbox, Quarantine, Trash, Sent, Rules,
                 AI Lab). State persisted in localStorage as "emailInboxExpanded". */}
@@ -1343,6 +1620,29 @@ export function Sidebar({
                   </button>
                   {emailFoldersExpanded && (
                     <div className="mt-0.5 ml-2 space-y-0.5 border-l border-zinc-800 pl-1.5">
+                      {/* Live folder search: case-insensitive substring on
+                          name AND full path. When searching we render flat
+                          matches instead of the tree. */}
+                      <div className="relative px-1 pb-1 pt-0.5">
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-zinc-600" />
+                        <input
+                          type="text"
+                          value={folderSearch}
+                          onChange={(e) => setFolderSearch(e.target.value)}
+                          placeholder="Search folders"
+                          className="h-7 w-full rounded-md border border-zinc-800 bg-zinc-950/60 pl-7 pr-6 text-xs text-zinc-300 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none"
+                        />
+                        {folderSearch ? (
+                          <button
+                            type="button"
+                            onClick={() => setFolderSearch("")}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-600 transition-colors hover:text-zinc-300"
+                            aria-label="Clear folder search"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        ) : null}
+                      </div>
                       {foldersLoading && folderMailboxes.length === 0 ? (
                         <div className="flex items-center gap-2 px-2 py-1 text-xs text-zinc-600">
                           <Loader2 className="w-3 h-3 animate-spin" />
@@ -1357,49 +1657,74 @@ export function Sidebar({
                           No folders
                         </div>
                       ) : (
-                        folderMailboxes.map((mb) => (
-                          <div key={mb.mailboxId} className="space-y-0.5">
-                            {folderMailboxes.length > 1 ? (
-                              <div
-                                className="truncate px-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-zinc-600"
-                                title={mb.emailAddress}
-                              >
-                                {mb.emailAddress}
-                              </div>
-                            ) : null}
-                            {mb.error ? (
-                              <div
-                                className="px-2 py-1 text-xs text-zinc-600"
-                                title={mb.error}
-                              >
-                                {mb.error}
-                              </div>
-                            ) : mb.folders.length === 0 ? (
-                              <div className="px-2 py-1 text-xs text-zinc-600">
-                                No folders
-                              </div>
-                            ) : (
-                              mb.folders.map((folder) => (
+                        folderMailboxes.map((mb) => {
+                          // Hide folders that duplicate existing sidebar items
+                          // (Inbox/Sent/Drafts/Spam/Trash/All Mail), then build
+                          // the hierarchy from the survivors.
+                          const visibleFolders = mb.folders.filter(
+                            (f) => !isRedundantFolder(f),
+                          );
+                          const query = folderSearch.trim().toLowerCase();
+                          const searching = query.length > 0;
+                          const matches = searching
+                            ? visibleFolders.filter(
+                                (f) =>
+                                  f.name.toLowerCase().includes(query) ||
+                                  f.path.toLowerCase().includes(query),
+                              )
+                            : [];
+                          const tree = searching
+                            ? []
+                            : buildFolderTree(visibleFolders);
+                          return (
+                            <div key={mb.mailboxId} className="space-y-0.5">
+                              {folderMailboxes.length > 1 ? (
                                 <div
-                                  key={`${mb.mailboxId}:${folder.path}`}
-                                  className="flex cursor-default items-center justify-between gap-2 rounded-md px-2 py-1 text-sm text-zinc-500"
-                                  title={folder.path}
+                                  className="truncate px-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-zinc-600"
+                                  title={mb.emailAddress}
                                 >
-                                  <span className="flex min-w-0 items-center gap-2">
-                                    <Folder className="w-3.5 h-3.5 shrink-0" />
-                                    <span className="truncate">
-                                      {folder.name || folder.path}
-                                    </span>
-                                  </span>
-                                  <UnreadReadBadge
-                                    unread={folder.unseen}
-                                    total={folder.total}
-                                  />
+                                  {mb.emailAddress}
                                 </div>
-                              ))
-                            )}
-                          </div>
-                        ))
+                              ) : null}
+                              {mb.error ? (
+                                <div
+                                  className="px-2 py-1 text-xs text-zinc-600"
+                                  title={mb.error}
+                                >
+                                  {mb.error}
+                                </div>
+                              ) : visibleFolders.length === 0 ? (
+                                <div className="px-2 py-1 text-xs text-zinc-600">
+                                  No folders
+                                </div>
+                              ) : searching ? (
+                                matches.length === 0 ? (
+                                  <div className="px-2 py-1 text-xs text-zinc-600">
+                                    No matches
+                                  </div>
+                                ) : (
+                                  matches.map((folder) => (
+                                    <FolderRow
+                                      key={`${mb.mailboxId}:${folder.path}`}
+                                      folder={folder}
+                                      depth={0}
+                                      hasChildren={false}
+                                      collapsed={false}
+                                    />
+                                  ))
+                                )
+                              ) : (
+                                <FolderTreeNodes
+                                  nodes={tree}
+                                  mailboxId={mb.mailboxId}
+                                  depth={0}
+                                  collapsed={collapsedFolderKeys}
+                                  onToggle={toggleFolderCollapsed}
+                                />
+                              )}
+                            </div>
+                          );
+                        })
                       )}
                     </div>
                   )}
@@ -1722,14 +2047,19 @@ export function Sidebar({
                   >
                     <div className="relative flex items-center px-3 py-1">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <Tooltip
-                          content={`${orgTaskCounts.byOrg.get(org.id) || 0} active tasks in ${org.name}`}
-                          className="flex-shrink-0"
-                        >
-                          <span className="block min-w-[18px] text-right text-[10px] tabular-nums text-zinc-500">
-                            {orgTaskCounts.byOrg.get(org.id) || 0}
+                        {(orgTaskCounts.byOrg.get(org.id) || 0) > 0 ? (
+                          <NavTasksBadge
+                            name={org.name}
+                            kind="organization"
+                            tasks={tasksByOrgId.get(org.id) || []}
+                            projectNameById={projectNameById}
+                            triggerClassName="block min-w-[18px] flex-shrink-0 text-right text-[10px] tabular-nums text-zinc-500 transition-colors hover:text-zinc-200"
+                          />
+                        ) : (
+                          <span className="block min-w-[18px] flex-shrink-0 text-right text-[10px] tabular-nums text-zinc-500">
+                            0
                           </span>
-                        </Tooltip>
+                        )}
                         <span className="relative flex items-center flex-shrink-0">
                           <button
                             onClick={(event) => copyOrgId(org.id, event)}
@@ -1935,14 +2265,19 @@ export function Sidebar({
                                   : ""
                               }`}
                             >
-                              <Tooltip
-                                content="Active tasks"
-                                className="flex-shrink-0"
-                              >
-                                <span className="block min-w-[16px] text-right text-[10px] tabular-nums text-zinc-500">
-                                  {orgTaskCounts.byProject.get(project.id) || 0}
+                              {(orgTaskCounts.byProject.get(project.id) || 0) >
+                              0 ? (
+                                <NavTasksBadge
+                                  name={project.name}
+                                  kind="project"
+                                  tasks={tasksByProjectId.get(project.id) || []}
+                                  triggerClassName="block min-w-[16px] flex-shrink-0 text-right text-[10px] tabular-nums text-zinc-500 transition-colors hover:text-zinc-200"
+                                />
+                              ) : (
+                                <span className="block min-w-[16px] flex-shrink-0 text-right text-[10px] tabular-nums text-zinc-500">
+                                  0
                                 </span>
-                              </Tooltip>
+                              )}
                               <GripVertical className="w-3 h-3 opacity-40" />
                               <Link
                                 href={`/project-${project.id}`}
