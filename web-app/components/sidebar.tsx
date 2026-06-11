@@ -44,6 +44,7 @@ import {
   SlidersHorizontal,
   FlaskConical,
   FileText,
+  FolderTree,
 } from "lucide-react";
 import { Database, Project } from "@/lib/types";
 import { UserAvatar } from "@/components/user-avatar";
@@ -89,6 +90,31 @@ interface SidebarProps {
   isRefreshing?: boolean; // True while a background refetch runs with data present
 }
 
+/** One IMAP folder with live message counts (Email Inbox → Folders submenu). */
+type SidebarFolder = {
+  path: string;
+  name: string;
+  delimiter: string;
+  specialUse?: string | null;
+  total: number;
+  unseen: number;
+  read: number;
+};
+
+/** Folders grouped under a single mailbox; `error` set when that mailbox's
+ *  IMAP listing failed (other mailboxes still resolve independently). */
+type SidebarFolderMailbox = {
+  mailboxId: string;
+  emailAddress: string;
+  folders: SidebarFolder[];
+  error?: string;
+};
+
+// Client-side folder cache: keep a short-lived snapshot in sessionStorage so
+// re-mounting the sidebar (route changes) doesn't re-hit IMAP every time.
+const FOLDERS_SESSION_KEY = "emailFoldersCache";
+const FOLDERS_TTL_MS = 2 * 60 * 1000; // ~2 min
+
 /** Two-tone count badge: unread in the theme accent, read in muted zinc.
  *  Hidden when there are no items. Used on Email Inbox sub-items. */
 function UnreadReadBadge({ unread, total }: { unread: number; total: number }) {
@@ -129,6 +155,9 @@ export function Sidebar({
   const [expandedOrgs, setExpandedOrgs] = useState<string[]>([]);
   // Email Inbox is an accordion (default open); state persisted in localStorage.
   const [emailInboxExpanded, setEmailInboxExpanded] = useState<boolean>(true);
+  // "Folders" sub-accordion under Email Inbox (default closed); persisted too.
+  const [emailFoldersExpanded, setEmailFoldersExpanded] =
+    useState<boolean>(false);
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
   const [showPendingInvitations, setShowPendingInvitations] = useState(false);
@@ -180,6 +209,14 @@ export function Sidebar({
     };
   }, []);
   const [projectPendingDelete, setProjectPendingDelete] = useState<Project | null>(null);
+  // Live IMAP folders for the Email Inbox "Folders" sub-accordion. Lazy-loaded
+  // on first expand; cached in sessionStorage (~2 min) so re-mounts don't refetch.
+  const [folderMailboxes, setFolderMailboxes] = useState<SidebarFolderMailbox[]>(
+    [],
+  );
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [foldersError, setFoldersError] = useState<string | null>(null);
+  const foldersFetchedAtRef = useRef<number>(0);
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -258,6 +295,12 @@ export function Sidebar({
         setEmailInboxExpanded(false);
       }
 
+      // Load Email "Folders" sub-accordion state (default closed)
+      const storedEmailFolders = localStorage.getItem("emailFoldersExpanded");
+      if (storedEmailFolders === "true") {
+        setEmailFoldersExpanded(true);
+      }
+
       // Load persisted sidebar width
       const storedWidth = localStorage.getItem("ffSidebarWidth");
       if (storedWidth) {
@@ -296,6 +339,16 @@ export function Sidebar({
       localStorage.setItem("emailInboxExpanded", String(emailInboxExpanded));
     }
   }, [emailInboxExpanded, hasLoadedPreferences]);
+
+  // Persist Email "Folders" sub-accordion state.
+  useEffect(() => {
+    if (hasLoadedPreferences) {
+      localStorage.setItem(
+        "emailFoldersExpanded",
+        String(emailFoldersExpanded),
+      );
+    }
+  }, [emailFoldersExpanded, hasLoadedPreferences]);
 
   // Save collapsed state to localStorage
   useEffect(() => {
@@ -534,6 +587,82 @@ export function Sidebar({
     );
   };
 
+  // Lazy-load the live IMAP folder list. Reuses a fresh sessionStorage snapshot
+  // unless `force` is set; otherwise hits /api/email/folders and re-caches.
+  const loadFolders = async (force = false) => {
+    if (!force) {
+      try {
+        const raw = sessionStorage.getItem(FOLDERS_SESSION_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as {
+            fetchedAt?: number;
+            mailboxes?: SidebarFolderMailbox[];
+          };
+          if (
+            parsed &&
+            typeof parsed.fetchedAt === "number" &&
+            Array.isArray(parsed.mailboxes) &&
+            Date.now() - parsed.fetchedAt < FOLDERS_TTL_MS
+          ) {
+            setFolderMailboxes(parsed.mailboxes);
+            foldersFetchedAtRef.current = parsed.fetchedAt;
+            return;
+          }
+        }
+      } catch {
+        /* ignore malformed cache */
+      }
+    }
+
+    setFoldersLoading(true);
+    setFoldersError(null);
+    try {
+      const res = await fetch("/api/email/folders", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load folders");
+      const json = await res.json();
+      const mailboxes: SidebarFolderMailbox[] = Array.isArray(json?.mailboxes)
+        ? json.mailboxes
+        : [];
+      setFolderMailboxes(mailboxes);
+      const fetchedAt = Date.now();
+      foldersFetchedAtRef.current = fetchedAt;
+      try {
+        sessionStorage.setItem(
+          FOLDERS_SESSION_KEY,
+          JSON.stringify({ fetchedAt, mailboxes }),
+        );
+      } catch {
+        /* sessionStorage unavailable; non-fatal */
+      }
+    } catch (e) {
+      setFoldersError(
+        e instanceof Error ? e.message : "Failed to load folders",
+      );
+    } finally {
+      setFoldersLoading(false);
+    }
+  };
+
+  // Toggle the Folders sub-accordion; fetch on expand when the cache is stale.
+  const toggleEmailFolders = () => {
+    setEmailFoldersExpanded((prev) => {
+      const next = !prev;
+      if (next && Date.now() - foldersFetchedAtRef.current >= FOLDERS_TTL_MS) {
+        void loadFolders();
+      }
+      return next;
+    });
+  };
+
+  // Hydrate folders when the section is restored open on mount (loadFolders
+  // reuses the sessionStorage snapshot when it's still fresh).
+  useEffect(() => {
+    if (hasLoadedPreferences && emailInboxExpanded && emailFoldersExpanded) {
+      void loadFolders();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasLoadedPreferences]);
+
   const copyOrgId = async (orgId: string, event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -723,7 +852,9 @@ export function Sidebar({
         <div className="flex items-center justify-between mb-3">
           {!isCollapsed ? (
             <>
-              <div className="flex items-center gap-2 rounded-lg min-w-0">
+              {/* -ml-1.5 negates the header's px-1.5, so the memoji sits snug
+                  against the left edge with little/no horizontal spacing. */}
+              <div className="flex items-center gap-1.5 rounded-lg min-w-0 -ml-1.5">
                 <UserAvatar
                   name={
                     data.users?.[0]?.name ||
@@ -1187,6 +1318,92 @@ export function Sidebar({
                   <FlaskConical className="w-4 h-4" />
                   AI Lab
                 </Link>
+
+                {/* Folders: live IMAP folder list w/ unread/read counts. Its own
+                    chevron sub-accordion; display-only (v1, no navigation). */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={toggleEmailFolders}
+                    className="flex w-full items-center justify-between rounded-md px-2 py-1 text-sm text-zinc-500 transition-colors hover:text-zinc-200"
+                    aria-expanded={emailFoldersExpanded}
+                    aria-label={
+                      emailFoldersExpanded
+                        ? "Collapse Folders"
+                        : "Expand Folders"
+                    }
+                  >
+                    <span className="flex items-center gap-2">
+                      <FolderTree className="w-4 h-4" />
+                      Folders
+                    </span>
+                    <ChevronRight
+                      className={`w-3.5 h-3.5 text-zinc-500 transition-transform ${emailFoldersExpanded ? "rotate-90" : ""}`}
+                    />
+                  </button>
+                  {emailFoldersExpanded && (
+                    <div className="mt-0.5 ml-2 space-y-0.5 border-l border-zinc-800 pl-1.5">
+                      {foldersLoading && folderMailboxes.length === 0 ? (
+                        <div className="flex items-center gap-2 px-2 py-1 text-xs text-zinc-600">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Loading folders…
+                        </div>
+                      ) : foldersError ? (
+                        <div className="px-2 py-1 text-xs text-zinc-600">
+                          {foldersError}
+                        </div>
+                      ) : folderMailboxes.length === 0 ? (
+                        <div className="px-2 py-1 text-xs text-zinc-600">
+                          No folders
+                        </div>
+                      ) : (
+                        folderMailboxes.map((mb) => (
+                          <div key={mb.mailboxId} className="space-y-0.5">
+                            {folderMailboxes.length > 1 ? (
+                              <div
+                                className="truncate px-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-zinc-600"
+                                title={mb.emailAddress}
+                              >
+                                {mb.emailAddress}
+                              </div>
+                            ) : null}
+                            {mb.error ? (
+                              <div
+                                className="px-2 py-1 text-xs text-zinc-600"
+                                title={mb.error}
+                              >
+                                {mb.error}
+                              </div>
+                            ) : mb.folders.length === 0 ? (
+                              <div className="px-2 py-1 text-xs text-zinc-600">
+                                No folders
+                              </div>
+                            ) : (
+                              mb.folders.map((folder) => (
+                                <div
+                                  key={`${mb.mailboxId}:${folder.path}`}
+                                  className="flex cursor-default items-center justify-between gap-2 rounded-md px-2 py-1 text-sm text-zinc-500"
+                                  title={folder.path}
+                                >
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <Folder className="w-3.5 h-3.5 shrink-0" />
+                                    <span className="truncate">
+                                      {folder.name || folder.path}
+                                    </span>
+                                  </span>
+                                  <UnreadReadBadge
+                                    unread={folder.unseen}
+                                    total={folder.total}
+                                  />
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
