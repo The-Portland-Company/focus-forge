@@ -104,6 +104,13 @@ export function UserAvatar({
           loop
           autoplay={!reducedMotion}
           style={{ width: '100%', height: '100%' }}
+          // The memoji compositions are 640x480 (landscape). The default
+          // "meet" fit letterboxes them inside this square circular frame,
+          // leaving transparent padding on both sides of the face that reads
+          // as a large gap next to adjacent content (e.g. the user's name in
+          // the sidebar header). "slice" scales the animation to cover the
+          // frame instead, cropping the empty side margins.
+          rendererSettings={{ preserveAspectRatio: 'xMidYMid slice' }}
         />
       ) : (
         <div
