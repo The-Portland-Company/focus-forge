@@ -140,6 +140,32 @@ export function formatThreadTimestamp(iso?: string | null): string {
   return formatEmailTimestamp(iso);
 }
 
+/** Returns "Today" or "Yesterday" when the given timestamp falls on the user's
+ *  current or previous *local* calendar day, otherwise null. Comparison is done
+ *  on local midnight boundaries (not raw 24h deltas) so a 1 AM message reads
+ *  "Today" and DST transitions don't shift the bucket. Used to prefix inbox-row
+ *  date labels with a theme-colored relative-day badge. */
+export function getRelativeDayLabel(
+  iso?: string | null,
+): "Today" | "Yesterday" | null {
+  if (!iso) return null;
+
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return null;
+
+  const startOfLocalDay = (value: Date) =>
+    new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const diffDays = Math.round(
+    (startOfLocalDay(new Date()) - startOfLocalDay(date)) / msPerDay,
+  );
+
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  return null;
+}
+
 export function formatEmailSubject(subject: string) {
   return subject.trim() || "Untitled email";
 }
@@ -514,9 +540,15 @@ export function getEmailWorkItemStyle(params: {
   isSelected: boolean;
   isUnread?: boolean;
 }): CSSProperties {
+  // Row surfaces are themed via CSS vars so each row sits a touch lighter than
+  // the app body (a card) in BOTH themes. Dark mode falls through to the inline
+  // fallbacks (identical to the prior hardcoded values); light mode overrides
+  // the vars in globals.css (solid white cards on the ~zinc-100 body). This
+  // mirrors the existing --email-unread-tint convention below.
   if (params.isSelected) {
     return {
-      backgroundColor: "rgba(255, 255, 255, 0.12)",
+      backgroundColor:
+        "var(--email-row-bg-selected, rgba(255, 255, 255, 0.12))",
     };
   }
 
@@ -528,9 +560,7 @@ export function getEmailWorkItemStyle(params: {
   }
 
   return {
-    backgroundColor: params.isSelected
-      ? "rgba(255, 255, 255, 0.12)"
-      : "rgba(255, 255, 255, 0.10)",
+    backgroundColor: "var(--email-row-bg, rgba(255, 255, 255, 0.10))",
   };
 }
 
@@ -1258,15 +1288,23 @@ export function EmailWorkList({
                     item.updatedAt ||
                     item.createdAt;
                   const ts = formatThreadTimestamp(tsSource);
+                  const relativeDay = getRelativeDayLabel(tsSource);
                   return ts ? (
-                    <span
-                      className={cn(
-                        "ml-auto whitespace-nowrap text-[11px] tabular-nums",
-                        isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
-                      )}
-                      title={tsSource ?? undefined}
-                    >
-                      {ts}
+                    <span className="ml-auto inline-flex items-center gap-1.5">
+                      {relativeDay ? (
+                        <span className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/15 px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                          {relativeDay}
+                        </span>
+                      ) : null}
+                      <span
+                        className={cn(
+                          "whitespace-nowrap text-[11px] tabular-nums",
+                          isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
+                        )}
+                        title={tsSource ?? undefined}
+                      >
+                        {ts}
+                      </span>
                     </span>
                   ) : null;
                 })()}

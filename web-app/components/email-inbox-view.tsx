@@ -3806,19 +3806,6 @@ export function EmailInboxView({
               </button>
             )
           ) : null}
-          {!isTrashView && !isQuarantineView ? (
-            <Tooltip content="New Email" className="w-auto" side="bottom">
-              <button
-                type="button"
-                onClick={() => setIsOutboundComposerOpen(true)}
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
-                aria-label="New Email"
-              >
-                <SendHorizontal className="h-4 w-4" />
-                <span>New Email</span>
-              </button>
-            </Tooltip>
-          ) : null}
           <Tooltip content="AI + Spam" className="w-auto" side="bottom">
             <button
               type="button"
@@ -3864,7 +3851,7 @@ export function EmailInboxView({
               type="button"
               onClick={handleSync}
               disabled={mailboxes.length === 0 || busyState === "sync"}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-theme-gradient text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
               aria-label={selectedMailboxId === "all" ? "Sync All" : "Sync"}
             >
               {busyState === "sync" ? (
@@ -3907,6 +3894,18 @@ export function EmailInboxView({
               ) : null}
             </button>
           </Tooltip>
+          {!isTrashView && !isQuarantineView ? (
+            <Tooltip content="New Email" className="w-auto" side="bottom">
+              <button
+                type="button"
+                onClick={() => setIsOutboundComposerOpen(true)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+                aria-label="New Email"
+              >
+                <SendHorizontal className="h-4 w-4" />
+              </button>
+            </Tooltip>
+          ) : null}
         </div>
       </div>
 

@@ -977,6 +977,13 @@ input[type="datetime-local"].themed-date-input {
    unread rows stay light while still showing the gradient accent. */
 :is(.light, .theme-light) {
   --email-unread-tint: rgba(255, 255, 255, 0.9);
+  /* Email inbox rows: the light body is ~zinc-100 (#f5f5f7), so each row is a
+     solid white card that sits a touch lighter than the body. The selected row
+     carries a light theme-color tint so it stays distinct from the white read
+     rows. Dark mode keeps its prior translucent-white overlays via the inline
+     var fallbacks in getEmailWorkItemStyle. */
+  --email-row-bg: #ffffff;
+  --email-row-bg-selected: rgba(var(--theme-primary-rgb), 0.12);
 }
 
 :is(.light, .theme-light) .app-shell-background {
