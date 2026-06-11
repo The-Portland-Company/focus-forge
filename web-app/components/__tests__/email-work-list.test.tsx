@@ -89,6 +89,21 @@ test("formatParticipantLine renders sender and cc labels with fallbacks", () => 
   );
   assert.equal(formatParticipantLine([], "cc"), null);
   assert.equal(formatParticipantLine([], "from"), "From: Unknown sender");
+  // No display name -> the raw From address, not "Unknown sender".
+  assert.equal(
+    formatParticipantLine(
+      [
+        {
+          id: "from-2",
+          emailAddress: "dan@example.com",
+          displayName: null,
+          participantRole: "from",
+        },
+      ] as any,
+      "from",
+    ),
+    "From: dan@example.com",
+  );
 });
 
 test("formatParticipantValue falls back to the email when no distinct name exists", () => {
@@ -144,6 +159,70 @@ test("formatParticipantName prefers display names and falls back to email", () =
     } as any),
     "noreply@example.com",
   );
+});
+
+test("formatParticipantName shows the raw email address when no display name exists", () => {
+  // Missing name entirely -> email address, never "Unknown sender".
+  assert.equal(
+    formatParticipantName({
+      id: "from-3",
+      emailAddress: "dan@example.com",
+      displayName: null,
+      participantRole: "from",
+    } as any),
+    "dan@example.com",
+  );
+  // Whitespace-only name counts as missing.
+  assert.equal(
+    formatParticipantName({
+      id: "from-4",
+      emailAddress: "dan@example.com",
+      displayName: "   ",
+      participantRole: "from",
+    } as any),
+    "dan@example.com",
+  );
+});
+
+test("formatParticipantName uses 'Unknown sender' only when name AND email are missing", () => {
+  assert.equal(
+    formatParticipantName({
+      id: "from-5",
+      emailAddress: "",
+      displayName: null,
+      participantRole: "from",
+    } as any),
+    "Unknown sender",
+  );
+  assert.equal(formatParticipantName(null), "Unknown sender");
+});
+
+test("getPrimarySenderParticipant + formatParticipantName recover the address from a raw From header", () => {
+  // A raw "Name <email>" header stored in the email column still renders the
+  // parsed display name (and never "Unknown sender").
+  const sender = getPrimarySenderParticipant([
+    {
+      id: "from-6",
+      emailAddress: "Dan Clemens <dan@example.com>",
+      displayName: null,
+      participantRole: "from",
+    },
+  ] as any);
+
+  assert.equal(sender?.emailAddress, "dan@example.com");
+  assert.equal(formatParticipantName(sender), "Dan Clemens");
+
+  // Address-only sender (no name anywhere) -> the raw email address.
+  const addressOnly = getPrimarySenderParticipant([
+    {
+      id: "from-7",
+      emailAddress: "<dan@example.com>",
+      displayName: null,
+      participantRole: "from",
+    },
+  ] as any);
+
+  assert.equal(formatParticipantName(addressOnly), "dan@example.com");
 });
 
 test("getMailboxDisplayLabel prefers display name, then mailbox name, then email", () => {
