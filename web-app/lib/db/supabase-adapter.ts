@@ -506,6 +506,22 @@ export class SupabaseAdapter implements DatabaseAdapter {
     }
   }
 
+  // Map snake_case DB columns to the camelCase fields the frontend `Project`
+  // type expects (mirrors the mapping getTasks() applies to task rows). The
+  // raw snake_case fields are kept via the spread for backward compatibility.
+  private mapProjectRow(project: any) {
+    return {
+      ...project,
+      organizationId: project.organization_id,
+      isFavorite: project.is_favorite ?? false,
+      devnotesMeta: project.devnotes_meta ?? null,
+      orderIndex: project.order_index,
+      createdAt: project.created_at,
+      updatedAt: project.updated_at,
+      todoistId: project.todoist_id,
+    };
+  }
+
   async getProjects(organizationId?: string) {
     const supabase = this.supabase;
     const { data: orgMembershipsRaw, error: orgMembershipsError } =
@@ -577,7 +593,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
           .order("order_index");
 
         if (error) throw error;
-        return data || [];
+        return (data || []).map((row: any) => this.mapProjectRow(row));
       }
 
       const visibleIdsInOrganization = explicitProjects
@@ -596,7 +612,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
         .order("order_index");
 
       if (error) throw error;
-      return data || [];
+      return (data || []).map((row: any) => this.mapProjectRow(row));
     }
 
     const scopedOrganizationIds = Array.from(
@@ -628,7 +644,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
     });
 
     console.log("✅ Projects fetched:", filteredProjects.length);
-    return filteredProjects;
+    return filteredProjects.map((row: any) => this.mapProjectRow(row));
   }
 
   async getProject(id: string) {

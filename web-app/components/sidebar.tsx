@@ -1297,7 +1297,7 @@ export function Sidebar({
           <div className="mt-1 flex items-center gap-2">
             <Link
               href="/time"
-              className={`flex-1 flex items-center justify-between gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
+              className={`min-w-0 flex-1 flex items-center justify-between gap-2 pl-1.5 pr-2 py-1 rounded-lg text-sm transition-colors ${
                 currentView === "time"
                   ? "text-white"
                   : currentTimerStartedAt
@@ -1305,18 +1305,20 @@ export function Sidebar({
                     : "text-zinc-400 hover:text-white"
               }`}
             >
-              <span className="flex min-w-0 items-center gap-3">
+              <span className="flex min-w-0 items-center gap-2">
                 <Clock className="w-4 h-4 shrink-0" />
                 <span className="truncate">{currentTimerLabel}</span>
               </span>
-              <span className="font-mono text-xs">{currentTimerElapsed}</span>
+              <span className="shrink-0 font-mono text-xs">
+                {currentTimerElapsed}
+              </span>
             </Link>
             {/* Desktop (macOS) app download. No in-repo URL exists yet; the
                 docs designate GitHub Releases as the distribution channel, so
                 this links to the latest published build. */}
             <Tooltip content="Download desktop app" className="shrink-0">
               <a
-                href="https://github.com/s3w47m88/focus-forge/releases/latest"
+                href="/desktop"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Download desktop app"
