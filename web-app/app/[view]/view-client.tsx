@@ -5741,6 +5741,7 @@ export default function ViewPage({
         onProjectEdit={handleOpenEditProject}
         onProjectsReorder={handleProjectsReorder}
         onOrganizationsReorder={handleOrganizationsReorder}
+        onCancelInvite={cancelInvite}
         isAddingTask={showAddTask}
         isLoading={isDataLoading}
         isRefreshing={isRefreshing}

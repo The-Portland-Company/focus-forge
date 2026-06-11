@@ -48,7 +48,7 @@ import {
   Download,
   X,
 } from "lucide-react";
-import { Database, Project, Task } from "@/lib/types";
+import { Database, Project, Task, User as AppUser } from "@/lib/types";
 import { UserAvatar } from "@/components/user-avatar";
 import { NavTasksBadge } from "@/components/nav-tasks-modal";
 import { Tooltip } from "./tooltip";
@@ -88,6 +88,12 @@ interface SidebarProps {
   onOrganizationArchive?: (organizationId: string) => void;
   onProjectsReorder?: (organizationId: string, projectIds: string[]) => void;
   onOrganizationsReorder?: (organizationIds: string[]) => void;
+  /** Revoke a pending invitation; parent calls /api/cancel-invite then refreshes. */
+  onCancelInvite?: (args: {
+    userId: string;
+    organizationId?: string;
+    projectId?: string;
+  }) => Promise<unknown>;
   isAddingTask?: boolean; // Whether the add task modal is open
   isLoading?: boolean; // True on first load before the org/project tree data exists
   isRefreshing?: boolean; // True while a background refetch runs with data present
@@ -347,6 +353,7 @@ export function Sidebar({
   onOrganizationArchive,
   onProjectsReorder,
   onOrganizationsReorder,
+  onCancelInvite,
   isAddingTask,
   isLoading,
   isRefreshing,
@@ -363,6 +370,13 @@ export function Sidebar({
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
   const [showPendingInvitations, setShowPendingInvitations] = useState(false);
   const [resendingUserId, setResendingUserId] = useState<string | null>(null);
+  // When true, the entire Organizations list is hidden (header remains visible).
+  // Persisted in localStorage under "organizationsListCollapsed" (default false).
+  const [organizationsListCollapsed, setOrganizationsListCollapsed] =
+    useState(false);
+  // Pending-invitation row currently queued for revoke confirmation.
+  const [inviteToRevoke, setInviteToRevoke] = useState<AppUser | null>(null);
+  const [revokingInvite, setRevokingInvite] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const SIDEBAR_MIN_WIDTH = 200;
   const SIDEBAR_MAX_WIDTH = 480;
@@ -498,6 +512,14 @@ export function Sidebar({
         }
       }
 
+      // Load Organizations-list collapsed state (default false = list shown)
+      const storedOrgsListCollapsed = localStorage.getItem(
+        "organizationsListCollapsed",
+      );
+      if (storedOrgsListCollapsed === "true") {
+        setOrganizationsListCollapsed(true);
+      }
+
       // Load collapsed state
       const storedCollapsed = localStorage.getItem("sidebarCollapsed");
       if (storedCollapsed === "true") {
@@ -547,6 +569,16 @@ export function Sidebar({
       return () => clearTimeout(timeoutId);
     }
   }, [expandedOrgs, hasLoadedPreferences]);
+
+  // Persist the Organizations-list collapsed state.
+  useEffect(() => {
+    if (hasLoadedPreferences) {
+      localStorage.setItem(
+        "organizationsListCollapsed",
+        String(organizationsListCollapsed),
+      );
+    }
+  }, [organizationsListCollapsed, hasLoadedPreferences]);
 
   // Persist Email Inbox accordion state.
   useEffect(() => {
@@ -924,6 +956,48 @@ export function Sidebar({
       alert("Failed to resend invitation");
     } finally {
       setResendingUserId(null);
+    }
+  };
+
+  // Resolve the organization a pending user was invited to (via memberIds).
+  const organizationIdForUser = (userId: string): string | undefined =>
+    data.organizations.find((org) => org.memberIds?.includes(userId))?.id;
+
+  const handleRevokeInvite = async (user: AppUser) => {
+    setRevokingInvite(true);
+    try {
+      if (onCancelInvite) {
+        await onCancelInvite({
+          userId: user.id,
+          organizationId: organizationIdForUser(user.id),
+        });
+      } else {
+        // No parent handler wired — call the existing endpoint directly so the
+        // invite is still revoked; the parent should re-fetch to refresh the list.
+        const response = await fetch("/api/cancel-invite", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            userId: user.id,
+            organizationId: organizationIdForUser(user.id),
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Failed to revoke invitation");
+        }
+      }
+      setInviteToRevoke(null);
+    } catch (error) {
+      console.error("Revoke invite error:", error);
+      alert(
+        error instanceof Error
+          ? `Failed to revoke invitation: ${error.message}`
+          : "Failed to revoke invitation",
+      );
+    } finally {
+      setRevokingInvite(false);
     }
   };
 
@@ -1855,7 +1929,21 @@ export function Sidebar({
 
         {!isCollapsed && (
           <div className="flex items-center justify-between px-3 py-1 mb-0">
-            <span className="flex items-center gap-2 text-xs font-medium text-zinc-500 uppercase">
+            <button
+              onClick={() =>
+                setOrganizationsListCollapsed((prev) => !prev)
+              }
+              className="flex items-center gap-2 text-xs font-medium text-zinc-500 uppercase hover:text-zinc-300 transition-colors group"
+              title={
+                organizationsListCollapsed
+                  ? "Show organizations"
+                  : "Hide organizations"
+              }
+              aria-expanded={!organizationsListCollapsed}
+            >
+              <ChevronRight
+                className={`w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-300 transition-transform ${organizationsListCollapsed ? "" : "rotate-90"}`}
+              />
               Organizations
               {isRefreshing ? (
                 <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />
@@ -1870,7 +1958,8 @@ export function Sidebar({
                   </span>
                 </Tooltip>
               ) : null}
-            </span>
+            </button>
+            {!organizationsListCollapsed && (
             <button
               onClick={() => {
                 const allOrgIds = data.organizations.map((org) => org.id);
@@ -1895,10 +1984,14 @@ export function Sidebar({
                 <ChevronsUpDown className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300" />
               )}
             </button>
+            )}
           </div>
         )}
 
-        <div className="space-y-0">
+        <div
+          className="space-y-0"
+          hidden={!isCollapsed && organizationsListCollapsed}
+        >
           {isLoading && !isCollapsed ? (
             <div className="space-y-4 px-1 pt-1">
               <SkeletonOrganization />
@@ -2443,8 +2536,8 @@ export function Sidebar({
 
         {/* Pending Invitations Section - only show if there are pending users */}
         {!isCollapsed && pendingUsers.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-zinc-800">
-            <div className="flex items-center justify-between px-3 py-2 mb-2">
+          <div className="mt-2 pt-2 border-t border-zinc-800">
+            <div className="flex items-center justify-between px-3 py-1 mb-1">
               <button
                 onClick={() =>
                   setShowPendingInvitations(!showPendingInvitations)
@@ -2477,16 +2570,26 @@ export function Sidebar({
                         <Clock className="w-3 h-3 text-zinc-600 flex-shrink-0" />
                         <span className="truncate">{displayName}</span>
                       </div>
-                      <button
-                        onClick={() => handleResendInvite(user.id)}
-                        disabled={resendingUserId === user.id}
-                        className="p-1 hover:bg-zinc-700 rounded transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
-                        title="Resend invitation"
-                      >
-                        <Mail
-                          className={`w-3 h-3 ${resendingUserId === user.id ? "animate-pulse" : ""}`}
-                        />
-                      </button>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => handleResendInvite(user.id)}
+                          disabled={resendingUserId === user.id}
+                          className="p-1 hover:bg-zinc-700 rounded transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                          title="Resend invitation"
+                        >
+                          <Mail
+                            className={`w-3 h-3 ${resendingUserId === user.id ? "animate-pulse" : ""}`}
+                          />
+                        </button>
+                        <button
+                          onClick={() => setInviteToRevoke(user)}
+                          className="flex items-center gap-1 px-1.5 py-1 rounded text-[11px] text-zinc-500 hover:text-red-400 hover:bg-zinc-700 transition-colors opacity-0 group-hover:opacity-100"
+                          title="Revoke invitation"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Revoke invitation</span>
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -2822,6 +2925,21 @@ export function Sidebar({
           />
         </div>
       )}
+      <ConfirmDialog
+        open={!!inviteToRevoke}
+        onOpenChange={(open) => {
+          if (!open && !revokingInvite) setInviteToRevoke(null);
+        }}
+        title="Revoke invitation?"
+        description="Revoke invitation? This cannot be undone."
+        confirmLabel="Revoke"
+        cancelLabel="Cancel"
+        destructive
+        isLoading={revokingInvite}
+        onConfirm={() => {
+          if (inviteToRevoke) handleRevokeInvite(inviteToRevoke);
+        }}
+      />
       <ConfirmDialog
         open={!!projectPendingDelete}
         onOpenChange={(open) => !open && setProjectPendingDelete(null)}
