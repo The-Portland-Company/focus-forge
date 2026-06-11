@@ -422,6 +422,95 @@ export async function fetchMailboxFolderUids(mailbox: MailboxTransportRow) {
   });
 }
 
+export type MailboxFolderInfo = {
+  /** Full IMAP path, e.g. "INBOX.Work.Clients" or "[Gmail]/All Mail". */
+  path: string;
+  /** Last path segment (display name), e.g. "Clients". */
+  name: string;
+  /** Hierarchy delimiter reported by the server ("." or "/"). */
+  delimiter: string;
+  /** Special-use flag if any: "\\Inbox", "\\Sent", "\\Trash", "\\Junk", … */
+  specialUse: string | null;
+  /** Total message count (STATUS MESSAGES). */
+  total: number;
+  /** Unread message count (STATUS UNSEEN). */
+  unseen: number;
+  /** Read messages = total - unseen (never negative). */
+  read: number;
+};
+
+/**
+ * Lists every selectable IMAP folder for a mailbox together with message and
+ * unseen counts. Uses a single `LIST … RETURN (STATUS …)` round-trip when the
+ * server advertises LIST-STATUS; imapflow transparently falls back to a per
+ * folder STATUS otherwise. `\Noselect` / `\NonExistent` folders cannot hold
+ * messages and are skipped. Folders whose STATUS lookup errored are still
+ * returned, with zeroed counts, rather than dropped.
+ *
+ * Works for any mailbox that exposes IMAP (imap_smtp + Gmail/Workspace with an
+ * app password). Providers without an IMAP host should be filtered out by the
+ * caller before reaching this function.
+ */
+export async function listMailboxFolders(
+  mailbox: MailboxTransportRow,
+): Promise<MailboxFolderInfo[]> {
+  const client = new ImapFlow({
+    host: mailbox.imap_host,
+    port: Number(mailbox.imap_port || 993),
+    secure: Boolean(mailbox.imap_secure),
+    auth: {
+      user: mailbox.login_username,
+      pass: getMailboxPassword(mailbox),
+    },
+  });
+
+  await client.connect();
+
+  try {
+    const folders = await client.list({
+      statusQuery: { messages: true, unseen: true },
+    });
+
+    const result: MailboxFolderInfo[] = [];
+
+    for (const folder of folders || []) {
+      const flags =
+        folder.flags instanceof Set ? folder.flags : new Set<string>();
+      if (flags.has("\\Noselect") || flags.has("\\NonExistent")) {
+        continue;
+      }
+
+      const status = (folder as { status?: { messages?: number; unseen?: number } })
+        .status;
+      const totalValue = Number(status?.messages);
+      const unseenValue = Number(status?.unseen);
+      const total = Number.isFinite(totalValue) && totalValue > 0 ? totalValue : 0;
+      const unseen =
+        Number.isFinite(unseenValue) && unseenValue > 0 ? unseenValue : 0;
+
+      result.push({
+        path: folder.path,
+        name: folder.name || folder.path,
+        delimiter: folder.delimiter || "/",
+        specialUse: folder.specialUse || null,
+        total,
+        unseen,
+        read: Math.max(0, total - unseen),
+      });
+    }
+
+    // INBOX first, then remaining folders alphabetically by display path.
+    return result.sort((a, b) => {
+      const aInbox = a.specialUse === "\\Inbox" || a.path.toUpperCase() === "INBOX";
+      const bInbox = b.specialUse === "\\Inbox" || b.path.toUpperCase() === "INBOX";
+      if (aInbox !== bInbox) return aInbox ? -1 : 1;
+      return a.path.localeCompare(b.path, undefined, { sensitivity: "base" });
+    });
+  } finally {
+    await client.logout();
+  }
+}
+
 export async function fetchMailboxMessageByProviderMessageId(
   mailbox: MailboxTransportRow,
   providerMessageId: string,
