@@ -24,6 +24,8 @@ const publicRoutes = [
   // (App Store review requires a publicly accessible privacy policy).
   "/privacy",
   "/support",
+  // Public marketing page for the Focus: Time macOS desktop app.
+  "/desktop",
   "/docs/focus-time-agent",
   "/docs/focus-time-openapi",
   "/developer/api",
