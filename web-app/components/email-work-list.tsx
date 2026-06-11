@@ -1102,6 +1102,35 @@ export function EmailWorkList({
                     </Tooltip>
                   </div>
                 ) : null}
+                {/* Thread timestamp on the AI-subject row, right-aligned. */}
+                {(() => {
+                  const tsSource =
+                    item.latestMessageAt ||
+                    item.latestInboundAt ||
+                    item.latestOutboundAt ||
+                    item.updatedAt ||
+                    item.createdAt;
+                  const ts = formatThreadTimestamp(tsSource);
+                  const relativeDay = getRelativeDayLabel(tsSource);
+                  return ts ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      {relativeDay ? (
+                        <span className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/15 px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                          {relativeDay}
+                        </span>
+                      ) : null}
+                      <span
+                        className={cn(
+                          "whitespace-nowrap text-[11px] tabular-nums",
+                          isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
+                        )}
+                        title={tsSource ?? undefined}
+                      >
+                        {ts}
+                      </span>
+                    </span>
+                  ) : null;
+                })()}
               </div>
               </div>
 
@@ -1279,35 +1308,6 @@ export function EmailWorkList({
                     </span>
                   </button>
                 ) : null}
-                {/* Thread timestamp, pushed to the right of the metadata row */}
-                {(() => {
-                  const tsSource =
-                    item.latestMessageAt ||
-                    item.latestInboundAt ||
-                    item.latestOutboundAt ||
-                    item.updatedAt ||
-                    item.createdAt;
-                  const ts = formatThreadTimestamp(tsSource);
-                  const relativeDay = getRelativeDayLabel(tsSource);
-                  return ts ? (
-                    <span className="ml-auto inline-flex items-center gap-1.5">
-                      {relativeDay ? (
-                        <span className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/15 px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none tracking-wide text-[rgb(var(--theme-primary-rgb))]">
-                          {relativeDay}
-                        </span>
-                      ) : null}
-                      <span
-                        className={cn(
-                          "whitespace-nowrap text-[11px] tabular-nums",
-                          isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
-                        )}
-                        title={tsSource ?? undefined}
-                      >
-                        {ts}
-                      </span>
-                    </span>
-                  ) : null;
-                })()}
               </div>
 
               {isProjectPickerOpen ? (
