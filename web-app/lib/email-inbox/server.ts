@@ -1072,6 +1072,43 @@ function mapParticipantRow(row: any): InboxParticipant {
   });
 }
 
+/**
+ * Fetches every email_participants row for the given thread ids without
+ * tripping Supabase's implicit 1000-row response cap. The inbox list view can
+ * load hundreds of threads (3-4 participants each), so a single
+ * `.in("thread_id", threadIds)` silently truncates — dropping "from" rows for
+ * later threads and rendering them as "Unknown sender". We batch the thread ids
+ * and page through each batch with `.range()` until it is exhausted.
+ */
+async function fetchParticipantRowsForThreads(
+  admin: ReturnType<typeof getAdminClient>,
+  threadIds: string[],
+): Promise<any[]> {
+  const THREAD_BATCH = 150;
+  const PAGE_SIZE = 1000;
+  const rows: any[] = [];
+
+  for (let i = 0; i < threadIds.length; i += THREAD_BATCH) {
+    const batch = threadIds.slice(i, i + THREAD_BATCH);
+    let from = 0;
+    // Page through this batch until a short page signals the end.
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { data } = await admin
+        .from("email_participants")
+        .select("*")
+        .in("thread_id", batch)
+        .range(from, from + PAGE_SIZE - 1);
+      const page = data || [];
+      rows.push(...page);
+      if (page.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+  }
+
+  return rows;
+}
+
 function appendParticipant(
   map: Map<string, InboxParticipant[]>,
   key: string,
@@ -1617,9 +1654,9 @@ export async function listInboxItemsForUser(
   }
 
   const threadIds = threads.map((thread: any) => thread.id);
-  const [{ data: participantRows }, { data: taskLinks }, { data: projectLinks }] =
+  const [participantRows, { data: taskLinks }, { data: projectLinks }] =
     await Promise.all([
-      admin.from("email_participants").select("*").in("thread_id", threadIds),
+      fetchParticipantRowsForThreads(admin, threadIds),
       admin
         .from("email_thread_tasks")
         .select("thread_id,task_id")
@@ -1749,7 +1786,7 @@ export async function listSenderHistoryForUser(
 
   const [
     { data: threads },
-    { data: participantRows },
+    participantRows,
     { data: messageRows },
     { data: projectLinks },
   ] = await Promise.all([
@@ -1758,7 +1795,7 @@ export async function listSenderHistoryForUser(
       .select("*")
       .in("id", threadIds)
       .order("latest_message_at", { ascending: false }),
-    admin.from("email_participants").select("*").in("thread_id", threadIds),
+    fetchParticipantRowsForThreads(admin, threadIds as string[]),
     admin
       .from("email_messages")
       .select("*")
