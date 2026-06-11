@@ -154,6 +154,7 @@ import {
 } from "@/lib/email-reply";
 import { hasRichTextContent, richTextToPlainText } from "@/lib/rich-text";
 import { useUserPreferences, useUserProfile } from "@/lib/supabase/hooks";
+import { useEmailRealtime } from "@/hooks/use-email-realtime";
 import {
   DEFAULT_EMAIL_REPLY_SETTINGS,
   EMAIL_REPLY_CONCISENESS_OPTIONS,
@@ -195,10 +196,28 @@ const DEFAULT_PROFILE_SETTINGS = JSON.stringify(
   2,
 );
 const BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 30 * 1000;
+// When Supabase Realtime is connected it carries new-mail signals, so the
+// poll only needs to act as a slow safety net.
+const REALTIME_CONNECTED_POLL_INTERVAL_MS = 60 * 1000;
 const EMAIL_DETAIL_PANEL_DEFAULT_WIDTH = 380;
 const EMAIL_DETAIL_PANEL_MIN_WIDTH = 320;
 const EMAIL_DETAIL_PANEL_MAX_WIDTH = 720;
 const EMAIL_LIST_PANEL_MIN_WIDTH = 520;
+// Fraction of the container width used for the reading pane when the user has
+// not yet dragged the divider (no persisted width). ~60% gives a Gmail-like
+// reading-pane-dominant default.
+const EMAIL_DETAIL_PANEL_DEFAULT_FRACTION = 0.6;
+
+function computeDefaultEmailDetailPanelWidth(containerWidth: number) {
+  if (!Number.isFinite(containerWidth) || containerWidth <= 0) {
+    return EMAIL_DETAIL_PANEL_DEFAULT_WIDTH;
+  }
+
+  return clampEmailDetailPanelWidth(
+    Math.round(containerWidth * EMAIL_DETAIL_PANEL_DEFAULT_FRACTION),
+    containerWidth,
+  );
+}
 const EMAIL_DETAIL_PANEL_STORAGE_KEY =
   "focus-forge.email-inbox.detail-panel-width";
 const EMAIL_INBOX_FILTER_BAR_STORAGE_KEY =
@@ -1661,12 +1680,21 @@ export function EmailInboxView({
       EMAIL_DETAIL_PANEL_STORAGE_KEY,
     );
 
+    const containerWidth = splitContainerRef.current?.clientWidth ?? 1120;
+
     if (!storedWidth) {
+      // No persisted choice yet: default the reading pane to ~60% of the
+      // available container width (Gmail-like), clamped to sensible bounds.
+      setDetailPanelWidth(computeDefaultEmailDetailPanelWidth(containerWidth));
       return;
     }
 
     const parsedWidth = Number.parseInt(storedWidth, 10);
-    const containerWidth = splitContainerRef.current?.clientWidth ?? 1120;
+
+    if (!Number.isFinite(parsedWidth)) {
+      setDetailPanelWidth(computeDefaultEmailDetailPanelWidth(containerWidth));
+      return;
+    }
 
     setDetailPanelWidth(
       clampEmailDetailPanelWidth(parsedWidth, containerWidth),
@@ -2296,6 +2324,20 @@ export function EmailInboxView({
 
   refreshInboxStateRef.current = refreshInboxState;
 
+  // Near real-time inbox updates: subscribe to Supabase Realtime postgres_changes
+  // on public.email_threads for the signed-in user. When the in-process IMAP IDLE
+  // worker writes new rows, this debounces and refetches the inbox. Gated on the
+  // inbox view being active; falls back to the poll below when not connected.
+  const { connected: isRealtimeConnected } = useEmailRealtime({
+    userId: currentUserId,
+    enabled: isEmailInboxView(view),
+    onChange: () => {
+      void refreshInboxStateRef.current?.({
+        allowBrowserNotifications: true,
+      });
+    },
+  });
+
   useEffect(() => {
     if (!isEmailInboxView(view)) return;
 
@@ -2312,6 +2354,10 @@ export function EmailInboxView({
       }
     })();
 
+    const pollIntervalMs = isRealtimeConnected
+      ? REALTIME_CONNECTED_POLL_INTERVAL_MS
+      : BROWSER_NOTIFICATION_POLL_INTERVAL_MS;
+
     const interval = window.setInterval(() => {
       void (async () => {
         try {
@@ -2325,12 +2371,12 @@ export function EmailInboxView({
           // Keep polling silent while the user is working in the inbox.
         }
       })();
-    }, BROWSER_NOTIFICATION_POLL_INTERVAL_MS);
+    }, pollIntervalMs);
 
     return () => {
       window.clearInterval(interval);
     };
-  }, [view]);
+  }, [view, isRealtimeConnected]);
 
   const openMailboxCreateForm = () => {
     setEditingMailboxId(null);
