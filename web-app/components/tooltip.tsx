@@ -85,12 +85,18 @@ export function Tooltip({
       {isVisible && (
         <div
           className={
-            "fixed z-50 rounded-md px-2 py-1 text-xs text-white shadow-lg pointer-events-none border border-white/10 bg-[image:var(--user-profile-gradient)] " +
+            "fixed z-50 rounded-md px-2 py-1 text-xs shadow-lg pointer-events-none border border-white/10 bg-[image:var(--user-profile-gradient)] " +
             (side === "right"
               ? "max-w-[320px] whitespace-normal break-words"
               : "whitespace-nowrap")
           }
           style={{
+            // The tooltip surface is always a dark gradient pill in BOTH light
+            // and dark themes, so its text must always stay light. We set the
+            // color inline (instead of the `text-white` utility) because the
+            // global light-mode remap flips `.text-white` to near-black, which
+            // made tooltips illegible (dark text on the dark pill) in Light Mode.
+            color: "#fafafa", // zinc-50
             top: `${position.top}px`,
             left: `${position.left}px`,
             transform:

@@ -18,6 +18,7 @@ import {
   getEmailReadStateBadgeClassName,
   getEmailReadStateLabel,
   getEmailWorkItemStyle,
+  getRelativeDayLabel,
   getEmailWorkVisualUnreadState,
   getPrimarySenderParticipant,
   getEmailWorkItemClassName,
@@ -434,9 +435,49 @@ test("getEmailWorkItemStyle keeps unread rows accented and selected rows on a da
 
   assert.match(String(unreadStyle.backgroundImage), /var\(--user-profile-gradient\)/);
   assert.match(String(unreadStyle.backgroundImage), /0\.9/);
-  assert.equal(selectedUnreadStyle.backgroundColor, "rgba(255, 255, 255, 0.12)");
-  assert.equal(selectedReadStyle.backgroundColor, "rgba(255, 255, 255, 0.12)");
-  assert.equal(readStyle.backgroundColor, "rgba(255, 255, 255, 0.10)");
+  // Read/selected surfaces are now themed via CSS vars so rows sit a touch
+  // lighter than the app body in both themes (light mode overrides the vars in
+  // globals.css). The inline fallbacks preserve the prior dark-mode values.
+  assert.equal(
+    selectedUnreadStyle.backgroundColor,
+    "var(--email-row-bg-selected, rgba(255, 255, 255, 0.12))",
+  );
+  assert.equal(
+    selectedReadStyle.backgroundColor,
+    "var(--email-row-bg-selected, rgba(255, 255, 255, 0.12))",
+  );
+  assert.equal(
+    readStyle.backgroundColor,
+    "var(--email-row-bg, rgba(255, 255, 255, 0.10))",
+  );
+});
+
+test("getRelativeDayLabel buckets today, yesterday, and neither in local time", () => {
+  const now = new Date();
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  const lastWeek = new Date(now);
+  lastWeek.setDate(now.getDate() - 7);
+
+  // Use noon to stay clear of midnight rounding at the test-run boundary.
+  const atNoon = (value: Date) =>
+    new Date(
+      value.getFullYear(),
+      value.getMonth(),
+      value.getDate(),
+      12,
+      0,
+      0,
+    ).toISOString();
+
+  assert.equal(getRelativeDayLabel(atNoon(now)), "Today");
+  assert.equal(getRelativeDayLabel(atNoon(yesterday)), "Yesterday");
+  assert.equal(getRelativeDayLabel(atNoon(lastWeek)), null);
+  assert.equal(getRelativeDayLabel(null), null);
+  assert.equal(getRelativeDayLabel(undefined), null);
+  assert.equal(getRelativeDayLabel("not-a-date"), null);
 });
 
 test("getEmailWorkVisualUnreadState treats selected unread threads as visually read", () => {
