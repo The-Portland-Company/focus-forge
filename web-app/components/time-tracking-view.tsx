@@ -19,6 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import type {
   TimeTrackingBootstrap,
   TimeTrackingEntry,
@@ -431,14 +433,14 @@ export function TimeTrackingView() {
           <div className="flex flex-wrap gap-3">
             <Link
               href="/developer/api"
-              className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-white"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
             >
               <ExternalLink className="h-4 w-4" />
               API Docs
             </Link>
             <Link
               href="/docs/focus-time-agent"
-              className="inline-flex items-center gap-2 rounded-full border border-emerald-800/70 bg-emerald-950/40 px-4 py-2 text-sm text-emerald-200 transition hover:border-emerald-600 hover:text-white"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
             >
               <ExternalLink className="h-4 w-4" />
               Public Agent Prompt
@@ -446,7 +448,7 @@ export function TimeTrackingView() {
             <button
               type="button"
               onClick={() => void refreshAll()}
-              className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 hover:text-white"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
             >
               <RefreshCw className="h-4 w-4" />
               Refresh
@@ -476,7 +478,7 @@ export function TimeTrackingView() {
                   type="button"
                   disabled={saving}
                   onClick={() => void stopCurrent()}
-                  className="inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-500 disabled:opacity-60"
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-60"
                 >
                   <Square className="h-4 w-4" />
                   Stop Timer
@@ -505,7 +507,7 @@ export function TimeTrackingView() {
                 }
                 disabled={saving || (bootstrap?.organizations || []).length === 0}
               >
-                <SelectTrigger className="h-12 rounded-2xl border-zinc-700 bg-zinc-950 px-4 text-sm text-zinc-100">
+                <SelectTrigger>
                   <SelectValue placeholder="Select organization" />
                 </SelectTrigger>
                 <SelectContent>
@@ -527,7 +529,7 @@ export function TimeTrackingView() {
                 }
                 disabled={saving || availableProjects.length === 0}
               >
-                <SelectTrigger className="h-12 rounded-2xl border-zinc-700 bg-zinc-950 px-4 text-sm text-zinc-100">
+                <SelectTrigger>
                   <SelectValue placeholder="Optional project" />
                 </SelectTrigger>
                 <SelectContent>
@@ -549,7 +551,7 @@ export function TimeTrackingView() {
                 }
                 disabled={saving || availableSections.length === 0}
               >
-                <SelectTrigger className="h-12 rounded-2xl border-zinc-700 bg-zinc-950 px-4 text-sm text-zinc-100">
+                <SelectTrigger>
                   <SelectValue placeholder="Optional task list" />
                 </SelectTrigger>
                 <SelectContent>
@@ -568,47 +570,43 @@ export function TimeTrackingView() {
         <div className="mt-6 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5">
             <div className="grid gap-3 md:grid-cols-2">
-              <input
+              <Input
                 value={draft.title}
                 onChange={(event) =>
                   setDraft((current) => ({ ...current, title: event.target.value }))
                 }
                 placeholder="Session title"
-                className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
               />
-              <input
+              <Input
                 value={draft.timezone}
                 onChange={(event) =>
                   setDraft((current) => ({ ...current, timezone: event.target.value }))
                 }
                 placeholder="Timezone"
-                className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
               />
-              <input
+              <Input
                 type="datetime-local"
                 value={draft.startedAt}
                 onChange={(event) =>
                   setDraft((current) => ({ ...current, startedAt: event.target.value }))
                 }
-                className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
               />
-              <input
+              <Input
                 type="datetime-local"
                 value={draft.endedAt}
                 onChange={(event) =>
                   setDraft((current) => ({ ...current, endedAt: event.target.value }))
                 }
-                className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
               />
             </div>
-            <textarea
+            <Textarea
               value={draft.description}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, description: event.target.value }))
               }
               rows={4}
               placeholder="Optional notes"
-              className="mt-3 w-full rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+              className="mt-3"
             />
             <div className="mt-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4">
               <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">Tasks</div>
@@ -621,15 +619,16 @@ export function TimeTrackingView() {
                     return (
                       <label
                         key={task.id}
-                        className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2 text-sm transition ${
+                        className={`flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm transition-colors ${
                           checked
-                            ? "border-emerald-600 bg-emerald-950/40 text-emerald-100"
+                            ? "border-[rgb(var(--theme-primary-rgb))] bg-[rgba(var(--theme-primary-rgb),0.12)] text-white"
                             : "border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700"
                         }`}
                       >
                         <input
                           type="checkbox"
                           checked={checked}
+                          className="accent-[rgb(var(--theme-primary-rgb))]"
                           onChange={(event) =>
                             setDraft((current) => ({
                               ...current,
@@ -651,7 +650,7 @@ export function TimeTrackingView() {
                 type="button"
                 disabled={saving || !draft.organizationId}
                 onClick={() => void submitEntry(false)}
-                className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
+                className="btn-theme-primary inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-medium text-white transition-all disabled:opacity-60"
               >
                 <Play className="h-4 w-4" />
                 Start Timer
@@ -660,13 +659,13 @@ export function TimeTrackingView() {
                 type="button"
                 disabled={saving || !draft.organizationId || !draft.endedAt}
                 onClick={() => void submitEntry(true)}
-                className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 px-5 py-2.5 text-sm font-medium text-zinc-200 transition hover:border-zinc-500 hover:text-white disabled:opacity-60"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-4 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white disabled:opacity-60"
               >
                 <Clock3 className="h-4 w-4" />
                 Save Manual Entry
               </button>
             </div>
-            {error ? <div className="mt-3 text-sm text-rose-300">{error}</div> : null}
+            {error ? <div className="mt-3 text-sm text-red-400">{error}</div> : null}
           </div>
 
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5">
@@ -705,7 +704,7 @@ export function TimeTrackingView() {
                 taskIds: [],
               }))
             }
-            className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+            className="h-10 rounded-md border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-white outline-none focus:ring-2 ring-theme transition-all"
           >
             <option value="">All organizations</option>
             {(bootstrap?.organizations || []).map((organization) => (
@@ -724,7 +723,7 @@ export function TimeTrackingView() {
                 taskIds: [],
               }))
             }
-            className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+            className="h-10 rounded-md border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-white outline-none focus:ring-2 ring-theme transition-all"
           >
             <option value="">All projects</option>
             {selectedProjects.map((project) => (
@@ -742,7 +741,7 @@ export function TimeTrackingView() {
                 taskIds: [],
               }))
             }
-            className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+            className="h-10 rounded-md border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-white outline-none focus:ring-2 ring-theme transition-all"
           >
             <option value="">All task lists</option>
             {filterSections.map((section) => (
@@ -751,29 +750,26 @@ export function TimeTrackingView() {
               </option>
             ))}
           </select>
-          <input
+          <Input
             value={filters.query}
             onChange={(event) =>
               setFilters((current) => ({ ...current, query: event.target.value }))
             }
             placeholder="Search title, notes, user, task..."
-            className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
           />
-          <input
+          <Input
             type="datetime-local"
             value={filters.startedAfter}
             onChange={(event) =>
               setFilters((current) => ({ ...current, startedAfter: event.target.value }))
             }
-            className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
           />
-          <input
+          <Input
             type="datetime-local"
             value={filters.endedBefore}
             onChange={(event) =>
               setFilters((current) => ({ ...current, endedBefore: event.target.value }))
             }
-            className="rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
           />
           <select
             multiple
@@ -784,7 +780,7 @@ export function TimeTrackingView() {
                 userIds: Array.from(event.target.selectedOptions).map((option) => option.value),
               }))
             }
-            className="min-h-[130px] rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+            className="min-h-[130px] rounded-md border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-white outline-none focus:ring-2 ring-theme transition-all"
           >
             {(bootstrap?.users || []).map((user) => (
               <option key={user.id} value={user.id}>
@@ -801,7 +797,7 @@ export function TimeTrackingView() {
                 roles: Array.from(event.target.selectedOptions).map((option) => option.value),
               }))
             }
-            className="min-h-[130px] rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+            className="min-h-[130px] rounded-md border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-white outline-none focus:ring-2 ring-theme transition-all"
           >
             {["team_member", "admin", "super_admin"].map((role) => (
               <option key={role} value={role}>
@@ -818,15 +814,16 @@ export function TimeTrackingView() {
               return (
                 <label
                   key={task.id}
-                  className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2 text-sm transition ${
+                  className={`flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm transition-colors ${
                     checked
-                      ? "border-sky-600 bg-sky-950/40 text-sky-100"
+                      ? "border-[rgb(var(--theme-primary-rgb))] bg-[rgba(var(--theme-primary-rgb),0.12)] text-white"
                       : "border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700"
                   }`}
                 >
                   <input
                     type="checkbox"
                     checked={checked}
+                    className="accent-[rgb(var(--theme-primary-rgb))]"
                     onChange={(event) =>
                       setFilters((current) => ({
                         ...current,
@@ -846,7 +843,7 @@ export function TimeTrackingView() {
           <button
             type="button"
             onClick={() => void loadEntries(filters)}
-            className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-sky-500"
+            className="btn-theme-primary inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-medium text-white transition-all"
           >
             <Filter className="h-4 w-4" />
             Apply Filters
@@ -928,7 +925,7 @@ export function TimeTrackingView() {
                     <button
                       type="button"
                       onClick={() => void deleteEntry(entry.id)}
-                      className="inline-flex items-center gap-2 rounded-full border border-rose-800/80 bg-rose-950/30 px-3 py-1.5 text-xs font-medium text-rose-200 transition hover:border-rose-600 hover:text-white"
+                      className="inline-flex items-center gap-2 rounded-md border border-red-900/70 bg-red-950/30 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:border-red-700 hover:bg-red-950/50 hover:text-white"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                       Delete
