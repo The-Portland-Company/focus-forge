@@ -3860,103 +3860,145 @@ export default function ViewPage({
                 <div className="flex items-center justify-end gap-4 shrink-0">
                   <div className="flex items-center gap-2">
                     {user && (
-                      <button
-                        onClick={() => setShowTodoistSync(true)}
-                        className="p-2 rounded border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-zinc-600 transition-colors"
-                        title="Sync with Todoist"
+                      <Tooltip
+                        content="Sync with Todoist"
+                        side="bottom"
+                        className="inline-flex"
                       >
-                        <RefreshCw className="w-4 h-4" />
-                      </button>
+                        <button
+                          onClick={() => setShowTodoistSync(true)}
+                          className="p-2 rounded border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-zinc-600 transition-colors"
+                          aria-label="Sync with Todoist"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                      </Tooltip>
                     )}
                     {overdueCount > 0 && (
-                      <button
-                        onClick={() => setShowRescheduleConfirm(true)}
-                        className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-orange-400 hover:text-orange-300"
-                        title={`Reschedule ${overdueCount} overdue task${overdueCount === 1 ? "" : "s"}`}
+                      <Tooltip
+                        content={`Reschedule ${overdueCount} overdue task${overdueCount === 1 ? "" : "s"}`}
+                        side="bottom"
+                        className="inline-flex"
                       >
-                        <CalendarClock className="w-5 h-5" />
-                      </button>
+                        <button
+                          onClick={() => setShowRescheduleConfirm(true)}
+                          className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-orange-400 hover:text-orange-300"
+                          aria-label={`Reschedule ${overdueCount} overdue task${overdueCount === 1 ? "" : "s"}`}
+                        >
+                          <CalendarClock className="w-5 h-5" />
+                        </button>
+                      </Tooltip>
                     )}
                   </div>
-                  <button
-                    onClick={() =>
-                      setDueDateLayout((prev) =>
-                        prev === "inline"
-                          ? "below"
-                          : prev === "below"
-                            ? "right"
-                            : "inline",
-                      )
-                    }
-                    className="p-2 rounded border border-zinc-700 text-zinc-400 hover:text-sky-400 hover:border-zinc-600 transition-colors"
-                    title={`Date: ${dueDateLayout === "inline" ? "Inline" : dueDateLayout === "below" ? "Below" : "Right"}`}
+                  <Tooltip
+                    content={`Date layout: ${dueDateLayout === "inline" ? "Inline" : dueDateLayout === "below" ? "Below" : "Right"}`}
+                    side="bottom"
+                    className="inline-flex"
                   >
-                    <CalendarDays className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setGroupTasksByProject((prev) => !prev)}
-                    className={`p-2 rounded border transition-colors ${
-                      groupTasksByProject
-                        ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30"
-                        : "border-zinc-700 text-zinc-400 hover:text-violet-400 hover:border-zinc-600"
-                    }`}
-                    title={
+                    <button
+                      onClick={() =>
+                        setDueDateLayout((prev) =>
+                          prev === "inline"
+                            ? "below"
+                            : prev === "below"
+                              ? "right"
+                              : "inline",
+                        )
+                      }
+                      className="p-2 rounded border border-zinc-700 text-zinc-400 hover:text-sky-400 hover:border-zinc-600 transition-colors"
+                      aria-label="Cycle date layout"
+                    >
+                      <CalendarDays className="w-4 h-4" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip
+                    content={
                       groupTasksByProject
                         ? "Grouped by project (click to ungroup)"
-                        : "Group by Project"
+                        : "Group by project"
                     }
+                    side="bottom"
+                    className="inline-flex"
                   >
-                    <FolderKanban className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setShowTaskDescriptions((prev) => !prev)}
-                    className={`p-2 rounded border transition-colors ${
+                    <button
+                      onClick={() => setGroupTasksByProject((prev) => !prev)}
+                      className={`p-2 rounded border transition-colors ${
+                        groupTasksByProject
+                          ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30"
+                          : "border-zinc-700 text-zinc-400 hover:text-violet-400 hover:border-zinc-600"
+                      }`}
+                      aria-label="Group by project"
+                    >
+                      <FolderKanban className="w-4 h-4" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip
+                    content={
                       showTaskDescriptions
-                        ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30"
-                        : "border-zinc-700 text-zinc-400 hover:text-amber-400 hover:border-zinc-600"
-                    }`}
-                    title={
-                      showTaskDescriptions
-                        ? "Hiding description excerpts on click"
-                        : "Show description excerpts under all tasks"
+                        ? "Hide description excerpts"
+                        : "Show description excerpts"
                     }
+                    side="bottom"
+                    className="inline-flex"
                   >
-                    <FileText className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() =>
-                      setTodayViewMode((prev) =>
-                        prev === "list" ? "kanban" : "list",
-                      )
-                    }
-                    className={`p-2 rounded border transition-colors ${
+                    <button
+                      onClick={() => setShowTaskDescriptions((prev) => !prev)}
+                      className={`p-2 rounded border transition-colors ${
+                        showTaskDescriptions
+                          ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30"
+                          : "border-zinc-700 text-zinc-400 hover:text-amber-400 hover:border-zinc-600"
+                      }`}
+                      aria-label="Toggle description excerpts"
+                    >
+                      <FileText className="w-4 h-4" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip
+                    content={
                       todayViewMode === "kanban"
-                        ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30"
-                        : "border-zinc-700 text-zinc-400 hover:text-emerald-400 hover:border-zinc-600"
-                    }`}
-                    title={
-                      todayViewMode === "kanban"
-                        ? "Switch to List view"
-                        : "Switch to Kanban view"
+                        ? "Switch to list view"
+                        : "Switch to kanban view"
                     }
+                    side="bottom"
+                    className="inline-flex"
                   >
-                    {todayViewMode === "kanban" ? (
-                      <LayoutList className="w-4 h-4" />
-                    ) : (
-                      <LayoutGrid className="w-4 h-4" />
-                    )}
-                  </button>
+                    <button
+                      onClick={() =>
+                        setTodayViewMode((prev) =>
+                          prev === "list" ? "kanban" : "list",
+                        )
+                      }
+                      className={`p-2 rounded border transition-colors ${
+                        todayViewMode === "kanban"
+                          ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30"
+                          : "border-zinc-700 text-zinc-400 hover:text-emerald-400 hover:border-zinc-600"
+                      }`}
+                      aria-label="Toggle list/kanban view"
+                    >
+                      {todayViewMode === "kanban" ? (
+                        <LayoutList className="w-4 h-4" />
+                      ) : (
+                        <LayoutGrid className="w-4 h-4" />
+                      )}
+                    </button>
+                  </Tooltip>
                   <div className="flex items-center gap-1">
                     <Popover.Root>
-                      <Popover.Trigger asChild>
-                        <button
-                          type="button"
-                          className="p-2 rounded border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
-                          aria-label="Sort options"
-                        >
-                          <ArrowUpDown className="w-4 h-4" />
-                        </button>
-                      </Popover.Trigger>
+                      <Tooltip
+                        content="Sort tasks"
+                        side="bottom"
+                        className="inline-flex"
+                      >
+                        <Popover.Trigger asChild>
+                          <button
+                            type="button"
+                            className="p-2 rounded border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
+                            aria-label="Sort options"
+                          >
+                            <ArrowUpDown className="w-4 h-4" />
+                          </button>
+                        </Popover.Trigger>
+                      </Tooltip>
                       <Popover.Portal>
                         <Popover.Content
                           side="bottom"
@@ -3993,9 +4035,15 @@ export default function ViewPage({
                   </div>
 
                   <div className="flex items-center gap-1">
-                    <span title="Assigned to">
-                      <User className="w-4 h-4 text-zinc-400" />
-                    </span>
+                    <Tooltip
+                      content="Assignee filter"
+                      side="bottom"
+                      className="inline-flex"
+                    >
+                      <span aria-label="Assignee filter">
+                        <User className="w-4 h-4 text-zinc-400" />
+                      </span>
+                    </Tooltip>
                     <Select
                       value={filterAssignedTo}
                       onValueChange={(value) => setFilterAssignedTo(value)}
@@ -4019,51 +4067,61 @@ export default function ViewPage({
                     </Select>
                   </div>
 
-                  <button
-                    onClick={() => setShowBlockedTasks(!showBlockedTasks)}
-                    className={`p-2 rounded border transition-colors ${
+                  <Tooltip
+                    content={
                       showBlockedTasks
-                        ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20"
-                        : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600"
-                    }`}
-                    title={
-                      showBlockedTasks
-                        ? "Currently Showing Blocked Tasks"
-                        : "Currently Hiding Blocked Tasks"
+                        ? "Showing blocked tasks (click to hide)"
+                        : "Hiding blocked tasks (click to show)"
                     }
+                    side="bottom"
+                    className="inline-flex"
                   >
-                    {showBlockedTasks ? (
-                      <Link2 className="w-4 h-4" />
-                    ) : (
-                      <Link2Off className="w-4 h-4" />
-                    )}
-                  </button>
+                    <button
+                      onClick={() => setShowBlockedTasks(!showBlockedTasks)}
+                      className={`p-2 rounded border transition-colors ${
+                        showBlockedTasks
+                          ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20"
+                          : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600"
+                      }`}
+                      aria-label="Toggle blocked tasks"
+                    >
+                      {showBlockedTasks ? (
+                        <Link2 className="w-4 h-4" />
+                      ) : (
+                        <Link2Off className="w-4 h-4" />
+                      )}
+                    </button>
+                  </Tooltip>
 
-                  <button
-                    onClick={() => {
-                      if (bulkSelectMode) {
-                        setBulkSelectMode(false);
-                        setSelectedTaskIds(new Set());
-                        setLastSelectedTaskId(null);
-                      } else {
-                        setBulkSelectMode(true);
-                      }
-                    }}
-                    className={`p-2 rounded border transition-colors ${
-                      bulkSelectMode
-                        ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20"
-                        : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600"
-                    }`}
-                    title={
-                      bulkSelectMode ? "Cancel Bulk Select" : "Bulk Select"
-                    }
+                  <Tooltip
+                    content={bulkSelectMode ? "Cancel bulk select" : "Bulk select"}
+                    side="bottom"
+                    className="inline-flex"
                   >
-                    {bulkSelectMode ? (
-                      <CheckSquare className="w-4 h-4" />
-                    ) : (
-                      <Square className="w-4 h-4" />
-                    )}
-                  </button>
+                    <button
+                      onClick={() => {
+                        if (bulkSelectMode) {
+                          setBulkSelectMode(false);
+                          setSelectedTaskIds(new Set());
+                          setLastSelectedTaskId(null);
+                        } else {
+                          setBulkSelectMode(true);
+                        }
+                      }}
+                      className={`p-2 rounded border transition-colors ${
+                        bulkSelectMode
+                          ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20"
+                          : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600"
+                      }`}
+                      aria-label="Bulk select"
+                    >
+                      {bulkSelectMode ? (
+                        <CheckSquare className="w-4 h-4" />
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                    </button>
+                  </Tooltip>
 
                   {bulkSelectMode && selectedTaskIds.size > 0 && (
                     <button
