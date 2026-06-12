@@ -47,10 +47,12 @@ import {
   FolderTree,
   Download,
   X,
+  MoreHorizontal,
 } from "lucide-react";
 import { Database, Project, Task, User as AppUser } from "@/lib/types";
 import { UserAvatar } from "@/components/user-avatar";
 import { NavTasksBadge } from "@/components/nav-tasks-modal";
+import { ThemeModeToggle } from "@/components/theme-mode-toggle";
 import { Tooltip } from "./tooltip";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatElapsed } from "@/lib/time/client";
@@ -337,6 +339,21 @@ function FolderTreeNodes({
   );
 }
 
+// Canonical default order of the top-level (parent) nav items. The
+// Organizations section is reordered as a single block ("organizations").
+// Children/sub-items (email accordion rows, org projects) are NOT reordered.
+// New/unknown ids fall to the end in their default position on load.
+const DEFAULT_NAV_ORDER: readonly string[] = [
+  "search",
+  "today",
+  "email",
+  "upcoming",
+  "estimates",
+  "calendar",
+  "organizations",
+];
+const NAV_ORDER_STORAGE_KEY = "navItemOrder";
+
 export function Sidebar({
   data,
   onAddTask,
@@ -378,6 +395,15 @@ export function Sidebar({
   const [inviteToRevoke, setInviteToRevoke] = useState<AppUser | null>(null);
   const [revokingInvite, setRevokingInvite] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  // --- Parent nav reorder (Edit Mode) ---------------------------------------
+  const [navEditMode, setNavEditMode] = useState(false);
+  // Persisted order ids; loaded from localStorage on mount (below).
+  const [navOrder, setNavOrder] = useState<string[]>([...DEFAULT_NAV_ORDER]);
+  const [draggedNavId, setDraggedNavId] = useState<string | null>(null);
+  const [dragOverNavId, setDragOverNavId] = useState<string | null>(null);
+  const [dragOverNavPosition, setDragOverNavPosition] = useState<
+    "top" | "bottom" | null
+  >(null);
   const SIDEBAR_MIN_WIDTH = 200;
   const SIDEBAR_MAX_WIDTH = 480;
   const SIDEBAR_DEFAULT_WIDTH = 280;
@@ -552,9 +578,36 @@ export function Sidebar({
         }
       }
 
+      // Load persisted parent-nav order (reconciled against the default).
+      const storedNavOrder = localStorage.getItem(NAV_ORDER_STORAGE_KEY);
+      if (storedNavOrder) {
+        try {
+          const parsed = JSON.parse(storedNavOrder);
+          if (Array.isArray(parsed)) {
+            // Reconcile inline (keep known ids in stored order, append any
+            // new/unknown default ids at the end) to avoid an effect dependency.
+            const stored = parsed.filter((x) => typeof x === "string");
+            const known = stored.filter((id) => DEFAULT_NAV_ORDER.includes(id));
+            const missing = DEFAULT_NAV_ORDER.filter(
+              (id) => !known.includes(id),
+            );
+            setNavOrder([...known, ...missing]);
+          }
+        } catch (e) {
+          console.error("Failed to parse saved nav order:", e);
+        }
+      }
+
       setHasLoadedPreferences(true);
     }
   }, [hasLoadedPreferences]);
+
+  // Persist the parent-nav order whenever it changes (after initial load).
+  useEffect(() => {
+    if (hasLoadedPreferences) {
+      localStorage.setItem(NAV_ORDER_STORAGE_KEY, JSON.stringify(navOrder));
+    }
+  }, [navOrder, hasLoadedPreferences]);
 
   // Save expanded state to localStorage whenever it changes (only after initial load)
   useEffect(() => {
@@ -824,6 +877,24 @@ export function Sidebar({
       setCalendarCopied(true);
       setTimeout(() => setCalendarCopied(false), 2000);
     } catch {}
+  };
+
+  // Reorder a parent nav item within navOrder based on the current drag/drop
+  // target and position (top/bottom of the target row). Mirrors the org/project
+  // native-DnD reorder logic used elsewhere in this sidebar.
+  const reorderNavItems = (draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return;
+    setNavOrder((prev) => {
+      const from = prev.indexOf(draggedId);
+      const target = prev.indexOf(targetId);
+      if (from === -1 || target === -1) return prev;
+      const next = [...prev];
+      const [removed] = next.splice(from, 1);
+      const insertIndex =
+        dragOverNavPosition === "bottom" ? target + 1 : target;
+      next.splice(insertIndex > from ? insertIndex - 1 : insertIndex, 0, removed);
+      return next;
+    });
   };
 
   const toggleOrg = (orgId: string) => {
@@ -1170,13 +1241,113 @@ export function Sidebar({
       .substring(0, 3);
   };
 
+  // Wraps a single parent nav item. Applies the persisted order via CSS
+  // `order` (so the surrounding JSX never has to move) and, in Edit Mode, makes
+  // the row drag-reorderable using the same native HTML5 DnD pattern as the
+  // org/project reordering elsewhere in this sidebar.
+  const NavReorderWrapper = ({
+    id,
+    children,
+  }: {
+    id: string;
+    children: React.ReactNode;
+  }) => {
+    const orderIndex = navOrder.indexOf(id);
+    const isDragged = draggedNavId === id;
+    const overTop =
+      dragOverNavId === id && draggedNavId && dragOverNavPosition === "top";
+    const overBottom =
+      dragOverNavId === id && draggedNavId && dragOverNavPosition === "bottom";
+    return (
+      <div
+        // +1 so reorderable items always sit below the pinned Edit/timer rows.
+        style={{ order: orderIndex === -1 ? 999 : orderIndex + 1 }}
+        draggable={navEditMode}
+        // In edit mode, swallow clicks so dragging a row never navigates.
+        onClickCapture={
+          navEditMode
+            ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            : undefined
+        }
+        onDragStart={
+          navEditMode
+            ? (e) => {
+                setDraggedNavId(id);
+                e.dataTransfer.effectAllowed = "move";
+                setTimeout(() => e.currentTarget.classList.add("dragging"), 0);
+              }
+            : undefined
+        }
+        onDragEnd={
+          navEditMode
+            ? (e) => {
+                e.currentTarget.classList.remove("dragging");
+                setDraggedNavId(null);
+                setDragOverNavId(null);
+                setDragOverNavPosition(null);
+              }
+            : undefined
+        }
+        onDragOver={
+          navEditMode
+            ? (e) => {
+                e.preventDefault();
+                if (!draggedNavId || draggedNavId === id) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const y = e.clientY - rect.top;
+                setDragOverNavId(id);
+                setDragOverNavPosition(y < rect.height / 2 ? "top" : "bottom");
+              }
+            : undefined
+        }
+        onDragLeave={
+          navEditMode
+            ? () => {
+                setDragOverNavId(null);
+                setDragOverNavPosition(null);
+              }
+            : undefined
+        }
+        onDrop={
+          navEditMode
+            ? (e) => {
+                e.preventDefault();
+                if (draggedNavId && draggedNavId !== id) {
+                  reorderNavItems(draggedNavId, id);
+                }
+                setDraggedNavId(null);
+                setDragOverNavId(null);
+                setDragOverNavPosition(null);
+              }
+            : undefined
+        }
+        className={`${navEditMode ? "relative cursor-move rounded-lg ring-1 ring-zinc-800" : ""} ${
+          isDragged ? "opacity-50" : ""
+        } ${overTop ? "drag-over-top" : ""} ${overBottom ? "drag-over-bottom" : ""}`}
+      >
+        {navEditMode && !isCollapsed ? (
+          <span
+            className="pointer-events-none absolute left-0 top-1/2 z-10 -translate-y-1/2 text-zinc-500"
+            aria-hidden="true"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </span>
+        ) : null}
+        {children}
+      </div>
+    );
+  };
+
   return (
     <div
       className={`group/sidebar relative ${isCollapsed ? "w-[60px]" : ""} h-full shrink-0 overflow-hidden bg-zinc-900 border-r border-zinc-800 flex flex-col ${isResizingSidebar ? "" : "transition-all duration-300"}`}
       style={isCollapsed ? undefined : { width: sidebarWidth }}
     >
       <div className={`${isCollapsed ? "p-2" : "px-1.5 py-3"}`}>
-        <div className="flex items-center justify-between mb-3">
+        <div className="relative flex items-center justify-between mb-3">
           {!isCollapsed ? (
             <>
               {/* -ml-1.5 negates the header's px-1.5, so the memoji sits snug
@@ -1197,35 +1368,50 @@ export function Sidebar({
                   {data.users?.[0]?.firstName || "User"}
                 </div>
               </div>
-              <div className="flex items-center gap-1">
-                <Link
-                  href="/trash"
-                  className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
-                  title="Trash"
-                >
-                  <Trash2 className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
-                </Link>
-                <Link
-                  href="/settings"
-                  className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
-                  title="Settings"
-                >
-                  <Settings className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
-                </Link>
+              {/* Header actions: hidden by default, revealed on hover of this
+                  group (or focus-within for keyboard a11y). The MoreHorizontal
+                  trigger is the always-visible affordance; the action buttons
+                  fade/slide in. Uses Tailwind group-hover/focus-within so it
+                  works without extra JS. */}
+              <div className="group/header-actions flex items-center gap-1">
                 <button
-                  onClick={handleLogout}
-                  className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
-                  title="Logout"
+                  type="button"
+                  aria-label="Show actions"
+                  title="Actions"
+                  className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group/trigger group-hover/header-actions:opacity-0 group-hover/header-actions:pointer-events-none group-focus-within/header-actions:opacity-0 group-focus-within/header-actions:pointer-events-none"
                 >
-                  <LogOut className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                  <MoreHorizontal className="w-5 h-5 text-zinc-400 group-hover/trigger:text-white transition-colors" />
                 </button>
-                <button
-                  onClick={() => setIsCollapsed(true)}
-                  className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
-                  title="Collapse sidebar"
-                >
-                  <ChevronLeft className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
-                </button>
+                <div className="absolute right-1 flex items-center gap-1 opacity-0 pointer-events-none translate-x-1 transition-all duration-150 group-hover/header-actions:opacity-100 group-hover/header-actions:pointer-events-auto group-hover/header-actions:translate-x-0 group-focus-within/header-actions:opacity-100 group-focus-within/header-actions:pointer-events-auto group-focus-within/header-actions:translate-x-0">
+                  <Link
+                    href="/trash"
+                    className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+                    title="Trash"
+                  >
+                    <Trash2 className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                  </Link>
+                  <Link
+                    href="/settings"
+                    className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+                    title="Settings"
+                  >
+                    <Settings className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+                    title="Logout"
+                  >
+                    <LogOut className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                  </button>
+                  <button
+                    onClick={() => setIsCollapsed(true)}
+                    className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+                    title="Collapse sidebar"
+                  >
+                    <ChevronLeft className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                  </button>
+                </div>
               </div>
             </>
           ) : (
@@ -1321,8 +1507,63 @@ export function Sidebar({
       </div>
 
       <nav
-        className={`flex-1 ${isCollapsed ? "px-1" : "px-1.5"} overflow-y-auto`}
+        className={`flex flex-1 flex-col ${isCollapsed ? "px-1" : "px-1.5"} overflow-y-auto`}
       >
+        {/* Edit-mode toggle for reordering the parent nav items. order:0 keeps
+            it (and the timer row) pinned above the reorderable items. */}
+        {!isCollapsed ? (
+          <div style={{ order: 0 }} className="flex justify-end pr-1 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                setNavEditMode((v) => !v);
+                setDraggedNavId(null);
+                setDragOverNavId(null);
+                setDragOverNavPosition(null);
+              }}
+              aria-pressed={navEditMode}
+              title={navEditMode ? "Done reordering" : "Reorder navigation"}
+              className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                navEditMode
+                  ? "bg-[rgb(var(--theme-primary-rgb))] text-white"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              {navEditMode ? (
+                <Check className="h-3 w-3" />
+              ) : (
+                <SlidersHorizontal className="h-3 w-3" />
+              )}
+              {navEditMode ? "Done" : "Edit"}
+            </button>
+          </div>
+        ) : (
+          <Tooltip content={navEditMode ? "Done reordering" : "Reorder navigation"}>
+            <button
+              type="button"
+              onClick={() => {
+                setNavEditMode((v) => !v);
+                setDraggedNavId(null);
+                setDragOverNavId(null);
+                setDragOverNavPosition(null);
+              }}
+              aria-pressed={navEditMode}
+              style={{ order: 0 }}
+              className={`w-full flex items-center justify-center px-2 py-1 rounded-lg text-sm transition-colors ${
+                navEditMode
+                  ? "text-white"
+                  : "text-zinc-500 hover:text-white"
+              }`}
+            >
+              {navEditMode ? (
+                <Check className="w-4 h-4" />
+              ) : (
+                <SlidersHorizontal className="w-4 h-4" />
+              )}
+            </button>
+          </Tooltip>
+        )}
+        <div style={{ order: 0 }}>
         {isCollapsed ? (
           <div className="mt-1 flex flex-col gap-2">
             <Tooltip
@@ -1425,7 +1666,9 @@ export function Sidebar({
             </Tooltip>
           </div>
         )}
+        </div>
 
+        <NavReorderWrapper id="search">
         {isCollapsed ? (
           <Tooltip content="Search">
             <Link
@@ -1452,7 +1695,9 @@ export function Sidebar({
             Search
           </Link>
         )}
+        </NavReorderWrapper>
 
+        <NavReorderWrapper id="today">
         {isCollapsed ? (
           <Tooltip content="Today">
             <Link
@@ -1488,7 +1733,9 @@ export function Sidebar({
             ) : null}
           </Link>
         )}
+        </NavReorderWrapper>
 
+        <NavReorderWrapper id="email">
         {isCollapsed ? (
           <Tooltip
             content={
@@ -1809,7 +2056,9 @@ export function Sidebar({
             )}
           </div>
         )}
+        </NavReorderWrapper>
 
+        <NavReorderWrapper id="upcoming">
         {isCollapsed ? (
           <Tooltip content="Upcoming">
             <Link
@@ -1836,7 +2085,9 @@ export function Sidebar({
             Upcoming
           </Link>
         )}
+        </NavReorderWrapper>
 
+        <NavReorderWrapper id="estimates">
         {isCollapsed ? (
           <Tooltip content="Estimates">
             <Link
@@ -1872,7 +2123,9 @@ export function Sidebar({
             ) : null}
           </Link>
         )}
+        </NavReorderWrapper>
 
+        <NavReorderWrapper id="calendar">
         {isCollapsed ? (
           <Tooltip content="Calendar">
             <Link
@@ -1899,34 +2152,9 @@ export function Sidebar({
             Calendar
           </Link>
         )}
+        </NavReorderWrapper>
 
-        {isCollapsed ? (
-          <Tooltip content="Favorites">
-            <Link
-              href="/favorites"
-              className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors mb-4 ${
-                currentView === "favorites"
-                  ? "text-white"
-                  : "text-zinc-400 hover:text-white"
-              }`}
-            >
-              <Star className="w-4 h-4" />
-            </Link>
-          </Tooltip>
-        ) : (
-          <Link
-            href="/favorites"
-            className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors mb-4 ${
-              currentView === "favorites"
-                ? "text-white"
-                : "text-zinc-400 hover:text-white"
-            }`}
-          >
-            <Star className="w-4 h-4" />
-            Favorites
-          </Link>
-        )}
-
+        <NavReorderWrapper id="organizations">
         {!isCollapsed && (
           <div className="flex items-center justify-between px-3 py-1 mb-0">
             <button
@@ -2597,6 +2825,7 @@ export function Sidebar({
             )}
           </div>
         )}
+        </NavReorderWrapper>
       </nav>
 
       {/* Email storage usage — only rendered when at least one mailbox exposes
@@ -2667,6 +2896,10 @@ export function Sidebar({
                 <LogOut className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
               </button>
             </Tooltip>
+            {/* System / Dark / Light mode switch (icon-only rail). */}
+            <div className="pt-1">
+              <ThemeModeToggle collapsed />
+            </div>
           </div>
         ) : (
           <div className="space-y-1">
@@ -2684,6 +2917,10 @@ export function Sidebar({
               <FileCode2 className="w-4 h-4" />
               API Docs
             </Link>
+            {/* System / Dark / Light mode switch. */}
+            <div className="px-1 pt-1">
+              <ThemeModeToggle />
+            </div>
           </div>
         )}
 
