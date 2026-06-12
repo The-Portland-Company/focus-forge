@@ -33,7 +33,7 @@ const PRIORITY_DOT: Record<number, string> = {
 
 type Tab = "queue" | "rules";
 
-export default function EstimatesPage() {
+export function EstimatesView() {
   const [total, setTotal] = useState<number | null>(null);
   const [preview, setPreview] = useState<PreviewTask[]>([]);
   const [loading, setLoading] = useState(false);
@@ -93,7 +93,7 @@ export default function EstimatesPage() {
   );
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
+    <div className="text-white">
       <div className="max-w-3xl mx-auto px-6 py-10">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
@@ -235,9 +235,10 @@ export default function EstimatesPage() {
         <div>
           <p className="text-xs text-zinc-500 mb-4 max-w-prose">
             These are AI calibration rules — one is recorded each time you
-            approve an estimate. They're replayed to the AI as examples of your
-            pace, so future suggestions match how long things actually take
-            you. Deleting one removes it from the AI's training signal.
+            approve an estimate. They&rsquo;re replayed to the AI as examples
+            of your pace, so future suggestions match how long things actually
+            take you. Deleting one removes it from the AI&rsquo;s training
+            signal.
           </p>
           {examplesLoading && examples.length === 0 ? (
             <div className="rounded-lg border border-zinc-800 overflow-hidden">
@@ -269,8 +270,8 @@ export default function EstimatesPage() {
           ) : examples.length === 0 ? (
             <div className="py-16 text-center text-zinc-400">
               <Sparkles className="w-6 h-6 mx-auto mb-3 text-zinc-500" />
-              No rules yet. Approve estimates in a review session and they'll
-              appear here.
+              No rules yet. Approve estimates in a review session and
+              they&rsquo;ll appear here.
             </div>
           ) : (
             <div className="rounded-lg border border-zinc-800 overflow-hidden">

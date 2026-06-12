@@ -41,6 +41,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
+import { EstimatesView } from "@/components/estimates-view";
 import { TimeTrackingView } from "@/components/time-tracking-view";
 import { getBlockedTaskIds } from "@/lib/dependency-utils";
 import { ConfirmModal } from "@/components/confirm-modal";
@@ -3421,6 +3422,10 @@ export default function ViewPage({
       .toLowerCase();
 
   const renderContent = () => {
+    if (view === "estimates") {
+      return <EstimatesView />;
+    }
+
     if (view === "email-drafts") {
       return <EmailDraftsView />;
     }
@@ -5752,8 +5757,10 @@ export default function ViewPage({
           className={
             view === "upcoming"
               ? "p-8"
-              : view === "today"
+              : view === "estimates"
                 ? "p-0"
+                : view === "today"
+                  ? "p-0"
                 : view.startsWith("email-")
                   ? "px-3 pr-6 py-6"
                   : view === "time"
