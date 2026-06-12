@@ -26,9 +26,12 @@ export async function POST(request: NextRequest) {
         : "production";
     const bundleId = String(body?.bundle_id || "").trim();
 
-    if (platform !== "ios") {
+    if (platform !== "ios" && platform !== "macos") {
       return NextResponse.json(
-        mobileFailure("validation_error", "Only iOS push registration is supported."),
+        mobileFailure(
+          "validation_error",
+          "Only iOS and macOS push registration is supported.",
+        ),
         { status: 400 },
       );
     }
@@ -53,7 +56,7 @@ export async function POST(request: NextRequest) {
         last_error_at: null,
         last_error_message: null,
       })
-      .eq("platform", "ios")
+      .eq("platform", platform)
       .eq("push_token", pushToken)
       .neq("device_id", deviceId)
       .eq("is_active", true);
@@ -63,7 +66,7 @@ export async function POST(request: NextRequest) {
       .upsert(
         {
           user_id: auth.user.id,
-          platform: "ios",
+          platform,
           device_id: deviceId,
           push_token: pushToken,
           environment,
@@ -146,7 +149,6 @@ export async function DELETE(request: NextRequest) {
         last_error_message: null,
       })
       .eq("user_id", auth.user.id)
-      .eq("platform", "ios")
       .eq("device_id", deviceId);
 
     if (error) {

@@ -1330,7 +1330,7 @@ async function sendNewEmailPushNotifications(params: {
     .from("mobile_push_devices")
     .select("*")
     .in("user_id", recipientIds)
-    .eq("platform", "ios")
+    .in("platform", ["ios", "macos"])
     .eq("is_active", true);
 
   if (!devices || devices.length === 0) {
