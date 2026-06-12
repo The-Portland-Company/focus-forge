@@ -98,7 +98,7 @@ export function ThemeModeToggle({ collapsed = false }: { collapsed?: boolean }) 
               collapsed ? "h-7 w-7" : "h-7 flex-1 px-1"
             } ${
               active
-                ? "bg-[rgb(var(--theme-primary-rgb))] text-white shadow-sm"
+                ? "bg-theme-gradient text-white shadow-sm"
                 : "text-zinc-400 hover:text-white"
             }`}
           >

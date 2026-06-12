@@ -3672,7 +3672,7 @@ export function EmailInboxView({
                   type="button"
                   onClick={handleSaveProfile}
                   disabled={busyState === "profile" || !profileForm.name.trim()}
-                  className="rounded-lg bg-[rgb(var(--theme-primary-rgb))] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  className="rounded-lg bg-theme-gradient px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
                 >
                   {busyState === "profile" ? "Saving…" : "Save Profile"}
                 </button>
@@ -4195,7 +4195,7 @@ export function EmailInboxView({
                 !mailboxForm.password ||
                 Boolean(mailboxPasswordError)
               }
-              className="rounded-lg bg-[rgb(var(--theme-primary-rgb))] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-lg bg-theme-gradient px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               {busyState === "mailbox"
                 ? isEditingMailbox

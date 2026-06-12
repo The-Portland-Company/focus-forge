@@ -117,7 +117,7 @@ export function EstimatesView() {
           type="button"
           disabled={!total}
           onClick={() => setModalOpen(true)}
-          className="inline-flex items-center gap-2 rounded-md bg-[rgb(var(--theme-primary-rgb))] text-white px-4 py-2 text-sm hover:opacity-90 disabled:opacity-40"
+          className="inline-flex items-center gap-2 rounded-md bg-theme-gradient text-white px-4 py-2 text-sm hover:opacity-90 disabled:opacity-40"
         >
           <Play className="w-4 h-4" /> Start review
         </button>

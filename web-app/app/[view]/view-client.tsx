@@ -4068,7 +4068,7 @@ export default function ViewPage({
                   {bulkSelectMode && selectedTaskIds.size > 0 && (
                     <button
                       onClick={() => setShowBulkEditModal(true)}
-                      className="px-3 py-1.5 rounded border bg-[rgb(var(--theme-primary-rgb))] text-white border-[rgb(var(--theme-primary-rgb))] hover:bg-[rgb(var(--theme-primary-rgb))]/80 transition-colors text-sm font-medium"
+                      className="px-3 py-1.5 rounded border bg-theme-gradient text-white border-[rgb(var(--theme-primary-rgb))] hover:opacity-80 transition-colors text-sm font-medium"
                     >
                       Apply to {selectedTaskIds.size} task
                       {selectedTaskIds.size > 1 ? "s" : ""}
@@ -4468,7 +4468,7 @@ export default function ViewPage({
               onClick={() => setSearchFilter("all")}
               className={`px-3 py-1 rounded-md transition-colors ${
                 searchFilter === "all"
-                  ? "bg-theme-primary text-white"
+                  ? "bg-theme-gradient text-white"
                   : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
               }`}
             >
@@ -4478,7 +4478,7 @@ export default function ViewPage({
               onClick={() => setSearchFilter("tasks")}
               className={`px-3 py-1 rounded-md transition-colors ${
                 searchFilter === "tasks"
-                  ? "bg-theme-primary text-white"
+                  ? "bg-theme-gradient text-white"
                   : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
               }`}
             >
@@ -4488,7 +4488,7 @@ export default function ViewPage({
               onClick={() => setSearchFilter("projects")}
               className={`px-3 py-1 rounded-md transition-colors ${
                 searchFilter === "projects"
-                  ? "bg-theme-primary text-white"
+                  ? "bg-theme-gradient text-white"
                   : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
               }`}
             >
@@ -4498,7 +4498,7 @@ export default function ViewPage({
               onClick={() => setSearchFilter("organizations")}
               className={`px-3 py-1 rounded-md transition-colors ${
                 searchFilter === "organizations"
-                  ? "bg-theme-primary text-white"
+                  ? "bg-theme-gradient text-white"
                   : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
               }`}
             >
@@ -5369,7 +5369,7 @@ export default function ViewPage({
                         <button
                           type="button"
                           onClick={() => setShowBulkEditModal(true)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[rgb(var(--theme-primary-rgb))]/80"
+                          className="inline-flex items-center gap-2 rounded-lg border border-[rgb(var(--theme-primary-rgb))] bg-theme-gradient px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-80"
                         >
                           Apply to {visibleSelectedCount} task
                           {visibleSelectedCount === 1 ? "" : "s"}

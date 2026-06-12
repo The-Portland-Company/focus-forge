@@ -593,7 +593,7 @@ export function EmailRulesPanel({
                 type="button"
                 onClick={handleSaveRule}
                 disabled={isSaving || !ruleForm.name.trim()}
-                className="rounded-lg bg-[rgb(var(--theme-primary-rgb))] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded-lg bg-theme-gradient px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
                 {isSaving ? "Saving…" : "Save Rule"}
               </button>

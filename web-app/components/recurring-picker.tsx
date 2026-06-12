@@ -69,7 +69,7 @@ export function RecurringPicker({ value, onChange }: RecurringPickerProps) {
             onClick={() => setFrequency(f.value)}
             className={`px-3 py-1.5 rounded-full text-sm transition-all ${
               frequency === f.value
-                ? 'bg-[rgb(var(--theme-primary-rgb))] text-white'
+                ? 'bg-theme-gradient text-white'
                 : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
             }`}
           >

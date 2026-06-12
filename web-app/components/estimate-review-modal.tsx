@@ -625,7 +625,7 @@ export function EstimateReviewModal({
                   type="button"
                   onClick={saveCurrent}
                   disabled={value == null || saving}
-                  className="text-sm rounded-md bg-[rgb(var(--theme-primary-rgb))] text-white px-3 py-1.5 hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1"
+                  className="text-sm rounded-md bg-theme-gradient text-white px-3 py-1.5 hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1"
                   title={
                     index >= tasks.length - 1
                       ? "Save (Enter)"
