@@ -1383,6 +1383,31 @@ export function Sidebar({
                   <MoreHorizontal className="w-5 h-5 text-zinc-400 group-hover/trigger:text-white transition-colors" />
                 </button>
                 <div className="absolute right-1 flex items-center gap-1 opacity-0 pointer-events-none translate-x-1 transition-all duration-150 group-hover/header-actions:opacity-100 group-hover/header-actions:pointer-events-auto group-hover/header-actions:translate-x-0 group-focus-within/header-actions:opacity-100 group-focus-within/header-actions:pointer-events-auto group-focus-within/header-actions:translate-x-0">
+                  {/* Nav-reorder Edit/Done toggle, relocated here from the
+                      top of <nav>. Toggles navEditMode; the reorderable nav
+                      rows pick up the change via NavReorderWrapper. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNavEditMode((v) => !v);
+                      setDraggedNavId(null);
+                      setDragOverNavId(null);
+                      setDragOverNavPosition(null);
+                    }}
+                    aria-pressed={navEditMode}
+                    title={navEditMode ? "Done" : "Edit navigation"}
+                    className={`p-2 rounded-lg transition-colors group ${
+                      navEditMode
+                        ? "bg-theme-gradient"
+                        : "hover:bg-zinc-800"
+                    }`}
+                  >
+                    {navEditMode ? (
+                      <Check className="w-5 h-5 text-white transition-colors" />
+                    ) : (
+                      <SlidersHorizontal className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                    )}
+                  </button>
                   <Link
                     href="/trash"
                     className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
@@ -1509,60 +1534,9 @@ export function Sidebar({
       <nav
         className={`flex flex-1 flex-col ${isCollapsed ? "px-1" : "px-1.5"} overflow-y-auto`}
       >
-        {/* Edit-mode toggle for reordering the parent nav items. order:0 keeps
-            it (and the timer row) pinned above the reorderable items. */}
-        {!isCollapsed ? (
-          <div style={{ order: 0 }} className="flex justify-end pr-1 pt-1">
-            <button
-              type="button"
-              onClick={() => {
-                setNavEditMode((v) => !v);
-                setDraggedNavId(null);
-                setDragOverNavId(null);
-                setDragOverNavPosition(null);
-              }}
-              aria-pressed={navEditMode}
-              title={navEditMode ? "Done reordering" : "Reorder navigation"}
-              className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                navEditMode
-                  ? "bg-theme-gradient text-white"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              {navEditMode ? (
-                <Check className="h-3 w-3" />
-              ) : (
-                <SlidersHorizontal className="h-3 w-3" />
-              )}
-              {navEditMode ? "Done" : "Edit"}
-            </button>
-          </div>
-        ) : (
-          <Tooltip content={navEditMode ? "Done reordering" : "Reorder navigation"}>
-            <button
-              type="button"
-              onClick={() => {
-                setNavEditMode((v) => !v);
-                setDraggedNavId(null);
-                setDragOverNavId(null);
-                setDragOverNavPosition(null);
-              }}
-              aria-pressed={navEditMode}
-              style={{ order: 0 }}
-              className={`w-full flex items-center justify-center px-2 py-1 rounded-lg text-sm transition-colors ${
-                navEditMode
-                  ? "text-white"
-                  : "text-zinc-500 hover:text-white"
-              }`}
-            >
-              {navEditMode ? (
-                <Check className="w-4 h-4" />
-              ) : (
-                <SlidersHorizontal className="w-4 h-4" />
-              )}
-            </button>
-          </Tooltip>
-        )}
+        {/* Nav-reorder toggle moved into the header hover-reveal toolbar.
+            The timer row below stays pinned (order:0) above the reorderable
+            items. In collapsed mode the toggle is reachable from the header. */}
         <div style={{ order: 0 }}>
         {isCollapsed ? (
           <div className="mt-1 flex flex-col gap-2">
@@ -1579,11 +1553,17 @@ export function Sidebar({
                   currentView === "time"
                     ? "text-white"
                     : currentTimerStartedAt
-                      ? "text-emerald-300 hover:text-white"
+                      ? "text-[rgb(var(--theme-primary-rgb))] hover:text-white"
                       : "text-zinc-400 hover:text-white"
                 }`}
               >
-                <Clock className="w-4 h-4" />
+                <Clock
+                  className={`w-4 h-4 ${
+                    currentTimerStartedAt
+                      ? "animate-spin [animation-duration:8s]"
+                      : ""
+                  }`}
+                />
               </Link>
             </Tooltip>
             <Tooltip
@@ -1610,24 +1590,70 @@ export function Sidebar({
           </div>
         ) : (
           <div className="mt-1 flex items-center gap-2">
-            <Link
-              href="/time"
+            <div
               className={`min-w-0 flex-1 flex items-center justify-between gap-2 pl-1.5 pr-2 py-1 rounded-lg text-sm transition-colors ${
                 currentView === "time"
                   ? "text-white"
                   : currentTimerStartedAt
-                    ? "text-emerald-300 hover:text-white"
+                    ? "text-[rgb(var(--theme-primary-rgb))] hover:text-white"
                     : "text-zinc-400 hover:text-white"
               }`}
             >
               <span className="flex min-w-0 items-center gap-2">
-                <Clock className="w-4 h-4 shrink-0" />
-                <span className="truncate">{currentTimerLabel}</span>
+                {/* Interactive clock: on hover (when idle) it swaps to a Play
+                    icon to start a session; while a session is running it
+                    shows an animated, theme-colored clock and clicking stops
+                    it. Uses the existing openTimerModal start/stop flow. */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    openTimerModal(currentTimerStartedAt ? "stop" : "start")
+                  }
+                  aria-label={
+                    currentTimerStartedAt
+                      ? "Stop Focus: Time session"
+                      : "Start Focus: Time session"
+                  }
+                  title={
+                    currentTimerStartedAt
+                      ? "Stop Focus: Time"
+                      : "Start Focus: Time"
+                  }
+                  className="group/focusclock relative shrink-0 inline-flex h-4 w-4 items-center justify-center"
+                >
+                  {currentTimerStartedAt ? (
+                    <>
+                      {/* Running: animated, brand-colored clock. Swaps to a
+                          Square (stop) on hover. */}
+                      <Clock className="h-4 w-4 animate-spin text-[rgb(var(--theme-primary-rgb))] group-hover/focusclock:opacity-0 transition-opacity [animation-duration:8s]" />
+                      <Square className="absolute inset-0 h-4 w-4 opacity-0 group-hover/focusclock:opacity-100 transition-opacity text-[rgb(var(--theme-primary-rgb))]" />
+                    </>
+                  ) : (
+                    <>
+                      {/* Idle: clock by default, reveals a Play on hover. */}
+                      <Clock className="h-4 w-4 group-hover/focusclock:opacity-0 transition-opacity" />
+                      <Play className="absolute inset-0 h-4 w-4 opacity-0 group-hover/focusclock:opacity-100 transition-opacity text-[rgb(var(--theme-primary-rgb))]" />
+                    </>
+                  )}
+                </button>
+                <Link
+                  href="/time"
+                  className="truncate hover:underline"
+                >
+                  {currentTimerLabel}
+                </Link>
               </span>
-              <span className="shrink-0 font-mono text-xs">
+              <Link
+                href="/time"
+                className={`shrink-0 font-mono text-xs ${
+                  currentTimerStartedAt
+                    ? "text-[rgb(var(--theme-primary-rgb))] animate-pulse"
+                    : ""
+                }`}
+              >
                 {currentTimerElapsed}
-              </span>
-            </Link>
+              </Link>
+            </div>
             {/* Desktop (macOS) app download. No in-repo URL exists yet; the
                 docs designate GitHub Releases as the distribution channel, so
                 this links to the latest published build. */}
