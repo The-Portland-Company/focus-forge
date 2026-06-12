@@ -685,7 +685,7 @@ export function TaskList({
                     type="button"
                     onClick={() => applyQuickDueDate(task)}
                     disabled={quickSaving}
-                    className="px-2 py-1 text-xs rounded bg-[rgb(var(--theme-primary-rgb))] text-white hover:bg-[rgb(var(--theme-primary-rgb))]/80 disabled:opacity-60"
+                    className="px-2 py-1 text-xs rounded bg-theme-gradient text-white hover:opacity-80 disabled:opacity-60"
                   >
                     {quickSaving ? "Saving..." : "Save"}
                   </button>

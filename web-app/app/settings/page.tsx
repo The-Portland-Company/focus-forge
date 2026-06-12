@@ -1280,7 +1280,7 @@ export default function SettingsPage() {
                         <button
                           type="button"
                           onClick={handleSaveSignature}
-                          className="inline-flex items-center gap-2 rounded-lg bg-[rgb(var(--theme-primary-rgb))] px-4 py-2 text-sm font-medium text-white"
+                          className="inline-flex items-center gap-2 rounded-lg bg-theme-gradient px-4 py-2 text-sm font-medium text-white"
                         >
                           <Check className="h-4 w-4" />
                           Save Signature

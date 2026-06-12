@@ -1525,7 +1525,7 @@ export function Sidebar({
               title={navEditMode ? "Done reordering" : "Reorder navigation"}
               className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${
                 navEditMode
-                  ? "bg-[rgb(var(--theme-primary-rgb))] text-white"
+                  ? "bg-theme-gradient text-white"
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
             >

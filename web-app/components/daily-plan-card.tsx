@@ -224,7 +224,7 @@ export function DailyPlanCard({
               <button
                 type="button"
                 onClick={() => onStartTask(currentItem.id)}
-                className="inline-flex items-center gap-1 rounded-md bg-theme-primary px-3 py-1.5 text-sm font-medium text-zinc-950 hover:opacity-90"
+                className="inline-flex items-center gap-1 rounded-md bg-theme-gradient px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
               >
                 <Play className="h-3.5 w-3.5" /> Start
               </button>
@@ -261,7 +261,7 @@ export function DailyPlanCard({
                   onConvertInboxToTask(currentItem.id);
                   advance();
                 }}
-                className="inline-flex items-center gap-1 rounded-md bg-theme-primary px-3 py-1.5 text-sm font-medium text-zinc-950 hover:opacity-90"
+                className="inline-flex items-center gap-1 rounded-md bg-theme-gradient px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
               >
                 Convert to task
               </button>
@@ -365,7 +365,7 @@ export function DailyPlanCard({
                   onClick={fetchPlan}
                   disabled={loading}
                   aria-label="Generate plan"
-                  className="inline-flex items-center justify-center rounded-md bg-[rgb(var(--theme-primary-rgb))] p-2 text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center justify-center rounded-md bg-theme-gradient p-2 text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Sparkles className="h-4 w-4" />
                 </button>
