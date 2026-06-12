@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Check, ChevronDown, ExternalLink, Loader2, Mic, Send, Sparkles, Square, X } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, Loader2, Mic, Send, Sparkles, Square, SquarePen, X } from "lucide-react";
 import { useToast } from "@/contexts/ToastContext";
 import { useRecorder } from "@/lib/voice/use-recorder";
 
@@ -123,9 +123,21 @@ export function AiPlannerFloatingChat({
   const [model, setModel] = useState<ModelChoice>("auto");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // When set, the next send starts a fresh server-side session instead of
+  // resuming the latest one for this scope.
+  const newConversationRef = useRef(false);
 
   const recording = recorder.state === "recording";
   const storageKey = `${SESSION_STORAGE_PREFIX}:${projectId || "global"}`;
+
+  const startNewConversation = () => {
+    if (sending) return;
+    newConversationRef.current = true;
+    setSessionId(null);
+    setMessages([]);
+    setInput("");
+    if (typeof window !== "undefined") localStorage.removeItem(storageKey);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -181,6 +193,7 @@ export function AiPlannerFloatingChat({
         body: JSON.stringify({
           sessionId,
           ...(projectId ? { projectId } : {}),
+          ...(newConversationRef.current ? { newConversation: true } : {}),
           message,
           provider: model,
           pageContext: {
@@ -196,6 +209,9 @@ export function AiPlannerFloatingChat({
         setSessionId(data.sessionId);
         localStorage.setItem(storageKey, data.sessionId);
       }
+      // The fresh session has been created server-side; subsequent messages
+      // continue it rather than starting yet another new one.
+      newConversationRef.current = false;
       setMessages((prev) => [
         ...prev,
         {
@@ -329,6 +345,15 @@ export function AiPlannerFloatingChat({
               <p className="text-xs text-zinc-400">{projectName || "All projects"}</p>
             </div>
             <div className="flex items-center gap-1">
+              <button
+                onClick={startNewConversation}
+                disabled={sending || (messages.length === 0 && !sessionId)}
+                className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="New conversation"
+                title="New conversation"
+              >
+                <SquarePen className="h-4 w-4" />
+              </button>
               {!embedded && (
                 <button
                   onClick={openPopout}
