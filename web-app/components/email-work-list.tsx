@@ -1115,7 +1115,7 @@ export function EmailWorkList({
                   return ts ? (
                     <span className="inline-flex items-center gap-1.5">
                       {relativeDay ? (
-                        <span className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/15 px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                        <span className="rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wide text-white">
                           {relativeDay}
                         </span>
                       ) : null}

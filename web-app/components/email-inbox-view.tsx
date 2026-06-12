@@ -3732,7 +3732,7 @@ export function EmailInboxView({
                 : "Email threads are pre-processed and rendered as work items."}
           </p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-nowrap items-center justify-end gap-2">
           {visibleInboxItems.length > 0 ? (
             <div className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-1.5 text-sm text-zinc-400">
               <Tooltip content="Previous page" className="w-auto" side="bottom">
