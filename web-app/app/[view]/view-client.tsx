@@ -3882,10 +3882,13 @@ export default function ViewPage({
                       >
                         <button
                           onClick={() => setShowRescheduleConfirm(true)}
-                          className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-orange-400 hover:text-orange-300"
+                          className="relative p-2 rounded border border-zinc-700 text-zinc-400 hover:text-orange-400 hover:border-zinc-600 transition-colors"
                           aria-label={`Reschedule ${overdueCount} overdue task${overdueCount === 1 ? "" : "s"}`}
                         >
-                          <CalendarClock className="w-5 h-5" />
+                          <CalendarClock className="w-4 h-4" />
+                          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-semibold leading-none text-white">
+                            {overdueCount}
+                          </span>
                         </button>
                       </Tooltip>
                     )}
