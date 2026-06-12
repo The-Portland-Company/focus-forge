@@ -21,6 +21,29 @@ import {
 const MAX_TOOL_ROUNDS = 6;
 const MUTATING_TOOLS = new Set(["create_task", "update_task", "complete_task", "delete_task"]);
 
+const ACTION_NUDGE =
+  "You described an action but did not call any tool this turn, so nothing actually happened. " +
+  "If the user has already confirmed (e.g. replied 'yes'), call the appropriate tool(s) NOW to perform it, " +
+  "then confirm the real result. If you still need confirmation or more info, ask a direct question instead. " +
+  "Do not reply with another preamble.";
+
+const ACTION_PROMISE_RE =
+  /\b(?:i['’]?ll|i\s+will|now\s+i['’]?ll|let me|i['’]?m\s+going\s+to|going\s+to|proceeding\s+to|go\s+ahead\s+and)\b[^.?!]{0,60}\b(?:delete|remove|create|add|update|complete|mark|archive|move|set|snooze|convert)\b/i;
+
+/**
+ * True when the model's tool-less reply reads as an *unfulfilled promise* to
+ * act ("Now I'll delete all 24 tasks:") rather than a finished answer or a
+ * question. Used to give the model one more round to actually call the tool
+ * instead of returning the dangling promise to the user.
+ */
+function looksLikeUnfulfilledActionPromise(text: string): boolean {
+  const t = (text || "").trim();
+  if (!t) return false;
+  if (t.endsWith("?")) return false; // a question, not a promise
+  if (/[:：]\s*$/.test(t)) return true; // "here's what I'll do:" then nothing
+  return ACTION_PROMISE_RE.test(t);
+}
+
 export type ProviderRunResult = {
   assistantMessage: string;
   toolsUsed: string[];
@@ -61,6 +84,7 @@ function makeOpenAICompatibleProvider(opts: {
       ];
       const toolsUsed: string[] = [];
       let mutated = false;
+      let nudged = false;
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
         const response = await fetch(opts.baseUrl, {
@@ -78,8 +102,17 @@ function makeOpenAICompatibleProvider(opts: {
 
         const toolCalls = msg.tool_calls;
         if (!toolCalls || toolCalls.length === 0) {
+          const content = String(msg.content || "").trim();
+          if (!nudged && looksLikeUnfulfilledActionPromise(content)) {
+            // Model announced an action but called no tool — give it one more
+            // round to actually execute instead of returning a dead promise.
+            nudged = true;
+            messages.push({ role: "assistant", content: content || null });
+            messages.push({ role: "user", content: ACTION_NUDGE });
+            continue;
+          }
           return {
-            assistantMessage: String(msg.content || "").trim() || "(no response)",
+            assistantMessage: content || "(no response)",
             toolsUsed,
             mutated,
             provider: opts.name,
@@ -132,6 +165,7 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
       const messages: any[] = conversation.map((m) => ({ role: m.role, content: m.content }));
       const toolsUsed: string[] = [];
       let mutated = false;
+      let nudged = false;
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
         const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -160,8 +194,17 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
         const toolUses = content.filter((b) => b.type === "tool_use");
 
         if (payload?.stop_reason !== "tool_use" || toolUses.length === 0) {
+          const text = textBlocks.join("\n").trim();
+          if (!nudged && looksLikeUnfulfilledActionPromise(text)) {
+            // Model announced an action but called no tool — give it one more
+            // round to actually execute instead of returning a dead promise.
+            nudged = true;
+            messages.push({ role: "assistant", content: text });
+            messages.push({ role: "user", content: ACTION_NUDGE });
+            continue;
+          }
           return {
-            assistantMessage: textBlocks.join("\n").trim() || "(no response)",
+            assistantMessage: text || "(no response)",
             toolsUsed,
             mutated,
             provider: "anthropic",

@@ -556,9 +556,16 @@ async function deleteTask(ctx: AgentToolContext, args: Record<string, any>): Pro
   const task = await loadAuthorizedTask(ctx, String(args.taskId));
   if (!task) return { ok: false, error: "Task not found or not accessible." };
 
-  const { error } = await ctx.admin.from("tasks").delete().eq("id", task.id);
+  // Soft-delete through the entity-versioning RPC (recoverable from /trash,
+  // logs an entity_events batch, cascades to subtasks). A raw .delete() would
+  // hard-delete and bypass the trash/versioning system. Access is already
+  // verified by loadAuthorizedTask above.
+  const { data: batchId, error } = await ctx.admin.rpc("soft_delete_entity", {
+    p_entity_type: "task",
+    p_entity_id: task.id,
+  });
   if (error) return { ok: false, error: error.message };
-  return { ok: true, data: { deletedId: task.id, name: task.name } };
+  return { ok: true, data: { deletedId: task.id, name: task.name, batchId } };
 }
 
 async function listProjects(ctx: AgentToolContext): Promise<AgentToolResult> {

@@ -61,6 +61,7 @@ ${pageLines.length ? pageLines.join("\n") : "- (no specific page context provide
 Rules:
 - For destructive actions (delete_task, inbox_action delete/spam), only proceed after the user has clearly confirmed. If ambiguous, ask first.
 - CRITICAL — never claim you performed an action (created, updated, completed, deleted) unless you actually called the matching tool IN THIS turn AND its result was ok:true. When the user confirms a pending deletion (e.g. replies "yes"), you MUST call delete_task on that turn before confirming. Do not say "Done" or "Deleted" from memory of an earlier turn — re-call the tool. If a tool returns ok:false, tell the user it failed and why; do not report success.
+- CRITICAL — do NOT reply with only a preamble like "Now I'll delete all 24 tasks:" and then stop. That performs nothing. In the SAME turn you must EITHER (a) actually call the tool(s) to do it (deleting N tasks means N delete_task calls), then confirm the real results, OR (b) ask a question if you still need confirmation or info. Never end a message promising an action you have not already executed via a tool call in this turn. To delete many tasks, call list_tasks first to get their ids, then call delete_task for each one.
 - When creating a task and no project is specified, use the projectId from the page context.
 - Be concise and concrete. After taking an action, briefly confirm what you did (include names), grounded in the tool result.
 - Dates are YYYY-MM-DD. Resolve relative dates ("tomorrow", "Friday") against today's date above.
