@@ -19,7 +19,12 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const sessionId = typeof body?.sessionId === "string" ? body.sessionId : null;
+    const forceNewSession = body?.newConversation === true;
+    const sessionId = forceNewSession
+      ? null
+      : typeof body?.sessionId === "string"
+        ? body.sessionId
+        : null;
     const projectId = typeof body?.projectId === "string" ? body.projectId : "";
     const message = typeof body?.message === "string" ? body.message.trim() : "";
     const pageContext = body?.pageContext && typeof body.pageContext === "object" ? body.pageContext : {};
@@ -57,7 +62,9 @@ export async function POST(request: NextRequest) {
         agentSessionId = null;
       }
     }
-    if (!agentSessionId) {
+    // Resume the most recent session for this scope — unless the client asked
+    // for a brand-new conversation, in which case we skip resume and create one.
+    if (!agentSessionId && !forceNewSession) {
       let q = admin
         .from("ai_planner_sessions")
         .select("id")
