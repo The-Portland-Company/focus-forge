@@ -78,7 +78,7 @@ export function ThemeModeToggle({ collapsed = false }: { collapsed?: boolean }) 
     <div
       role="radiogroup"
       aria-label="Color mode"
-      className={`flex items-center gap-0.5 rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 dark:border-zinc-800 dark:bg-zinc-950/70 ${
+      className={`flex items-center gap-0.5 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5 ${
         collapsed ? "flex-col" : ""
       }`}
     >
@@ -99,7 +99,7 @@ export function ThemeModeToggle({ collapsed = false }: { collapsed?: boolean }) 
             } ${
               active
                 ? "bg-[rgb(var(--theme-primary-rgb))] text-white shadow-sm"
-                : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+                : "text-zinc-400 hover:text-white"
             }`}
           >
             <Icon className="h-4 w-4 shrink-0" />
