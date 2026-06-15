@@ -1,6 +1,13 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Archive,
@@ -12,6 +19,7 @@ import {
   ChevronRight,
   ExternalLink,
   FolderSearch,
+  GripVertical,
   LayoutTemplate,
   Loader2,
   Mail,
@@ -420,6 +428,85 @@ export function EmailThreadModal({
   };
 
   const isDocked = isDockedEmailThreadDisplayMode(displayMode);
+
+  // --- Docked-right panel resize ----------------------------------------
+  // The docked-right reading pane can be widened by dragging a grip on its
+  // LEFT edge. The chosen width persists in localStorage so it survives
+  // navigation and logout on this device. Below the `sm` breakpoint the panel
+  // is a full-screen sheet, so the inline width (and grip) only apply at sm+.
+  const DOCKED_WIDTH_STORAGE_KEY = "email-thread-docked-width-px";
+  const DOCKED_MIN_WIDTH = 360;
+  const panelContentRef = useRef<HTMLDivElement | null>(null);
+  const [isWideViewport, setIsWideViewport] = useState(false);
+  const [dockedWidthPx, setDockedWidthPx] = useState<number | null>(null);
+
+  const clampDockedWidth = (width: number) => {
+    const viewportWidth =
+      typeof window === "undefined" ? 1280 : window.innerWidth;
+    const max = Math.round(viewportWidth * 0.96);
+    return Math.min(max, Math.max(DOCKED_MIN_WIDTH, Math.round(width)));
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia("(min-width: 640px)");
+    const apply = () => setIsWideViewport(mediaQuery.matches);
+    apply();
+    mediaQuery.addEventListener("change", apply);
+    return () => mediaQuery.removeEventListener("change", apply);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(DOCKED_WIDTH_STORAGE_KEY);
+    const parsed = stored ? Number.parseInt(stored, 10) : NaN;
+    if (Number.isFinite(parsed) && parsed > 0) {
+      setDockedWidthPx(clampDockedWidth(parsed));
+    }
+  }, []);
+
+  const persistDockedWidth = (width: number) => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(DOCKED_WIDTH_STORAGE_KEY, String(width));
+  };
+
+  const handleDockedResizeStart = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const pointerId = event.pointerId;
+    handle.setPointerCapture(pointerId);
+
+    let latestWidth = dockedWidthPx ?? panelContentRef.current?.clientWidth ?? DOCKED_MIN_WIDTH;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      // Panel is docked to the viewport's right edge, so its width is the gap
+      // between the pointer and the right edge.
+      latestWidth = clampDockedWidth(window.innerWidth - moveEvent.clientX);
+      setDockedWidthPx(latestWidth);
+    };
+
+    const handlePointerUp = () => {
+      document.body.classList.remove("cursor-col-resize");
+      if (handle.hasPointerCapture(pointerId)) {
+        handle.releasePointerCapture(pointerId);
+      }
+      window.removeEventListener("pointermove", handlePointerMove);
+      persistDockedWidth(latestWidth);
+    };
+
+    document.body.classList.add("cursor-col-resize");
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+  };
+
+  const isDockedRightResizable =
+    displayMode === "docked-right" && isWideViewport;
+  const dockedRightStyle =
+    isDockedRightResizable && dockedWidthPx
+      ? { width: `${dockedWidthPx}px`, maxWidth: "96vw" }
+      : undefined;
 
   useEffect(() => {
     setReplyStyleOverrides(
@@ -1035,6 +1122,8 @@ export function EmailThreadModal({
         {/* Docked modes never render the backdrop, so the app stays usable. */}
         {isDocked ? null : <DialogOverlay />}
         <DialogPrimitive.Content
+          ref={panelContentRef}
+          style={dockedRightStyle}
           // When docked, don't steal focus back to the panel so the user can
           // keep typing in the app behind it.
           onOpenAutoFocus={isDocked ? (event) => event.preventDefault() : undefined}
@@ -1055,6 +1144,49 @@ export function EmailThreadModal({
               "inset-0 h-full w-full max-w-full rounded-none border-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[92vh] sm:w-[min(96vw,52rem)] sm:max-w-none sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border",
           )}
         >
+          {/* Drag bumper on the LEFT edge of the docked-right panel,
+              vertically centered. Drag to widen/narrow the reading pane; the
+              width persists across navigation and logout (localStorage). */}
+          {isDockedRightResizable ? (
+            <button
+              type="button"
+              onPointerDown={handleDockedResizeStart}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowLeft") {
+                  event.preventDefault();
+                  const next = clampDockedWidth(
+                    (dockedWidthPx ??
+                      panelContentRef.current?.clientWidth ??
+                      DOCKED_MIN_WIDTH) + 24,
+                  );
+                  setDockedWidthPx(next);
+                  persistDockedWidth(next);
+                } else if (event.key === "ArrowRight") {
+                  event.preventDefault();
+                  const next = clampDockedWidth(
+                    (dockedWidthPx ??
+                      panelContentRef.current?.clientWidth ??
+                      DOCKED_MIN_WIDTH) - 24,
+                  );
+                  setDockedWidthPx(next);
+                  persistDockedWidth(next);
+                }
+              }}
+              className="group absolute inset-y-0 left-0 z-20 flex w-3 cursor-col-resize items-center justify-center outline-none"
+              aria-label="Resize thread panel"
+              title="Drag to resize the thread panel"
+              role="separator"
+              aria-orientation="vertical"
+            >
+              {/* Slim always-visible vertical pill spanning the edge, plus a
+                  centered grip icon for clear affordance. */}
+              <span className="absolute inset-y-0 left-0 w-0.5 bg-zinc-800 transition-colors group-hover:bg-zinc-600 group-focus-visible:bg-zinc-600" />
+              <span className="relative z-10 flex h-10 w-5 items-center justify-center rounded-r-md border border-l-0 border-zinc-800 bg-zinc-900 text-zinc-500 shadow transition-colors group-hover:border-zinc-600 group-hover:text-zinc-200 group-focus-visible:text-zinc-200">
+                <GripVertical className="h-4 w-4" />
+              </span>
+            </button>
+          ) : null}
+
           <DialogTitle className="sr-only">
             {thread?.subject
               ? formatEmailSubject(thread.subject)
