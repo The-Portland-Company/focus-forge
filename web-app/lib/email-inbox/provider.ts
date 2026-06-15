@@ -333,6 +333,96 @@ export async function fetchMailboxMessages(
   }
 }
 
+/**
+ * Fetch recently-sent messages from the mailbox's Sent folder so replies the
+ * user sends OUTSIDE the app (e.g. directly in Gmail / Apple Mail) still appear
+ * in the threaded conversation view. The main `fetchMailboxMessages` sync only
+ * reads INBOX, so without this every outbound message composed elsewhere is
+ * invisible. Sent volume is low, so we re-fetch a bounded recent window each
+ * sync and rely on dedup (by Message-ID) downstream — no separate cursor.
+ *
+ * Provider message IDs are namespaced `sent:<uid>` because IMAP UIDs are folder
+ * scoped and would otherwise collide with INBOX UIDs under the
+ * UNIQUE (mailbox_id, provider_message_id) constraint.
+ */
+export async function fetchMailboxSentMessages(
+  mailbox: MailboxTransportRow,
+  options?: { limit?: number },
+): Promise<NormalizedMailboxMessage[]> {
+  const limit = options?.limit && options.limit > 0 ? options.limit : 50;
+  const password = getMailboxPassword(mailbox);
+  const client = new ImapFlow({
+    host: mailbox.imap_host,
+    port: Number(mailbox.imap_port || 993),
+    secure: Boolean(mailbox.imap_secure),
+    auth: {
+      user: mailbox.login_username,
+      pass: password,
+    },
+  });
+
+  await client.connect();
+
+  try {
+    const folders = await client.list();
+    const sentFolder =
+      (folders || []).find((folder) => folder.specialUse === "\\Sent") ??
+      (folders || []).find((folder) =>
+        /(^|[\/.])sent( mail)?$/i.test(folder.path),
+      ) ??
+      (folders || []).find((folder) => /sent/i.test(folder.path));
+
+    if (!sentFolder?.path) {
+      return [];
+    }
+
+    const lock = await client.getMailboxLock(sentFolder.path);
+    try {
+      const uids = await client.search({ all: true }, { uid: true });
+      const target = [...(Array.isArray(uids) ? uids : [])]
+        .sort((a, b) => a - b)
+        .slice(-limit);
+
+      if (target.length === 0) {
+        return [];
+      }
+
+      const messagePromises: Array<Promise<NormalizedMailboxMessage>> = [];
+      for await (const message of client.fetch(
+        target,
+        {
+          uid: true,
+          source: true,
+          flags: true,
+          internalDate: true,
+        },
+        { uid: true },
+      )) {
+        if (!message.source) {
+          continue;
+        }
+        messagePromises.push(
+          normalizeParsedMailboxMessage({
+            uid: message.uid,
+            source: message.source,
+            flags: message.flags || null,
+            internalDate: message.internalDate || null,
+          }).then((normalized) => ({
+            ...normalized,
+            providerMessageId: `sent:${normalized.providerMessageId}`,
+          })),
+        );
+      }
+
+      return await Promise.all(messagePromises);
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout();
+  }
+}
+
 export type MailboxStorageQuota = {
   used: number;
   total: number;
