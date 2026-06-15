@@ -1015,11 +1015,15 @@ export function EmailThreadModal({
           className={cn(
             "fixed z-50 flex flex-col overflow-hidden border-zinc-800 bg-zinc-950 text-white shadow-2xl outline-none duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
             displayMode === "docked-right" &&
-              "inset-y-0 right-0 h-full w-[max(480px,40vw)] max-w-[96vw] border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:rounded-l-2xl",
+              // Full-screen sheet on small phones; docked side panel at sm+.
+              "inset-0 h-full w-full max-w-full border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:inset-y-0 sm:left-auto sm:right-0 sm:h-full sm:w-[max(480px,40vw)] sm:max-w-[96vw] sm:rounded-l-2xl",
             displayMode === "docked-bottom" &&
-              "inset-x-0 bottom-0 h-[50vh] w-full border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom sm:rounded-t-2xl",
+              // Near-full-screen sheet on small phones (a 50vh dock is too
+              // cramped to read a thread on a phone); short bottom dock at sm+.
+              "inset-x-0 bottom-0 top-0 h-full w-full border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom sm:top-auto sm:h-[50vh] sm:rounded-t-2xl",
             displayMode === "centered" &&
-              "left-1/2 top-1/2 max-h-[92vh] w-[min(96vw,52rem)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+              // Full-screen sheet on small phones; centered card at sm+.
+              "inset-0 h-full w-full max-w-full rounded-none border-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[92vh] sm:w-[min(96vw,52rem)] sm:max-w-none sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border",
           )}
         >
           <DialogTitle className="sr-only">

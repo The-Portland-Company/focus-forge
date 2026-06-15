@@ -39,8 +39,10 @@ import {
   LayoutList,
   History,
   ChevronRight,
+  Menu,
 } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { EstimatesView } from "@/components/estimates-view";
 import { TimeTrackingView } from "@/components/time-tracking-view";
 import { getBlockedTaskIds } from "@/lib/dependency-utils";
@@ -752,6 +754,19 @@ export default function ViewPage({
     null,
   );
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  // Mobile navigation drawer: on mobile viewports the sidebar is hidden by
+  // default and slides in as an overlay when the hamburger is tapped. On
+  // desktop this state is ignored (the sidebar is always rendered inline).
+  const isMobile = useIsMobile();
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  // Close the drawer whenever we drop back to mobile width fresh, and any time
+  // the viewport grows to desktop (so it can't get "stuck" open behind the
+  // inline sidebar).
+  useEffect(() => {
+    if (!isMobile) {
+      setIsMobileNavOpen(false);
+    }
+  }, [isMobile]);
   const [loadingTaskIds, setLoadingTaskIds] = useState<Set<string>>(new Set());
   const [animatingOutTaskIds, setAnimatingOutTaskIds] = useState<Set<string>>(
     new Set(),
@@ -5789,29 +5804,63 @@ export default function ViewPage({
     );
   }
 
+  const sidebarElement = (
+    <Sidebar
+      data={database}
+      onAddTask={() => openAddTask()}
+      currentView={view}
+      onViewChange={(nextView) => {
+        // On mobile, tapping a nav item closes the slide-in drawer.
+        if (isMobile) {
+          setIsMobileNavOpen(false);
+        }
+        handleViewChange(nextView);
+      }}
+      onProjectUpdate={handleProjectUpdate}
+      onProjectDelete={handleProjectDelete}
+      onAddProject={handleOpenAddProject}
+      onAddProjectGeneral={handleOpenAddProjectGeneral}
+      onAddOrganization={() => setShowAddOrganization(true)}
+      onOrganizationDelete={openDeleteConfirmation}
+      onOrganizationEdit={handleOpenEditOrganization}
+      onOrganizationArchive={handleOrganizationArchive}
+      onProjectEdit={handleOpenEditProject}
+      onProjectsReorder={handleProjectsReorder}
+      onOrganizationsReorder={handleOrganizationsReorder}
+      onCancelInvite={cancelInvite}
+      isAddingTask={showAddTask}
+      isLoading={isDataLoading}
+      isRefreshing={isRefreshing}
+    />
+  );
+
   return (
     <div className="h-screen app-shell-background flex">
-      <Sidebar
-        data={database}
-        onAddTask={() => openAddTask()}
-        currentView={view}
-        onViewChange={handleViewChange}
-        onProjectUpdate={handleProjectUpdate}
-        onProjectDelete={handleProjectDelete}
-        onAddProject={handleOpenAddProject}
-        onAddProjectGeneral={handleOpenAddProjectGeneral}
-        onAddOrganization={() => setShowAddOrganization(true)}
-        onOrganizationDelete={openDeleteConfirmation}
-        onOrganizationEdit={handleOpenEditOrganization}
-        onOrganizationArchive={handleOrganizationArchive}
-        onProjectEdit={handleOpenEditProject}
-        onProjectsReorder={handleProjectsReorder}
-        onOrganizationsReorder={handleOrganizationsReorder}
-        onCancelInvite={cancelInvite}
-        isAddingTask={showAddTask}
-        isLoading={isDataLoading}
-        isRefreshing={isRefreshing}
-      />
+      {isMobile ? (
+        <>
+          {/* Backdrop: tapping it closes the drawer. */}
+          {isMobileNavOpen && (
+            <div
+              className="fixed inset-0 z-40 bg-black/60"
+              onClick={() => setIsMobileNavOpen(false)}
+              aria-hidden="true"
+            />
+          )}
+          {/* Slide-in drawer. translate-x off-canvas when closed. */}
+          <div
+            className={`fixed inset-y-0 left-0 z-50 flex transition-transform duration-300 ${
+              isMobileNavOpen ? "translate-x-0" : "-translate-x-full"
+            }`}
+            role="dialog"
+            aria-modal="true"
+            aria-hidden={!isMobileNavOpen}
+          >
+            {sidebarElement}
+          </div>
+        </>
+      ) : (
+        sidebarElement
+      )}
 
       <main className="flex-1 min-w-0 text-white overflow-y-auto">
         <div
@@ -5833,6 +5882,16 @@ export default function ViewPage({
                       : "max-w-4xl mx-auto p-8"
           }
         >
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => setIsMobileNavOpen(true)}
+              className="mb-4 inline-flex items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 p-2 text-white hover:bg-zinc-800 transition-colors"
+              aria-label="Open navigation menu"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+          )}
           {renderContent()}
         </div>
       </main>

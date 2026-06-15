@@ -19,10 +19,10 @@ const buttonVariants = cva(
         link: "text-zinc-300 underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
+        default: "min-h-11 sm:min-h-0 h-10 px-4 py-2",
+        sm: "min-h-11 sm:min-h-0 h-9 rounded-md px-3",
         lg: "h-11 rounded-md px-8",
-        icon: "h-10 w-10",
+        icon: "min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 h-10 w-10",
       },
     },
     defaultVariants: {
