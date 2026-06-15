@@ -240,16 +240,16 @@ ${`{base_url}`}, ${`{endpoint}`}, ${`{method}`}, ${`{auth}`}.`;
                     <div key={key.id} className="rounded border border-zinc-700 p-3">
                       <div className="flex flex-wrap items-center gap-2 mb-2">
                         <span className="text-xs uppercase tracking-wide text-zinc-500">{key.label}</span>
-                        <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[11px] text-zinc-300">
+                        <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs sm:text-[11px] text-zinc-300">
                           {key.scope}
                         </span>
                         {!key.isActive && (
-                          <span className="rounded bg-red-900/40 px-1.5 py-0.5 text-[11px] text-red-300 border border-red-800/80">
+                          <span className="rounded bg-red-900/40 px-1.5 py-0.5 text-xs sm:text-[11px] text-red-300 border border-red-800/80">
                             Revoked
                           </span>
                         )}
                         {isExpired(key.expiresAt) && key.isActive && (
-                          <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[11px] text-amber-300 border border-amber-800/80">
+                          <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-xs sm:text-[11px] text-amber-300 border border-amber-800/80">
                             Expired
                           </span>
                         )}
@@ -300,14 +300,14 @@ ${`{base_url}`}, ${`{endpoint}`}, ${`{method}`}, ${`{auth}`}.`;
                 <div className="flex flex-wrap items-center gap-2">
                   <code className="text-sm text-zinc-100">{entry.path}</code>
                   <span
-                    className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${authBadgeClass[entry.auth]}`}
+                    className={`rounded-md px-2 py-0.5 text-xs sm:text-[11px] font-medium ${authBadgeClass[entry.auth]}`}
                   >
                     {entry.auth}
                   </span>
                   {entry.methods.map((method) => (
                     <span
                       key={`${entry.path}-${method.method}`}
-                      className="rounded bg-zinc-800 px-1.5 py-0.5 text-[11px] text-zinc-300"
+                      className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs sm:text-[11px] text-zinc-300"
                     >
                       {method.method}
                     </span>
@@ -361,7 +361,7 @@ ${`{base_url}`}, ${`{endpoint}`}, ${`{method}`}, ${`{auth}`}.`;
                         <button
                           type="button"
                           onClick={() => copyText(method.exampleCurl)}
-                          className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                          className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs sm:text-[11px] text-zinc-300 hover:bg-zinc-800"
                         >
                           <Copy className="h-3 w-3" />
                           Copy

@@ -3594,7 +3594,7 @@ export function EmailInboxView({
                     {profile.name}
                   </div>
                   {profile.isDefault ? (
-                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
                       Default
                     </span>
                   ) : null}
@@ -3966,7 +3966,7 @@ export function EmailInboxView({
             >
               <SlidersHorizontal className="h-4 w-4" />
               {isFilterBarCollapsed && hasActiveFilters ? (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1 text-[9px] font-semibold leading-none text-white">
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1 text-xs sm:text-[9px] font-semibold leading-none text-white">
                   {activeFilterCount}
                 </span>
               ) : null}
@@ -4259,11 +4259,11 @@ export function EmailInboxView({
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-3">
                   {isQuarantineView ? (
-                    <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                    <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
                       {quarantineCount} quarantined
                     </div>
                   ) : (
-                    <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                    <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
                       {trashedThreadCount} in trash
                     </div>
                   )}
@@ -4273,7 +4273,7 @@ export function EmailInboxView({
             <div className="mb-3">
               {isFilterBarCollapsed && inboxSearchQuery.trim() ? (
                 <div className="mb-2 flex items-center gap-2">
-                  <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                  <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
                     {visibleInboxItems.length} match
                     {visibleInboxItems.length === 1 ? "" : "es"}
                   </div>
@@ -4292,7 +4292,7 @@ export function EmailInboxView({
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
                     <div className="mb-3 flex items-center justify-end gap-2">
                       {inboxSearchQuery.trim() ? (
-                        <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                        <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
                           {visibleInboxItems.length} match
                           {visibleInboxItems.length === 1 ? "" : "es"}
                         </div>
@@ -4313,7 +4313,7 @@ export function EmailInboxView({
                       </Tooltip>
                     </div>
                     <div className="space-y-3">
-                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.8fr)_minmax(240px,0.9fr)]">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.8fr)_minmax(240px,0.9fr)]">
                     <div className="relative">
                       <FloatingFieldLabel label="Search inbox" />
                       <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
@@ -4379,10 +4379,10 @@ export function EmailInboxView({
                                     <span className="text-sm font-medium text-white">
                                       {definition.label}
                                     </span>
-                                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-300">
+                                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[11px] text-zinc-300">
                                       {definition.fullPrefix}
                                     </span>
-                                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-500">
+                                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[11px] text-zinc-500">
                                       {definition.shortPrefix}
                                     </span>
                                   </div>
@@ -4854,11 +4854,11 @@ export function EmailInboxView({
                             "Untitled reply"}
                         </div>
                       </div>
-                      <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-300">
+                      <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-300">
                         {draft.status}
                       </div>
                     </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs sm:text-[11px] text-zinc-500">
                       {draft.projectName ? (
                         <span>{draft.projectName}</span>
                       ) : null}
@@ -4945,7 +4945,7 @@ export function EmailInboxView({
                     </div>
                     {shouldShowStatusBadge(selectedThread) &&
                     getInboxReviewBadgeLabel(selectedThread) ? (
-                      <div className="rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-rose-300">
+                      <div className="rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-rose-300">
                         {getInboxReviewBadgeLabel(selectedThread)}
                       </div>
                     ) : null}
@@ -5026,7 +5026,7 @@ export function EmailInboxView({
                           current === "preserve" ? "simplified" : "preserve",
                         )
                       }
-                      className="inline-flex shrink-0 items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                      className="inline-flex shrink-0 items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs sm:text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
                     >
                       {getEmailHtmlRenderModeToggleLabel(emailHtmlRenderMode)}
                     </button>
@@ -5141,7 +5141,7 @@ export function EmailInboxView({
                   {isProjectPickerOpen ? (
                     <div className="absolute top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
                       <div className="border-b border-zinc-700/80 bg-zinc-900/80 px-3 py-2">
-                        <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
+                        <div className="text-xs sm:text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
                           Current Project
                         </div>
                         <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-950/80 px-3 py-1 text-xs text-zinc-300">
@@ -5402,7 +5402,7 @@ export function EmailInboxView({
                   </div>
                   <div className="flex items-center gap-2">
                     {selectedReplyDraft ? (
-                      <div className="rounded-full border border-zinc-700 px-2 py-1 text-[10px] uppercase tracking-wide text-zinc-400">
+                      <div className="rounded-full border border-zinc-700 px-2 py-1 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
                         {selectedReplyDraft.source === "ai" ? "AI" : "Draft"} /{" "}
                         {selectedReplyDraft.status}
                       </div>
@@ -5678,7 +5678,7 @@ export function EmailInboxView({
                                   )
                                 }
                                 className={cn(
-                                  "inline-flex rounded-md border px-2 py-1 text-[11px] font-medium uppercase tracking-wide transition-colors",
+                                  "inline-flex rounded-md border px-2 py-1 text-xs sm:text-[11px] font-medium uppercase tracking-wide transition-colors",
                                   attachment.inline
                                     ? "border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))]"
                                     : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-white",
@@ -5965,10 +5965,10 @@ export function EmailInboxView({
                       <div className="text-sm font-semibold text-white">
                         {definition.label}
                       </div>
-                      <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-300">
+                      <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[11px] text-zinc-300">
                         {definition.fullPrefix}
                       </div>
-                      <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-500">
+                      <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[11px] text-zinc-500">
                         {definition.shortPrefix}
                       </div>
                     </div>

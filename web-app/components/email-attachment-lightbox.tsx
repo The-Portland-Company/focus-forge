@@ -338,7 +338,7 @@ export function EmailAttachmentLightbox({
                   ) : (
                     <div className="flex flex-col items-center gap-2 px-3 text-center">
                       <FileText className="h-10 w-10 text-zinc-500" />
-                      <span className="text-[11px] uppercase tracking-wide text-zinc-500">
+                      <span className="text-xs sm:text-[11px] uppercase tracking-wide text-zinc-500">
                         {(attachment.contentType?.split("/").pop() || "file").slice(0, 8)}
                       </span>
                     </div>
@@ -350,7 +350,7 @@ export function EmailAttachmentLightbox({
                       {attachment.filename || "Attachment"}
                     </div>
                     {attachment.size > 0 ? (
-                      <div className="truncate text-[10px] text-zinc-500">
+                      <div className="truncate text-xs sm:text-[10px] text-zinc-500">
                         {formatAttachmentSize(attachment.size)}
                       </div>
                     ) : null}

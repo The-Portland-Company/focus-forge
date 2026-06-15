@@ -284,7 +284,7 @@ export default function TrashPage() {
                     <span className="truncate font-medium">
                       {batch.root.row.name || "(unnamed)"}
                     </span>
-                    <span className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                    <span className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
                       {batch.root.type === "section"
                         ? "task list"
                         : batch.root.type}

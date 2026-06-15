@@ -75,7 +75,7 @@ export function EmailSignatureContent({
           type="button"
           onClick={() => setIsOpen((current) => !current)}
           className={cn(
-            "flex w-full items-center gap-3 text-[11px] uppercase tracking-[0.18em] text-zinc-500 transition-opacity duration-200",
+            "flex w-full items-center gap-3 text-xs sm:text-[11px] uppercase tracking-[0.18em] text-zinc-500 transition-opacity duration-200",
             isOpen ? "opacity-100" : "opacity-0 group-hover/signature:opacity-100",
           )}
         >

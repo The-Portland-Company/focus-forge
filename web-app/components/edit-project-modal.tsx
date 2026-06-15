@@ -700,7 +700,7 @@ export function EditProjectModal({
                         <p className="text-xs text-zinc-500 truncate">{member.email}</p>
                       </div>
                       {isOwner && (
-                        <span className="rounded bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300">
+                        <span className="rounded bg-zinc-800 px-2 py-1 text-xs sm:text-[11px] text-zinc-300">
                           Owner
                         </span>
                       )}

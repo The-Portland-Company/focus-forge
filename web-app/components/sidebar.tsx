@@ -132,7 +132,7 @@ function UnreadReadBadge({ unread, total }: { unread: number; total: number }) {
   if (!total) return null;
   const read = Math.max(0, total - unread);
   return (
-    <span className="text-[10px] tabular-nums">
+    <span className="text-xs sm:text-[10px] tabular-nums">
       <span className={unread > 0 ? "text-[rgb(var(--theme-primary-rgb))] font-semibold" : "text-zinc-600"}>
         {unread}
       </span>
@@ -1752,7 +1752,7 @@ export function Sidebar({
             </span>
             {todayBadgeCount > 0 ? (
               <Tooltip content="Tasks due today" className="">
-                <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
                   {todayBadgeCount}
                 </span>
               </Tooltip>
@@ -1780,7 +1780,7 @@ export function Sidebar({
             >
               <Mail className="w-4 h-4" />
               {inboxItemsCount.unread > 0 ? (
-                <span className="absolute -top-0.5 right-0.5 min-w-[16px] rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1 text-center text-[9px] font-semibold leading-[15px] text-white">
+                <span className="absolute -top-0.5 right-0.5 min-w-[16px] rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1 text-center text-xs sm:text-[9px] font-semibold leading-[15px] text-white">
                   {inboxItemsCount.unread > 99 ? "99+" : inboxItemsCount.unread}
                 </span>
               ) : null}
@@ -1806,7 +1806,7 @@ export function Sidebar({
                 </span>
                 {inboxItemsCount.unread > 0 ? (
                   <Tooltip content="Unread emails" className="">
-                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
                       {inboxItemsCount.unread}
                     </span>
                   </Tooltip>
@@ -1929,7 +1929,7 @@ export function Sidebar({
                   </span>
                   {rulesCount > 0 ? (
                     <Tooltip content="Active rules" className="">
-                      <span className="text-[10px] text-zinc-500">{rulesCount}</span>
+                      <span className="text-xs sm:text-[10px] text-zinc-500">{rulesCount}</span>
                     </Tooltip>
                   ) : null}
                 </Link>
@@ -2029,7 +2029,7 @@ export function Sidebar({
                             <div key={mb.mailboxId} className="space-y-0.5">
                               {folderMailboxes.length > 1 ? (
                                 <div
-                                  className="truncate px-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-zinc-600"
+                                  className="truncate px-2 pt-1 text-xs sm:text-[10px] font-medium uppercase tracking-wide text-zinc-600"
                                   title={mb.emailAddress}
                                 >
                                   {mb.emailAddress}
@@ -2142,7 +2142,7 @@ export function Sidebar({
             </span>
             {estimateBacklog > 0 ? (
               <Tooltip content="Tasks awaiting estimate" className="">
-                <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
                   {estimateBacklog}
                 </span>
               </Tooltip>
@@ -2207,7 +2207,7 @@ export function Sidebar({
                   content={`${orgTaskCounts.total} active tasks across all organizations`}
                   className=""
                 >
-                  <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] tracking-wide text-zinc-400">
+                  <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[10px] tracking-wide text-zinc-400">
                     {orgTaskCounts.total}
                   </span>
                 </Tooltip>
@@ -2402,10 +2402,10 @@ export function Sidebar({
                             kind="organization"
                             tasks={tasksByOrgId.get(org.id) || []}
                             projectNameById={projectNameById}
-                            triggerClassName="block min-w-[18px] flex-shrink-0 text-right text-[10px] tabular-nums text-zinc-500 transition-colors hover:text-zinc-200"
+                            triggerClassName="block min-w-[18px] flex-shrink-0 text-right text-xs sm:text-[10px] tabular-nums text-zinc-500 transition-colors hover:text-zinc-200"
                           />
                         ) : (
-                          <span className="block min-w-[18px] flex-shrink-0 text-right text-[10px] tabular-nums text-zinc-500">
+                          <span className="block min-w-[18px] flex-shrink-0 text-right text-xs sm:text-[10px] tabular-nums text-zinc-500">
                             0
                           </span>
                         )}
@@ -2620,10 +2620,10 @@ export function Sidebar({
                                   name={project.name}
                                   kind="project"
                                   tasks={tasksByProjectId.get(project.id) || []}
-                                  triggerClassName="block min-w-[16px] flex-shrink-0 text-right text-[10px] tabular-nums text-zinc-500 transition-colors hover:text-zinc-200"
+                                  triggerClassName="block min-w-[16px] flex-shrink-0 text-right text-xs sm:text-[10px] tabular-nums text-zinc-500 transition-colors hover:text-zinc-200"
                                 />
                               ) : (
-                                <span className="block min-w-[16px] flex-shrink-0 text-right text-[10px] tabular-nums text-zinc-500">
+                                <span className="block min-w-[16px] flex-shrink-0 text-right text-xs sm:text-[10px] tabular-nums text-zinc-500">
                                   0
                                 </span>
                               )}
@@ -2633,7 +2633,7 @@ export function Sidebar({
                                 className="flex items-center gap-2 flex-1 min-w-0"
                               >
                                 <span
-                                  className="text-[9px] font-bold flex-shrink-0 w-5 text-center"
+                                  className="text-xs sm:text-[9px] font-bold flex-shrink-0 w-5 text-center"
                                   style={{ color: project.color }}
                                 >
                                   {getProjectAcronym(project.name)}
@@ -2734,7 +2734,7 @@ export function Sidebar({
                             className="flex items-center gap-2 flex-1 min-w-0"
                           >
                             <span
-                              className="text-[9px] font-bold flex-shrink-0 w-5 text-center"
+                              className="text-xs sm:text-[9px] font-bold flex-shrink-0 w-5 text-center"
                               style={{ color: project.color }}
                             >
                               {getProjectAcronym(project.name)}
@@ -2837,7 +2837,7 @@ export function Sidebar({
                         </button>
                         <button
                           onClick={() => setInviteToRevoke(user)}
-                          className="flex items-center gap-1 px-1.5 py-1 rounded text-[11px] text-zinc-500 hover:text-red-400 hover:bg-zinc-700 transition-colors opacity-0 group-hover:opacity-100"
+                          className="flex items-center gap-1 px-1.5 py-1 rounded text-xs sm:text-[11px] text-zinc-500 hover:text-red-400 hover:bg-zinc-700 transition-colors opacity-0 group-hover:opacity-100"
                           title="Revoke invitation"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -2865,7 +2865,7 @@ export function Sidebar({
             );
             return (
               <div key={stat.mailboxId} className="space-y-0.5">
-                <div className="flex items-center justify-between gap-2 text-[10px] text-zinc-500">
+                <div className="flex items-center justify-between gap-2 text-xs sm:text-[10px] text-zinc-500">
                   <span className="truncate">{stat.label}</span>
                   <span className="shrink-0 tabular-nums">
                     {formatGb(stat.used)} / {formatGb(stat.total)} GB
@@ -2991,7 +2991,7 @@ export function Sidebar({
                     )}
                   </button>
                 </div>
-                <div className="text-[11px] text-zinc-500 space-y-0.5">
+                <div className="text-xs sm:text-[11px] text-zinc-500 space-y-0.5">
                   <p>
                     <strong>Google:</strong> Settings → Other calendars → From
                     URL

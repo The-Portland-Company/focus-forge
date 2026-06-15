@@ -43,7 +43,7 @@ export function ProjectWorkTabs({
         >
           <CheckSquare className="h-4 w-4" />
           <span>Tasks</span>
-          <span className="rounded-full border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-300">
+          <span className="rounded-full border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-xs sm:text-[10px] text-zinc-300">
             {taskCount}
           </span>
         </button>
@@ -58,7 +58,7 @@ export function ProjectWorkTabs({
         >
           <Mail className="h-4 w-4" />
           <span>Email Work</span>
-          <span className="rounded-full border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-300">
+          <span className="rounded-full border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-xs sm:text-[10px] text-zinc-300">
             {emailCount}
           </span>
         </button>

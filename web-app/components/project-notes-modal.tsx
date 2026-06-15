@@ -250,7 +250,7 @@ export function ProjectNotesModal({
                           memoji={note.author_memoji}
                           ariaLabel={`${getAuthorName(note)} avatar`}
                         />
-                        <p className="text-[11px] text-zinc-400">{getAuthorName(note)}</p>
+                        <p className="text-xs sm:text-[11px] text-zinc-400">{getAuthorName(note)}</p>
                       </div>
                       <div
                         className={`relative rounded-2xl px-3 py-2 border text-sm ${
@@ -268,7 +268,7 @@ export function ProjectNotesModal({
                           }`}
                         />
                       </div>
-                      <p className="mt-1 px-1 text-[11px] text-zinc-500">
+                      <p className="mt-1 px-1 text-xs sm:text-[11px] text-zinc-500">
                         {new Date(note.created_at).toLocaleString()}
                       </p>
                     </div>

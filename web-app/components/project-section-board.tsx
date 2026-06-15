@@ -16,11 +16,14 @@ import {
   Square,
   CheckSquare,
   Trash2,
+  MoveRight,
+  X,
 } from "lucide-react";
 import { Database, Section, Task } from "@/lib/types";
 import { getBlockedTaskIds } from "@/lib/dependency-utils";
 import { richTextToPlainText } from "@/lib/rich-text";
 import { UserAvatar } from "@/components/user-avatar";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 type TaskWithSnakeCase = Task & {
   assigned_to?: string | null;
@@ -129,6 +132,7 @@ function BoardTaskCard({
   onTaskEdit,
   onTaskDelete,
   onTaskSelect,
+  onTaskMoveRequest,
 }: {
   task: Task;
   database: Database;
@@ -145,7 +149,9 @@ function BoardTaskCard({
   onTaskEdit: (task: Task) => void;
   onTaskDelete: (taskId: string) => void;
   onTaskSelect: (taskId: string, event?: React.MouseEvent) => void;
+  onTaskMoveRequest?: (task: Task) => void;
 }) {
+  const isMobile = useIsMobile();
   const typedTask = task as TaskWithSnakeCase;
   const isBlocked = blockedTaskIds.has(task.id);
   const isOptimisticCompleted = optimisticCompletedIds.has(task.id);
@@ -171,7 +177,7 @@ function BoardTaskCard({
     <div
       data-task-row="true"
       data-task-id={task.id}
-      draggable={!isLoading && !isAnimatingOut}
+      draggable={!isMobile && !isLoading && !isAnimatingOut}
       onMouseDown={() => onTaskFocus(task.id)}
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = "move";
@@ -276,6 +282,20 @@ function BoardTaskCard({
         </button>
 
         <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+          {isMobile && onTaskMoveRequest ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onTaskMoveRequest(task);
+              }}
+              className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+              title="Move task"
+              aria-label="Move task"
+            >
+              <MoveRight className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={(event) => {
@@ -303,7 +323,7 @@ function BoardTaskCard({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-400">
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs sm:text-[11px] text-zinc-400">
         {dueDateLabel ? (
           <span className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-0.5">
             <Calendar className="h-3 w-3" />
@@ -400,6 +420,7 @@ function SectionColumn({
   onSectionDelete,
   onAddTask,
   onAddSection,
+  onTaskMoveRequest,
 }: {
   section: Section;
   tasks: Task[];
@@ -428,6 +449,7 @@ function SectionColumn({
   onSectionDelete: (sectionId: string) => void;
   onAddTask: (projectId: string, sectionId?: string) => void;
   onAddSection: (parentId?: string, order?: number) => void;
+  onTaskMoveRequest?: (task: Task) => void;
 }) {
   const getVisibleSectionTasks = (sectionId: string) =>
     (sectionTasksBySectionId.get(sectionId) || []).filter((task) =>
@@ -537,6 +559,7 @@ function SectionColumn({
               onTaskEdit={onTaskEdit}
               onTaskDelete={onTaskDelete}
               onTaskSelect={onTaskSelect}
+              onTaskMoveRequest={onTaskMoveRequest}
             />
           ))}
 
@@ -571,6 +594,7 @@ function SectionColumn({
                       onTaskEdit={onTaskEdit}
                       onTaskDelete={onTaskDelete}
                       onTaskSelect={onTaskSelect}
+                      onTaskMoveRequest={onTaskMoveRequest}
                     />
                   ))}
                 </div>
@@ -631,6 +655,8 @@ export function ProjectSectionBoard({
 }: ProjectSectionBoardProps) {
   const [dragOverSectionId, setDragOverSectionId] = useState<string | null>(null);
   const [unassignedDragOver, setUnassignedDragOver] = useState(false);
+  const [moveMenuTask, setMoveMenuTask] = useState<Task | null>(null);
+  const isMobile = useIsMobile();
   const blockedTaskIds = useMemo(
     () => getBlockedTaskIds(database.tasks),
     [database.tasks],
@@ -662,7 +688,7 @@ export function ProjectSectionBoard({
   return (
     <SaveIndicatorContext.Provider value={saveIndicatorValue}>
     <div className="w-full overflow-x-auto overscroll-x-contain pb-4">
-      <div className="grid min-w-full grid-flow-col auto-cols-[minmax(340px,1fr)] gap-4 lg:auto-cols-[minmax(390px,1fr)]">
+      <div className="grid grid-cols-1 gap-4 md:min-w-full md:grid-flow-col md:grid-cols-none md:auto-cols-[minmax(340px,1fr)] lg:auto-cols-[minmax(390px,1fr)]">
         {sections.map((section) => {
           const sectionTasks = (sectionTasksBySectionId.get(section.id) || [])
             .filter((task) => taskIdsInVisibleSet.has(task.id));
@@ -698,6 +724,7 @@ export function ProjectSectionBoard({
               onSectionDelete={onSectionDelete}
               onAddTask={onAddTask}
               onAddSection={onAddSection}
+              onTaskMoveRequest={isMobile ? setMoveMenuTask : undefined}
             />
           );
         })}
@@ -770,6 +797,7 @@ export function ProjectSectionBoard({
                   onTaskEdit={onTaskEdit}
                   onTaskDelete={onTaskDelete}
                   onTaskSelect={onTaskSelect}
+                  onTaskMoveRequest={isMobile ? setMoveMenuTask : undefined}
                 />
               ))}
 
@@ -792,6 +820,68 @@ export function ProjectSectionBoard({
         </button>
       </div>
     </div>
+
+    {/* Touch fallback: move a task to another section (or Unassigned) without
+        native drag-and-drop, which isn't available on touch devices. */}
+    {moveMenuTask ? (
+      <div
+        className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"
+        onClick={() => setMoveMenuTask(null)}
+      >
+        <div
+          className="flex max-h-[80vh] w-full max-w-md flex-col rounded-t-2xl bg-zinc-900 p-4 sm:rounded-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-white">Move to section</h3>
+              <p className="truncate text-xs text-zinc-400">{moveMenuTask.name}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMoveMenuTask(null)}
+              className="rounded-md p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="flex-1 space-y-1 overflow-y-auto">
+            {sections.map((section) => (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => {
+                  onTaskDropToSection(moveMenuTask.id, section.id);
+                  setMoveMenuTask(null);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-white transition-colors hover:bg-zinc-800"
+              >
+                {section.icon ? (
+                  <span className="text-base leading-none">{section.icon}</span>
+                ) : null}
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: section.color || "#71717a" }}
+                />
+                <span className="truncate">{section.name}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                onTaskDropToUnassigned(moveMenuTask.id);
+                setMoveMenuTask(null);
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-white transition-colors hover:bg-zinc-800"
+            >
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-zinc-600" />
+              <span>Unassigned</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
     </SaveIndicatorContext.Provider>
   );
 }

@@ -219,11 +219,12 @@ export default function AiMemoryTab() {
           No data yet
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-zinc-800">
-          <table className="w-full text-left text-sm">
+        <div className="relative rounded-xl border border-zinc-800">
+          <div className="overflow-x-auto rounded-xl">
+          <table className="w-full min-w-[900px] text-left text-sm">
             <thead className="bg-zinc-900/60 text-xs uppercase tracking-wide text-zinc-500">
               <tr>
-                <th className="px-3 py-2">Summary</th>
+                <th className="sticky left-0 z-10 bg-zinc-900 px-3 py-2">Summary</th>
                 <th className="px-3 py-2">Type</th>
                 <th className="px-3 py-2">Input</th>
                 <th className="px-3 py-2">Outcome</th>
@@ -242,7 +243,7 @@ export default function AiMemoryTab() {
                   key={m.id}
                   className="border-t border-zinc-800/60 align-top hover:bg-zinc-900/30"
                 >
-                  <td className="max-w-[260px] px-3 py-2 text-zinc-200">
+                  <td className="sticky left-0 z-10 max-w-[260px] bg-zinc-950 px-3 py-2 text-zinc-200">
                     {m.normalized_summary}
                   </td>
                   <td className="px-3 py-2">
@@ -311,6 +312,11 @@ export default function AiMemoryTab() {
               ))}
             </tbody>
           </table>
+          </div>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 right-0 w-10 rounded-r-xl bg-gradient-to-l from-zinc-950 to-transparent"
+          />
         </div>
       )}
 

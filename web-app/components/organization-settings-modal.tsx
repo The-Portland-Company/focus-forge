@@ -934,7 +934,7 @@ export function OrganizationSettingsModal({
                                       key={roleOption}
                                       onClick={() => onUserRoleChange(user.id, organization.id, roleOption)}
                                       disabled={user.id === currentUserId}
-                                      className={`rounded px-2 py-1 text-[11px] transition-colors ${
+                                      className={`rounded px-2 py-1 text-xs sm:text-[11px] transition-colors ${
                                         isActive
                                           ? 'bg-theme-primary text-white'
                                           : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'

@@ -274,11 +274,12 @@ export function EstimatesView() {
               they&rsquo;ll appear here.
             </div>
           ) : (
-            <div className="rounded-lg border border-zinc-800 overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="relative rounded-lg border border-zinc-800 overflow-hidden">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-sm">
                 <thead className="bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wide">
                   <tr>
-                    <th className="text-left px-4 py-2">Task</th>
+                    <th className="sticky left-0 z-10 bg-zinc-900 text-left px-4 py-2">Task</th>
                     <th className="text-left px-4 py-2">Project</th>
                     <th className="text-right px-4 py-2">AI suggested</th>
                     <th className="text-right px-4 py-2">You approved</th>
@@ -292,7 +293,7 @@ export function EstimatesView() {
                       key={ex.id}
                       className="border-t border-zinc-800 hover:bg-zinc-900/40"
                     >
-                      <td className="px-4 py-2 text-zinc-200">{ex.taskName}</td>
+                      <td className="sticky left-0 z-10 bg-zinc-950 px-4 py-2 text-zinc-200">{ex.taskName}</td>
                       <td className="px-4 py-2 text-zinc-400">
                         {ex.projectName ?? "—"}
                       </td>
@@ -328,6 +329,11 @@ export function EstimatesView() {
                   ))}
                 </tbody>
               </table>
+              </div>
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-zinc-950 to-transparent"
+              />
             </div>
           )}
         </div>

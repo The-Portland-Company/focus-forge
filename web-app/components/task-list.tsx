@@ -574,14 +574,14 @@ export function TaskList({
       // Date text is hidden by default and revealed on badge hover as an
       // absolutely-positioned overlay so it never affects row layout.
       const revealText = (
-        <span className="pointer-events-none absolute right-full top-1/2 z-10 mr-1.5 hidden -translate-y-1/2 whitespace-nowrap rounded-md border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-200 shadow-lg group-hover/datebadge:block">
+        <span className="pointer-events-none absolute right-full top-1/2 z-10 mr-1.5 hidden -translate-y-1/2 whitespace-nowrap rounded-md border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-xs sm:text-[11px] text-zinc-200 shadow-lg group-hover/datebadge:block">
           {formatted}
         </span>
       );
       if (!enableDueDateQuickEdit || !onTaskUpdate) {
         return (
           <span
-            className="group/datebadge relative flex items-center gap-1 text-[11px] flex-shrink-0"
+            className="group/datebadge relative flex items-center gap-1 text-xs sm:text-[11px] flex-shrink-0"
             title={formatted}
           >
             <Calendar className={`w-3.5 h-3.5 ${iconColorClass}`} />
@@ -605,7 +605,7 @@ export function TaskList({
             <button
               type="button"
               onClick={(e) => e.stopPropagation()}
-              className="group/datebadge relative flex items-center gap-1 text-[11px] flex-shrink-0"
+              className="group/datebadge relative flex items-center gap-1 text-xs sm:text-[11px] flex-shrink-0"
               aria-label="Edit due date"
               title={formatted}
             >
@@ -654,7 +654,7 @@ export function TaskList({
                   ))}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <label className="text-[11px] text-zinc-500">
+                  <label className="text-xs sm:text-[11px] text-zinc-500">
                     Date
                     <input
                       type="date"
@@ -663,7 +663,7 @@ export function TaskList({
                       className="mt-1 w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-white themed-date-input"
                     />
                   </label>
-                  <label className="text-[11px] text-zinc-500">
+                  <label className="text-xs sm:text-[11px] text-zinc-500">
                     Time
                     <input
                       type="time"
@@ -776,7 +776,7 @@ export function TaskList({
             </span>
           </span>
           {copiedTaskId === task.id && (
-            <span className="absolute left-0 top-full mt-1 z-50 whitespace-nowrap text-[10px] font-medium text-green-400 animate-fade-in-up">
+            <span className="absolute left-0 top-full mt-1 z-50 whitespace-nowrap text-xs sm:text-[10px] font-medium text-green-400 animate-fade-in-up">
               Copied!
             </span>
           )}
@@ -1091,7 +1091,7 @@ export function TaskList({
                   <span
                     className={`relative group/todoist flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}
                   >
-                    <span className="text-[10px] text-zinc-500 font-bold">
+                    <span className="text-xs sm:text-[10px] text-zinc-500 font-bold">
                       T
                     </span>
                     <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/todoist:opacity-100 transition-opacity pointer-events-none z-50">
@@ -1117,7 +1117,7 @@ export function TaskList({
                       profileColor={(task as any).assignedToColor}
                       memoji={(task as any).assignedToMemoji}
                       size={16}
-                      className="text-[9px] font-medium"
+                      className="text-xs sm:text-[9px] font-medium"
                     />
                     <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/assignee:opacity-100 transition-opacity pointer-events-none z-50">
                       {task.assignedToName}
@@ -1150,7 +1150,7 @@ export function TaskList({
                       title={`Estimated: ${label}`}
                     >
                       <Clock className="w-3.5 h-3.5 text-teal-400" />
-                      <span className="text-[10px] text-teal-400 font-medium">
+                      <span className="text-xs sm:text-[10px] text-teal-400 font-medium">
                         {label}
                       </span>
                       <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/estimate:opacity-100 transition-opacity pointer-events-none z-50">
@@ -1221,7 +1221,7 @@ export function TaskList({
                       ) : (
                         <span
                           key={tag.id}
-                          className="inline-flex max-w-[88px] items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] truncate"
+                          className="inline-flex max-w-[88px] items-center rounded-full border px-2 py-0.5 text-xs sm:text-[10px] font-medium uppercase tracking-[0.12em] truncate"
                           style={{
                             color: tag.color,
                             borderColor: `${tag.color}66`,
@@ -1235,7 +1235,7 @@ export function TaskList({
                     )}
                     {taskTagBadges.length > 3 ? (
                       <span
-                        className="text-[10px] text-zinc-500"
+                        className="text-xs sm:text-[10px] text-zinc-500"
                         title={taskTagBadges
                           .slice(3)
                           .map((tag) => tag.name)

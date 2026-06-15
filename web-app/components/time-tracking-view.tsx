@@ -26,6 +26,7 @@ import type {
   TimeTrackingEntry,
 } from "@/lib/time/types";
 import { formatElapsed } from "@/lib/time/client";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 type DraftEntryState = {
   organizationId: string;
@@ -59,6 +60,7 @@ const toLocalDateTimeValue = (value: Date) => {
 const OPTIONAL_SELECT_VALUE = "__none__";
 
 export function TimeTrackingView() {
+  const isMobile = useIsMobile();
   const [bootstrap, setBootstrap] = useState<TimeTrackingBootstrap | null>(null);
   const [entries, setEntries] = useState<TimeTrackingEntry[]>([]);
   const [currentEntry, setCurrentEntry] = useState<TimeTrackingEntry | null>(null);
@@ -860,38 +862,52 @@ export function TimeTrackingView() {
             </p>
           </div>
         </div>
-        <div className="mt-6 overflow-x-auto">
-          <table className="min-w-full divide-y divide-zinc-800 text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-[0.18em] text-zinc-500">
-                <th className="pb-3 pr-4">User</th>
-                <th className="pb-3 pr-4">Organization</th>
-                <th className="pb-3 pr-4">Project / Task List</th>
-                <th className="pb-3 pr-4">Tasks</th>
-                <th className="pb-3 pr-4">Started</th>
-                <th className="pb-3 pr-4">Ended</th>
-                <th className="pb-3 pr-4">Timezone</th>
-                <th className="pb-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-900">
-              {entries.map((entry) => (
-                <tr key={entry.id} className="align-top text-zinc-200">
-                  <td className="py-4 pr-4">
-                    <div className="font-medium text-white">{entry.user?.name || entry.userId}</div>
+        {isMobile ? (
+          <div className="mt-6 space-y-3">
+            {entries.map((entry) => (
+              <div
+                key={entry.id}
+                className="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-4 text-sm text-zinc-200"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-white">
+                      {entry.user?.name || entry.userId}
+                    </div>
                     <div className="text-xs uppercase tracking-[0.15em] text-zinc-500">
                       {entry.user?.role || "team_member"}
                     </div>
-                  </td>
-                  <td className="py-4 pr-4">{entry.organization?.name || entry.organizationId}</td>
-                  <td className="py-4 pr-4">
-                    <div>{entry.project?.name || "No project"}</div>
-                    <div className="text-xs text-zinc-500">
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void deleteEntry(entry.id)}
+                    className="inline-flex shrink-0 items-center gap-2 rounded-md border border-red-900/70 bg-red-950/30 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:border-red-700 hover:bg-red-950/50 hover:text-white"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
+                </div>
+                <dl className="mt-3 grid grid-cols-1 gap-2">
+                  <div>
+                    <dt className="text-xs uppercase tracking-[0.15em] text-zinc-500">
+                      Organization
+                    </dt>
+                    <dd>{entry.organization?.name || entry.organizationId}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-[0.15em] text-zinc-500">
+                      Project / Task List
+                    </dt>
+                    <dd>{entry.project?.name || "No project"}</dd>
+                    <dd className="text-xs text-zinc-500">
                       {entry.section?.name || "No task list"}
-                    </div>
-                  </td>
-                  <td className="py-4 pr-4">
-                    <div className="flex max-w-xs flex-wrap gap-2">
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-[0.15em] text-zinc-500">
+                      Tasks
+                    </dt>
+                    <dd className="flex flex-wrap gap-2 pt-1">
                       {(entry.tasks || []).length > 0 ? (
                         (entry.tasks || []).map((task) => (
                           <span
@@ -904,43 +920,140 @@ export function TimeTrackingView() {
                       ) : (
                         <span className="text-zinc-500">No tasks</span>
                       )}
-                    </div>
-                  </td>
-                  <td className="py-4 pr-4">
-                    {new Date(entry.startedAt).toLocaleString([], {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                  </td>
-                  <td className="py-4 pr-4">
-                    {entry.endedAt
-                      ? new Date(entry.endedAt).toLocaleString([], {
+                    </dd>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.15em] text-zinc-500">
+                        Started
+                      </dt>
+                      <dd>
+                        {new Date(entry.startedAt).toLocaleString([], {
                           dateStyle: "medium",
                           timeStyle: "short",
-                        })
-                      : "Running"}
-                  </td>
-                  <td className="py-4 pr-4">{entry.timezone}</td>
-                  <td className="py-4 text-right">
-                    <button
-                      type="button"
-                      onClick={() => void deleteEntry(entry.id)}
-                      className="inline-flex items-center gap-2 rounded-md border border-red-900/70 bg-red-950/30 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:border-red-700 hover:bg-red-950/50 hover:text-white"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {entries.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-zinc-800 px-6 py-10 text-center text-sm text-zinc-500">
-              No time entries match the current filters.
+                        })}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.15em] text-zinc-500">
+                        Ended
+                      </dt>
+                      <dd>
+                        {entry.endedAt
+                          ? new Date(entry.endedAt).toLocaleString([], {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })
+                          : "Running"}
+                      </dd>
+                    </div>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-[0.15em] text-zinc-500">
+                      Timezone
+                    </dt>
+                    <dd>{entry.timezone}</dd>
+                  </div>
+                </dl>
+              </div>
+            ))}
+            {entries.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-zinc-800 px-6 py-10 text-center text-sm text-zinc-500">
+                No time entries match the current filters.
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="relative mt-6">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-zinc-800 text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-[0.18em] text-zinc-500">
+                    <th className="sticky left-0 z-10 bg-zinc-950 pb-3 pr-4">User</th>
+                    <th className="pb-3 pr-4">Organization</th>
+                    <th className="pb-3 pr-4">Project / Task List</th>
+                    <th className="pb-3 pr-4">Tasks</th>
+                    <th className="pb-3 pr-4">Started</th>
+                    <th className="pb-3 pr-4">Ended</th>
+                    <th className="pb-3 pr-4">Timezone</th>
+                    <th className="pb-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-900">
+                  {entries.map((entry) => (
+                    <tr key={entry.id} className="align-top text-zinc-200">
+                      <td className="sticky left-0 z-10 bg-zinc-950 py-4 pr-4">
+                        <div className="font-medium text-white">{entry.user?.name || entry.userId}</div>
+                        <div className="text-xs uppercase tracking-[0.15em] text-zinc-500">
+                          {entry.user?.role || "team_member"}
+                        </div>
+                      </td>
+                      <td className="py-4 pr-4">{entry.organization?.name || entry.organizationId}</td>
+                      <td className="py-4 pr-4">
+                        <div>{entry.project?.name || "No project"}</div>
+                        <div className="text-xs text-zinc-500">
+                          {entry.section?.name || "No task list"}
+                        </div>
+                      </td>
+                      <td className="py-4 pr-4">
+                        <div className="flex max-w-xs flex-wrap gap-2">
+                          {(entry.tasks || []).length > 0 ? (
+                            (entry.tasks || []).map((task) => (
+                              <span
+                                key={task.id}
+                                className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300"
+                              >
+                                {task.name}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-zinc-500">No tasks</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-4 pr-4">
+                        {new Date(entry.startedAt).toLocaleString([], {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })}
+                      </td>
+                      <td className="py-4 pr-4">
+                        {entry.endedAt
+                          ? new Date(entry.endedAt).toLocaleString([], {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })
+                          : "Running"}
+                      </td>
+                      <td className="py-4 pr-4">{entry.timezone}</td>
+                      <td className="py-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => void deleteEntry(entry.id)}
+                          className="inline-flex items-center gap-2 rounded-md border border-red-900/70 bg-red-950/30 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:border-red-700 hover:bg-red-950/50 hover:text-white"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {entries.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-zinc-800 px-6 py-10 text-center text-sm text-zinc-500">
+                  No time entries match the current filters.
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
+            {entries.length > 0 ? (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-zinc-950 to-transparent"
+              />
+            ) : null}
+          </div>
+        )}
       </section>
     </div>
   );
