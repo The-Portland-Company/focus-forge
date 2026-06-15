@@ -553,7 +553,7 @@ export function TaskList({
     const isDueToday = !!(dueDateOnly && isToday(dueDateOnly));
     const isBlocked = blockedTaskIds.has(task.id);
     const actionVisibilityClass = revealActionsOnHover
-      ? "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
+      ? "opacity-100 pointer-events-auto sm:opacity-0 sm:pointer-events-none sm:group-hover:opacity-100 sm:group-hover:pointer-events-auto"
       : "opacity-100 pointer-events-auto";
 
     // Pre-compute due date badge for flexible layout positioning
@@ -618,7 +618,7 @@ export function TaskList({
               side="bottom"
               align="start"
               sideOffset={8}
-              className="z-50 w-64 rounded-lg bg-zinc-900 border border-zinc-800 shadow-xl"
+              className="z-50 w-64 max-w-[min(var(--radix-popper-available-width,100vw),calc(100vw-1rem))] rounded-lg bg-zinc-900 border border-zinc-800 shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="p-3 space-y-3">

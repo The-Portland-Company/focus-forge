@@ -173,7 +173,7 @@ export function TimePicker({ value, onChange, className, placeholder = 'Select t
       
       <Popover.Portal>
         <Popover.Content
-          className="z-50 w-[320px] rounded-lg bg-zinc-900 border border-zinc-800 shadow-xl"
+          className="z-50 w-[320px] max-w-[min(var(--radix-popper-available-width,100vw),calc(100vw-1rem))] rounded-lg bg-zinc-900 border border-zinc-800 shadow-xl"
           sideOffset={5}
         >
           <div className="p-4">

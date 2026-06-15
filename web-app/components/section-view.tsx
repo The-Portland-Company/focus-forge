@@ -200,7 +200,7 @@ export function SectionView({
           <span className="text-sm text-zinc-500">({sectionTasks.length})</span>
         </div>
 
-        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
+        <div className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 flex items-center gap-1 transition-opacity">
           <button
             onClick={(e) => {
               e.stopPropagation();
