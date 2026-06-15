@@ -3815,20 +3815,30 @@ export function EmailInboxView({
                 </button>
               </Tooltip>
               <span className="mx-0.5 h-4 w-px bg-zinc-700" aria-hidden />
-              <select
-                value={perPage}
-                onChange={(event) =>
-                  setPerPage(normalizeEmailInboxPerPage(event.target.value))
+              <Select
+                value={String(perPage)}
+                onValueChange={(value) =>
+                  setPerPage(normalizeEmailInboxPerPage(value))
                 }
-                className="rounded-md border border-zinc-700 bg-zinc-950/70 py-0.5 pl-1 pr-5 text-sm tabular-nums text-zinc-200 focus:outline-none focus:ring-1 ring-theme"
-                aria-label="Emails per page"
               >
-                {EMAIL_INBOX_PER_PAGE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}/page
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger
+                  className="h-7 w-auto gap-1 border-zinc-700 bg-zinc-950/70 px-2 py-0 text-sm tabular-nums text-zinc-200 focus:ring-1"
+                  aria-label="Emails per page"
+                >
+                  <SelectValue>{perPage}/page</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {EMAIL_INBOX_PER_PAGE_OPTIONS.map((option) => (
+                    <SelectItem
+                      key={option}
+                      value={String(option)}
+                      className="tabular-nums"
+                    >
+                      {option}/page
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           ) : null}
           {isTrashView ? (
@@ -4901,14 +4911,17 @@ export function EmailInboxView({
                 persistDetailPanelWidth(detailPanelWidth - 24);
               }
             }}
-            className="group relative z-10 my-16 inline-flex w-3 items-center justify-center rounded-full bg-transparent text-zinc-600 outline-none transition-colors hover:text-zinc-300 focus-visible:text-zinc-200"
+            className="group relative z-10 my-16 inline-flex w-3 cursor-col-resize items-center justify-center rounded-full bg-transparent text-zinc-500 outline-none transition-colors hover:text-zinc-200 focus-visible:text-zinc-200"
             aria-label="Resize thread details panel"
-            title="Resize thread details panel"
+            title="Drag to resize thread details panel"
             role="separator"
             aria-orientation="vertical"
           >
-            <span className="absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-zinc-800/80 group-focus-visible:bg-zinc-800/80" />
-            <GripVertical className="relative z-10 h-4 w-4" />
+            {/* Always-visible grip: a slim vertical pill that brightens on
+                hover/focus, giving the drag bumper a clear affordance on the
+                left edge of the detail panel. */}
+            <span className="absolute inset-y-0 left-1/2 w-1.5 -translate-x-1/2 rounded-full bg-zinc-700/70 transition-colors group-hover:bg-zinc-600 group-focus-visible:bg-zinc-600" />
+            <GripVertical className="relative z-10 h-5 w-5 drop-shadow" />
           </button>
         </div>
         ) : null}
