@@ -141,7 +141,7 @@ export function NavTasksBadge({
             onOpenAutoFocus={(e) => e.preventDefault()}
             onMouseEnter={() => setHoverOpen(true)}
             onMouseLeave={() => setHoverOpen(false)}
-            className="z-[60] w-72 rounded-lg border bg-popover p-2 text-popover-foreground shadow-xl outline-none"
+            className="z-[60] w-72 max-w-[min(var(--radix-popper-available-width,100vw),calc(100vw-1rem))] rounded-lg border bg-popover p-2 text-popover-foreground shadow-xl outline-none"
           >
             <div className="px-1 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {name} · {incompleteCount} open

@@ -351,7 +351,7 @@ function ProjectTagFilter({
         <Popover.Content
           align="start"
           sideOffset={6}
-          className="z-50 w-[260px] rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl"
+          className="z-50 w-[260px] max-w-[min(var(--radix-popper-available-width,100vw),calc(100vw-1rem))] rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl"
         >
           <div className="relative mb-2">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
@@ -4022,7 +4022,7 @@ export default function ViewPage({
                           side="bottom"
                           align="center"
                           sideOffset={8}
-                          className="z-50 w-44 rounded-lg bg-zinc-900 border border-zinc-800 shadow-xl p-2"
+                          className="z-50 w-44 max-w-[min(var(--radix-popper-available-width,100vw),calc(100vw-1rem))] rounded-lg bg-zinc-900 border border-zinc-800 shadow-xl p-2"
                         >
                           <div className="text-[11px] text-zinc-500 px-1 pb-1">
                             Sort by

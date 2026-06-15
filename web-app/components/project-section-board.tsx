@@ -275,7 +275,7 @@ function BoardTaskCard({
           ) : null}
         </button>
 
-        <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
           <button
             type="button"
             onClick={(event) => {

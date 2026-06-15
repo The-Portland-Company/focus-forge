@@ -141,7 +141,7 @@ export function SnoozePopover({
           align={align}
           side={side}
           sideOffset={6}
-          className="z-50 w-72 rounded-lg border border-zinc-700 bg-zinc-900 p-3 shadow-xl"
+          className="z-50 w-72 max-w-[min(var(--radix-popper-available-width,100vw),calc(100vw-1rem))] rounded-lg border border-zinc-700 bg-zinc-900 p-3 shadow-xl"
         >
           <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
             <Clock className="h-3.5 w-3.5" />

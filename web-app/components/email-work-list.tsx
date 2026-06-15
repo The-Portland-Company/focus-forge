@@ -934,7 +934,7 @@ export function EmailWorkList({
                           <button
                             type="button"
                             onClick={(event) => event.stopPropagation()}
-                            className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-rose-400 transition-colors hover:bg-rose-500/10 hover:text-rose-300"
+                            className="mt-0.5 inline-flex h-11 w-11 sm:h-5 sm:w-5 shrink-0 items-center justify-center rounded-md text-rose-400 transition-colors hover:bg-rose-500/10 hover:text-rose-300"
                             aria-label="Spam actions"
                             title="Spam actions"
                           >
@@ -947,7 +947,7 @@ export function EmailWorkList({
                             align="start"
                             sideOffset={8}
                             onInteractOutside={() => setSpamActionThreadId(null)}
-                            className="z-50 w-56 rounded-xl border border-zinc-700 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur"
+                            className="z-50 w-56 max-w-[min(var(--radix-popper-available-width,100vw),calc(100vw-1rem))] rounded-xl border border-zinc-700 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur"
                           >
                             <button
                               type="button"
@@ -1057,7 +1057,7 @@ export function EmailWorkList({
                           event.stopPropagation();
                           void handleOpenTaskGenerator(item);
                         }}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-emerald-300"
+                        className="inline-flex h-11 w-11 sm:h-7 sm:w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-emerald-300"
                         aria-label={
                           item.derivedTaskCount > 0
                             ? "View linked tasks"
@@ -1075,7 +1075,7 @@ export function EmailWorkList({
                         <button
                           type="button"
                           onClick={(event) => event.stopPropagation()}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-sky-300"
+                          className="inline-flex h-11 w-11 sm:h-7 sm:w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-sky-300"
                           aria-label="Snooze email"
                           title="Snooze"
                         >
@@ -1094,7 +1094,7 @@ export function EmailWorkList({
                           event.stopPropagation();
                           void onThreadAction?.(item, "delete");
                         }}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-rose-300"
+                        className="inline-flex h-11 w-11 sm:h-7 sm:w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-rose-300"
                         aria-label="Delete email"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
