@@ -4884,6 +4884,7 @@ export function EmailInboxView({
           </div>
         </div>
 
+        {isDesktopSplitLayout ? (
         <div className="relative hidden xl:flex items-stretch justify-center">
           <div className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-zinc-800" />
           <button
@@ -4910,6 +4911,7 @@ export function EmailInboxView({
             <GripVertical className="relative z-10 h-4 w-4" />
           </button>
         </div>
+        ) : null}
 
         <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           {loadingThread ? (
