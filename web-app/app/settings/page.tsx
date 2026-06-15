@@ -72,6 +72,13 @@ import {
   saveEmailThreadDisplayMode,
   type EmailThreadDisplayMode,
 } from "@/lib/email-thread-display-mode";
+import {
+  clampEmailPanelWidthPercent,
+  DEFAULT_EMAIL_PANEL_WIDTH_PERCENT,
+  EMAIL_PANEL_WIDTH_PERCENT_OPTIONS,
+  MAX_EMAIL_PANEL_WIDTH_PERCENT,
+  MIN_EMAIL_PANEL_WIDTH_PERCENT,
+} from "@/lib/email-inbox/panel-width";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -94,6 +101,8 @@ export default function SettingsPage() {
     DEFAULT_EMAIL_DELETE_UNDO_SECONDS,
   );
   const [dailyCapacityMinutes, setDailyCapacityMinutes] = useState<number>(300);
+  const [emailPanelDefaultWidthPct, setEmailPanelDefaultWidthPct] =
+    useState<number>(DEFAULT_EMAIL_PANEL_WIDTH_PERCENT);
   const [saveStatus, setSaveStatus] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
@@ -577,6 +586,11 @@ export default function SettingsPage() {
       setPriorityColor(userPriorityColor);
       setEmailDeleteUndoSeconds(userDeleteUndoSeconds);
       setDailyCapacityMinutes(userCapacityMinutes);
+      setEmailPanelDefaultWidthPct(
+        clampEmailPanelWidthPercent(
+          (profile as any).email_panel_default_width_pct,
+        ),
+      );
 
       // Apply complete theme immediately when profile loads
       applyTheme(userTheme, userColor, userAnimations);
@@ -590,6 +604,7 @@ export default function SettingsPage() {
     animationsEnabled?: boolean;
     emailDeleteUndoSeconds?: number;
     dailyCapacityMinutes?: number;
+    emailPanelDefaultWidthPct?: number;
     themePreset?: ThemePreset;
     emailReplySettings?: EmailReplySettings;
     defaultEmailHtmlRenderMode?: EmailHtmlRenderMode;
@@ -634,6 +649,10 @@ export default function SettingsPage() {
             ? Math.min(1440, Math.max(30, Math.round(raw)))
             : 300;
           profileUpdates.daily_capacity_minutes = clamped;
+        }
+        if (updates.emailPanelDefaultWidthPct !== undefined) {
+          profileUpdates.email_panel_default_width_pct =
+            clampEmailPanelWidthPercent(updates.emailPanelDefaultWidthPct);
         }
         if (updates.themePreset !== undefined) {
           profileUpdates.theme_preset = getDatabaseThemePreset(
@@ -1474,6 +1493,74 @@ export default function SettingsPage() {
                   </label>
                   <p className="text-xs text-zinc-500">
                     Range: 5 seconds to 60 minutes. Default: 60 seconds.
+                  </p>
+                </div>
+              </div>
+
+              {/* Email Inbox Reading Pane Width (Desktop) */}
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
+                  <Mail className="w-5 h-5" />
+                  Email Reading Pane Width (Desktop)
+                </h3>
+                <p className="text-sm text-zinc-400 mb-6">
+                  Default width of the Email Inbox conversation pane as a
+                  percentage of the screen, used before you drag the divider to
+                  set your own size.
+                </p>
+                <div className="space-y-4">
+                  <div className="flex flex-wrap gap-3">
+                    {EMAIL_PANEL_WIDTH_PERCENT_OPTIONS.map((percent) => (
+                      <button
+                        key={percent}
+                        type="button"
+                        onClick={async () => {
+                          setEmailPanelDefaultWidthPct(percent);
+                          await handleAutoSave({
+                            emailPanelDefaultWidthPct: percent,
+                          });
+                        }}
+                        className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
+                          emailPanelDefaultWidthPct === percent
+                            ? "border-theme-primary bg-zinc-800 text-white"
+                            : "border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:border-zinc-700"
+                        }`}
+                      >
+                        {percent}%
+                      </button>
+                    ))}
+                  </div>
+                  <label className="flex max-w-xs flex-col gap-2">
+                    <span className="text-sm font-medium text-white">
+                      Custom (percent)
+                    </span>
+                    <input
+                      type="number"
+                      min={MIN_EMAIL_PANEL_WIDTH_PERCENT}
+                      max={MAX_EMAIL_PANEL_WIDTH_PERCENT}
+                      step={5}
+                      value={emailPanelDefaultWidthPct}
+                      onChange={(e) => {
+                        setEmailPanelDefaultWidthPct(
+                          clampEmailPanelWidthPercent(Number(e.target.value)),
+                        );
+                      }}
+                      onBlur={async (e) => {
+                        const value = clampEmailPanelWidthPercent(
+                          Number(e.target.value),
+                        );
+                        setEmailPanelDefaultWidthPct(value);
+                        await handleAutoSave({
+                          emailPanelDefaultWidthPct: value,
+                        });
+                      }}
+                      className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-white outline-none transition-colors focus:border-theme-primary"
+                    />
+                  </label>
+                  <p className="text-xs text-zinc-500">
+                    Range: {MIN_EMAIL_PANEL_WIDTH_PERCENT}% to{" "}
+                    {MAX_EMAIL_PANEL_WIDTH_PERCENT}%. Default:{" "}
+                    {DEFAULT_EMAIL_PANEL_WIDTH_PERCENT}%.
                   </p>
                 </div>
               </div>
