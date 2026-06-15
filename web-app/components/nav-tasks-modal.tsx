@@ -127,7 +127,7 @@ export function NavTasksBadge({
             aria-label={`View ${incompleteCount} tasks in ${name}`}
             className={
               triggerClassName ??
-              "min-w-[18px] text-right text-[10px] tabular-nums text-zinc-500 hover:text-zinc-200 transition-colors"
+              "min-w-[18px] text-right text-xs sm:text-[10px] tabular-nums text-zinc-500 hover:text-zinc-200 transition-colors"
             }
           >
             {incompleteCount}
@@ -143,7 +143,7 @@ export function NavTasksBadge({
             onMouseLeave={() => setHoverOpen(false)}
             className="z-[60] w-72 max-w-[min(var(--radix-popper-available-width,100vw),calc(100vw-1rem))] rounded-lg border bg-popover p-2 text-popover-foreground shadow-xl outline-none"
           >
-            <div className="px-1 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="px-1 pb-1.5 text-xs sm:text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {name} · {incompleteCount} open
             </div>
             <div className="max-h-64 space-y-0.5 overflow-y-auto">
@@ -158,7 +158,7 @@ export function NavTasksBadge({
                     <Flag className={`h-3 w-3 shrink-0 ${meta.className}`} />
                     <span className="min-w-0 flex-1 truncate">{task.name}</span>
                     {label ? (
-                      <span className="shrink-0 truncate text-[10px] text-muted-foreground">
+                      <span className="shrink-0 truncate text-xs sm:text-[10px] text-muted-foreground">
                         {label}
                       </span>
                     ) : null}
@@ -166,12 +166,12 @@ export function NavTasksBadge({
                 );
               })}
               {previewOverflow > 0 ? (
-                <div className="px-2 py-1 text-[11px] text-muted-foreground">
+                <div className="px-2 py-1 text-xs sm:text-[11px] text-muted-foreground">
                   +{previewOverflow} more
                 </div>
               ) : null}
             </div>
-            <div className="mt-1 border-t pt-1 text-center text-[10px] text-muted-foreground">
+            <div className="mt-1 border-t pt-1 text-center text-xs sm:text-[10px] text-muted-foreground">
               Click to open full list
             </div>
           </Popover.Content>
@@ -264,12 +264,12 @@ export function NavTasksBadge({
                         {task.name}
                       </span>
                       {label ? (
-                        <span className="shrink-0 truncate text-[11px] text-muted-foreground">
+                        <span className="shrink-0 truncate text-xs sm:text-[11px] text-muted-foreground">
                           {label}
                         </span>
                       ) : null}
                       <span
-                        className={`shrink-0 text-[10px] font-semibold ${meta.className}`}
+                        className={`shrink-0 text-xs sm:text-[10px] font-semibold ${meta.className}`}
                       >
                         {meta.label}
                       </span>

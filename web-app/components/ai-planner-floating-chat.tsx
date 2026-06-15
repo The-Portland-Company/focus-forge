@@ -325,7 +325,7 @@ export function AiPlannerFloatingChat({
         <button
           aria-label="Open AI assistant"
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-5 right-5 z-50 rounded-full border border-zinc-700 bg-zinc-900 p-3 text-zinc-100 shadow-lg transition hover:border-zinc-500 hover:bg-zinc-800"
+          className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-50 rounded-full border border-zinc-700 bg-zinc-900 p-3 text-zinc-100 shadow-lg transition hover:border-zinc-500 hover:bg-zinc-800"
         >
           <Sparkles className="h-5 w-5" />
         </button>
@@ -336,7 +336,7 @@ export function AiPlannerFloatingChat({
           className={
             embedded
               ? "fixed inset-0 z-50 flex h-screen w-screen flex-col bg-zinc-950"
-              : "fixed bottom-20 right-5 z-50 flex h-[78vh] w-[min(94vw,460px)] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl"
+              : "fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-50 flex h-[78vh] w-[min(94vw,460px)] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl"
           }
         >
           <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
@@ -416,7 +416,7 @@ export function AiPlannerFloatingChat({
                           >
                             <ProviderLogo provider={msg.provider} />
                           </span>
-                          <span className="text-[9px] leading-none text-zinc-500">
+                          <span className="text-xs sm:text-[9px] leading-none text-zinc-500">
                             {providerMeta(msg.provider).name}
                           </span>
                         </div>
@@ -427,7 +427,7 @@ export function AiPlannerFloatingChat({
                         }`}
                       >
                         {msg.role === "user" && msg.origin === "voice" && (
-                          <span className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                          <span className="mb-1 flex items-center gap-1 text-xs sm:text-[10px] font-medium uppercase tracking-wide text-zinc-500">
                             <Mic className="h-3 w-3" />
                             Voice
                           </span>

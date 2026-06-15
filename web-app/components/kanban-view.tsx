@@ -1,10 +1,11 @@
 "use client"
 
 import { useMemo, useState } from 'react'
-import { Calendar, Hash, Link2, AlertCircle } from 'lucide-react'
+import { Calendar, Hash, Link2, AlertCircle, MoveRight, X } from 'lucide-react'
 import { Task, Project, Database } from '@/lib/types'
 import { format, isToday, isTomorrow, isThisWeek, addDays, startOfWeek, endOfWeek, isPast, isFuture } from 'date-fns'
 import { getBlockedTaskIds } from '@/lib/dependency-utils'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 
 interface KanbanViewProps {
   tasks: Task[]
@@ -25,6 +26,8 @@ interface KanbanColumn {
 export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit, onTaskUpdate, dateType = 'dueDate' }: KanbanViewProps) {
   const [draggedTask, setDraggedTask] = useState<Task | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
+  const [moveMenuTask, setMoveMenuTask] = useState<Task | null>(null)
+  const isMobile = useIsMobile()
   const blockedTaskIds = useMemo(
     () => (allTasks ? getBlockedTaskIds(allTasks) : new Set<string>()),
     [allTasks],
@@ -92,6 +95,48 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
     return columns
   }
 
+  // Move a task into the date bucket represented by `columnId`. Shared by
+  // mouse drag-and-drop (desktop) and the touch fallback move menu (mobile).
+  const moveTaskToColumn = (task: Task, columnId: string) => {
+    const taskDueDate = (task as any).due_date ?? task.dueDate
+    const currentDateValue = dateType === 'deadline' ? task.deadline : taskDueDate
+    let newDate: string | undefined = currentDateValue
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    switch (columnId) {
+      case 'overdue':
+        // Keep the original date (it's already overdue)
+        break
+      case 'today':
+        newDate = format(today, 'yyyy-MM-dd')
+        break
+      case 'tomorrow':
+        newDate = format(addDays(today, 1), 'yyyy-MM-dd')
+        break
+      case 'this-week': {
+        const daysUntilWeekEnd = 7 - today.getDay()
+        const targetDay = Math.min(3, daysUntilWeekEnd)
+        newDate = format(addDays(today, targetDay), 'yyyy-MM-dd')
+        break
+      }
+      case 'next-week': {
+        const daysUntilNextMonday = ((1 - today.getDay() + 7) % 7) || 7
+        newDate = format(addDays(today, daysUntilNextMonday + 7), 'yyyy-MM-dd')
+        break
+      }
+      case 'later':
+        newDate = format(addDays(today, 14), 'yyyy-MM-dd')
+        break
+    }
+
+    if (newDate !== currentDateValue) {
+      const updateField: Record<string, any> =
+        dateType === 'deadline' ? { deadline: newDate } : { due_date: newDate }
+      onTaskUpdate(task.id, updateField)
+    }
+  }
+
   const handleDragStart = (e: React.DragEvent, task: Task) => {
     setDraggedTask(task)
     e.dataTransfer.effectAllowed = 'move'
@@ -113,57 +158,19 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
     
     if (!draggedTask) return
 
-    // Calculate new date based on column
-    const draggedDueDate = (draggedTask as any).due_date ?? draggedTask.dueDate
-    const currentDateValue = dateType === 'deadline' ? draggedTask.deadline : draggedDueDate
-    let newDate: string | undefined = currentDateValue
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    switch (columnId) {
-      case 'overdue':
-        // Keep the original date (it's already overdue)
-        break
-      case 'today':
-        newDate = format(today, 'yyyy-MM-dd')
-        break
-      case 'tomorrow':
-        newDate = format(addDays(today, 1), 'yyyy-MM-dd')
-        break
-      case 'this-week':
-        // Set to next available day this week
-        const daysUntilWeekEnd = 7 - today.getDay()
-        const targetDay = Math.min(3, daysUntilWeekEnd) // Try to set mid-week
-        newDate = format(addDays(today, targetDay), 'yyyy-MM-dd')
-        break
-      case 'next-week':
-        // Set to next Monday
-        const daysUntilNextMonday = ((1 - today.getDay() + 7) % 7) || 7
-        newDate = format(addDays(today, daysUntilNextMonday + 7), 'yyyy-MM-dd')
-        break
-      case 'later':
-        // Set to 2 weeks from now
-        newDate = format(addDays(today, 14), 'yyyy-MM-dd')
-        break
-    }
-
-    if (newDate !== currentDateValue) {
-      const updateField: Record<string, any> =
-        dateType === 'deadline' ? { deadline: newDate } : { due_date: newDate }
-      onTaskUpdate(draggedTask.id, updateField)
-    }
-
+    moveTaskToColumn(draggedTask, columnId)
     setDraggedTask(null)
   }
 
   const columns = groupTasksByDate()
 
   return (
+    <>
     <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scroll-smooth">
       {columns.map(column => (
         <div
           key={column.id}
-          className={`flex-shrink-0 w-[20%] min-w-[300px] bg-zinc-900 rounded-lg p-4 snap-start ${
+          className={`flex-shrink-0 w-[85vw] min-w-0 md:w-[20%] md:min-w-[300px] bg-zinc-900 rounded-lg p-4 snap-start ${
             dragOverColumn === column.id ? 'ring-2 ring-zinc-600' : ''
           }`}
           onDragOver={(e) => handleDragOver(e, column.id)}
@@ -187,9 +194,11 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
               return (
                 <div
                   key={task.id}
-                  draggable
+                  draggable={!isMobile}
                   onDragStart={(e) => handleDragStart(e, task)}
-                  className={`bg-zinc-800 rounded-lg p-3 cursor-move hover:bg-zinc-700 transition-colors ${
+                  className={`bg-zinc-800 rounded-lg p-3 transition-colors ${
+                    isMobile ? '' : 'cursor-move hover:bg-zinc-700'
+                  } ${
                     draggedTask?.id === task.id ? 'opacity-50' : ''
                   }`}
                 >
@@ -259,6 +268,21 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
                         )}
                       </div>
                     </div>
+
+                    {isMobile && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setMoveMenuTask(task)
+                        }}
+                        className="mt-0.5 shrink-0 rounded-md p-1 text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-white"
+                        title="Move task"
+                        aria-label="Move task"
+                      >
+                        <MoveRight className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               )
@@ -273,5 +297,51 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
         </div>
       ))}
     </div>
+
+    {/* Touch fallback: move menu opened from a card's move button. Lets touch
+        users reschedule a task into another column without native drag. */}
+    {moveMenuTask && (
+      <div
+        className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"
+        onClick={() => setMoveMenuTask(null)}
+      >
+        <div
+          className="w-full max-w-md rounded-t-2xl bg-zinc-900 p-4 sm:rounded-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-white">Move task</h3>
+              <p className="truncate text-xs text-zinc-400">{moveMenuTask.name}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMoveMenuTask(null)}
+              className="rounded-md p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+              aria-label="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="space-y-1">
+            {columns.map((column) => (
+              <button
+                key={column.id}
+                type="button"
+                onClick={() => {
+                  moveTaskToColumn(moveMenuTask, column.id)
+                  setMoveMenuTask(null)
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm text-white transition-colors hover:bg-zinc-800"
+              >
+                <span>{column.title}</span>
+                <MoveRight className="w-4 h-4 text-zinc-500" />
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

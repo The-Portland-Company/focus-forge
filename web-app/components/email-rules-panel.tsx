@@ -461,7 +461,7 @@ export function EmailRulesPanel({
                 </div>
                 <div className="mt-3 space-y-1.5">
                   <div className="flex items-start gap-2 text-xs">
-                    <span className="mt-0.5 shrink-0 rounded-md border border-zinc-700 bg-zinc-800/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+                    <span className="mt-0.5 shrink-0 rounded-md border border-zinc-700 bg-zinc-800/80 px-1.5 py-0.5 text-xs sm:text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
                       Match {rule.matchMode}
                     </span>
                     <span className="text-zinc-300">
@@ -469,7 +469,7 @@ export function EmailRulesPanel({
                     </span>
                   </div>
                   <div className="flex items-start gap-2 text-xs">
-                    <span className="mt-0.5 shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                    <span className="mt-0.5 shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-xs sm:text-[10px] font-semibold uppercase tracking-wide text-amber-300">
                       Then
                     </span>
                     <span className="text-zinc-300">

@@ -119,13 +119,13 @@ export function VerificationCodePill({ code }: { code: string }) {
       aria-label={`Copy verification code ${code}`}
       title={`Copy verification code ${code}`}
     >
-      <span className="font-mono text-[11px] leading-none tracking-wide">
+      <span className="font-mono text-xs sm:text-[11px] leading-none tracking-wide">
         {code}
       </span>
       {copied ? (
         <>
           <Check className="h-3 w-3 shrink-0 text-emerald-400" />
-          <span className="whitespace-nowrap text-[10px] text-emerald-400">
+          <span className="whitespace-nowrap text-xs sm:text-[10px] text-emerald-400">
             Copied
           </span>
         </>
@@ -446,8 +446,8 @@ export function getEmailReadStateLabel(isUnread?: boolean) {
 
 export function getEmailReadStateBadgeClassName(isUnread?: boolean) {
   return isUnread
-    ? "rounded-full border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]"
-    : "rounded-full border border-zinc-700 bg-zinc-900/70 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400";
+    ? "rounded-full border border-[rgb(var(--theme-primary-rgb))]/45 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]"
+    : "rounded-full border border-zinc-700 bg-zinc-900/70 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400";
 }
 
 export function formatInboxPreviewText(
@@ -1033,7 +1033,7 @@ export function EmailWorkList({
                 {shouldShowStatusBadge(item) &&
                 reviewBadgeLabel &&
                 reviewState === "quarantine" ? (
-                  <div className="rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-rose-300">
+                  <div className="rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-rose-300">
                     {reviewBadgeLabel}
                   </div>
                 ) : null}
@@ -1115,13 +1115,13 @@ export function EmailWorkList({
                   return ts ? (
                     <span className="inline-flex items-center gap-1.5">
                       {relativeDay ? (
-                        <span className="rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wide text-white">
+                        <span className="rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1.5 py-0.5 text-xs sm:text-[10px] font-semibold uppercase leading-none tracking-wide text-white">
                           {relativeDay}
                         </span>
                       ) : null}
                       <span
                         className={cn(
-                          "whitespace-nowrap text-[11px] tabular-nums",
+                          "whitespace-nowrap text-xs sm:text-[11px] tabular-nums",
                           isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
                         )}
                         title={tsSource ?? undefined}
@@ -1207,7 +1207,7 @@ export function EmailWorkList({
                         side="top"
                       >
                         <span
-                          className="inline-flex h-[18px] min-w-[18px] cursor-help items-center justify-center rounded-full px-1 text-[9px] font-semibold uppercase leading-none text-black"
+                          className="inline-flex h-[18px] min-w-[18px] cursor-help items-center justify-center rounded-full px-1 text-xs sm:text-[9px] font-semibold uppercase leading-none text-black"
                           style={{ backgroundColor: mailboxAccentColor }}
                           aria-label={tooltipContent}
                         >
@@ -1242,7 +1242,7 @@ export function EmailWorkList({
                   {project ? (
                     <>
                       <span
-                        className="inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] px-1 text-[9px] font-semibold uppercase tracking-wide text-black"
+                        className="inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] px-1 text-xs sm:text-[9px] font-semibold uppercase tracking-wide text-black"
                         style={{ backgroundColor: project.color }}
                       >
                         {getProjectBadgeLabel(project)}
@@ -1361,14 +1361,14 @@ export function EmailWorkList({
 
                     <div className="mt-2 rounded-lg border border-zinc-700 bg-zinc-950/70">
                       <div className="border-b border-zinc-700/80 px-3 py-2">
-                        <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
+                        <div className="text-xs sm:text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
                           Current Project
                         </div>
                         <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-950/80 px-3 py-1 text-xs text-zinc-300">
                           {project ? (
                             <>
                               <span
-                                className="inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] px-1 text-[9px] font-semibold uppercase tracking-wide text-black"
+                                className="inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] px-1 text-xs sm:text-[9px] font-semibold uppercase tracking-wide text-black"
                                 style={{ backgroundColor: project.color }}
                               >
                                 {getProjectBadgeLabel(project)}
@@ -1528,7 +1528,7 @@ export function EmailWorkList({
                       <div className="break-words text-sm font-medium text-zinc-100">
                         {task.name}
                       </div>
-                      <div className="mt-1 text-[11px] text-zinc-500">
+                      <div className="mt-1 text-xs sm:text-[11px] text-zinc-500">
                         {task.id}
                       </div>
                     </div>
@@ -1596,7 +1596,7 @@ export function EmailWorkList({
                       <div className="break-words text-sm font-medium text-zinc-100">
                         {task.name}
                       </div>
-                      <div className="mt-1 text-[11px] text-zinc-500">
+                      <div className="mt-1 text-xs sm:text-[11px] text-zinc-500">
                         {task.id}
                       </div>
                     </div>

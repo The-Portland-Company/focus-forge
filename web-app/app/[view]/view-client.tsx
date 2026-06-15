@@ -490,7 +490,7 @@ function ShortcutHelpModal({ onClose }: { onClose: () => void }) {
         <div className="grid gap-4 md:grid-cols-3">
           {taskShortcutGroups.map((group) => (
             <div key={group.title}>
-              <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+              <div className="mb-2 text-xs sm:text-[11px] font-medium uppercase tracking-wide text-zinc-500">
                 {group.title}
               </div>
               <div className="space-y-1.5">
@@ -3901,7 +3901,7 @@ export default function ViewPage({
                           aria-label={`Reschedule ${overdueCount} overdue task${overdueCount === 1 ? "" : "s"}`}
                         >
                           <CalendarClock className="w-4 h-4" />
-                          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-semibold leading-none text-white">
+                          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-xs sm:text-[9px] font-semibold leading-none text-white">
                             {overdueCount}
                           </span>
                         </button>
@@ -4024,7 +4024,7 @@ export default function ViewPage({
                           sideOffset={8}
                           className="z-50 w-44 max-w-[min(var(--radix-popper-available-width,100vw),calc(100vw-1rem))] rounded-lg bg-zinc-900 border border-zinc-800 shadow-xl p-2"
                         >
-                          <div className="text-[11px] text-zinc-500 px-1 pb-1">
+                          <div className="text-xs sm:text-[11px] text-zinc-500 px-1 pb-1">
                             Sort by
                           </div>
                           <Select
@@ -5329,7 +5329,7 @@ export default function ViewPage({
                       type="button"
                       onClick={toggleProjectFiltersExpanded}
                       aria-expanded={projectFiltersExpanded}
-                      className="group flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-500 transition-colors hover:text-zinc-300"
+                      className="group flex items-center gap-1.5 text-xs sm:text-[11px] uppercase tracking-wide text-zinc-500 transition-colors hover:text-zinc-300"
                     >
                       <ChevronRight
                         className={`h-3.5 w-3.5 transition-transform ${projectFiltersExpanded ? "rotate-90" : ""}`}
@@ -5347,7 +5347,7 @@ export default function ViewPage({
                         aria-label="New task"
                       >
                         <Plus className="h-3.5 w-3.5" />
-                        <span className="pointer-events-none absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-zinc-800 px-2 py-1 text-[11px] text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                        <span className="pointer-events-none absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-zinc-800 px-2 py-1 text-xs sm:text-[11px] text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
                           New task
                         </span>
                       </button>
@@ -5947,11 +5947,11 @@ export default function ViewPage({
                       <div className="truncate text-zinc-100">
                         {mb.displayName || mb.name || mb.emailAddress}
                       </div>
-                      <div className="truncate text-[10px] text-zinc-500">
+                      <div className="truncate text-xs sm:text-[10px] text-zinc-500">
                         {mb.emailAddress}
                       </div>
                       {mb.lastSyncError ? (
-                        <div className="mt-0.5 truncate text-[10px] text-red-400" title={mb.lastSyncError}>
+                        <div className="mt-0.5 truncate text-xs sm:text-[10px] text-red-400" title={mb.lastSyncError}>
                           Last error: {mb.lastSyncError}
                         </div>
                       ) : null}

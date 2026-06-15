@@ -147,7 +147,7 @@ function MenuBarMock() {
         </div>
         <div className="flex items-center gap-3">
           {/* The Focus: Time pill — the whole product in 90 pixels */}
-          <span className="ft-mono flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium tabular-nums text-emerald-300">
+          <span className="ft-mono flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs sm:text-[11px] font-medium tabular-nums text-emerald-300">
             <span className="ft-pulse inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
             01:42:07
           </span>
@@ -165,11 +165,11 @@ function MenuBarMock() {
           style={{ animationDelay: "0.55s" }}
         >
           <div className="flex items-center justify-between border-b border-white/5 px-4 py-2.5">
-            <span className="ft-mono flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-400">
+            <span className="ft-mono flex items-center gap-1.5 text-xs sm:text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-400">
               <span className="ft-pulse inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
               Running
             </span>
-            <span className="ft-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+            <span className="ft-mono text-xs sm:text-[10px] uppercase tracking-[0.18em] text-zinc-500">
               Focus: Time
             </span>
           </div>
@@ -183,35 +183,35 @@ function MenuBarMock() {
 
           <dl className="space-y-1.5 px-4 py-3 text-[12px]">
             <div className="flex items-baseline gap-3">
-              <dt className="ft-mono w-14 shrink-0 text-[9px] uppercase tracking-[0.2em] text-zinc-500">
+              <dt className="ft-mono w-14 shrink-0 text-xs sm:text-[9px] uppercase tracking-[0.2em] text-zinc-500">
                 Org
               </dt>
               <dd className="truncate text-zinc-200">The Portland Company</dd>
             </div>
             <div className="flex items-baseline gap-3">
-              <dt className="ft-mono w-14 shrink-0 text-[9px] uppercase tracking-[0.2em] text-zinc-500">
+              <dt className="ft-mono w-14 shrink-0 text-xs sm:text-[9px] uppercase tracking-[0.2em] text-zinc-500">
                 Project
               </dt>
               <dd className="truncate text-zinc-200">Website Rebuild</dd>
             </div>
             <div className="flex items-baseline gap-3">
-              <dt className="ft-mono w-14 shrink-0 text-[9px] uppercase tracking-[0.2em] text-zinc-500">
+              <dt className="ft-mono w-14 shrink-0 text-xs sm:text-[9px] uppercase tracking-[0.2em] text-zinc-500">
                 List
               </dt>
               <dd className="truncate text-zinc-200">Sprint 12</dd>
             </div>
             <div className="flex items-start gap-3 pt-0.5">
-              <dt className="ft-mono w-14 shrink-0 pt-1 text-[9px] uppercase tracking-[0.2em] text-zinc-500">
+              <dt className="ft-mono w-14 shrink-0 pt-1 text-xs sm:text-[9px] uppercase tracking-[0.2em] text-zinc-500">
                 Tasks
               </dt>
               <dd className="flex flex-wrap gap-1">
-                <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[11px] text-zinc-300">
+                <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-xs sm:text-[11px] text-zinc-300">
                   Hero copy pass
                 </span>
-                <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[11px] text-zinc-300">
+                <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-xs sm:text-[11px] text-zinc-300">
                   Nav QA
                 </span>
-                <span className="ft-mono rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                <span className="ft-mono rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-xs sm:text-[10px] text-emerald-300">
                   2 tasks
                 </span>
               </dd>
@@ -238,7 +238,7 @@ function TickRuler() {
   const hours = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"];
   return (
     <div aria-hidden="true" className="select-none">
-      <div className="ft-mono flex justify-between text-[9px] uppercase tracking-[0.18em] text-zinc-600">
+      <div className="ft-mono flex justify-between text-xs sm:text-[9px] uppercase tracking-[0.18em] text-zinc-600">
         {hours.map((h, i) => (
           <span key={h} className={i % 2 === 1 ? "hidden sm:inline" : undefined}>
             {h}
@@ -294,12 +294,12 @@ export default async function DesktopLandingPage() {
         {/* ---------------------------------------------------------- */}
         <header className="flex items-center justify-between border-b border-white/5 py-6">
           <p className="flex items-baseline gap-2">
-            <span className="ft-mono text-[11px] font-semibold uppercase tracking-[0.28em] text-emerald-400">
+            <span className="ft-mono text-xs sm:text-[11px] font-semibold uppercase tracking-[0.28em] text-emerald-400">
               Focus:
             </span>
             <span className="ft-serif text-2xl italic leading-none text-zinc-50">Time</span>
           </p>
-          <nav className="ft-mono flex items-center gap-5 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+          <nav className="ft-mono flex items-center gap-5 text-xs sm:text-[11px] uppercase tracking-[0.18em] text-zinc-500">
             <Link href="/privacy" className="transition-colors hover:text-zinc-200">
               Privacy
             </Link>
@@ -320,7 +320,7 @@ export default async function DesktopLandingPage() {
         {/* ---------------------------------------------------------- */}
         <section className="pb-16 pt-16 sm:pt-24">
           <p
-            className="ft-mono ft-reveal text-[11px] font-medium uppercase tracking-[0.32em] text-emerald-400"
+            className="ft-mono ft-reveal text-xs sm:text-[11px] font-medium uppercase tracking-[0.32em] text-emerald-400"
             style={{ animationDelay: "0.05s" }}
           >
             Native macOS companion
@@ -372,7 +372,7 @@ export default async function DesktopLandingPage() {
             </Link>
           </div>
           <p
-            className="ft-mono ft-reveal mt-4 text-[11px] tracking-wide text-zinc-600"
+            className="ft-mono ft-reveal mt-4 text-xs sm:text-[11px] tracking-wide text-zinc-600"
             style={{ animationDelay: "0.4s" }}
           >
             {download ? (
@@ -391,7 +391,7 @@ export default async function DesktopLandingPage() {
 
           <div className="ft-reveal mt-14" style={{ animationDelay: "0.46s" }}>
             <MenuBarMock />
-            <p className="ft-mono mt-3 text-center text-[10px] uppercase tracking-[0.24em] text-zinc-600">
+            <p className="ft-mono mt-3 text-center text-xs sm:text-[10px] uppercase tracking-[0.24em] text-zinc-600">
               Menu-bar timer · attributed to your Forge workspace
             </p>
           </div>
@@ -412,10 +412,10 @@ export default async function DesktopLandingPage() {
               className="group bg-zinc-950 p-7 transition-colors hover:bg-zinc-900/60"
             >
               <div className="flex items-baseline justify-between">
-                <span className="ft-mono text-[11px] font-semibold tabular-nums text-emerald-400">
+                <span className="ft-mono text-xs sm:text-[11px] font-semibold tabular-nums text-emerald-400">
                   {feature.index}
                 </span>
-                <span className="ft-mono text-[9px] uppercase tracking-[0.24em] text-zinc-600 transition-colors group-hover:text-zinc-500">
+                <span className="ft-mono text-xs sm:text-[9px] uppercase tracking-[0.24em] text-zinc-600 transition-colors group-hover:text-zinc-500">
                   {feature.kicker}
                 </span>
               </div>
@@ -430,7 +430,7 @@ export default async function DesktopLandingPage() {
         {/* ---------------------------------------------------------- */}
         <section className="mt-24 grid items-center gap-12 border-t border-white/5 pt-16 md:grid-cols-[1.1fr_1fr]">
           <div>
-            <p className="ft-mono text-[11px] font-medium uppercase tracking-[0.32em] text-emerald-400">
+            <p className="ft-mono text-xs sm:text-[11px] font-medium uppercase tracking-[0.32em] text-emerald-400">
               Works with Focus Forge
             </p>
             <h2 className="ft-serif mt-4 text-4xl leading-tight text-zinc-50">
@@ -468,7 +468,7 @@ export default async function DesktopLandingPage() {
               <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
               <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
               <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
-              <span className="ft-mono ml-3 text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+              <span className="ft-mono ml-3 text-xs sm:text-[10px] uppercase tracking-[0.2em] text-zinc-600">
                 sync log
               </span>
             </div>
@@ -500,7 +500,7 @@ export default async function DesktopLandingPage() {
         {/* Footer                                                      */}
         {/* ---------------------------------------------------------- */}
         <footer className="mt-24 border-t border-white/5 py-10">
-          <div className="ft-mono flex flex-col items-start justify-between gap-4 text-[11px] uppercase tracking-[0.18em] text-zinc-600 sm:flex-row sm:items-center">
+          <div className="ft-mono flex flex-col items-start justify-between gap-4 text-xs sm:text-[11px] uppercase tracking-[0.18em] text-zinc-600 sm:flex-row sm:items-center">
             <p>
               © {year} The Portland Company{" "}
               <span className="mx-1 text-zinc-800">/</span> Focus: Time for macOS

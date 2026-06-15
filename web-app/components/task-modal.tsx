@@ -926,7 +926,7 @@ export function TaskModal({
     const candidates = getBlockerCandidates(blockerMention.query);
     return (
       <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
-        <div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500 border-b border-zinc-700 flex items-center gap-1.5">
+        <div className="px-3 py-1.5 text-xs sm:text-[11px] font-medium uppercase tracking-wide text-zinc-500 border-b border-zinc-700 flex items-center gap-1.5">
           <Link2 className="w-3 h-3" />
           Blocked by…
         </div>
@@ -1167,7 +1167,7 @@ export function TaskModal({
     const candidates = getUserMentionCandidates(userMention.query);
     return (
       <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
-        <div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500 border-b border-zinc-700 flex items-center gap-1.5">
+        <div className="px-3 py-1.5 text-xs sm:text-[11px] font-medium uppercase tracking-wide text-zinc-500 border-b border-zinc-700 flex items-center gap-1.5">
           <User className="w-3 h-3" />
           Assign to…
         </div>
@@ -1451,7 +1451,7 @@ export function TaskModal({
                 <Hash className="w-3 h-3" />
                 {task.id.slice(0, 8)}
                 {copiedId && (
-                  <span className="absolute left-full ml-2 text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up-out">
+                  <span className="absolute left-full ml-2 text-xs sm:text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up-out">
                     Copied!
                   </span>
                 )}
@@ -2816,7 +2816,7 @@ export function TaskModal({
                             : "opacity-0 pointer-events-none group-hover/blocker:opacity-100"
                         }`}
                       >
-                        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400 mb-1">
+                        <div className="flex items-center gap-1.5 text-xs sm:text-[10px] font-semibold uppercase tracking-wide text-zinc-400 mb-1">
                           <Link2 className="w-3 h-3" />
                           Blocked by
                         </div>

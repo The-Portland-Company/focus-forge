@@ -233,7 +233,7 @@ export function HistoryTimelineScrubber({
               aria-label="Scrub through history"
               data-testid="history-slider"
             />
-            <div className="mt-1 flex justify-between text-[10px] text-zinc-500">
+            <div className="mt-1 flex justify-between text-xs sm:text-[10px] text-zinc-500">
               <span>{format(range.start, "MMM d, yyyy")}</span>
               <span>{format(range.end, "MMM d, yyyy")}</span>
             </div>
@@ -267,7 +267,7 @@ export function HistoryTimelineScrubber({
                     )}
                     <span className="truncate">{name}</span>
                     {entity.deleted && (
-                      <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide">
+                      <span className="ml-auto shrink-0 text-xs sm:text-[10px] uppercase tracking-wide">
                         deleted
                       </span>
                     )}

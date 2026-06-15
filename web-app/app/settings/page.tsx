@@ -1096,7 +1096,7 @@ export default function SettingsPage() {
                               </div>
                             </div>
                             {signature.isDefault ? (
-                              <span className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
+                              <span className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
                                 Default
                               </span>
                             ) : null}

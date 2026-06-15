@@ -123,12 +123,12 @@ export function EmailDraftsView() {
                   </div>
                 </div>
                 {scheduled ? (
-                  <div className="mt-1.5 flex items-center gap-1 text-[11px] text-sky-400/80">
+                  <div className="mt-1.5 flex items-center gap-1 text-xs sm:text-[11px] text-sky-400/80">
                     <Clock className="h-3 w-3" /> Scheduled for {scheduled}
                   </div>
                 ) : null}
                 {draft.status === "failed" && draft.lastError ? (
-                  <div className="mt-1.5 text-[11px] text-red-400/80">
+                  <div className="mt-1.5 text-xs sm:text-[11px] text-red-400/80">
                     {draft.lastError}
                   </div>
                 ) : null}

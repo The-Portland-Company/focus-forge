@@ -501,7 +501,7 @@ export function EmailSpamReviewModal({
                           <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-300">
                             <ShieldAlert className="h-4 w-4 text-amber-400" />
                             {!keepSpam && createdRule ? (
-                              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
+                              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-emerald-300">
                                 Allowed
                               </span>
                             ) : null}
@@ -530,7 +530,7 @@ export function EmailSpamReviewModal({
                         </div>
 
                         <div className="flex w-44 shrink-0 flex-col items-end gap-1.5">
-                          <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-500">
+                          <div className="inline-flex items-center gap-1.5 text-xs sm:text-[11px] uppercase tracking-wide text-zinc-500">
                             <Tag className="h-3.5 w-3.5" />
                             Categorize
                           </div>
@@ -573,7 +573,7 @@ export function EmailSpamReviewModal({
                               )}
                             </span>
                           </div>
-                          <div className="text-right text-[11px] text-zinc-500">
+                          <div className="text-right text-xs sm:text-[11px] text-zinc-500">
                             {keepSpam
                               ? "Kept as spam"
                               : "Allowed — future mail kept out of spam"}
@@ -681,7 +681,7 @@ export function EmailSpamReviewModal({
                           to it in this review.
                         </div>
                       </div>
-                      <div className="rounded-full border border-zinc-800 bg-zinc-900/80 px-2.5 py-1 text-[10px] uppercase tracking-wide text-zinc-400">
+                      <div className="rounded-full border border-zinc-800 bg-zinc-900/80 px-2.5 py-1 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
                         {keptSpamCount} kept as spam
                       </div>
                     </div>
@@ -720,7 +720,7 @@ export function EmailSpamReviewModal({
                                     {summarizeEmailRuleActions(group.rule)}
                                   </div>
                                 </div>
-                                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
+                                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-amber-300">
                                   {group.threads.length} linked thread
                                   {group.threads.length === 1 ? "" : "s"}
                                 </span>
@@ -884,7 +884,7 @@ export function EmailSpamReviewModal({
                                   </div>
                                 </div>
                                 {isCurrent ? (
-                                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
+                                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-emerald-300">
                                     Active
                                   </span>
                                 ) : null}

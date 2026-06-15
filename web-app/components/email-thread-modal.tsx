@@ -1593,7 +1593,7 @@ export function EmailThreadModal({
                     </button>
                   </Tooltip>
                   {selectedReplyDraftId ? (
-                    <div className="rounded-full border border-zinc-700 px-2 py-1 text-[10px] uppercase tracking-wide text-zinc-400">
+                    <div className="rounded-full border border-zinc-700 px-2 py-1 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
                       Draft active
                     </div>
                   ) : null}
@@ -1809,7 +1809,7 @@ export function EmailThreadModal({
                       return (
                         <span
                           key={`timeline-${entry.id}`}
-                          className="absolute flex items-center gap-1 whitespace-nowrap text-[9px] uppercase tracking-wide text-zinc-600"
+                          className="absolute flex items-center gap-1 whitespace-nowrap text-xs sm:text-[9px] uppercase tracking-wide text-zinc-600"
                           style={{
                             top: `${
                               orderedConversationEntries.length > 1
@@ -1839,7 +1839,7 @@ export function EmailThreadModal({
                     <button
                       type="button"
                       onClick={handleToggleConversationOrder}
-                      className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                      className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2 text-xs sm:text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
                       title={
                         conversationOrder === "newest_first"
                           ? "Showing newest first — switch to oldest first"
