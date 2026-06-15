@@ -50,6 +50,7 @@ import {
   fetchMailboxFolderUids,
   fetchMailboxMessageReadStates,
   fetchMailboxMessages,
+  fetchMailboxSentMessages,
   fetchMailboxStorageQuota,
   sendMailboxReply,
   type MailboxTransportRow,
@@ -563,7 +564,30 @@ async function upsertContact(
   return contact;
 }
 
-async function findThreadForMessage(mailbox: any, message: any) {
+/**
+ * Chronological order for a thread's conversation entries. Outbound messages
+ * have a null received_at (only sent_at), so a SQL `ORDER BY received_at` alone
+ * sinks every reply to the bottom regardless of when it was sent. coerce sets
+ * createdAt to received_at ?? sent_at ?? created_at, so sorting on it restores
+ * true interleaved order between inbound and outbound.
+ */
+function compareConversationEntriesByTime(
+  a: ConversationEntry,
+  b: ConversationEntry,
+) {
+  const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+  const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+  return aTime - bTime;
+}
+
+/**
+ * Resolve the thread an incoming/outgoing message belongs to WITHOUT creating
+ * one. Matches first by RFC references (In-Reply-To / References pointing at a
+ * message we already stored), then by the deterministic thread key. Returns
+ * null when no existing thread matches. Outbound Sent-folder ingestion uses
+ * this to attach replies only to conversations already in the inbox.
+ */
+async function findExistingThreadForMessage(mailbox: any, message: any) {
   const admin = getAdminClient();
   const referenceIds = [
     message.inReplyTo,
@@ -604,9 +628,24 @@ async function findThreadForMessage(mailbox: any, message: any) {
     .eq("thread_key", threadKey)
     .maybeSingle();
 
-  if (existing?.id) {
-    return existing;
+  return existing?.id ? existing : null;
+}
+
+async function findThreadForMessage(mailbox: any, message: any) {
+  const admin = getAdminClient();
+
+  const matched = await findExistingThreadForMessage(mailbox, message);
+  if (matched?.id) {
+    return matched;
   }
+
+  const threadKey = buildThreadKey({
+    mailboxId: mailbox.id,
+    subject: message.subject,
+    inReplyTo: message.inReplyTo,
+    references: message.references,
+    fromEmail: message.from?.[0]?.email || null,
+  });
 
   const threadPayload = {
     mailbox_id: mailbox.id,
@@ -817,6 +856,142 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
       latest_inbound_at:
         message.receivedAt || message.sentAt || new Date().toISOString(),
       origin: thread.origin === "outbound" ? "mixed" : thread.origin || "inbound",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", threadId);
+
+  return { threadId, messageId: inserted.id as string, inserted: true };
+}
+
+/**
+ * Ingest a message pulled from the provider's Sent folder as an OUTBOUND entry
+ * on its conversation. This surfaces replies the user sent outside the app
+ * (directly in Gmail / Apple Mail / etc.) in the threaded view.
+ *
+ * - Dedups by Message-ID first, which also merges with app-composed replies
+ *   (those store internet_message_id but a null provider_message_id); when the
+ *   provider echoes one back we just backfill its provider_message_id.
+ * - Only attaches to threads that already exist locally; sent mail that doesn't
+ *   belong to a known inbox conversation is skipped (returns null) so the Sent
+ *   sync never floods the inbox with outbound-only threads.
+ */
+async function ingestOutboundMailboxMessage(mailbox: any, message: any) {
+  const admin = getAdminClient();
+
+  if (message.internetMessageId) {
+    const { data: existingByMid } = await admin
+      .from("email_messages")
+      .select("id,thread_id,provider_message_id")
+      .eq("mailbox_id", mailbox.id)
+      .eq("internet_message_id", message.internetMessageId)
+      .maybeSingle();
+
+    if (existingByMid?.id) {
+      if (!existingByMid.provider_message_id && message.providerMessageId) {
+        await admin
+          .from("email_messages")
+          .update({ provider_message_id: message.providerMessageId })
+          .eq("id", existingByMid.id);
+      }
+      return {
+        threadId: existingByMid.thread_id as string,
+        messageId: existingByMid.id as string,
+        inserted: false,
+      };
+    }
+  }
+
+  const { data: existingByUid } = await admin
+    .from("email_messages")
+    .select("id,thread_id")
+    .eq("mailbox_id", mailbox.id)
+    .eq("provider_message_id", message.providerMessageId)
+    .maybeSingle();
+
+  if (existingByUid?.id) {
+    return {
+      threadId: existingByUid.thread_id as string,
+      messageId: existingByUid.id as string,
+      inserted: false,
+    };
+  }
+
+  const thread = await findExistingThreadForMessage(mailbox, message);
+  if (!thread?.id) {
+    return null;
+  }
+  const threadId = String(thread.id);
+  const timestamp =
+    message.sentAt || message.receivedAt || new Date().toISOString();
+
+  const messagePayload = {
+    thread_id: threadId,
+    mailbox_id: mailbox.id,
+    direction: "outbound",
+    provider_message_id: message.providerMessageId,
+    internet_message_id: message.internetMessageId ?? null,
+    in_reply_to_message_id: message.inReplyTo ?? null,
+    subject: message.subject || null,
+    body_text: message.bodyText || "",
+    body_html: message.bodyHtml || null,
+    sent_at: timestamp,
+    received_at: null,
+    raw_headers: message.rawHeaders || {},
+    metadata_json: {
+      from: message.from,
+      to: message.to,
+      cc: message.cc,
+      bcc: message.bcc,
+      replyTo: message.replyTo,
+      attachments: message.attachments || [],
+    },
+  };
+
+  const { data: inserted, error: insertError } = await admin
+    .from("email_messages")
+    .insert(messagePayload)
+    .select()
+    .single();
+
+  if (insertError) {
+    if (isUniqueViolation(insertError)) {
+      const { data: existingAfterConflict } = await admin
+        .from("email_messages")
+        .select("id,thread_id")
+        .eq("mailbox_id", mailbox.id)
+        .eq("provider_message_id", message.providerMessageId)
+        .maybeSingle();
+      if (existingAfterConflict?.id) {
+        return {
+          threadId: existingAfterConflict.thread_id as string,
+          messageId: existingAfterConflict.id as string,
+          inserted: false,
+        };
+      }
+    }
+    throw new Error(
+      insertError.message || "Failed to store outbound email message",
+    );
+  }
+
+  if (!inserted?.id) {
+    throw new Error("Failed to store outbound email message");
+  }
+
+  await persistParticipants(threadId, inserted.id, mailbox, {
+    from: message.from || [],
+    to: message.to || [],
+    cc: message.cc || [],
+    bcc: message.bcc || [],
+    reply_to: message.replyTo || [],
+  });
+
+  await admin
+    .from("email_threads")
+    .update({
+      latest_message_at: timestamp,
+      latest_outbound_at: timestamp,
+      origin: thread.origin === "inbound" ? "mixed" : thread.origin || "mixed",
       updated_at: new Date().toISOString(),
     })
     .eq("id", threadId);
@@ -1856,8 +2031,8 @@ export async function listSenderHistoryForUser(
         projectIds: projectIdsByThread.get(String(row.id)) || [],
       });
 
-      const conversation = (messagesByThread.get(String(row.id)) || []).map(
-        (messageRow: any) => ({
+      const conversation = (messagesByThread.get(String(row.id)) || [])
+        .map((messageRow: any) => ({
           ...coerceConversationEntry({
             ...messageRow,
             author_name: messageRow.metadata_json?.from?.[0]?.name ?? null,
@@ -1865,8 +2040,8 @@ export async function listSenderHistoryForUser(
             type: "email",
           }),
           participants: participantsByMessage.get(String(messageRow.id)) || [],
-        }),
-      );
+        }))
+        .sort(compareConversationEntriesByTime);
 
       return {
         ...item,
@@ -2590,6 +2765,26 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       }
     }
 
+    // Ingest replies sent outside the app (Gmail / Apple Mail / etc.) from the
+    // provider's Sent folder so they appear in the threaded conversation view.
+    // Non-fatal: a failure here must not abort the inbound sync.
+    try {
+      const sentMessages = await fetchMailboxSentMessages(transportMailbox, {
+        limit: 50,
+      });
+      for (const message of sentMessages) {
+        const result = await ingestOutboundMailboxMessage(mailbox, message);
+        if (result?.threadId) {
+          changedThreadIds.add(result.threadId);
+        }
+      }
+    } catch (sentSyncError) {
+      console.error(
+        "[email-inbox] Sent-folder sync failed",
+        extractMailboxErrorMessage(sentSyncError),
+      );
+    }
+
     const processedThreads = new Map<string, any>();
     for (const threadId of changedThreadIds) {
       const thread = await reprocessThread(threadId, mailbox.owner_user_id);
@@ -2807,15 +3002,16 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
     ),
   });
 
-  const conversation: ConversationEntry[] = (messageRows || []).map(
-    (row: any) =>
+  const conversation: ConversationEntry[] = (messageRows || [])
+    .map((row: any) =>
       coerceConversationEntry({
         ...row,
         author_name: row.metadata_json?.from?.[0]?.name ?? null,
         author_email: row.metadata_json?.from?.[0]?.email ?? null,
         type: "email",
       }),
-  );
+    )
+    .sort(compareConversationEntriesByTime);
 
   return {
     ...item,
