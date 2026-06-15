@@ -168,6 +168,11 @@ import {
   normalizeEmailHtmlRenderMode,
   type EmailHtmlRenderMode,
 } from "@/lib/email-html-render-mode";
+import {
+  clampEmailPanelWidthPercent,
+  emailPanelWidthPercentToPixels,
+  normalizeEmailPanelWidthOverride,
+} from "@/lib/email-inbox/panel-width";
 import { cn } from "@/lib/utils";
 
 type EmailInboxViewProps = {
@@ -218,8 +223,6 @@ function computeDefaultEmailDetailPanelWidth(containerWidth: number) {
     containerWidth,
   );
 }
-const EMAIL_DETAIL_PANEL_STORAGE_KEY =
-  "focus-forge.email-inbox.detail-panel-width";
 const EMAIL_INBOX_FILTER_BAR_STORAGE_KEY =
   "focus-forge.email-inbox.filter-bar-collapsed";
 const EMAIL_INBOX_SHOW_SPAM_STORAGE_KEY = "emailInboxShowSpam";
@@ -1391,6 +1394,9 @@ export function EmailInboxView({
   const inboxSearchInputRef = useRef<HTMLInputElement | null>(null);
   const replyAttachmentsRef = useRef<ComposerAttachment[]>([]);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
+  // True once the user drags the divider this session, so profile re-syncs
+  // don't snap the panel back out from under an active resize.
+  const hasUserResizedPanelRef = useRef(false);
   const queuedActionTimeoutRef = useRef<number | null>(null);
   const copiedSearchHelpTimeoutRef = useRef<number | null>(null);
   const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
@@ -1408,7 +1414,7 @@ export function EmailInboxView({
     isDefault: false,
     settingsJson: DEFAULT_PROFILE_SETTINGS,
   });
-  const { profile } = useUserProfile();
+  const { profile, updateProfile } = useUserProfile();
   const { preferences } = useUserPreferences();
   const deleteUndoSeconds = clampEmailDeleteUndoSeconds(
     profile?.email_delete_undo_seconds,
@@ -1671,46 +1677,39 @@ export function EmailInboxView({
     };
   }, []);
 
+  // Reading-pane width is a PER-USER setting persisted on the profile so it
+  // survives logout and navigation. `email_panel_default_width_pct` is the
+  // initial width as a percentage of the container; `email_panel_width_px` is
+  // the explicit pixel width once the user has dragged the resize handle.
+  // Hydrate once the profile loads (or whenever the saved values change), but
+  // never clobber an in-session drag the user is actively performing.
+  const emailPanelDefaultWidthPct = clampEmailPanelWidthPercent(
+    profile?.email_panel_default_width_pct ?? undefined,
+  );
+  const emailPanelWidthOverride = normalizeEmailPanelWidthOverride(
+    profile?.email_panel_width_px,
+  );
+
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (typeof window === "undefined" || hasUserResizedPanelRef.current) {
       return;
     }
-
-    const storedWidth = window.localStorage.getItem(
-      EMAIL_DETAIL_PANEL_STORAGE_KEY,
-    );
 
     const containerWidth = splitContainerRef.current?.clientWidth ?? 1120;
-
-    if (!storedWidth) {
-      // No persisted choice yet: default the reading pane to ~60% of the
-      // available container width (Gmail-like), clamped to sensible bounds.
-      setDetailPanelWidth(computeDefaultEmailDetailPanelWidth(containerWidth));
-      return;
-    }
-
-    const parsedWidth = Number.parseInt(storedWidth, 10);
-
-    if (!Number.isFinite(parsedWidth)) {
-      setDetailPanelWidth(computeDefaultEmailDetailPanelWidth(containerWidth));
-      return;
-    }
+    const targetWidth =
+      emailPanelWidthOverride ??
+      emailPanelWidthPercentToPixels(
+        emailPanelDefaultWidthPct,
+        containerWidth,
+      );
 
     setDetailPanelWidth(
-      clampEmailDetailPanelWidth(parsedWidth, containerWidth),
+      clampEmailDetailPanelWidth(
+        targetWidth || computeDefaultEmailDetailPanelWidth(containerWidth),
+        containerWidth,
+      ),
     );
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    window.localStorage.setItem(
-      EMAIL_DETAIL_PANEL_STORAGE_KEY,
-      String(detailPanelWidth),
-    );
-  }, [detailPanelWidth]);
+  }, [emailPanelDefaultWidthPct, emailPanelWidthOverride]);
 
   // Load the persisted per-page choice once on mount.
   useEffect(() => {
@@ -1782,7 +1781,21 @@ export function EmailInboxView({
   const updateDetailPanelWidth = (nextWidth: number) => {
     const containerWidth = splitContainerRef.current?.clientWidth ?? 1120;
 
+    hasUserResizedPanelRef.current = true;
     setDetailPanelWidth(clampEmailDetailPanelWidth(nextWidth, containerWidth));
+  };
+
+  // Persist the manually-resized pixel width as a per-user setting on the
+  // profile so it is restored across logout and navigation.
+  const persistDetailPanelWidth = (width: number) => {
+    const containerWidth = splitContainerRef.current?.clientWidth ?? 1120;
+    const clamped = clampEmailDetailPanelWidth(width, containerWidth);
+
+    if (!updateProfile) {
+      return;
+    }
+
+    void updateProfile({ email_panel_width_px: clamped });
   };
 
   const handleDetailPanelResizeStart = (
@@ -1798,6 +1811,8 @@ export function EmailInboxView({
     const pointerId = event.pointerId;
     handle.setPointerCapture(pointerId);
 
+    let latestWidth = detailPanelWidth;
+
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const containerBounds =
         splitContainerRef.current?.getBoundingClientRect();
@@ -1806,7 +1821,8 @@ export function EmailInboxView({
         return;
       }
 
-      updateDetailPanelWidth(containerBounds.right - moveEvent.clientX);
+      latestWidth = containerBounds.right - moveEvent.clientX;
+      updateDetailPanelWidth(latestWidth);
     };
 
     const handlePointerUp = () => {
@@ -1815,6 +1831,7 @@ export function EmailInboxView({
         handle.releasePointerCapture(pointerId);
       }
       window.removeEventListener("pointermove", handlePointerMove);
+      persistDetailPanelWidth(latestWidth);
     };
 
     document.body.classList.add("cursor-col-resize");
@@ -1888,9 +1905,14 @@ export function EmailInboxView({
 
   const handleSelectThread = (item: InboxItem) => {
     setSelectedThreadId(item.id);
-    // Clicking an inbox row opens the full thread modal (collapsed-thread view)
-    // rather than only populating the right-side detail pane.
-    setIsThreadModalOpen(true);
+    // On desktop (split layout) the thread populates the right-side detail
+    // pane. On mobile there is no side pane, so open the dedicated full-screen
+    // thread modal instead.
+    if (isDesktopSplitLayout) {
+      setIsThreadModalOpen(false);
+    } else {
+      setIsThreadModalOpen(true);
+    }
 
     if (!item.isUnread) {
       return;
@@ -4871,9 +4893,11 @@ export function EmailInboxView({
               if (event.key === "ArrowLeft") {
                 event.preventDefault();
                 updateDetailPanelWidth(detailPanelWidth + 24);
+                persistDetailPanelWidth(detailPanelWidth + 24);
               } else if (event.key === "ArrowRight") {
                 event.preventDefault();
                 updateDetailPanelWidth(detailPanelWidth - 24);
+                persistDetailPanelWidth(detailPanelWidth - 24);
               }
             }}
             className="group relative z-10 my-16 inline-flex w-3 items-center justify-center rounded-full bg-transparent text-zinc-600 outline-none transition-colors hover:text-zinc-300 focus-visible:text-zinc-200"
