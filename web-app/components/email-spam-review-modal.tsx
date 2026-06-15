@@ -413,7 +413,7 @@ export function EmailSpamReviewModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] w-[min(96vw,1440px)] max-w-[96vw] overflow-hidden border-zinc-800 bg-zinc-950 p-0 text-white">
+      <DialogContent className="inset-0 left-0 top-0 h-[100dvh] max-h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 border-zinc-800 bg-zinc-950 p-0 text-white sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[92vh] sm:w-[min(96vw,1440px)] sm:max-w-[96vw] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border">
         <div className="border-b border-zinc-800 px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -432,7 +432,7 @@ export function EmailSpamReviewModal({
           </div>
         </div>
 
-        <div className="grid h-[calc(92vh-112px)] min-h-0 grid-rows-[minmax(0,1.2fr)_minmax(0,0.8fr)] gap-0 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)] xl:grid-rows-1">
+        <div className="grid h-[calc(100dvh-112px)] min-h-0 grid-rows-[minmax(0,1.2fr)_minmax(0,0.8fr)] gap-0 sm:h-[calc(92vh-112px)] xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)] xl:grid-rows-1">
           <div className="flex min-h-0 min-w-0 flex-col border-b border-zinc-800 xl:border-b-0 xl:border-r">
             <div className="border-b border-zinc-800 px-6 py-4">
               <div className="inline-flex items-center gap-2 text-sm text-zinc-300">

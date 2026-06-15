@@ -461,7 +461,7 @@ export function EmailOutboundComposerModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl border-zinc-800 bg-zinc-950 text-zinc-100">
+      <DialogContent className="border-zinc-800 bg-zinc-950 text-zinc-100 sm:max-w-4xl">
         <DialogTitle>New Email</DialogTitle>
         <DialogDescription className="text-zinc-400">
           Create a new outbound email from a connected mailbox.
