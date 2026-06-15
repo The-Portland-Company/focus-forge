@@ -37,6 +37,19 @@ export function emailPanelWidthPercentToPixels(
   return Math.round((clampEmailPanelWidthPercent(percent) / 100) * containerWidth);
 }
 
+// Per-user ordering of the thread Conversation list. Persisted on the
+// `profiles.email_conversation_order` column so it survives logout/navigation.
+export type EmailConversationOrder = "oldest_first" | "newest_first";
+
+export const DEFAULT_EMAIL_CONVERSATION_ORDER: EmailConversationOrder =
+  "oldest_first";
+
+export function normalizeEmailConversationOrder(
+  value: unknown,
+): EmailConversationOrder {
+  return value === "newest_first" ? "newest_first" : "oldest_first";
+}
+
 // Normalize a persisted manual pixel override. `null`/invalid means the user
 // has never dragged the divider, so the percentage default should be used.
 export function normalizeEmailPanelWidthOverride(value: unknown): number | null {

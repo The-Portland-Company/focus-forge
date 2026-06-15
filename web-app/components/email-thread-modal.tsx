@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Archive,
+  ArrowDownUp,
   Ban,
   Bot,
   Check,
@@ -72,7 +73,15 @@ import {
   requiresThreadActionConfirmation,
   type ThreadAction,
 } from "@/lib/email-inbox/thread-actions";
-import { formatEmailTimestamp } from "@/lib/email-inbox/format-timestamp";
+import {
+  formatEmailTimestamp,
+  formatRelativeEmailDate,
+} from "@/lib/email-inbox/format-timestamp";
+import {
+  DEFAULT_EMAIL_CONVERSATION_ORDER,
+  normalizeEmailConversationOrder,
+  type EmailConversationOrder,
+} from "@/lib/email-inbox/panel-width";
 import {
   areAllThreadMessagesExpanded,
   isThreadMessageExpanded,
@@ -277,8 +286,19 @@ export function EmailThreadModal({
   );
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
   const queuedActionTimeoutRef = useRef<number | null>(null);
-  const { profile } = useUserProfile();
+  const { profile, updateProfile } = useUserProfile();
   const { preferences } = useUserPreferences();
+  // Per-user Conversation ordering. Persisted on the profiles row; falls back
+  // to the classic "oldest first" default before the profile loads.
+  const conversationOrder: EmailConversationOrder = profile
+    ? normalizeEmailConversationOrder(profile.email_conversation_order)
+    : DEFAULT_EMAIL_CONVERSATION_ORDER;
+  const handleToggleConversationOrder = () => {
+    if (!updateProfile) return;
+    const next: EmailConversationOrder =
+      conversationOrder === "oldest_first" ? "newest_first" : "oldest_first";
+    void updateProfile({ email_conversation_order: next });
+  };
   const deleteUndoSeconds = clampEmailDeleteUndoSeconds(
     profile?.email_delete_undo_seconds,
   );
@@ -338,6 +358,15 @@ export function EmailThreadModal({
   const conversationEntryIds = useMemo(
     () => conversationEntries.map((entry) => entry.id),
     [conversationEntries],
+  );
+  // Entries in the order the user wants to read them. "Newest First" simply
+  // reverses the chronological (oldest-first) list the server returns.
+  const orderedConversationEntries = useMemo(
+    () =>
+      conversationOrder === "newest_first"
+        ? [...conversationEntries].reverse()
+        : conversationEntries,
+    [conversationEntries, conversationOrder],
   );
   const allConversationExpanded = areAllThreadMessagesExpanded(
     threadExpandState,
@@ -1763,12 +1792,72 @@ export function EmailThreadModal({
                 </div>
               </div>
 
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                <div className="mb-3 text-xs uppercase tracking-wide text-zinc-500">
-                  Conversation
+              <div className="relative rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 lg:pr-12">
+                {/* Vertical Timeline rail along the panel's right edge: subtle
+                    relative-date markers ("Today", "X Days Ago", …) mapped to
+                    each conversation message. Desktop-only so it never crowds
+                    narrow/mobile layouts or overlaps message content. */}
+                {orderedConversationEntries.length > 0 ? (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-y-3 right-2 hidden w-8 flex-col items-center justify-between gap-1 lg:flex"
+                  >
+                    <span className="h-full w-px bg-zinc-800/80" />
+                    {orderedConversationEntries.map((entry, index) => {
+                      const label = formatRelativeEmailDate(entry.createdAt);
+                      if (!label) return null;
+                      return (
+                        <span
+                          key={`timeline-${entry.id}`}
+                          className="absolute flex items-center gap-1 whitespace-nowrap text-[9px] uppercase tracking-wide text-zinc-600"
+                          style={{
+                            top: `${
+                              orderedConversationEntries.length > 1
+                                ? 6 +
+                                  (index /
+                                    (orderedConversationEntries.length - 1)) *
+                                    88
+                                : 50
+                            }%`,
+                            right: 0,
+                            writingMode: "vertical-rl",
+                            transform: "translateY(-50%)",
+                          }}
+                        >
+                          <span className="h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
+                          {label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="text-xs uppercase tracking-wide text-zinc-500">
+                    Conversation
+                  </div>
+                  {conversationEntries.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={handleToggleConversationOrder}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                      title={
+                        conversationOrder === "newest_first"
+                          ? "Showing newest first — switch to oldest first"
+                          : "Showing oldest first — switch to newest first"
+                      }
+                      aria-label="Toggle conversation order"
+                    >
+                      <ArrowDownUp className="h-3.5 w-3.5" />
+                      <span>
+                        {conversationOrder === "newest_first"
+                          ? "Newest First"
+                          : "Oldest First"}
+                      </span>
+                    </button>
+                  ) : null}
                 </div>
                 <div className="space-y-3">
-                  {conversationEntries.map((entry) => {
+                  {orderedConversationEntries.map((entry) => {
                     const isExpanded = isThreadMessageExpanded(
                       threadExpandState,
                       entry.id,

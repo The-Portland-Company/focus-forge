@@ -62,3 +62,35 @@ export function formatEmailTimestamp(iso?: string | null): string {
 
   return `${month} ${ordinal}, ${year} ${hours12}:${minutes} ${meridiem}`;
 }
+
+/**
+ * Compact, human-friendly relative-date label for an email timestamp, used by
+ * the Conversation Timeline rail: "Today", "Yesterday", "X Days Ago",
+ * "1 Week Ago", "X Weeks Ago", "1 Month Ago" … falling back to "X Years Ago".
+ * Comparison is by calendar day (local time), not raw elapsed hours.
+ */
+export function formatRelativeEmailDate(iso?: string | null): string {
+  if (!iso) return "";
+
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return "";
+
+  const startOfDay = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const diffDays = Math.round((startOfDay(new Date()) - startOfDay(date)) / dayMs);
+
+  if (diffDays <= 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays} Days Ago`;
+
+  const weeks = Math.floor(diffDays / 7);
+  if (weeks < 5) return weeks === 1 ? "1 Week Ago" : `${weeks} Weeks Ago`;
+
+  const months = Math.floor(diffDays / 30);
+  if (months < 12) return months <= 1 ? "1 Month Ago" : `${months} Months Ago`;
+
+  const years = Math.floor(diffDays / 365);
+  return years <= 1 ? "1 Year Ago" : `${years} Years Ago`;
+}

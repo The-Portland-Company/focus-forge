@@ -346,6 +346,7 @@ export type Database = {
           animations_enabled: boolean | null
           created_at: string | null
           email: string
+          email_conversation_order: string | null
           email_panel_default_width_pct: number | null
           email_panel_width_px: number | null
           first_name: string | null
@@ -375,6 +376,7 @@ export type Database = {
           animations_enabled?: boolean | null
           created_at?: string | null
           email: string
+          email_conversation_order?: string | null
           email_panel_default_width_pct?: number | null
           email_panel_width_px?: number | null
           first_name?: string | null
@@ -404,6 +406,7 @@ export type Database = {
           animations_enabled?: boolean | null
           created_at?: string | null
           email?: string
+          email_conversation_order?: string | null
           email_panel_default_width_pct?: number | null
           email_panel_width_px?: number | null
           first_name?: string | null
