@@ -282,6 +282,10 @@ export function EmailThreadModal({
     useState(false);
   const [displayMode, setDisplayMode] =
     useState<EmailThreadDisplayMode>("centered");
+  // Which tab the AI Summary panel shows: the AI summary text or linked tasks.
+  const [summaryPanelTab, setSummaryPanelTab] = useState<
+    "summary" | "linked_tasks"
+  >("summary");
   // Linked task delete confirmation + per-row busy state.
   const [pendingDeleteTaskId, setPendingDeleteTaskId] = useState<string | null>(
     null,
@@ -594,6 +598,7 @@ export function EmailThreadModal({
     setReplyError(null);
     setPendingDeleteTaskId(null);
     setTaskBusyId(null);
+    setSummaryPanelTab("summary");
   }, [threadId]);
 
   useEffect(() => {
@@ -1294,17 +1299,299 @@ export function EmailThreadModal({
               <div className="border-b border-zinc-800 pb-4">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0 flex-1 space-y-3">
-                    {aiSummaryText ? (
-                      <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
-                        <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
-                          <Sparkles className="h-3.5 w-3.5" />
-                          <span>AI Summary</span>
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
+                      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                        <div
+                          role="tablist"
+                          aria-label="Summary panel"
+                          className="inline-flex items-center gap-0.5 rounded-lg border border-zinc-700 bg-zinc-900 p-0.5"
+                        >
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={summaryPanelTab === "summary"}
+                            onClick={() => setSummaryPanelTab("summary")}
+                            className={cn(
+                              "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors",
+                              summaryPanelTab === "summary"
+                                ? "bg-zinc-700 text-white"
+                                : "text-zinc-400 hover:text-white",
+                            )}
+                          >
+                            <Sparkles className="h-3.5 w-3.5" />
+                            <span>AI Summary</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={summaryPanelTab === "linked_tasks"}
+                            onClick={() => setSummaryPanelTab("linked_tasks")}
+                            className={cn(
+                              "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors",
+                              summaryPanelTab === "linked_tasks"
+                                ? "bg-zinc-700 text-white"
+                                : "text-zinc-400 hover:text-white",
+                            )}
+                          >
+                            <FolderSearch className="h-3.5 w-3.5" />
+                            <span>
+                              Linked Tasks
+                              {thread.linkedTasks?.length
+                                ? ` (${thread.linkedTasks.length})`
+                                : ""}
+                            </span>
+                          </button>
                         </div>
-                        <div className="break-words text-sm leading-6 text-zinc-300">
-                          {aiSummaryText}
+                        {/* Project selector pinned to the top-right of the
+                            AI Summary header. */}
+                        <div
+                          ref={projectPickerRef}
+                          className="relative w-full sm:w-[240px]"
+                        >
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                            <input
+                              type="text"
+                              value={projectSearchQuery}
+                              onFocus={() => setIsProjectPickerOpen(true)}
+                              onChange={(event) => {
+                                setProjectSearchQuery(event.target.value);
+                                setIsProjectPickerOpen(true);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  closeProjectPicker();
+                                  return;
+                                }
+
+                                if (
+                                  event.key === "Enter" &&
+                                  filteredInboxProjects.length > 0
+                                ) {
+                                  event.preventDefault();
+                                  handleProjectPickerSelect(
+                                    filteredInboxProjects[0].id,
+                                  );
+                                }
+                              }}
+                              placeholder="Add project..."
+                              disabled={busyState === "project"}
+                              className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-10 pr-10 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setIsProjectPickerOpen((current) => !current)
+                              }
+                              className="absolute inset-y-0 right-3 inline-flex items-center text-zinc-500 transition-colors hover:text-zinc-300"
+                              aria-label="Toggle project search"
+                            >
+                              {busyState === "project" ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <ChevronDown
+                                  className={`h-4 w-4 transition-transform ${
+                                    isProjectPickerOpen ? "rotate-180" : ""
+                                  }`}
+                                />
+                              )}
+                            </button>
+                          </div>
+                          {associatedProjects.length > 0 ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {associatedProjects.map((project) => (
+                                <span
+                                  key={project.id}
+                                  className="inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-900/70 py-1 pl-3 pr-1.5 text-xs text-zinc-300"
+                                >
+                                  <span
+                                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                    style={{ backgroundColor: project.color }}
+                                  />
+                                  <span className="truncate">
+                                    {project.name}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleRemoveProjectChip(project.id)
+                                    }
+                                    disabled={busyState === "project"}
+                                    aria-label={`Remove ${project.name}`}
+                                    title={`Remove ${project.name}`}
+                                    className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-white disabled:opacity-50"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          {isProjectPickerOpen ? (
+                            <div className="absolute right-0 top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
+                              {filteredInboxProjects.length > 0 ? (
+                                filteredInboxProjects.map((project) => {
+                                  const isSelected =
+                                    associatedProjectIds.includes(project.id);
+
+                                  return (
+                                    <button
+                                      key={project.id}
+                                      type="button"
+                                      onClick={() =>
+                                        handleProjectPickerSelect(project.id)
+                                      }
+                                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                        isSelected
+                                          ? "bg-[rgb(var(--theme-primary-rgb))]/15 text-white"
+                                          : "text-zinc-300 hover:bg-zinc-700 hover:text-white"
+                                      }`}
+                                    >
+                                      <div
+                                        className="h-3 w-3 flex-shrink-0 rounded-full"
+                                        style={{
+                                          backgroundColor: project.color,
+                                        }}
+                                      />
+                                      <span className="flex-1 truncate">
+                                        {project.name}
+                                      </span>
+                                      {isSelected ? (
+                                        <Check className="h-4 w-4 text-[rgb(var(--theme-primary-rgb))]" />
+                                      ) : null}
+                                    </button>
+                                  );
+                                })
+                              ) : (
+                                <div className="px-3 py-2 text-sm text-zinc-500">
+                                  No matching projects
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
-                    ) : null}
+                      {summaryPanelTab === "summary" ? (
+                        <div className="break-words text-sm leading-6 text-zinc-300">
+                          {aiSummaryText || (
+                            <span className="text-zinc-500">
+                              No AI summary available yet.
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="mb-3 flex items-center justify-end">
+                            <button
+                              type="button"
+                              onClick={handleGenerateTasks}
+                              disabled={busyState === "tasks"}
+                              className="inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 text-xs text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                            >
+                              {busyState === "tasks" ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <FolderSearch className="h-3.5 w-3.5" />
+                              )}
+                              Generate Tasks
+                            </button>
+                          </div>
+                          {thread.linkedTasks?.length ? (
+                            <div className="space-y-2">
+                              {thread.linkedTasks.map((task) => {
+                                const isConfirmingDelete =
+                                  pendingDeleteTaskId === task.id;
+                                const isTaskBusy = taskBusyId === task.id;
+
+                                return (
+                                  <div
+                                    key={task.id}
+                                    className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-300"
+                                  >
+                                    <span className="min-w-0 flex-1 truncate">
+                                      {task.name}
+                                    </span>
+                                    {isConfirmingDelete ? (
+                                      <div className="flex shrink-0 items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            void handleDeleteLinkedTask(task.id)
+                                          }
+                                          disabled={isTaskBusy}
+                                          className="inline-flex items-center gap-1.5 rounded-md border border-red-900/60 bg-red-950/40 px-2.5 py-1 text-xs text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
+                                        >
+                                          {isTaskBusy ? (
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                          ) : (
+                                            <Check className="h-3.5 w-3.5" />
+                                          )}
+                                          Confirm
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setPendingDeleteTaskId(null)
+                                          }
+                                          disabled={isTaskBusy}
+                                          className="rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex shrink-0 items-center gap-1">
+                                        {onEditTask ? (
+                                          <Tooltip
+                                            content="Edit task"
+                                            className="w-auto"
+                                            side="bottom"
+                                            align="end"
+                                          >
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                handleEditLinkedTask(task.id)
+                                              }
+                                              aria-label="Edit task"
+                                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                                            >
+                                              <Pencil className="h-3.5 w-3.5" />
+                                            </button>
+                                          </Tooltip>
+                                        ) : null}
+                                        <Tooltip
+                                          content="Delete task"
+                                          className="w-auto"
+                                          side="bottom"
+                                          align="end"
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setPendingDeleteTaskId(task.id)
+                                            }
+                                            aria-label="Delete task"
+                                            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-900/50 bg-red-950/40 text-red-200 transition-colors hover:border-red-800 hover:text-white"
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </button>
+                                        </Tooltip>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-4 text-center text-xs text-zinc-500">
+                              No linked tasks yet.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <div className="relative rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
                       <Tooltip
                         content={getEmailHtmlRenderModeToggleLabel(
@@ -1394,129 +1681,6 @@ export function EmailThreadModal({
                 </div>
               </div>
 
-              <div>
-                <div ref={projectPickerRef} className="relative pt-2">
-                  <FloatingFieldLabel label="Project" />
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                    <input
-                      type="text"
-                      value={projectSearchQuery}
-                      onFocus={() => setIsProjectPickerOpen(true)}
-                      onChange={(event) => {
-                        setProjectSearchQuery(event.target.value);
-                        setIsProjectPickerOpen(true);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          closeProjectPicker();
-                          return;
-                        }
-
-                        if (
-                          event.key === "Enter" &&
-                          filteredInboxProjects.length > 0
-                        ) {
-                          event.preventDefault();
-                          handleProjectPickerSelect(
-                            filteredInboxProjects[0].id,
-                          );
-                        }
-                      }}
-                      placeholder="Search projects to add..."
-                      disabled={busyState === "project"}
-                      className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2.5 pl-10 pr-10 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setIsProjectPickerOpen((current) => !current)
-                      }
-                      className="absolute inset-y-0 right-3 inline-flex items-center text-zinc-500 transition-colors hover:text-zinc-300"
-                      aria-label="Toggle project search"
-                    >
-                      {busyState === "project" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <ChevronDown
-                          className={`h-4 w-4 transition-transform ${
-                            isProjectPickerOpen ? "rotate-180" : ""
-                          }`}
-                        />
-                      )}
-                    </button>
-                  </div>
-                  {associatedProjects.length > 0 ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {associatedProjects.map((project) => (
-                        <span
-                          key={project.id}
-                          className="inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-900/70 py-1 pl-3 pr-1.5 text-xs text-zinc-300"
-                        >
-                          <span
-                            className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: project.color }}
-                          />
-                          <span className="truncate">{project.name}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveProjectChip(project.id)}
-                            disabled={busyState === "project"}
-                            aria-label={`Remove ${project.name}`}
-                            title={`Remove ${project.name}`}
-                            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-white disabled:opacity-50"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                  {isProjectPickerOpen ? (
-                    <div className="absolute top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
-                      {filteredInboxProjects.length > 0 ? (
-                        filteredInboxProjects.map((project) => {
-                          const isSelected = associatedProjectIds.includes(
-                            project.id,
-                          );
-
-                          return (
-                            <button
-                              key={project.id}
-                              type="button"
-                              onClick={() =>
-                                handleProjectPickerSelect(project.id)
-                              }
-                              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                                isSelected
-                                  ? "bg-[rgb(var(--theme-primary-rgb))]/15 text-white"
-                                  : "text-zinc-300 hover:bg-zinc-700 hover:text-white"
-                              }`}
-                            >
-                              <div
-                                className="h-3 w-3 flex-shrink-0 rounded-full"
-                                style={{ backgroundColor: project.color }}
-                              />
-                              <span className="flex-1 truncate">
-                                {project.name}
-                              </span>
-                              {isSelected ? (
-                                <Check className="h-4 w-4 text-[rgb(var(--theme-primary-rgb))]" />
-                              ) : null}
-                            </button>
-                          );
-                        })
-                      ) : (
-                        <div className="px-3 py-2 text-sm text-zinc-500">
-                          No matching projects
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
               {queuedAction && isQueuedActionNoticeVisible ? (
                 <div className="flex items-center gap-3 rounded-xl border border-[rgb(var(--theme-primary-rgb))]/30 bg-[rgb(var(--theme-primary-rgb))]/10 px-3 py-2 text-sm text-zinc-200">
                   <span>
@@ -1543,386 +1707,6 @@ export function EmailThreadModal({
                   </button>
                 </div>
               ) : null}
-
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div className="text-xs uppercase tracking-wide text-zinc-500">
-                    Linked Tasks
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleGenerateTasks}
-                    disabled={busyState === "tasks"}
-                    className="inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 text-xs text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                  >
-                    {busyState === "tasks" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <FolderSearch className="h-3.5 w-3.5" />
-                    )}
-                    Generate Tasks
-                  </button>
-                </div>
-                {thread.linkedTasks?.length ? (
-                  <div className="space-y-2">
-                    {thread.linkedTasks.map((task) => {
-                      const isConfirmingDelete = pendingDeleteTaskId === task.id;
-                      const isTaskBusy = taskBusyId === task.id;
-
-                      return (
-                        <div
-                          key={task.id}
-                          className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-300"
-                        >
-                          <span className="min-w-0 flex-1 truncate">
-                            {task.name}
-                          </span>
-                          {isConfirmingDelete ? (
-                            <div className="flex shrink-0 items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void handleDeleteLinkedTask(task.id)
-                                }
-                                disabled={isTaskBusy}
-                                className="inline-flex items-center gap-1.5 rounded-md border border-red-900/60 bg-red-950/40 px-2.5 py-1 text-xs text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
-                              >
-                                {isTaskBusy ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Check className="h-3.5 w-3.5" />
-                                )}
-                                Confirm
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setPendingDeleteTaskId(null)}
-                                disabled={isTaskBusy}
-                                className="rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex shrink-0 items-center gap-1">
-                              {onEditTask ? (
-                                <Tooltip
-                                  content="Edit task"
-                                  className="w-auto"
-                                  side="bottom"
-                                  align="end"
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleEditLinkedTask(task.id)
-                                    }
-                                    aria-label="Edit task"
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                </Tooltip>
-                              ) : null}
-                              <Tooltip
-                                content="Delete task"
-                                className="w-auto"
-                                side="bottom"
-                                align="end"
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setPendingDeleteTaskId(task.id)
-                                  }
-                                  aria-label="Delete task"
-                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-900/50 bg-red-950/40 text-red-200 transition-colors hover:border-red-800 hover:text-white"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              </Tooltip>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-4 text-center text-xs text-zinc-500">
-                    No linked tasks yet.
-                  </div>
-                )}
-              </div>
-
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                <div className="mb-3 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setReplyStyleOverrideEnabled((current) => !current)
-                    }
-                    className={cn(
-                      "inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-medium transition-colors",
-                      replyStyleOverrideEnabled
-                        ? "border-theme-primary bg-zinc-800 text-white"
-                        : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:text-white",
-                    )}
-                  >
-                    AI Style Override
-                  </button>
-                  <Tooltip content="Generate AI reply" className="w-auto">
-                    <button
-                      type="button"
-                      onClick={() => void handleGenerateAiReply()}
-                      disabled={Boolean(busyState) || !threadId}
-                      title="Generate AI reply"
-                      aria-label="Generate AI reply"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      {busyState === "reply_ai" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Bot className="h-4 w-4" />
-                      )}
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="Separate window" className="w-auto">
-                    <button
-                      type="button"
-                      onClick={handleOpenThreadWindow}
-                      disabled={!threadId}
-                      title="Open thread in separate window"
-                      aria-label="Open thread in separate window"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="Mark read" className="w-auto">
-                    <button
-                      type="button"
-                      onClick={() => void handleThreadAction("mark_read")}
-                      disabled={
-                        Boolean(busyState) || !canMarkThreadAsRead(thread)
-                      }
-                      title={
-                        canMarkThreadAsRead(thread)
-                          ? "Mark thread as read"
-                          : "Thread already read"
-                      }
-                      aria-label={
-                        canMarkThreadAsRead(thread)
-                          ? "Mark thread as read"
-                          : "Thread already read"
-                      }
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      {busyState === "mark_read" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <MailCheck className="h-4 w-4" />
-                      )}
-                    </button>
-                  </Tooltip>
-                  {selectedReplyDraftId ? (
-                    <div className="rounded-full border border-zinc-700 px-2 py-1 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
-                      Draft active
-                    </div>
-                  ) : null}
-                  <div className="relative pt-2">
-                    <FloatingFieldLabel label="Reply Mode" />
-                    <Select
-                      value={replyMode}
-                      onValueChange={(value) =>
-                        setReplyMode(value as "reply_all" | "internal_note")
-                      }
-                    >
-                      <SelectTrigger className="h-9 w-[180px] border-zinc-700 bg-zinc-900 text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="reply_all">Reply All</SelectItem>
-                        <SelectItem value="internal_note">
-                          Internal Note
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                {replyStyleOverrideEnabled ? (
-                  <div className="mb-3 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
-                    <div className="mb-3 text-xs uppercase tracking-wide text-zinc-500">
-                      Reply Style Override
-                    </div>
-                    <div className="grid gap-3 lg:grid-cols-3">
-                      <div className="space-y-2">
-                        <div className="text-xs font-medium text-zinc-300">
-                          Conciseness
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {EMAIL_REPLY_CONCISENESS_OPTIONS.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              onClick={() =>
-                                setReplyStyleOverrides((current) => ({
-                                  ...current,
-                                  conciseness: option.value,
-                                }))
-                              }
-                              className={cn(
-                                "rounded-full border px-3 py-1.5 text-xs transition-colors",
-                                replyStyleOverrides.conciseness === option.value
-                                  ? "border-theme-primary bg-zinc-800 text-white"
-                                  : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
-                              )}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="text-xs font-medium text-zinc-300">
-                          Tone
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {EMAIL_REPLY_TONE_OPTIONS.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              onClick={() =>
-                                setReplyStyleOverrides((current) => ({
-                                  ...current,
-                                  tone: option.value,
-                                }))
-                              }
-                              className={cn(
-                                "rounded-full border px-3 py-1.5 text-xs transition-colors",
-                                replyStyleOverrides.tone === option.value
-                                  ? "border-theme-primary bg-zinc-800 text-white"
-                                  : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
-                              )}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="text-xs font-medium text-zinc-300">
-                          Personality
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {EMAIL_REPLY_PERSONALITY_OPTIONS.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              onClick={() =>
-                                setReplyStyleOverrides((current) => ({
-                                  ...current,
-                                  personality: option.value,
-                                }))
-                              }
-                              className={cn(
-                                "rounded-full border px-3 py-1.5 text-xs transition-colors",
-                                replyStyleOverrides.personality === option.value
-                                  ? "border-theme-primary bg-zinc-800 text-white"
-                                  : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
-                              )}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="space-y-3">
-                  {replyError ? (
-                    <div className="flex items-start justify-between gap-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200">
-                      <div className="min-w-0">
-                        <div className="font-medium text-red-100">
-                          Reply not sent
-                        </div>
-                        <div className="mt-0.5 break-words text-xs text-red-200/90">
-                          {replyError}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setReplyError(null)}
-                        aria-label="Dismiss send error"
-                        className="shrink-0 rounded-md border border-red-800/60 px-2 py-0.5 text-xs text-red-100 transition-colors hover:border-red-700 hover:text-white"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  ) : null}
-                  <RichTextEditor
-                    value={replyContent}
-                    onChange={(value) => {
-                      setReplyContent(value);
-                      if (replyError) setReplyError(null);
-                    }}
-                    minHeightClassName="min-h-[120px]"
-                    placeholder={
-                      replyMode === "internal_note"
-                        ? "Write an internal note for linked Forge tasks…"
-                        : "Reply to all participants…"
-                    }
-                    disabled={
-                      busyState === "reply" || busyState === "reply_schedule"
-                    }
-                  />
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {replyMode === "reply_all" ? (
-                      <div className="relative min-w-[220px] flex-1 pt-2">
-                        <FloatingFieldLabel label="Send Later" />
-                        <input
-                          type="datetime-local"
-                          value={scheduledReplyAt}
-                          onChange={(event) =>
-                            setScheduledReplyAt(event.target.value)
-                          }
-                          className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-white"
-                        />
-                      </div>
-                    ) : null}
-                    {replyMode === "reply_all" ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleScheduleReply()}
-                        disabled={
-                          busyState === "reply_schedule" || !hasReplyText
-                        }
-                        className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                      >
-                        {busyState === "reply_schedule" ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <MailPlus className="h-4 w-4" />
-                        )}
-                        <span>Schedule</span>
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={handleReply}
-                      disabled={busyState === "reply" || !hasReplyText}
-                      className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-theme-gradient px-3 text-sm text-white shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
-                    >
-                      {busyState === "reply" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <SendHorizontal className="h-4 w-4" />
-                      )}
-                      <span>Send Now</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
 
               <div className="relative rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 lg:pr-12">
                 {/* Vertical Timeline rail along the panel's right edge: subtle
@@ -2077,6 +1861,279 @@ export function EmailThreadModal({
             <div className="mt-5 text-sm text-zinc-400">{statusMessage}</div>
           ) : null}
           </div>
+          {thread && !loadingThread ? (
+            <div className="shrink-0 border-t border-zinc-800 bg-zinc-950 px-6 py-4">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                <div className="mb-3 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setReplyStyleOverrideEnabled((current) => !current)
+                    }
+                    className={cn(
+                      "inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-medium transition-colors",
+                      replyStyleOverrideEnabled
+                        ? "border-theme-primary bg-zinc-800 text-white"
+                        : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:text-white",
+                    )}
+                  >
+                    AI Style Override
+                  </button>
+                  <Tooltip content="Generate AI reply" className="w-auto">
+                    <button
+                      type="button"
+                      onClick={() => void handleGenerateAiReply()}
+                      disabled={Boolean(busyState) || !threadId}
+                      title="Generate AI reply"
+                      aria-label="Generate AI reply"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      {busyState === "reply_ai" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Bot className="h-4 w-4" />
+                      )}
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Separate window" className="w-auto">
+                    <button
+                      type="button"
+                      onClick={handleOpenThreadWindow}
+                      disabled={!threadId}
+                      title="Open thread in separate window"
+                      aria-label="Open thread in separate window"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Mark read" className="w-auto">
+                    <button
+                      type="button"
+                      onClick={() => void handleThreadAction("mark_read")}
+                      disabled={
+                        Boolean(busyState) || !canMarkThreadAsRead(thread)
+                      }
+                      title={
+                        canMarkThreadAsRead(thread)
+                          ? "Mark thread as read"
+                          : "Thread already read"
+                      }
+                      aria-label={
+                        canMarkThreadAsRead(thread)
+                          ? "Mark thread as read"
+                          : "Thread already read"
+                      }
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      {busyState === "mark_read" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <MailCheck className="h-4 w-4" />
+                      )}
+                    </button>
+                  </Tooltip>
+                  {selectedReplyDraftId ? (
+                    <div className="rounded-full border border-zinc-700 px-2 py-1 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
+                      Draft active
+                    </div>
+                  ) : null}
+                </div>
+                {replyStyleOverrideEnabled ? (
+                  <div className="mb-3 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
+                    <div className="mb-3 text-xs uppercase tracking-wide text-zinc-500">
+                      Reply Style Override
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-3">
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium text-zinc-300">
+                          Conciseness
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {EMAIL_REPLY_CONCISENESS_OPTIONS.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                setReplyStyleOverrides((current) => ({
+                                  ...current,
+                                  conciseness: option.value,
+                                }))
+                              }
+                              className={cn(
+                                "rounded-full border px-3 py-1.5 text-xs transition-colors",
+                                replyStyleOverrides.conciseness === option.value
+                                  ? "border-theme-primary bg-zinc-800 text-white"
+                                  : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium text-zinc-300">
+                          Tone
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {EMAIL_REPLY_TONE_OPTIONS.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                setReplyStyleOverrides((current) => ({
+                                  ...current,
+                                  tone: option.value,
+                                }))
+                              }
+                              className={cn(
+                                "rounded-full border px-3 py-1.5 text-xs transition-colors",
+                                replyStyleOverrides.tone === option.value
+                                  ? "border-theme-primary bg-zinc-800 text-white"
+                                  : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium text-zinc-300">
+                          Personality
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {EMAIL_REPLY_PERSONALITY_OPTIONS.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                setReplyStyleOverrides((current) => ({
+                                  ...current,
+                                  personality: option.value,
+                                }))
+                              }
+                              className={cn(
+                                "rounded-full border px-3 py-1.5 text-xs transition-colors",
+                                replyStyleOverrides.personality === option.value
+                                  ? "border-theme-primary bg-zinc-800 text-white"
+                                  : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                <div className="space-y-3">
+                  {replyError ? (
+                    <div className="flex items-start justify-between gap-3 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+                      <div className="min-w-0">
+                        <div className="font-medium text-red-100">
+                          Reply not sent
+                        </div>
+                        <div className="mt-0.5 break-words text-xs text-red-200/90">
+                          {replyError}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setReplyError(null)}
+                        aria-label="Dismiss send error"
+                        className="shrink-0 rounded-md border border-red-800/60 px-2 py-0.5 text-xs text-red-100 transition-colors hover:border-red-700 hover:text-white"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  ) : null}
+                  <RichTextEditor
+                    value={replyContent}
+                    onChange={(value) => {
+                      setReplyContent(value);
+                      if (replyError) setReplyError(null);
+                    }}
+                    minHeightClassName="min-h-[120px]"
+                    placeholder={
+                      replyMode === "internal_note"
+                        ? "Write an internal note for linked Forge tasks…"
+                        : "Reply to all participants…"
+                    }
+                    disabled={
+                      busyState === "reply" || busyState === "reply_schedule"
+                    }
+                  />
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <div className="relative pt-2">
+                      <FloatingFieldLabel label="Reply Mode" />
+                      <Select
+                        value={replyMode}
+                        onValueChange={(value) =>
+                          setReplyMode(value as "reply_all" | "internal_note")
+                        }
+                      >
+                        <SelectTrigger className="h-9 w-[160px] border-zinc-700 bg-zinc-900 text-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="reply_all">Reply All</SelectItem>
+                          <SelectItem value="internal_note">
+                            Internal Note
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {replyMode === "reply_all" ? (
+                      <div className="relative min-w-[220px] flex-1 pt-2">
+                        <FloatingFieldLabel label="Send Later" />
+                        <input
+                          type="datetime-local"
+                          value={scheduledReplyAt}
+                          onChange={(event) =>
+                            setScheduledReplyAt(event.target.value)
+                          }
+                          className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-white"
+                        />
+                      </div>
+                    ) : null}
+                    {replyMode === "reply_all" ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleScheduleReply()}
+                        disabled={
+                          busyState === "reply_schedule" || !hasReplyText
+                        }
+                        className="mt-2 inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                      >
+                        {busyState === "reply_schedule" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <MailPlus className="h-4 w-4" />
+                        )}
+                        <span>Schedule</span>
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={handleReply}
+                      disabled={busyState === "reply" || !hasReplyText}
+                      className="mt-2 inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-theme-gradient px-3 text-sm text-white shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
+                    >
+                      {busyState === "reply" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <SendHorizontal className="h-4 w-4" />
+                      )}
+                      <span>Send Now</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </DialogPrimitive.Content>
       </DialogPortal>
     </Dialog>
