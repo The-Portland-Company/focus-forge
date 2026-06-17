@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  createServiceSupabase,
   getMobileAdapterForUser,
   mobileFailure,
   mobileSuccess,
   verifyMobileAccessTokenOrPat,
 } from "@/lib/mobile/api";
+
+async function resolveAccessibleProject(userId: string, projectId: string) {
+  const adapter = await getMobileAdapterForUser(userId);
+  const projects = await adapter.getProjects();
+  const project = (projects || []).find((p: any) => p.id === projectId);
+  return { adapter, project };
+}
 
 export async function PATCH(
   request: NextRequest,
@@ -24,18 +32,28 @@ export async function PATCH(
     const projectId = params.id;
     const body = await request.json();
 
-    const adapter = await getMobileAdapterForUser(auth.user.id);
-    const projects = await adapter.getProjects();
-    const hasAccess = projects.some((project: any) => project.id === projectId);
+    if (typeof body?.archived !== "boolean") {
+      return NextResponse.json(
+        mobileFailure("validation_error", "archived (boolean) is required"),
+        { status: 400 },
+      );
+    }
 
-    if (!hasAccess) {
+    const { adapter, project } = await resolveAccessibleProject(
+      auth.user.id,
+      projectId,
+    );
+
+    if (!project) {
       return NextResponse.json(
         mobileFailure("project_not_found", "Project not found for current user"),
         { status: 404 },
       );
     }
 
-    const updated = await adapter.updateProject(projectId, body || {});
+    const updated = await adapter.updateProject(projectId, {
+      archived: body.archived,
+    });
     return NextResponse.json(mobileSuccess(updated), { status: 200 });
   } catch (error) {
     return NextResponse.json(
@@ -62,19 +80,58 @@ export async function DELETE(
     const params = await props.params;
     const projectId = params.id;
 
-    const adapter = await getMobileAdapterForUser(auth.user.id);
-    const projects = await adapter.getProjects();
-    const hasAccess = projects.some((project: any) => project.id === projectId);
+    const { adapter, project } = await resolveAccessibleProject(
+      auth.user.id,
+      projectId,
+    );
 
-    if (!hasAccess) {
+    if (!project) {
       return NextResponse.json(
         mobileFailure("project_not_found", "Project not found for current user"),
         { status: 404 },
       );
     }
 
-    await adapter.deleteProject(projectId);
-    return NextResponse.json(mobileSuccess({ success: true }), { status: 200 });
+    // Count tasks + sections that will cascade for the response (best-effort).
+    const service = createServiceSupabase();
+    const [{ count: taskCount }, { count: sectionCount }] = await Promise.all([
+      service
+        .from("tasks")
+        .select("id", { count: "exact", head: true })
+        .eq("project_id", projectId)
+        .is("deleted_at", null),
+      service
+        .from("sections")
+        .select("id", { count: "exact", head: true })
+        .eq("project_id", projectId)
+        .is("deleted_at", null),
+    ]);
+
+    // soft_delete_entity RPC cascades project -> sections + tasks (RLS-scoped
+    // via the mobile adapter's authed client).
+    const { batchId } = await adapter.deleteProject(projectId);
+
+    if (project.organization_id) {
+      await adapter.writeAuditLog({
+        organizationId: project.organization_id,
+        actorUserId: auth.user.id,
+        action: "project.delete",
+        entityType: "project",
+        entityId: projectId,
+        metadata: { name: project.name ?? null, batchId, source: "mobile" },
+      });
+    }
+
+    return NextResponse.json(
+      mobileSuccess({
+        id: projectId,
+        deleted: true,
+        batchId,
+        deletedTaskCount: taskCount ?? 0,
+        deletedSectionCount: sectionCount ?? 0,
+      }),
+      { status: 200 },
+    );
   } catch (error) {
     return NextResponse.json(
       mobileFailure("internal_error", "Failed to delete project", error),
