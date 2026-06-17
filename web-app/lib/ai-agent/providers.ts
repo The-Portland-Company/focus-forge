@@ -179,6 +179,90 @@ export async function describeImagesInMessage(
 const MAX_TOOL_ROUNDS = 6;
 const MUTATING_TOOLS = new Set(["create_task", "update_task", "complete_task", "delete_task"]);
 
+/**
+ * How many times the EXACT same tool call (name + serialized args) may actually
+ * run within a single turn before we stop re-executing it. The 1st and 2nd
+ * identical calls run; the 3rd+ are short-circuited with a note telling the
+ * model not to repeat it. This breaks loops where the model keeps re-issuing the
+ * same (often failing) call and never converges to a final answer.
+ */
+export const MAX_IDENTICAL_TOOL_CALLS = 2;
+
+/** Stable signature for a tool call, used to detect exact repeats within a turn. */
+export function toolCallSignature(name: string, args: unknown): string {
+  let serialized: string;
+  try {
+    serialized = stableStringify(args);
+  } catch {
+    serialized = String(args);
+  }
+  return `${name}::${serialized}`;
+}
+
+/** JSON.stringify with sorted object keys so arg order doesn't change the signature. */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v)).join(",")}]`;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+}
+
+/**
+ * Tracks how many times each tool-call signature has been requested this turn
+ * and decides whether a given call should actually execute or be capped.
+ */
+export class RepeatedCallGuard {
+  private counts = new Map<string, number>();
+
+  /**
+   * Record a requested call. Returns whether it should run, and (when capped) a
+   * note to feed back as the tool result so the model stops repeating it.
+   */
+  consider(name: string, args: unknown): { shouldRun: boolean; cappedNote?: string } {
+    const sig = toolCallSignature(name, args);
+    const prior = this.counts.get(sig) ?? 0;
+    this.counts.set(sig, prior + 1);
+    if (prior >= MAX_IDENTICAL_TOOL_CALLS) {
+      return {
+        shouldRun: false,
+        cappedNote:
+          `This exact call to ${name} was already made ${prior} time(s) this turn and is being ` +
+          "skipped to avoid a loop. Do not repeat it — answer the user with the information you " +
+          "already have, or state the concrete limitation you hit.",
+      };
+    }
+    return { shouldRun: true };
+  }
+
+  /** True if any signature was requested past the cap (i.e. a loop was broken). */
+  hitCap(): boolean {
+    for (const count of this.counts.values()) {
+      if (count > MAX_IDENTICAL_TOOL_CALLS) return true;
+    }
+    return false;
+  }
+}
+
+/**
+ * Build the non-generic fallback message used only when the final-summary call
+ * also fails. Names what was attempted (tools run) and the concrete limitation,
+ * instead of the old generic "tell me what you want" dead-end.
+ */
+export function buildExhaustionFallback(toolsUsed: string[], cappedLoop: boolean): string {
+  const unique = Array.from(new Set(toolsUsed));
+  const limitation = cappedLoop
+    ? "I kept repeating the same lookup without new information"
+    : "I ran out of steps before finishing";
+  if (unique.length === 0) {
+    return `I couldn't complete that — ${limitation}. Could you restate it more specifically, or break it into smaller steps?`;
+  }
+  return (
+    `I worked on this using ${unique.join(", ")}, but ${limitation}, so I can't give a clean ` +
+    "final answer. Tell me which specific part to focus on and I'll take it from there."
+  );
+}
+
 const ACTION_NUDGE =
   "You described an action but did not call any tool this turn, so nothing actually happened. " +
   "If the user has already confirmed (e.g. replied 'yes'), call the appropriate tool(s) NOW to perform it, " +
@@ -243,6 +327,30 @@ function makeOpenAICompatibleProvider(opts: {
       const toolsUsed: string[] = [];
       let mutated = false;
       let nudged = false;
+      const guard = new RepeatedCallGuard();
+
+      // One tool-less completion through this same provider, used to synthesize a
+      // useful final answer when the tool loop exhausts instead of dead-ending.
+      const requestFinalSummary = async (): Promise<string> => {
+        const summaryMessages = [
+          ...messages,
+          {
+            role: "user",
+            content:
+              "Stop calling tools. Using only the tool results gathered above, write the final " +
+              "answer for the user now: summarize what you found and state any concrete limitation " +
+              "(e.g. what you couldn't do and why). Do not promise further actions.",
+          },
+        ];
+        const resp = await fetch(opts.baseUrl, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: opts.model, temperature: 0.3, messages: summaryMessages }),
+        });
+        if (!resp.ok) throw new Error(`${opts.name} final-summary failed (${resp.status})`);
+        const data = await resp.json();
+        return String(data?.choices?.[0]?.message?.content || "").trim();
+      };
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
         const response = await fetch(opts.baseUrl, {
@@ -286,6 +394,15 @@ function makeOpenAICompatibleProvider(opts: {
           } catch {
             args = {};
           }
+          const decision = guard.consider(fnName, args);
+          if (!decision.shouldRun) {
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              content: JSON.stringify({ ok: false, error: decision.cappedNote }),
+            });
+            continue;
+          }
           const result = await executeTool(toolContext, fnName, args);
           toolsUsed.push(fnName);
           if (result.ok && MUTATING_TOOLS.has(fnName)) mutated = true;
@@ -294,14 +411,32 @@ function makeOpenAICompatibleProvider(opts: {
       }
 
       return {
-        assistantMessage:
-          "I took several steps but didn't reach a clean stopping point. Tell me specifically what you'd like next.",
+        assistantMessage: await finishExhausted(requestFinalSummary, toolsUsed, guard.hitCap()),
         toolsUsed,
         mutated,
         provider: opts.name,
       };
     },
   };
+}
+
+/**
+ * Loop-exhaustion finisher shared by both runners: ask the model for one final
+ * tool-less summary of what it gathered; if that fails or is empty, fall back to
+ * a specific (non-generic) message naming what was attempted and the limitation.
+ */
+async function finishExhausted(
+  requestFinalSummary: () => Promise<string>,
+  toolsUsed: string[],
+  cappedLoop: boolean,
+): Promise<string> {
+  try {
+    const summary = await requestFinalSummary();
+    if (summary) return summary;
+  } catch {
+    // fall through to the specific non-generic fallback below
+  }
+  return buildExhaustionFallback(toolsUsed, cappedLoop);
 }
 
 // ---- Anthropic runner ----
@@ -324,6 +459,43 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
       const toolsUsed: string[] = [];
       let mutated = false;
       let nudged = false;
+      const guard = new RepeatedCallGuard();
+
+      const requestFinalSummary = async (): Promise<string> => {
+        const summaryMessages = [
+          ...messages,
+          {
+            role: "user",
+            content:
+              "Stop calling tools. Using only the tool results gathered above, write the final " +
+              "answer for the user now: summarize what you found and state any concrete limitation " +
+              "(e.g. what you couldn't do and why). Do not promise further actions.",
+          },
+        ];
+        const resp = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: opts.model,
+            max_tokens: 1500,
+            temperature: 0.3,
+            system: systemPrompt,
+            messages: summaryMessages,
+          }),
+        });
+        if (!resp.ok) throw new Error(`anthropic final-summary failed (${resp.status})`);
+        const data = await resp.json();
+        const blocks: any[] = Array.isArray(data?.content) ? data.content : [];
+        return blocks
+          .filter((b) => b.type === "text")
+          .map((b) => b.text)
+          .join("\n")
+          .trim();
+      };
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
         const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -372,6 +544,15 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
         messages.push({ role: "assistant", content });
         const toolResults: any[] = [];
         for (const use of toolUses) {
+          const decision = guard.consider(use.name, use.input || {});
+          if (!decision.shouldRun) {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: use.id,
+              content: JSON.stringify({ ok: false, error: decision.cappedNote }),
+            });
+            continue;
+          }
           const result = await executeTool(toolContext, use.name, use.input || {});
           toolsUsed.push(use.name);
           if (result.ok && MUTATING_TOOLS.has(use.name)) mutated = true;
@@ -385,8 +566,7 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
       }
 
       return {
-        assistantMessage:
-          "I took several steps but didn't reach a clean stopping point. Tell me specifically what you'd like next.",
+        assistantMessage: await finishExhausted(requestFinalSummary, toolsUsed, guard.hitCap()),
         toolsUsed,
         mutated,
         provider: "anthropic",
