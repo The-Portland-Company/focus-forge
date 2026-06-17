@@ -1299,6 +1299,57 @@ export function EmailThreadModal({
               <div className="border-b border-zinc-800 pb-4">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0 flex-1 space-y-3">
+                    {/* Header: From (sender) row sits ABOVE the subject + date.
+                        Subject line carries an "Active" status badge and an AI
+                        icon for quick visual scanning. */}
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
+                      <div className="flex items-start gap-3">
+                        <EmailActorAvatar
+                          name={primaryThreadEntry?.authorName}
+                          email={primaryThreadEntry?.authorEmail}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs uppercase tracking-wide text-zinc-500">
+                            From
+                          </div>
+                          <div className="truncate text-sm font-medium text-zinc-100">
+                            {getEmailActorName(
+                              primaryThreadEntry?.authorName,
+                              primaryThreadEntry?.authorEmail,
+                            )}
+                          </div>
+                          {primaryThreadEntry?.authorEmail &&
+                          primaryThreadEntry.authorEmail !==
+                            primaryThreadEntry.authorName ? (
+                            <div className="truncate text-xs text-zinc-500">
+                              {primaryThreadEntry.authorEmail}
+                            </div>
+                          ) : null}
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <Sparkles
+                              className="h-4 w-4 shrink-0 text-[rgb(var(--theme-primary-rgb))]"
+                              aria-hidden
+                            />
+                            <span className="min-w-0 truncate text-sm font-semibold text-white">
+                              {thread.subject
+                                ? formatEmailSubject(thread.subject)
+                                : "Email thread"}
+                            </span>
+                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-700/50 bg-emerald-950/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                              Active
+                            </span>
+                          </div>
+                          {primaryThreadEntry?.createdAt ? (
+                            <div className="mt-1 text-xs text-zinc-500">
+                              {formatEmailTimestamp(
+                                primaryThreadEntry.createdAt,
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
                     <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
                       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                         <div
@@ -1343,7 +1394,9 @@ export function EmailThreadModal({
                           </button>
                         </div>
                         {/* Project selector pinned to the top-right of the
-                            AI Summary header. */}
+                            AI Summary header, with the Generate Tasks AI icon
+                            floating to its right. */}
+                        <div className="flex w-full items-start gap-2 sm:w-auto">
                         <div
                           ref={projectPickerRef}
                           className="relative w-full sm:w-[240px]"
@@ -1471,6 +1524,27 @@ export function EmailThreadModal({
                             </div>
                           ) : null}
                         </div>
+                        <Tooltip
+                          content="Generate tasks from this thread"
+                          className="w-auto"
+                          side="bottom"
+                          align="end"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => void handleGenerateTasks()}
+                            disabled={busyState === "tasks" || !threadId}
+                            aria-label="Generate tasks from this thread"
+                            className="mt-0 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-[rgb(var(--theme-primary-rgb))] transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {busyState === "tasks" ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-4 w-4" />
+                            )}
+                          </button>
+                        </Tooltip>
+                        </div>
                       </div>
                       {summaryPanelTab === "summary" ? (
                         <div className="break-words text-sm leading-6 text-zinc-300">
@@ -1482,21 +1556,6 @@ export function EmailThreadModal({
                         </div>
                       ) : (
                         <div>
-                          <div className="mb-3 flex items-center justify-end">
-                            <button
-                              type="button"
-                              onClick={handleGenerateTasks}
-                              disabled={busyState === "tasks"}
-                              className="inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 text-xs text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                            >
-                              {busyState === "tasks" ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <FolderSearch className="h-3.5 w-3.5" />
-                              )}
-                              Generate Tasks
-                            </button>
-                          </div>
                           {thread.linkedTasks?.length ? (
                             <div className="space-y-2">
                               {thread.linkedTasks.map((task) => {
@@ -1671,10 +1730,6 @@ export function EmailThreadModal({
                     })}
                     {renderThreadActionButton("spam", {
                       icon: <Ban className="h-4 w-4" />,
-                      destructive: true,
-                    })}
-                    {renderThreadActionButton("delete", {
-                      icon: <Trash2 className="h-4 w-4" />,
                       destructive: true,
                     })}
                   </div>
@@ -1938,6 +1993,14 @@ export function EmailThreadModal({
                       Draft active
                     </div>
                   ) : null}
+                  {/* Single Delete Email control, fixed at the bottom-right of
+                      the modal. Confirmation (inline Confirm/Undo) + hover
+                      tooltip are provided by renderThreadActionButton. */}
+                  {renderThreadActionButton("delete", {
+                    icon: <Trash2 className="h-4 w-4" />,
+                    label: "Delete email",
+                    destructive: true,
+                  })}
                 </div>
                 {replyStyleOverrideEnabled ? (
                   <div className="mb-3 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
