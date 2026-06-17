@@ -2,8 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Check, ChevronDown, ExternalLink, Loader2, Mic, Send, Sparkles, Square, SquarePen, X } from "lucide-react";
+import { ExternalLink, Loader2, Mic, Send, Sparkles, Square, SquarePen, X } from "lucide-react";
 import { useToast } from "@/contexts/ToastContext";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useRecorder } from "@/lib/voice/use-recorder";
 
 type AgentMessage = {
@@ -121,7 +128,6 @@ export function AiPlannerFloatingChat({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [model, setModel] = useState<ModelChoice>("auto");
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // When set, the next send starts a fresh server-side session instead of
   // resuming the latest one for this scope.
@@ -495,49 +501,30 @@ export function AiPlannerFloatingChat({
                   className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-zinc-500"
                   disabled={sending || transcribing}
                 />
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setModelMenuOpen((v) => !v)}
-                    disabled={sending}
+                <Select
+                  value={model}
+                  onValueChange={(value) => {
+                    const next = value as ModelChoice;
+                    setModel(next);
+                    if (typeof window !== "undefined") localStorage.setItem(MODEL_STORAGE_KEY, next);
+                  }}
+                  disabled={sending}
+                >
+                  <SelectTrigger
                     title="Choose which model answers"
-                    aria-haspopup="listbox"
-                    aria-expanded={modelMenuOpen}
-                    className="flex h-[38px] items-center gap-1 rounded-xl border border-zinc-700 bg-zinc-900 px-2.5 text-xs text-zinc-300 transition hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    aria-label="Choose which model answers"
+                    className="h-[38px] w-auto gap-1 rounded-xl border-zinc-700 bg-zinc-900 px-2.5 text-xs text-zinc-300 hover:border-zinc-500"
                   >
-                    {MODEL_OPTIONS.find((m) => m.id === model)?.label || "Auto"}
-                    <ChevronDown className="h-3 w-3 text-zinc-500" />
-                  </button>
-                  {modelMenuOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setModelMenuOpen(false)} />
-                      <div
-                        role="listbox"
-                        className="absolute bottom-full right-0 z-50 mb-1.5 w-40 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 py-1 shadow-2xl"
-                      >
-                        {MODEL_OPTIONS.map((m) => (
-                          <button
-                            key={m.id}
-                            type="button"
-                            role="option"
-                            aria-selected={model === m.id}
-                            onClick={() => {
-                              setModel(m.id);
-                              if (typeof window !== "undefined") localStorage.setItem(MODEL_STORAGE_KEY, m.id);
-                              setModelMenuOpen(false);
-                            }}
-                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition hover:bg-zinc-800 ${
-                              model === m.id ? "text-zinc-100" : "text-zinc-400"
-                            }`}
-                          >
-                            {m.label}
-                            {model === m.id && <Check className="h-3.5 w-3.5 text-[rgb(var(--theme-primary-rgb))]" />}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
+                    <SelectValue placeholder="Auto" />
+                  </SelectTrigger>
+                  <SelectContent className="min-w-[10rem]">
+                    {MODEL_OPTIONS.map((m) => (
+                      <SelectItem key={m.id} value={m.id} className="text-xs">
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {input.trim() ? (
                   <button
                     onClick={() => send(input)}
