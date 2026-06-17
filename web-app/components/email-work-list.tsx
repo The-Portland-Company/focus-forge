@@ -1408,7 +1408,15 @@ export function EmailWorkList({
                     onProjectClick?.(item);
                   }}
                   disabled={isAssigningProject}
-                  className="inline-flex items-center gap-1 break-words rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/70 hover:text-white disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-current"
+                  aria-busy={isAssigningProject}
+                  aria-label={
+                    isAssigningProject
+                      ? "Assigning project…"
+                      : project
+                        ? `Project: ${project.name}. Change project assignment.`
+                        : "Assign a project to this email"
+                  }
+                  className="inline-flex items-center gap-1 break-words rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/70 hover:text-white focus-visible:outline-none focus-visible:ring-2 ring-theme disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-current"
                 >
                   {isAssigningProject ? (
                     <>

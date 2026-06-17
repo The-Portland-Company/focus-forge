@@ -4289,9 +4289,9 @@ export default function ViewPage({
                   <button
                     type="button"
                     onClick={() => setShowMailboxSyncModal(true)}
-                    className="rounded px-1.5 py-0.5 text-xs sm:text-[11px] text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+                    className="rounded px-1.5 py-0.5 text-xs sm:text-[11px] text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 ring-theme"
                     title="View connected mailboxes and last sync times"
-                    aria-label="View connected mailboxes and last sync times"
+                    aria-label={`Synced ${formatRelativeSync(lastMailboxSync)}. Open connected mailboxes and last sync times.`}
                   >
                     Synced {formatRelativeSync(lastMailboxSync)}
                   </button>
@@ -4316,8 +4316,9 @@ export default function ViewPage({
                           setSyncingMailboxes(false);
                         }
                       }}
-                      className="rounded-md border border-zinc-700 p-2 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                      aria-label="Sync mailboxes now"
+                      className="rounded-md border border-zinc-700 p-2 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white focus-visible:outline-none focus-visible:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label={syncingMailboxes ? "Syncing mailboxes…" : "Sync mailboxes now"}
+                      aria-busy={syncingMailboxes}
                     >
                       <RefreshCw
                         className={`h-4 w-4 ${syncingMailboxes ? "animate-spin" : ""}`}
@@ -4421,7 +4422,12 @@ export default function ViewPage({
                   </Select>
                 )}
               </div>
-              <div className="mt-2">
+              <div
+                className="mt-2"
+                role="region"
+                aria-label="Email work for today"
+                aria-busy={isDataLoading || isRefreshing}
+              >
                 {isDataLoading ? (
                   <SkeletonTaskList count={3} />
                 ) : (
