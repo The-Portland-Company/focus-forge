@@ -69,6 +69,8 @@ type EmailWorkListProps = {
   projectSearchQuery?: string;
   filteredProjects?: Project[];
   isProjectActionBusy?: boolean;
+  /** Thread id whose project assignment is currently saving (server in flight). */
+  assigningProjectThreadId?: string | null;
   isCreatingProject?: boolean;
   onProjectSearchQueryChange?: (value: string) => void;
   onProjectPickerSelect?: (item: InboxItem, projectId: string) => void;
@@ -686,6 +688,7 @@ export function EmailWorkList({
   projectSearchQuery = "",
   filteredProjects = [],
   isProjectActionBusy = false,
+  assigningProjectThreadId = null,
   isCreatingProject = false,
   onProjectSearchQueryChange,
   onProjectPickerSelect,
@@ -906,6 +909,7 @@ export function EmailWorkList({
           (candidate) => candidate.id === item.projectId,
         );
         const isProjectPickerOpen = activeProjectPickerThreadId === item.id;
+        const isAssigningProject = assigningProjectThreadId === item.id;
         const sender = getPrimarySenderParticipant(item.participants);
         const senderName = formatParticipantName(sender);
         const recipientChips = getRecipientChips(item.participants);
@@ -1318,9 +1322,15 @@ export function EmailWorkList({
                     event.stopPropagation();
                     onProjectClick?.(item);
                   }}
-                  className="inline-flex items-center gap-1 break-words rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/70 hover:text-white"
+                  disabled={isAssigningProject}
+                  className="inline-flex items-center gap-1 break-words rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/70 hover:text-white disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-current"
                 >
-                  {project ? (
+                  {isAssigningProject ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
+                      <span className="text-zinc-500">Assigning…</span>
+                    </>
+                  ) : project ? (
                     <>
                       <span
                         className="inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] px-1 text-xs sm:text-[9px] font-semibold uppercase tracking-wide text-black"

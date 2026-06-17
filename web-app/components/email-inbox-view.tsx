@@ -1303,6 +1303,9 @@ export function EmailInboxView({
   const [inlineProjectPickerThreadId, setInlineProjectPickerThreadId] =
     useState<string | null>(null);
   const [inlineProjectSearchQuery, setInlineProjectSearchQuery] = useState("");
+  const [assigningProjectThreadId, setAssigningProjectThreadId] = useState<
+    string | null
+  >(null);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [replyContent, setReplyContent] = useState("");
   const [replyAttachments, setReplyAttachments] = useState<
@@ -3022,6 +3025,7 @@ export function EmailInboxView({
   const handleProjectAssign = async (threadId: string, projectId: string) => {
     if (!threadId) return;
     setBusyState("project");
+    setAssigningProjectThreadId(threadId);
     try {
       const response = await fetch(`/api/email/threads/${threadId}/project`, {
         method: "PUT",
@@ -3044,6 +3048,7 @@ export function EmailInboxView({
       );
     } finally {
       setBusyState(null);
+      setAssigningProjectThreadId(null);
     }
   };
 
@@ -4770,6 +4775,7 @@ export function EmailInboxView({
                 projectSearchQuery={inlineProjectSearchQuery}
                 filteredProjects={filteredInlineInboxProjects}
                 isProjectActionBusy={busyState === "project"}
+                assigningProjectThreadId={assigningProjectThreadId}
                 isCreatingProject={isCreatingProject}
                 onSelect={handleSelectThread}
                 onSenderClick={(sender) => setSenderHistory(sender)}
