@@ -7,6 +7,7 @@ import { isOverdue, isToday, isTomorrow, isRestOfWeek } from "@/lib/date-utils";
 import { richTextToPlainText } from "@/lib/rich-text";
 import { SupabaseAdapter } from "@/lib/db/supabase-adapter";
 import { attachDominoAndSort } from "@/lib/daily-plan/domino";
+import { isForceReplan, shouldUseCache } from "@/lib/daily-plan/cache";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,22 @@ export async function POST(request: NextRequest) {
     typeof body?.date === "string" && body.date.trim()
       ? body.date.trim()
       : todayDateString();
+
+  // Server-side per-user/day cache. Unless the caller explicitly forces a
+  // replan, return the cached plan for (user, requestedDate) directly — this is
+  // the cross-device source of truth, so a second device never re-runs the AI.
+  const force = isForceReplan(body);
+  if (!force) {
+    const { data: cachedRow } = await (auth.supabase as any)
+      .from("daily_plan_cache")
+      .select("plan")
+      .eq("user_id", auth.user.id)
+      .eq("plan_date", requestedDate)
+      .maybeSingle();
+    if (shouldUseCache(force, Boolean((cachedRow as any)?.plan))) {
+      return NextResponse.json((cachedRow as any).plan);
+    }
+  }
 
   // Fetch profile capacity
   const { data: profileRow } = await auth.supabase
@@ -194,9 +211,31 @@ export async function POST(request: NextRequest) {
     : [];
   const trimToCapacity = Boolean(body?.trimToCapacity);
 
+  // Persist a successful plan to the server-side cache (cross-device source of
+  // truth). Upsert on (user_id, plan_date) so a Replan overwrites the row.
+  // Only ever called with successful plans — never error responses. Non-fatal:
+  // a cache write failure must not break plan delivery.
+  const cachePlan = async (plan: unknown): Promise<void> => {
+    try {
+      await (auth.supabase as any)
+        .from("daily_plan_cache")
+        .upsert(
+          {
+            user_id: auth.user.id,
+            plan_date: requestedDate,
+            plan,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id,plan_date" },
+        );
+    } catch {
+      /* non-fatal */
+    }
+  };
+
   // Short-circuit if nothing to plan
   if (planTasks.length === 0 && planInboxItems.length === 0) {
-    return NextResponse.json({
+    const emptyPlan = {
       date: requestedDate,
       capacityMinutes,
       plannedMinutes: 0,
@@ -205,7 +244,9 @@ export async function POST(request: NextRequest) {
       deferred: [],
       estimatesProposed: [],
       generatedAt: new Date().toISOString(),
-    });
+    };
+    await cachePlan(emptyPlan);
+    return NextResponse.json(emptyPlan);
   }
 
   try {
@@ -219,6 +260,7 @@ export async function POST(request: NextRequest) {
       timeBlocks: planBlocks,
       pinnedTaskIds,
     });
+    await cachePlan(plan);
     return NextResponse.json(plan);
   } catch (error) {
     return NextResponse.json(

@@ -504,3 +504,19 @@ CREATE INDEX IF NOT EXISTS idx_stake_extraction_examples_user_created
   ON public.stake_extraction_examples (user_id, created_at DESC);
 
 ALTER TABLE public.stake_extraction_examples ENABLE ROW LEVEL SECURITY;
+
+-- daily_plan_cache — server-side per-user/day cache of the generated Daily Plan.
+CREATE TABLE IF NOT EXISTS public.daily_plan_cache (
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  plan_date DATE NOT NULL,
+  plan JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, plan_date)
+);
+
+ALTER TABLE public.daily_plan_cache ENABLE ROW LEVEL SECURITY;
+
+DROP TRIGGER IF EXISTS update_daily_plan_cache_updated_at ON public.daily_plan_cache;
+CREATE TRIGGER update_daily_plan_cache_updated_at BEFORE UPDATE ON public.daily_plan_cache
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
