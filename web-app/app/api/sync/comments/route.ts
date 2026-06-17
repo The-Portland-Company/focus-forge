@@ -207,12 +207,18 @@ export async function POST(request: NextRequest) {
       return createErrorResponse("Forbidden", 403);
     }
 
+    // The `comment_parent` CHECK constraint requires exactly one of task_id /
+    // project_id to be set. A task comment must therefore have a NULL
+    // project_id even when the client also sends a projectId. Prefer taskId.
+    const targetTaskId = taskId;
+    const targetProjectId = taskId ? null : projectId;
+
     const { data: comment, error } = await admin
       .from("comments")
       .insert({
         content,
-        task_id: taskId,
-        project_id: projectId,
+        task_id: targetTaskId,
+        project_id: targetProjectId,
         user_id: userId,
         is_deleted: false,
         created_at: new Date().toISOString(),
