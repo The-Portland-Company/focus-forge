@@ -314,11 +314,24 @@ export function AiPlannerFloatingChat({
     if (projectName) params.set("projectName", projectName);
     if (view) params.set("view", view);
     const qs = params.toString();
-    window.open(
-      `/assistant${qs ? `?${qs}` : ""}`,
+    const url = `/assistant${qs ? `?${qs}` : ""}`;
+    const popup = window.open(
+      url,
       "focusforge-assistant",
       "width=460,height=760,menubar=no,toolbar=no,location=no,status=no",
     );
+    // Guard for popup-blocked: fall back to opening in a new tab, and if that's
+    // also blocked, leave the floating widget open and surface a toast.
+    if (!popup || popup.closed || typeof popup.closed === "undefined") {
+      const tab = window.open(url, "_blank");
+      if (!tab) {
+        showError(
+          "Pop-out blocked",
+          "Allow pop-ups for this site to open the assistant in a separate window.",
+        );
+        return;
+      }
+    }
     setIsOpen(false);
   };
 
