@@ -1,7 +1,13 @@
 "use client";
 
 import * as Popover from "@radix-ui/react-popover";
-import { useRef, useState, type CSSProperties, type MouseEvent } from "react";
+import {
+  Fragment,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+} from "react";
 import {
   Check,
   ChevronDown,
@@ -166,6 +172,44 @@ export function getRelativeDayLabel(
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
   return null;
+}
+
+/** Resolves the timestamp an inbox row is keyed on, preferring the most
+ *  meaningful "when did this happen" source. Shared by the row timestamp and
+ *  the day-group section separators so both bucket on the same instant. */
+export function getInboxItemTimestampSource(
+  item: Pick<
+    InboxItem,
+    | "createdAt"
+    | "latestInboundAt"
+    | "latestMessageAt"
+    | "latestOutboundAt"
+    | "updatedAt"
+  >,
+) {
+  return (
+    item.createdAt ||
+    item.latestInboundAt ||
+    item.latestMessageAt ||
+    item.latestOutboundAt ||
+    item.updatedAt
+  );
+}
+
+/** Full-width day-group separator: a centered uppercase label flanked by hair
+ *  lines that span the remaining width on both sides (e.g. "—— Today ——"). */
+export function InboxDaySeparator({ label }: { label: string }) {
+  return (
+    <div
+      role="separator"
+      aria-label={label}
+      className="flex items-center gap-3 px-1 pt-1 text-[10px] font-semibold uppercase leading-none tracking-[0.18em] text-zinc-500 select-none"
+    >
+      <span className="h-px flex-1 bg-zinc-700/60" />
+      <span>{label}</span>
+      <span className="h-px flex-1 bg-zinc-700/60" />
+    </div>
+  );
 }
 
 export function formatEmailSubject(subject: string) {
@@ -912,7 +956,21 @@ export function EmailWorkList({
   return (
     <>
       <div className="space-y-2">
-        {items.map((item) => {
+        {items.map((item, itemIndex) => {
+        // Day-group separator: emit a full-width "Today"/"Yesterday" divider
+        // before the first row whose relative day differs from the row above.
+        // Inbox rows are ordered newest-first, so each bucket is contiguous.
+        const relativeDay = getRelativeDayLabel(
+          getInboxItemTimestampSource(item),
+        );
+        const previousRelativeDay =
+          itemIndex > 0
+            ? getRelativeDayLabel(
+                getInboxItemTimestampSource(items[itemIndex - 1]),
+              )
+            : null;
+        const showDaySeparator =
+          relativeDay !== null && relativeDay !== previousRelativeDay;
         const isSelected = selectedId === item.id;
         const isVisuallyUnread = getEmailWorkVisualUnreadState({
           isSelected,
@@ -962,8 +1020,11 @@ export function EmailWorkList({
         );
 
         return (
+          <Fragment key={item.id}>
+          {showDaySeparator && relativeDay ? (
+            <InboxDaySeparator label={relativeDay} />
+          ) : null}
           <div
-            key={item.id}
             role="button"
             tabIndex={0}
             onMouseEnter={() => ensureThreadAttachments(item.id)}
@@ -1193,30 +1254,20 @@ export function EmailWorkList({
                     earliest available activity timestamp if createdAt is
                     missing. */}
                 {(() => {
-                  const tsSource =
-                    item.createdAt ||
-                    item.latestInboundAt ||
-                    item.latestMessageAt ||
-                    item.latestOutboundAt ||
-                    item.updatedAt;
+                  // Day grouping now lives in the full-width section separators
+                  // (see InboxDaySeparator), so the row shows only the raw
+                  // timestamp — no inline Today/Yesterday pill.
+                  const tsSource = getInboxItemTimestampSource(item);
                   const ts = formatThreadTimestamp(tsSource);
-                  const relativeDay = getRelativeDayLabel(tsSource);
                   return ts ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      {relativeDay ? (
-                        <span className="rounded-full bg-[rgb(var(--theme-primary-rgb))] px-1.5 py-0.5 text-xs sm:text-[10px] font-semibold uppercase leading-none tracking-wide text-white">
-                          {relativeDay}
-                        </span>
-                      ) : null}
-                      <span
-                        className={cn(
-                          "whitespace-nowrap text-xs sm:text-[11px] tabular-nums",
-                          isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
-                        )}
-                        title={tsSource ?? undefined}
-                      >
-                        {ts}
-                      </span>
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1.5 whitespace-nowrap text-xs sm:text-[11px] tabular-nums",
+                        isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
+                      )}
+                      title={tsSource ?? undefined}
+                    >
+                      {ts}
                     </span>
                   ) : null;
                 })()}
@@ -1565,6 +1616,7 @@ export function EmailWorkList({
               ) : null}
             </div>
           </div>
+          </Fragment>
         );
         })}
       </div>
