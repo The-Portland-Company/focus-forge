@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
+import { writeAuditLog } from '@/lib/audit/log'
 
 async function cleanupPendingUserIfOrphaned(userId: string) {
   const supabaseAdmin = getAdminClient()
@@ -162,6 +164,28 @@ export async function POST(request: NextRequest) {
 
       if (userOrgError) {
         throw userOrgError
+      }
+
+      // Audit the org member removal (best-effort, after the delete succeeded).
+      // Uses the authed, RLS-scoped client so the audit_logs INSERT policy
+      // (org membership) applies; the actor is the requesting user.
+      try {
+        const authed = await createClient()
+        const {
+          data: { session },
+        } = await authed.auth.getSession()
+        if (session?.user) {
+          await writeAuditLog(authed, {
+            organizationId,
+            actorUserId: session.user.id,
+            action: 'member.remove',
+            entityType: 'member',
+            entityId: userId,
+            metadata: { email: profile.email ?? null },
+          })
+        }
+      } catch (auditError) {
+        console.error('cancel-invite audit hook failed:', auditError)
       }
     }
 

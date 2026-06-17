@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { Database, DatabaseAdapter } from "./types";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
+import { writeAuditLog as writeAuditLogEntry } from "@/lib/audit/log";
+import type { AuditLogEntry } from "@/lib/audit/log";
 
 type OrganizationInput = {
   name?: string;
@@ -328,6 +330,26 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
     if (error) throw error;
     return { batchId: data };
+  }
+
+  /**
+   * Best-effort append to public.audit_logs via this adapter's authed,
+   * RLS-scoped client. Never throws — an audit failure must not break the
+   * caller's primary (already-completed) action. Defaults the actor to the
+   * adapter's authed user when not supplied.
+   */
+  async writeAuditLog(
+    entry: Omit<AuditLogEntry, "actorUserId"> & {
+      actorUserId?: string | null;
+    },
+  ): Promise<void> {
+    await writeAuditLogEntry(this.supabase, {
+      ...entry,
+      actorUserId:
+        entry.actorUserId === undefined
+          ? this.userId
+          : entry.actorUserId,
+    });
   }
 
   async restoreEntity(batchId: string): Promise<{ restored: number }> {

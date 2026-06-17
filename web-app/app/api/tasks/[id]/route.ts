@@ -241,6 +241,20 @@ export async function DELETE(
     const params = await props.params;
     const supabase = await createClient();
 
+    // Snapshot the task (org via its project + name) for the audit entry
+    // before the soft-delete runs. Best-effort: a failure here is ignored.
+    const { data: taskRow } = (await (supabase as any)
+      .from("tasks")
+      .select("name,project_id,projects(organization_id)")
+      .eq("id", params.id)
+      .maybeSingle()) as {
+      data: {
+        name: string | null;
+        project_id: string | null;
+        projects: { organization_id: string | null } | null;
+      } | null;
+    };
+
     const { data: batchId, error } = await supabase.rpc("soft_delete_entity", {
       p_entity_type: "task",
       p_entity_id: params.id,
@@ -248,6 +262,22 @@ export async function DELETE(
 
     if (error) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+
+    const organizationId = taskRow?.projects?.organization_id ?? null;
+    if (organizationId) {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const adapter = new SupabaseAdapter(supabase, session?.user?.id ?? "");
+      await adapter.writeAuditLog({
+        organizationId,
+        actorUserId: session?.user?.id ?? null,
+        action: "task.delete",
+        entityType: "task",
+        entityId: params.id,
+        metadata: { name: taskRow?.name ?? null, batchId },
+      });
     }
 
     return NextResponse.json({ success: true, batchId });
