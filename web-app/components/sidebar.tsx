@@ -1332,7 +1332,8 @@ export function Sidebar({
                 >
                   <MoreHorizontal className="w-5 h-5 text-zinc-400 group-hover/trigger:text-white transition-colors" />
                 </button>
-                <div className="absolute right-1 flex items-center gap-1 opacity-0 pointer-events-none translate-x-1 transition-all duration-150 group-hover/header-actions:opacity-100 group-hover/header-actions:pointer-events-auto group-hover/header-actions:translate-x-0 group-focus-within/header-actions:opacity-100 group-focus-within/header-actions:pointer-events-auto group-focus-within/header-actions:translate-x-0">
+                <div className="absolute right-1 flex flex-col items-end gap-1 opacity-0 pointer-events-none translate-x-1 transition-all duration-150 group-hover/header-actions:opacity-100 group-hover/header-actions:pointer-events-auto group-hover/header-actions:translate-x-0 group-focus-within/header-actions:opacity-100 group-focus-within/header-actions:pointer-events-auto group-focus-within/header-actions:translate-x-0">
+                  <div className="flex items-center gap-1">
                   {/* Nav-reorder Edit/Done toggle, relocated here from the
                       top of <nav>. Toggles navEditMode; the reorderable nav
                       rows pick up the change via NavReorderWrapper. */}
@@ -1386,9 +1387,10 @@ export function Sidebar({
                   >
                     <ChevronLeft className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
                   </button>
+                  </div>
                   {/* System / Dark / Light mode switch, relocated here from the
-                      sidebar footer. Revealed alongside the other header actions
-                      when the "..." menu is opened. */}
+                      sidebar footer. Revealed BELOW the other header actions
+                      (second row) when the "..." menu is opened. */}
                   <ThemeModeToggle />
                 </div>
               </div>
