@@ -8,6 +8,15 @@ export function mergeDatabasePayload(
     preserveEmailData?: boolean;
   } = {},
 ): Database {
+  // A server-seeded payload can omit email-related collections (they're loaded
+  // client-side later). Normalize them to arrays so views that map/reduce over
+  // database.mailboxes / database.inboxItems never crash on `undefined`.
+  next = {
+    ...next,
+    mailboxes: next.mailboxes ?? [],
+    inboxItems: next.inboxItems ?? [],
+  };
+
   const shouldPreserveInboxItems =
     (options.preserveInboxItems || options.preserveEmailData) &&
     previous &&
