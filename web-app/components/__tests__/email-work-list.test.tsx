@@ -13,6 +13,7 @@ import {
   getRecipientTooltipContent,
   getProjectBadgeLabel,
   formatParticipantName,
+  getSenderEmailTooltip,
   formatParticipantLine,
   normalizeRecipients,
   getRecipientChips,
@@ -266,6 +267,44 @@ test("formatParticipantName uses 'Unknown sender' only when name AND email are m
     "Unknown sender",
   );
   assert.equal(formatParticipantName(null), "Unknown sender");
+});
+
+test("getSenderEmailTooltip reveals the email only when it differs from the displayed name", () => {
+  // Has a display name -> tooltip reveals the underlying email.
+  assert.equal(
+    getSenderEmailTooltip(
+      {
+        id: "from-1",
+        emailAddress: "dan@example.com",
+        displayName: "Dan Clemens",
+        participantRole: "from",
+      } as any,
+      "Dan Clemens",
+    ),
+    "dan@example.com",
+  );
+  // Displayed name already IS the email -> skip the redundant tooltip.
+  assert.equal(
+    getSenderEmailTooltip(
+      {
+        id: "from-2",
+        emailAddress: "dan@example.com",
+        displayName: null,
+        participantRole: "from",
+      } as any,
+      "dan@example.com",
+    ),
+    null,
+  );
+  // No email and no participant -> nothing to reveal.
+  assert.equal(
+    getSenderEmailTooltip(
+      { id: "from-3", emailAddress: "", displayName: "Dan", participantRole: "from" } as any,
+      "Dan",
+    ),
+    null,
+  );
+  assert.equal(getSenderEmailTooltip(null, "Unknown sender"), null);
 });
 
 test("getPrimarySenderParticipant + formatParticipantName recover the address from a raw From header", () => {
