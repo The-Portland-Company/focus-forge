@@ -22,6 +22,14 @@ export type AgentToolContext = {
   userId: string;
   /** Project ids the user can read/write, resolved from org membership. */
   accessibleProjectIds: Set<string>;
+  /**
+   * IANA timezone of the acting user's browser (e.g. "America/Los_Angeles").
+   * The Today view computes "today" in the browser's local timezone; the API
+   * host is typically UTC, so without this the agent's date-based filters drift
+   * a calendar day and miss tasks the user can plainly see. Optional; falls
+   * back to the server's local date when absent.
+   */
+  timezone?: string | null;
 };
 
 export type AgentToolResult = {
@@ -77,7 +85,26 @@ function shapeTask(row: any) {
   };
 }
 
-function todayStr(): string {
+/**
+ * Today's calendar date as YYYY-MM-DD. When a valid IANA timezone is supplied
+ * (the acting user's browser tz), the date is computed in that zone so the
+ * agent agrees with the client-rendered Today view. Falls back to the server's
+ * local date if tz is absent or invalid.
+ */
+function todayStr(tz?: string | null): string {
+  if (tz) {
+    try {
+      // en-CA yields YYYY-MM-DD; the timeZone option does the zone shift.
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
+    } catch {
+      // Invalid timezone identifier — fall through to server-local date.
+    }
+  }
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -442,7 +469,7 @@ async function listTasks(ctx: AgentToolContext, args: Record<string, any>): Prom
     query = query.ilike("name", `%${args.search.trim()}%`);
   }
 
-  const today = todayStr();
+  const today = todayStr(ctx.timezone);
   switch (args.dueFilter) {
     case "overdue":
       query = query.lt("due_date", today).not("due_date", "is", null);
@@ -588,7 +615,7 @@ function addDays(dateStr: string, days: number): string {
 }
 
 async function getDailyCapacity(ctx: AgentToolContext): Promise<AgentToolResult> {
-  const today = todayStr();
+  const today = todayStr(ctx.timezone);
   const { data: profile } = await ctx.admin
     .from("profiles")
     .select("daily_capacity_minutes")
@@ -616,7 +643,7 @@ async function getDailyCapacity(ctx: AgentToolContext): Promise<AgentToolResult>
 
 async function listTodayCandidates(ctx: AgentToolContext): Promise<AgentToolResult> {
   if (ctx.accessibleProjectIds.size === 0) return { ok: true, data: { candidates: [] } };
-  const today = todayStr();
+  const today = todayStr(ctx.timezone);
   const horizon = addDays(today, 7);
 
   const { data, error } = await ctx.admin
@@ -657,7 +684,7 @@ async function addTaskToToday(ctx: AgentToolContext, args: Record<string, any>):
   if (!task) return { ok: false, error: "Task not found or not accessible." };
   const { data, error } = await ctx.admin
     .from("tasks")
-    .update({ due_date: todayStr(), updated_at: new Date().toISOString() })
+    .update({ due_date: todayStr(ctx.timezone), updated_at: new Date().toISOString() })
     .eq("id", task.id)
     .select(TASK_SELECT)
     .single();

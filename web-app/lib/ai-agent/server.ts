@@ -11,6 +11,8 @@ export type AgentPageContext = {
   projectId?: string | null;
   projectName?: string | null;
   visibleTaskCount?: number | null;
+  /** IANA timezone of the user's browser, so the prompt's "today" matches the UI. */
+  timezone?: string | null;
 };
 
 export type AgentRunResult = {
@@ -24,7 +26,19 @@ export type AgentRunResult = {
 
 function buildSystemPrompt(page: AgentPageContext): string {
   const today = new Date();
-  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  let dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  if (page.timezone) {
+    try {
+      dateStr = new Intl.DateTimeFormat("en-CA", {
+        timeZone: page.timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(today);
+    } catch {
+      // Invalid timezone — keep the server-local date computed above.
+    }
+  }
 
   const pageLines: string[] = [];
   if (page.view) pageLines.push(`- Current view: ${page.view}`);
