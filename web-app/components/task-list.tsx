@@ -294,7 +294,11 @@ export function TaskList({
 
   const copyTaskId = async (taskId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     try {
+      if (!navigator?.clipboard?.writeText) {
+        throw new Error("Clipboard API unavailable");
+      }
       await navigator.clipboard.writeText(taskId);
       setCopiedTaskId(taskId);
       setTimeout(() => setCopiedTaskId(null), 1500);
@@ -771,9 +775,11 @@ export function TaskList({
         <div className="relative flex flex-shrink-0 items-center justify-center">
           <span className="relative group/copyid flex items-center justify-center">
             <button
+              type="button"
               onClick={(e) => copyTaskId(task.id, e)}
               className="text-zinc-600 hover:text-[rgb(var(--theme-primary-rgb))] transition-colors"
               aria-label="Copy task ID"
+              title="Copy task ID"
             >
               <Hash className="w-4 h-4" />
             </button>
