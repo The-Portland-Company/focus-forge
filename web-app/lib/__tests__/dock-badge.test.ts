@@ -5,6 +5,7 @@ import {
   computeUnreadBadgeCount,
   getDockBadgeDocumentTitle,
   normalizeDockBadgeCount,
+  shouldPromptForBadgePermission,
 } from "../dock-badge";
 import type { InboxItem } from "../types";
 
@@ -66,4 +67,67 @@ test("normalizeDockBadgeCount clamps invalid badge values to zero", () => {
 test("getDockBadgeDocumentTitle prefixes unread counts", () => {
   assert.equal(getDockBadgeDocumentTitle(0), "Focus: Forge");
   assert.equal(getDockBadgeDocumentTitle(12), "(12) Focus: Forge");
+});
+
+test("shouldPromptForBadgePermission prompts only when standalone, default, and not yet asked", () => {
+  assert.equal(
+    shouldPromptForBadgePermission({
+      standalone: true,
+      permission: "default",
+      alreadyPrompted: false,
+    }),
+    true,
+  );
+});
+
+test("shouldPromptForBadgePermission never prompts outside an installed web app", () => {
+  assert.equal(
+    shouldPromptForBadgePermission({
+      standalone: false,
+      permission: "default",
+      alreadyPrompted: false,
+    }),
+    false,
+  );
+});
+
+test("shouldPromptForBadgePermission skips when already granted or denied", () => {
+  assert.equal(
+    shouldPromptForBadgePermission({
+      standalone: true,
+      permission: "granted",
+      alreadyPrompted: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldPromptForBadgePermission({
+      standalone: true,
+      permission: "denied",
+      alreadyPrompted: false,
+    }),
+    false,
+  );
+});
+
+test("shouldPromptForBadgePermission skips when the prompt flag is already set", () => {
+  assert.equal(
+    shouldPromptForBadgePermission({
+      standalone: true,
+      permission: "default",
+      alreadyPrompted: true,
+    }),
+    false,
+  );
+});
+
+test("shouldPromptForBadgePermission tolerates an undefined permission", () => {
+  assert.equal(
+    shouldPromptForBadgePermission({
+      standalone: true,
+      permission: undefined,
+      alreadyPrompted: false,
+    }),
+    false,
+  );
 });

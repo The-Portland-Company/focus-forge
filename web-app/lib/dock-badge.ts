@@ -54,6 +54,29 @@ export function computeUnreadBadgeCount(items: InboxItem[]): number {
   }, 0);
 }
 
+export const DOCK_BADGE_PROMPT_STORAGE_KEY = "dockBadgeNotifPrompted";
+
+/**
+ * Pure predicate deciding whether to auto-prompt for Notification permission so
+ * the macOS/Safari Badging API works. WebKit silently no-ops `setAppBadge`
+ * unless permission was granted IN THE INSTALLED WEB APP, so we only prompt when
+ * running standalone, when permission is still "default", and when we haven't
+ * already asked (regardless of the prior grant/deny outcome).
+ */
+export function shouldPromptForBadgePermission({
+  standalone,
+  permission,
+  alreadyPrompted,
+}: {
+  standalone: boolean;
+  permission: NotificationPermission | undefined;
+  alreadyPrompted: boolean;
+}): boolean {
+  if (!standalone) return false;
+  if (alreadyPrompted) return false;
+  return permission === "default";
+}
+
 export function publishDockBadgeCount(count: number) {
   if (typeof window === "undefined") {
     return;
