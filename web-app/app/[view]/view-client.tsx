@@ -652,6 +652,19 @@ export default function ViewPage({
   const [dominoRationaleByTaskId, setDominoRationaleByTaskId] = useState<
     Record<string, string>
   >({});
+  // Stable identity: DailyPlanCard's effect depends on this callback, so an
+  // inline function here would re-fire the effect every render → setState →
+  // re-render → infinite loop (React #185). useCallback breaks that cycle.
+  const handlePlanLoaded = useCallback(
+    (maps: {
+      dominoByTaskId: Record<string, DominoTaskSummary>;
+      dominoRationaleByTaskId: Record<string, string>;
+    }) => {
+      setDominoByTaskId(maps.dominoByTaskId);
+      setDominoRationaleByTaskId(maps.dominoRationaleByTaskId);
+    },
+    [],
+  );
   const [todaySections, setTodaySections] = useState({
     email: true,
     overdue: true,
@@ -4239,10 +4252,7 @@ export default function ViewPage({
                     .then(() => fetchData())
                     .catch(() => undefined);
                 }}
-                onPlanLoaded={({ dominoByTaskId, dominoRationaleByTaskId }) => {
-                  setDominoByTaskId(dominoByTaskId);
-                  setDominoRationaleByTaskId(dominoRationaleByTaskId);
-                }}
+                onPlanLoaded={handlePlanLoaded}
                 onConvertInboxToTask={(inboxItemId) => {
                   void fetch(
                     `/api/email/threads/${inboxItemId}/actions`,
