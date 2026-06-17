@@ -126,14 +126,17 @@ export function DailyPlanCard({
   // usage by re-running. Keyed on today's local date.
   const todayKey = useMemo(() => dailyPlanStorageKey(), []);
 
-  const fetchPlan = useCallback(async () => {
+  const fetchPlan = useCallback(async (options?: { force?: boolean }) => {
+    const force = options?.force === true;
     setLoading(true);
     setError(null);
     try {
       const response = await fetch("/api/daily-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        // Normal fetch sends no force so it uses the server cache; Replan sends
+        // force:true to bypass both localStorage AND the server cache.
+        body: JSON.stringify(force ? { force: true } : {}),
       });
       if (!response.ok) {
         const errorPayload = await response.json().catch(() => ({}));
@@ -181,7 +184,7 @@ export function DailyPlanCard({
     } catch {
       /* ignore */
     }
-    void fetchPlan();
+    void fetchPlan({ force: true });
   }, [fetchPlan, todayKey]);
 
   // When the planner errors with a provider billing/quota issue, surface a
@@ -473,7 +476,7 @@ export function DailyPlanCard({
             ) : null}
             <button
               type="button"
-              onClick={fetchPlan}
+              onClick={() => fetchPlan()}
               className="ml-2 inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950/40 px-2.5 py-1 text-xs text-zinc-300 hover:border-zinc-600"
             >
               <RefreshCw className="h-3 w-3" /> Try again
@@ -502,7 +505,7 @@ export function DailyPlanCard({
               <Tooltip content="Generate plan" side="top" align="end" className="shrink-0">
                 <button
                   type="button"
-                  onClick={fetchPlan}
+                  onClick={() => fetchPlan()}
                   disabled={loading}
                   aria-label="Generate plan"
                   className="inline-flex items-center justify-center rounded-md bg-theme-gradient p-2 text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
