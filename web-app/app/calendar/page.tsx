@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { TimeBlock, Task } from '@/lib/types'
 import { format, startOfDay, addDays, parseISO, isSameDay } from 'date-fns'
-import { Trash2, Plus, Clock, Calendar, GripVertical } from 'lucide-react'
+import { Trash2, Plus, Clock, Calendar, GripVertical, Rss, Copy, Check, X } from 'lucide-react'
 import { useToast } from '@/contexts/ToastContext'
 import { CalendarChat } from '@/components/calendar-chat'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -19,6 +19,58 @@ export default function CalendarPage() {
   const [draggedTask, setDraggedTask] = useState<Task | null>(null)
   const [dragOverBlock, setDragOverBlock] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
+
+  // Calendar Feed (iCal subscription) state
+  const [calendarToken, setCalendarToken] = useState<string | null>(null)
+  const [showCalendarPopover, setShowCalendarPopover] = useState(false)
+  const [calendarCopied, setCalendarCopied] = useState(false)
+  const calendarPopoverRef = useRef<HTMLDivElement>(null)
+
+  // Fetch calendar token on mount
+  useEffect(() => {
+    const fetchToken = async () => {
+      try {
+        const res = await fetch('/api/calendar/token', { credentials: 'include' })
+        if (res.ok) {
+          const data = await res.json()
+          setCalendarToken(data.token)
+        }
+      } catch {}
+    }
+    fetchToken()
+  }, [])
+
+  // Close calendar popover on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (
+        calendarPopoverRef.current &&
+        !calendarPopoverRef.current.contains(e.target as Node)
+      ) {
+        setShowCalendarPopover(false)
+      }
+    }
+    if (showCalendarPopover) {
+      document.addEventListener('mousedown', handleClick)
+    }
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showCalendarPopover])
+
+  const getCalendarFeedUrl = () => {
+    if (!calendarToken) return ''
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+    return `${baseUrl}/api/calendar/feed?token=${calendarToken}`
+  }
+
+  const copyCalendarUrl = async () => {
+    const url = getCalendarFeedUrl()
+    if (!url) return
+    try {
+      await navigator.clipboard.writeText(url)
+      setCalendarCopied(true)
+      setTimeout(() => setCalendarCopied(false), 2000)
+    } catch {}
+  }
 
   // Group time blocks by date
   const groupedBlocks = timeBlocks.reduce((acc, block) => {
@@ -166,9 +218,78 @@ export default function CalendarPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <div className="container mx-auto p-6 max-w-7xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-100">Calendar</h1>
-        <p className="text-gray-400 mt-2">Manage your time blocks and schedule</p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-100">Calendar</h1>
+          <p className="text-gray-400 mt-2">Manage your time blocks and schedule</p>
+        </div>
+        <div className="relative flex-shrink-0" ref={calendarPopoverRef}>
+          <button
+            onClick={() => setShowCalendarPopover(!showCalendarPopover)}
+            className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg transition-colors text-sm"
+          >
+            <Rss className="w-4 h-4" />
+            Calendar Feed
+          </button>
+
+          {/* Calendar Feed Popover */}
+          {showCalendarPopover && (
+            <div className="absolute top-full right-0 mt-2 w-80 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-50 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium text-white flex items-center gap-2">
+                  <Rss className="w-4 h-4" />
+                  iCal Subscription
+                </h4>
+                <button
+                  onClick={() => setShowCalendarPopover(false)}
+                  className="text-zinc-400 hover:text-white transition-colors"
+                >
+                  <span className="sr-only">Close</span>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs text-zinc-400">
+                Subscribe in Google Calendar, Apple Calendar, or any
+                iCal-compatible app.
+              </p>
+              {calendarToken ? (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      readOnly
+                      value={getCalendarFeedUrl()}
+                      className="flex-1 bg-zinc-900 text-zinc-300 text-xs px-2.5 py-2 rounded border border-zinc-600 font-mono truncate"
+                    />
+                    <button
+                      type="button"
+                      onClick={copyCalendarUrl}
+                      className="p-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 hover:text-white rounded transition-colors flex-shrink-0"
+                      title="Copy URL"
+                    >
+                      {calendarCopied ? (
+                        <Check className="w-3.5 h-3.5 text-green-400" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+                  <div className="text-xs sm:text-[11px] text-zinc-500 space-y-0.5">
+                    <p>
+                      <strong>Google:</strong> Settings → Other calendars → From
+                      URL
+                    </p>
+                    <p>
+                      <strong>Apple:</strong> File → New Calendar Subscription
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-zinc-500">Loading...</p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <CalendarChat onUpdate={fetchTimeBlocks} />

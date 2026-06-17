@@ -30,7 +30,6 @@ import {
   LogOut,
   Mail,
   Clock,
-  Rss,
   Copy,
   Check,
   RefreshCw,
@@ -421,10 +420,6 @@ export function Sidebar({
   const [hoveredOrg, setHoveredOrg] = useState<string | null>(null);
   const [copiedOrgId, setCopiedOrgId] = useState<string | null>(null);
   const copyOrgTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [calendarToken, setCalendarToken] = useState<string | null>(null);
-  const [showCalendarPopover, setShowCalendarPopover] = useState(false);
-  const [calendarCopied, setCalendarCopied] = useState(false);
-  const calendarPopoverRef = useRef<HTMLDivElement>(null);
   const [estimateBacklog, setEstimateBacklog] = useState<number>(0);
   const [storageStats, setStorageStats] = useState<
     Array<{ mailboxId: string; label: string; used: number; total: number }>
@@ -700,22 +695,6 @@ export function Sidebar({
     };
   }, []);
 
-  // Fetch calendar token on mount
-  useEffect(() => {
-    const fetchToken = async () => {
-      try {
-        const res = await fetch("/api/calendar/token", {
-          credentials: "include",
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setCalendarToken(data.token);
-        }
-      } catch {}
-    };
-    fetchToken();
-  }, []);
-
   const loadCurrentTimer = async () => {
     try {
       const response = await fetch("/api/v1/time/current", {
@@ -848,38 +827,6 @@ export function Sidebar({
     } finally {
       setTimerSubmitting(false);
     }
-  };
-
-  // Close calendar popover on outside click
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (
-        calendarPopoverRef.current &&
-        !calendarPopoverRef.current.contains(e.target as Node)
-      ) {
-        setShowCalendarPopover(false);
-      }
-    };
-    if (showCalendarPopover) {
-      document.addEventListener("mousedown", handleClick);
-    }
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showCalendarPopover]);
-
-  const getCalendarFeedUrl = () => {
-    if (!calendarToken) return "";
-    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
-    return `${baseUrl}/api/calendar/feed?token=${calendarToken}`;
-  };
-
-  const copyCalendarUrl = async () => {
-    const url = getCalendarFeedUrl();
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCalendarCopied(true);
-      setTimeout(() => setCalendarCopied(false), 2000);
-    } catch {}
   };
 
   // Reorder a parent nav item within navOrder based on the current drag/drop
@@ -2916,18 +2863,9 @@ export function Sidebar({
       {/* Bottom section */}
       <div
         className={`${isCollapsed ? "p-2" : "px-3 py-3"} border-t border-zinc-800 mb-12 relative`}
-        ref={calendarPopoverRef}
       >
         {isCollapsed ? (
           <div className="space-y-1">
-            <Tooltip content="Calendar Feed">
-              <button
-                onClick={() => setShowCalendarPopover(!showCalendarPopover)}
-                className="w-full flex items-center justify-center p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
-              >
-                <Rss className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
-              </button>
-            </Tooltip>
             <Tooltip content="API Docs">
               <Link
                 href="/developer/api"
@@ -2959,13 +2897,6 @@ export function Sidebar({
           </div>
         ) : (
           <div className="space-y-1">
-            <button
-              onClick={() => setShowCalendarPopover(!showCalendarPopover)}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-white transition-colors"
-            >
-              <Rss className="w-4 h-4" />
-              Calendar Feed
-            </button>
             <Link
               href="/developer/api"
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-white transition-colors"
@@ -2980,62 +2911,6 @@ export function Sidebar({
           </div>
         )}
 
-        {/* Calendar Feed Popover */}
-        {showCalendarPopover && (
-          <div className="absolute bottom-full left-0 mb-2 w-80 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-50 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-medium text-white flex items-center gap-2">
-                <Rss className="w-4 h-4" />
-                iCal Subscription
-              </h4>
-              <button
-                onClick={() => setShowCalendarPopover(false)}
-                className="text-zinc-400 hover:text-white transition-colors"
-              >
-                <span className="sr-only">Close</span>×
-              </button>
-            </div>
-            <p className="text-xs text-zinc-400">
-              Subscribe in Google Calendar, Apple Calendar, or any
-              iCal-compatible app.
-            </p>
-            {calendarToken ? (
-              <>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="text"
-                    readOnly
-                    value={getCalendarFeedUrl()}
-                    className="flex-1 bg-zinc-900 text-zinc-300 text-xs px-2.5 py-2 rounded border border-zinc-600 font-mono truncate"
-                  />
-                  <button
-                    type="button"
-                    onClick={copyCalendarUrl}
-                    className="p-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 hover:text-white rounded transition-colors flex-shrink-0"
-                    title="Copy URL"
-                  >
-                    {calendarCopied ? (
-                      <Check className="w-3.5 h-3.5 text-green-400" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                </div>
-                <div className="text-xs sm:text-[11px] text-zinc-500 space-y-0.5">
-                  <p>
-                    <strong>Google:</strong> Settings → Other calendars → From
-                    URL
-                  </p>
-                  <p>
-                    <strong>Apple:</strong> File → New Calendar Subscription
-                  </p>
-                </div>
-              </>
-            ) : (
-              <p className="text-xs text-zinc-500">Loading...</p>
-            )}
-          </div>
-        )}
       </div>
       <Dialog open={isTimerModalOpen} onOpenChange={setIsTimerModalOpen}>
         <DialogContent className="border-zinc-800 bg-zinc-950 text-white sm:max-w-lg">
