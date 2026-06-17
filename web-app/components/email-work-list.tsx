@@ -1102,14 +1102,18 @@ export function EmailWorkList({
                     </Tooltip>
                   </div>
                 ) : null}
-                {/* Thread timestamp on the AI-subject row, right-aligned. */}
+                {/* Thread created (received) date/time on the AI-subject row,
+                    right-aligned. Prefers the thread's createdAt so the row
+                    surfaces when the thread first arrived; falls back to the
+                    earliest available activity timestamp if createdAt is
+                    missing. */}
                 {(() => {
                   const tsSource =
-                    item.latestMessageAt ||
+                    item.createdAt ||
                     item.latestInboundAt ||
+                    item.latestMessageAt ||
                     item.latestOutboundAt ||
-                    item.updatedAt ||
-                    item.createdAt;
+                    item.updatedAt;
                   const ts = formatThreadTimestamp(tsSource);
                   const relativeDay = getRelativeDayLabel(tsSource);
                   return ts ? (

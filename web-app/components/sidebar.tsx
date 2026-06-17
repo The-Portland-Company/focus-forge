@@ -378,8 +378,8 @@ export function Sidebar({
   const router = useRouter();
   // Initialize with collapsed state by default
   const [expandedOrgs, setExpandedOrgs] = useState<string[]>([]);
-  // Email Inbox is an accordion (default open); state persisted in localStorage.
-  const [emailInboxExpanded, setEmailInboxExpanded] = useState<boolean>(true);
+  // Email Inbox is an accordion (default collapsed); state persisted in localStorage.
+  const [emailInboxExpanded, setEmailInboxExpanded] = useState<boolean>(false);
   // "Folders" sub-accordion under Email Inbox (default closed); persisted too.
   const [emailFoldersExpanded, setEmailFoldersExpanded] =
     useState<boolean>(false);
@@ -552,10 +552,12 @@ export function Sidebar({
         setIsCollapsed(true);
       }
 
-      // Load Email Inbox accordion state (default open)
+      // Load Email Inbox accordion state (default collapsed; expand only when
+      // the user previously expanded it). Matches the org-collapse persistence
+      // pattern: a single explicit string flag in localStorage.
       const storedEmailInbox = localStorage.getItem("emailInboxExpanded");
-      if (storedEmailInbox === "false") {
-        setEmailInboxExpanded(false);
+      if (storedEmailInbox === "true") {
+        setEmailInboxExpanded(true);
       }
 
       // Load Email "Folders" sub-accordion state (default closed)
