@@ -3,8 +3,69 @@ import type {
   DailyPlanResponse,
   DominoTaskSummary,
 } from "@/lib/daily-plan/types";
+import { runStructuredWithFallback } from "@/lib/ai-agent/providers";
 
-const PLANNER_MODEL = "gpt-4.1";
+/**
+ * Extract and parse a JSON object from a model completion. OpenAI/xAI JSON modes
+ * return clean JSON, but Anthropic (no json_schema support) may wrap it in prose
+ * or a ```json fence. This parses defensively: try as-is, strip code fences,
+ * then fall back to the first balanced {...} object in the text.
+ *
+ * Exported for unit testing.
+ */
+export function parsePlannerJson(raw: string): any {
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new Error("Daily planner returned empty content");
+  }
+
+  const tryParse = (s: string): any | null => {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  };
+
+  // 1) Direct parse.
+  const direct = tryParse(raw.trim());
+  if (direct && typeof direct === "object") return direct;
+
+  // 2) Strip markdown code fences (```json ... ``` or ``` ... ```).
+  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenceMatch) {
+    const fenced = tryParse(fenceMatch[1].trim());
+    if (fenced && typeof fenced === "object") return fenced;
+  }
+
+  // 3) Extract the first balanced top-level {...} object.
+  const start = raw.indexOf("{");
+  if (start !== -1) {
+    let depth = 0;
+    let inStr = false;
+    let escaped = false;
+    for (let i = start; i < raw.length; i += 1) {
+      const ch = raw[i];
+      if (inStr) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === "{") depth += 1;
+      else if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          const candidate = tryParse(raw.slice(start, i + 1));
+          if (candidate && typeof candidate === "object") return candidate;
+          break;
+        }
+      }
+    }
+  }
+
+  throw new Error("Daily planner returned invalid JSON");
+}
 
 const RESPONSE_SCHEMA = {
   name: "daily_plan_response",
@@ -150,11 +211,6 @@ interface RunDailyPlannerInput {
 export async function runDailyPlanner(
   input: RunDailyPlannerInput,
 ): Promise<DailyPlanResponse> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
-  }
-
   const userMessage = JSON.stringify(
     {
       date: input.resolvedDate,
@@ -168,52 +224,24 @@ export async function runDailyPlanner(
     2,
   );
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: PLANNER_MODEL,
-      temperature: 0.2,
-      response_format: {
-        type: "json_schema",
-        json_schema: RESPONSE_SCHEMA,
-      },
-      messages: [
-        {
-          role: "system",
-          content: getSystemPrompt({
-            date: input.resolvedDate,
-            capacityMinutes: input.capacityMinutes,
-            trimToCapacity: input.trimToCapacity,
-          }),
-        },
-        { role: "user", content: userMessage },
-      ],
+  // Route through the shared OpenAI→Anthropic→xAI fallback chain so a single
+  // provider's quota/outage no longer takes the Today planner down. Structured
+  // JSON is requested per provider (json_schema where supported, json_object /
+  // prompt-enforced JSON otherwise) and parsed defensively below. On all
+  // providers failing, runStructuredWithFallback throws an error whose text
+  // still contains provider/quota wording so the card's billing button fires.
+  const { text: content } = await runStructuredWithFallback({
+    systemPrompt: getSystemPrompt({
+      date: input.resolvedDate,
+      capacityMinutes: input.capacityMinutes,
+      trimToCapacity: input.trimToCapacity,
     }),
+    userMessage,
+    jsonSchema: RESPONSE_SCHEMA as unknown as Record<string, unknown>,
+    temperature: 0.2,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `Daily planner request failed (${response.status}): ${errorText}`,
-    );
-  }
-
-  const payload = await response.json();
-  const content = payload?.choices?.[0]?.message?.content;
-  if (!content || typeof content !== "string") {
-    throw new Error("Daily planner returned empty content");
-  }
-
-  let parsed: any;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error("Daily planner returned invalid JSON");
-  }
+  const parsed = parsePlannerJson(content);
 
   const orderedItems = Array.isArray(parsed?.orderedItems)
     ? parsed.orderedItems
