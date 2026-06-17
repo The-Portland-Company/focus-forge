@@ -6,6 +6,7 @@ import {
   getDockBadgeDocumentTitle,
   normalizeDockBadgeCount,
   shouldPromptForBadgePermission,
+  shouldSyncDockBadge,
 } from "../dock-badge";
 import type { InboxItem } from "../types";
 
@@ -130,4 +131,17 @@ test("shouldPromptForBadgePermission tolerates an undefined permission", () => {
     }),
     false,
   );
+});
+
+test("shouldSyncDockBadge defaults to true when the preference is missing", () => {
+  assert.equal(shouldSyncDockBadge(undefined), true);
+  assert.equal(shouldSyncDockBadge(null), true);
+});
+
+test("shouldSyncDockBadge stays on when explicitly enabled", () => {
+  assert.equal(shouldSyncDockBadge(true), true);
+});
+
+test("shouldSyncDockBadge short-circuits only when explicitly disabled", () => {
+  assert.equal(shouldSyncDockBadge(false), false);
 });

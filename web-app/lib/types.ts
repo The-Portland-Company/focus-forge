@@ -11,6 +11,7 @@ export interface User {
   profileMemoji?: string | null;
   priorityColor?: string; // Custom priority color (default: green)
   animationsEnabled?: boolean;
+  dockBadgeEnabled?: boolean;
   emailDeleteUndoSeconds?: number;
   dailyCapacityMinutes?: number;
   createdAt: string;

@@ -77,6 +77,28 @@ export function shouldPromptForBadgePermission({
   return permission === "default";
 }
 
+/**
+ * Pure predicate gating the DockBadgeSync poller. The Dock badge is on by
+ * default, so anything other than an explicit `false` (including undefined
+ * while the profile is still loading) keeps the badge syncing — existing users
+ * see no change until they explicitly opt out.
+ */
+export function shouldSyncDockBadge(
+  enabled: boolean | null | undefined,
+): boolean {
+  return enabled !== false;
+}
+
+/**
+ * Immediately clear the macOS/Safari/native Dock badge and reset the document
+ * title. This is the explicit "off" path for the per-account Dock badge
+ * preference — it publishes a zero count so every badge surface (Badging API,
+ * Electron, native bridges, in-app listeners) drops the badge at once.
+ */
+export function clearDockBadge() {
+  publishDockBadgeCount(0);
+}
+
 export function publishDockBadgeCount(count: number) {
   if (typeof window === "undefined") {
     return;

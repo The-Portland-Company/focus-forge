@@ -81,6 +81,7 @@ import {
 } from "@/lib/email-inbox/panel-width";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { clearDockBadge } from "@/lib/dock-badge";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,9 @@ export default function SettingsPage() {
   const [themePreset, setThemePreset] =
     useState<ThemePreset>(DEFAULT_THEME_PRESET);
   const [animationsEnabled, setAnimationsEnabled] = useState<boolean | null>(
+    null,
+  );
+  const [dockBadgeEnabled, setDockBadgeEnabled] = useState<boolean | null>(
     null,
   );
   const [emailDeleteUndoSeconds, setEmailDeleteUndoSeconds] = useState<number>(
@@ -563,6 +567,7 @@ export default function SettingsPage() {
         profile.profile_color ||
         "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
       const userAnimations = profile.animations_enabled !== false;
+      const userDockBadge = (profile as any).dock_badge_enabled !== false;
       const userTheme = readStoredThemePreference(
         profile.theme_preset,
         profile.id,
@@ -581,6 +586,7 @@ export default function SettingsPage() {
 
       setProfileColor(userColor);
       setAnimationsEnabled(userAnimations);
+      setDockBadgeEnabled(userDockBadge);
       setThemePreset(userTheme);
       setProfileMemoji(userMemoji);
       setPriorityColor(userPriorityColor);
@@ -602,6 +608,7 @@ export default function SettingsPage() {
     profileMemoji?: string | null;
     priorityColor?: string;
     animationsEnabled?: boolean;
+    dockBadgeEnabled?: boolean;
     emailDeleteUndoSeconds?: number;
     dailyCapacityMinutes?: number;
     emailPanelDefaultWidthPct?: number;
@@ -638,6 +645,9 @@ export default function SettingsPage() {
         }
         if (updates.animationsEnabled !== undefined) {
           profileUpdates.animations_enabled = updates.animationsEnabled;
+        }
+        if (updates.dockBadgeEnabled !== undefined) {
+          profileUpdates.dock_badge_enabled = updates.dockBadgeEnabled;
         }
         if (updates.emailDeleteUndoSeconds !== undefined) {
           profileUpdates.email_delete_undo_seconds =
@@ -1351,6 +1361,32 @@ export default function SettingsPage() {
                     <p className="text-white">Enable animations</p>
                     <p className="text-sm text-zinc-400">
                       Includes swirling gradients and other visual effects
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Dock badge */}
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <h3 className="text-lg font-medium mb-4">Dock badge</h3>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={dockBadgeEnabled ?? true}
+                    onChange={async (e) => {
+                      const enabled = e.target.checked;
+                      setDockBadgeEnabled(enabled);
+                      if (!enabled) {
+                        clearDockBadge();
+                      }
+                      await handleAutoSave({ dockBadgeEnabled: enabled });
+                    }}
+                    className="w-5 h-5 rounded border-zinc-600 bg-zinc-800 text-theme-primary focus:ring-2 focus:ring-theme-primary focus:ring-offset-0 focus:ring-offset-zinc-900"
+                  />
+                  <div>
+                    <p className="text-white">Show Dock badge</p>
+                    <p className="text-sm text-zinc-400">
+                      Show unread/badge count on the app icon
                     </p>
                   </div>
                 </label>

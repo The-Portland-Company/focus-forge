@@ -16,6 +16,7 @@ CREATE TABLE profiles (
   profile_color TEXT DEFAULT '#EA580C',
   profile_memoji TEXT,
   animations_enabled BOOLEAN DEFAULT true,
+  dock_badge_enabled BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

@@ -345,6 +345,7 @@ export type Database = {
         Row: {
           animations_enabled: boolean | null
           created_at: string | null
+          dock_badge_enabled: boolean | null
           email: string
           email_conversation_order: string | null
           email_panel_default_width_pct: number | null
@@ -375,6 +376,7 @@ export type Database = {
         Insert: {
           animations_enabled?: boolean | null
           created_at?: string | null
+          dock_badge_enabled?: boolean | null
           email: string
           email_conversation_order?: string | null
           email_panel_default_width_pct?: number | null
@@ -405,6 +407,7 @@ export type Database = {
         Update: {
           animations_enabled?: boolean | null
           created_at?: string | null
+          dock_badge_enabled?: boolean | null
           email?: string
           email_conversation_order?: string | null
           email_panel_default_width_pct?: number | null
