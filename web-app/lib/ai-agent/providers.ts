@@ -269,6 +269,186 @@ export const PROVIDER_OPTIONS = [
 
 export type ProviderPreference = (typeof PROVIDER_OPTIONS)[number]["id"];
 
+// ---- Structured (JSON) completion across the same provider chain ----
+//
+// The daily planner needs a one-shot, tool-less completion that returns strict
+// JSON — not the multi-round tool-calling loop the agent uses. We reuse the very
+// same OpenAI→Anthropic→xAI ordering and the same quota/outage fall-through
+// semantics, but request structured output per provider:
+//   - OpenAI / xAI (OpenAI-compatible): response_format json_schema when a
+//     schema is supplied, else json_object.
+//   - Anthropic: no json_schema wire support, so we lean on the prompt to demand
+//     strict JSON and let the caller extract/parse defensively.
+// The model tier matches the agent chain (gpt-4.1 / claude-sonnet-4-5 / grok-3).
+
+type StructuredInput = {
+  systemPrompt: string;
+  userMessage: string;
+  /** OpenAI-style json_schema ({ name, strict, schema }). Optional. */
+  jsonSchema?: Record<string, unknown>;
+  temperature?: number;
+};
+
+export type StructuredRunResult = { text: string; provider: string };
+
+interface StructuredProvider {
+  name: string;
+  isConfigured(): boolean;
+  run(input: StructuredInput): Promise<StructuredRunResult>;
+}
+
+function makeOpenAICompatibleStructuredProvider(opts: {
+  name: string;
+  baseUrl: string;
+  model: string;
+  apiKey: () => string | undefined;
+  /** Whether this endpoint supports response_format json_schema. */
+  supportsJsonSchema: boolean;
+}): StructuredProvider {
+  return {
+    name: opts.name,
+    isConfigured: () => Boolean(opts.apiKey()),
+    async run({ systemPrompt, userMessage, jsonSchema, temperature }) {
+      const apiKey = opts.apiKey();
+      if (!apiKey) throw new Error(`${opts.name}: not configured`);
+
+      const responseFormat =
+        jsonSchema && opts.supportsJsonSchema
+          ? { type: "json_schema", json_schema: jsonSchema }
+          : { type: "json_object" };
+
+      const response = await fetch(opts.baseUrl, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: opts.model,
+          temperature: temperature ?? 0.2,
+          response_format: responseFormat,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userMessage },
+          ],
+        }),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`${opts.name} request failed (${response.status}): ${text.slice(0, 400)}`);
+      }
+      const payload = await response.json();
+      const content = payload?.choices?.[0]?.message?.content;
+      if (!content || typeof content !== "string") {
+        throw new Error(`${opts.name}: response missing content`);
+      }
+      return { text: content, provider: opts.name };
+    },
+  };
+}
+
+function makeAnthropicStructuredProvider(opts: {
+  model: string;
+  apiKey: () => string | undefined;
+}): StructuredProvider {
+  return {
+    name: "anthropic",
+    isConfigured: () => Boolean(opts.apiKey()),
+    async run({ systemPrompt, userMessage, temperature }) {
+      const apiKey = opts.apiKey();
+      if (!apiKey) throw new Error("anthropic: not configured");
+
+      // Anthropic has no json_schema response_format; demand strict JSON in the
+      // system prompt and prefill the assistant turn with "{" to force a JSON
+      // object start. The caller parses defensively.
+      const system =
+        systemPrompt +
+        "\n\nReturn ONLY a single valid JSON object that matches the requested schema. " +
+        "No prose, no markdown, no code fences.";
+
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: opts.model,
+          max_tokens: 4096,
+          temperature: temperature ?? 0.2,
+          system,
+          messages: [
+            { role: "user", content: userMessage },
+            { role: "assistant", content: "{" },
+          ],
+        }),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`anthropic request failed (${response.status}): ${text.slice(0, 400)}`);
+      }
+      const payload = await response.json();
+      const blocks: any[] = Array.isArray(payload?.content) ? payload.content : [];
+      const text = blocks
+        .filter((b) => b.type === "text")
+        .map((b) => b.text)
+        .join("");
+      if (!text) throw new Error("anthropic: response missing content");
+      // We prefilled "{", so the model continues from there — re-prepend it.
+      return { text: "{" + text, provider: "anthropic" };
+    },
+  };
+}
+
+function getStructuredProviderChain(): StructuredProvider[] {
+  return [
+    makeOpenAICompatibleStructuredProvider({
+      name: "openai",
+      baseUrl: "https://api.openai.com/v1/chat/completions",
+      model: "gpt-4.1",
+      apiKey: () => process.env.OPENAI_API_KEY,
+      supportsJsonSchema: true,
+    }),
+    makeAnthropicStructuredProvider({
+      model: "claude-sonnet-4-5",
+      apiKey: () => process.env.ANTHROPIC_API_KEY,
+    }),
+    makeOpenAICompatibleStructuredProvider({
+      name: "xai",
+      baseUrl: "https://api.x.ai/v1/chat/completions",
+      model: "grok-3",
+      apiKey: () => process.env.XAI_API_KEY,
+      // xAI is OpenAI-compatible but does not reliably support json_schema; use
+      // json_object mode and rely on the prompt + defensive parsing.
+      supportsJsonSchema: false,
+    }),
+  ];
+}
+
+export async function runStructuredWithFallback(
+  input: StructuredInput,
+): Promise<StructuredRunResult> {
+  const providers = getStructuredProviderChain().filter((p) => p.isConfigured());
+  if (providers.length === 0) {
+    throw new Error(
+      "No AI provider configured (set OPENAI_API_KEY, ANTHROPIC_API_KEY, or XAI_API_KEY)",
+    );
+  }
+
+  const errors: string[] = [];
+  for (const provider of providers) {
+    try {
+      return await provider.run(input);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      errors.push(`${provider.name}: ${msg}`);
+      // Fall through to the next provider for any failure (quota/outage/etc).
+    }
+  }
+
+  // Keep provider + quota wording so daily-plan-card's billingProvider
+  // detection still fires on the surfaced error.
+  throw new Error(`All AI providers failed. ${errors.join(" | ")}`);
+}
+
 export async function runAgentWithFallback(
   input: RunInput,
   preferred?: ProviderPreference,
