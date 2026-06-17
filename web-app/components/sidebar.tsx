@@ -1386,6 +1386,10 @@ export function Sidebar({
                   >
                     <ChevronLeft className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
                   </button>
+                  {/* System / Dark / Light mode switch, relocated here from the
+                      sidebar footer. Revealed alongside the other header actions
+                      when the "..." menu is opened. */}
+                  <ThemeModeToggle />
                 </div>
               </div>
             </>
@@ -2890,10 +2894,6 @@ export function Sidebar({
                 <LogOut className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
               </button>
             </Tooltip>
-            {/* System / Dark / Light mode switch (icon-only rail). */}
-            <div className="pt-1">
-              <ThemeModeToggle collapsed />
-            </div>
           </div>
         ) : (
           <div className="space-y-1">
@@ -2904,10 +2904,6 @@ export function Sidebar({
               <FileCode2 className="w-4 h-4" />
               API Docs
             </Link>
-            {/* System / Dark / Light mode switch. */}
-            <div className="px-1 pt-1">
-              <ThemeModeToggle />
-            </div>
           </div>
         )}
 
