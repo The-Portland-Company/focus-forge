@@ -3535,7 +3535,10 @@ export default function ViewPage({
       const activeWeekTasks = allWeekTasks.filter((task) => !task.completed);
 
       // Most recent mailbox sync across all connected mailboxes.
-      const lastMailboxSync = database.mailboxes.reduce<string | null>((latest, mb) => {
+      // `database.mailboxes` can be undefined when the view is server-seeded
+      // with a payload that omits email data (loaded client-side later), so
+      // guard every access here to avoid crashing the whole Today view.
+      const lastMailboxSync = (database.mailboxes ?? []).reduce<string | null>((latest, mb) => {
         if (!mb.lastSyncedAt) return latest;
         if (!latest) return mb.lastSyncedAt;
         return mb.lastSyncedAt > latest ? mb.lastSyncedAt : latest;
@@ -3544,7 +3547,7 @@ export default function ViewPage({
       // Today → Email Work: the inbox items eligible for Today, filtered by the
       // chosen classification and sorted newest/oldest by the most relevant
       // activity timestamp. Defensive against missing classification/timestamps.
-      const todayEligibleInboxItems = database.inboxItems.filter(
+      const todayEligibleInboxItems = (database.inboxItems ?? []).filter(
         shouldShowInboxItemInToday,
       );
       const todayInboxItems = selectTodayEmailWorkItems(
@@ -3555,7 +3558,7 @@ export default function ViewPage({
           suggestedFilter: todayEmailSuggested,
           mailboxFilter: todayEmailMailbox,
         },
-        database.mailboxes.map((mb) => mb.id),
+        (database.mailboxes ?? []).map((mb) => mb.id),
       );
 
       // Helper: ensure parent tasks appear in sections with their children,

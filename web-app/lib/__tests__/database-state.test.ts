@@ -52,3 +52,25 @@ test("mergeDatabasePayload uses fresh inbox items when they are present", () => 
   assert.deepEqual(merged.inboxItems, next.inboxItems);
   assert.equal(merged.quarantineCount, 4);
 });
+
+test("mergeDatabasePayload normalizes missing mailboxes/inboxItems to arrays", () => {
+  // A server-seeded payload can omit email collections; the Today view maps/
+  // reduces over database.mailboxes, so undefined here previously crashed it.
+  const next = { tasks: [], projects: [], organizations: [] } as any;
+  const merged = mergeDatabasePayload(null, next, {});
+  assert.deepEqual(merged.mailboxes, []);
+  assert.deepEqual(merged.inboxItems, []);
+});
+
+test("mergeDatabasePayload keeps provided mailboxes/inboxItems", () => {
+  const next = {
+    mailboxes: [{ id: "mb-1" }],
+    inboxItems: [{ id: "t-1" }],
+    tasks: [],
+    projects: [],
+    organizations: [],
+  } as any;
+  const merged = mergeDatabasePayload(null, next, {});
+  assert.deepEqual(merged.mailboxes, [{ id: "mb-1" }]);
+  assert.deepEqual(merged.inboxItems, [{ id: "t-1" }]);
+});
