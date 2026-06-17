@@ -2701,6 +2701,17 @@ export async function updateMailboxSettings(
   return coerced ?? coerceMailbox(updatedMailbox, []);
 }
 
+export async function deleteMailbox(userId: string, mailboxId: string) {
+  const admin = getAdminClient();
+  // ensureMailboxManage enforces ownership / elevated access before deletion.
+  await ensureMailboxManage(userId, mailboxId);
+  const { error } = await admin.from("mailboxes").delete().eq("id", mailboxId);
+  if (error) {
+    throw new Error(error.message || "Failed to delete mailbox");
+  }
+  return { id: mailboxId, deleted: true };
+}
+
 export async function syncMailboxById(userId: string, mailboxId: string) {
   const admin = getAdminClient();
   const mailbox = await ensureMailboxManage(userId, mailboxId);

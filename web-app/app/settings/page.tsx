@@ -82,6 +82,14 @@ import {
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { clearDockBadge } from "@/lib/dock-badge";
+import { MailboxFormDialog } from "@/components/mailbox-form-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { formatRelativeSync } from "@/lib/email-inbox/format-relative-sync";
+import {
+  mailboxProviderLabel,
+  mailboxStatus,
+} from "@/lib/email-inbox/mailbox-status";
+import type { Mailbox } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -163,6 +171,47 @@ export default function SettingsPage() {
     useState<EmailHtmlRenderMode>(DEFAULT_EMAIL_HTML_RENDER_MODE);
   const [emailThreadDisplayMode, setEmailThreadDisplayMode] =
     useState<EmailThreadDisplayMode>(DEFAULT_EMAIL_THREAD_DISPLAY_MODE);
+  // Email Accounts section: connect / edit / re-auth / delete connected mailboxes.
+  const [mailboxDialogOpen, setMailboxDialogOpen] = useState(false);
+  const [mailboxDialogMode, setMailboxDialogMode] = useState<
+    "create" | "edit" | "reauth"
+  >("create");
+  const [activeMailbox, setActiveMailbox] = useState<Mailbox | null>(null);
+  const [mailboxToDelete, setMailboxToDelete] = useState<Mailbox | null>(null);
+  const [deletingMailbox, setDeletingMailbox] = useState(false);
+
+  const openMailboxDialog = (
+    mode: "create" | "edit" | "reauth",
+    mailbox: Mailbox | null,
+  ) => {
+    setMailboxDialogMode(mode);
+    setActiveMailbox(mailbox);
+    setMailboxDialogOpen(true);
+  };
+
+  const handleDeleteMailbox = async () => {
+    if (!mailboxToDelete) return;
+    setDeletingMailbox(true);
+    try {
+      const response = await fetch(
+        `/api/email/mailboxes/${mailboxToDelete.id}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || "Failed to delete mailbox");
+      }
+      showSuccess("Mailbox removed");
+      setMailboxToDelete(null);
+      await fetchData();
+    } catch (err) {
+      showError(
+        err instanceof Error ? err.message : "Failed to delete mailbox",
+      );
+    } finally {
+      setDeletingMailbox(false);
+    }
+  };
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setSectionFromUrl(params.get("section"));
@@ -1392,6 +1441,115 @@ export default function SettingsPage() {
                 </label>
               </div>
 
+              {/* Email Accounts */}
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div>
+                    <h3 className="text-lg font-medium flex items-center gap-2">
+                      <Mail className="w-5 h-5" />
+                      Email Accounts
+                    </h3>
+                    <p className="text-sm text-zinc-400 mt-1">
+                      Manage the mailboxes Forge syncs and processes. Connect
+                      IMAP, Gmail, or Microsoft 365 accounts.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openMailboxDialog("create", null)}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-theme-gradient px-3 py-2 text-sm font-medium text-white"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add mailbox
+                  </button>
+                </div>
+
+                {(database?.mailboxes?.length ?? 0) === 0 ? (
+                  <div className="rounded-lg border border-dashed border-zinc-800 bg-zinc-950/40 px-4 py-6 text-sm text-zinc-500">
+                    No mailboxes connected yet. Add one to start syncing email.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {(database?.mailboxes ?? []).map((mailbox) => {
+                      const status = mailboxStatus(mailbox);
+                      const statusToneClass =
+                        status.tone === "error"
+                          ? "border-red-900/70 bg-red-950/40 text-red-300"
+                          : status.tone === "ok"
+                            ? "border-emerald-900/70 bg-emerald-950/40 text-emerald-300"
+                            : "border-zinc-700 bg-zinc-900 text-zinc-400";
+                      return (
+                        <div
+                          key={mailbox.id}
+                          className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="truncate font-medium text-white">
+                                  {mailbox.emailAddress}
+                                </p>
+                                <span
+                                  className={cn(
+                                    "rounded-full border px-2 py-0.5 text-xs",
+                                    statusToneClass,
+                                  )}
+                                >
+                                  {status.label}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-sm text-zinc-400">
+                                {mailboxProviderLabel(mailbox.provider)}
+                                {mailbox.name ? ` · ${mailbox.name}` : ""} ·
+                                Synced {formatRelativeSync(mailbox.lastSyncedAt)}
+                              </p>
+                              {status.detail ? (
+                                <p className="mt-1 break-words text-xs text-red-300">
+                                  {status.detail}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openMailboxDialog("reauth", mailbox)
+                                }
+                                title="Reconnect / re-enter credentials"
+                                className="inline-flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+                              >
+                                <KeyRound className="h-3.5 w-3.5" />
+                                Reconnect
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openMailboxDialog("edit", mailbox)
+                                }
+                                title="Edit mailbox"
+                                aria-label="Edit mailbox"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setMailboxToDelete(mailbox)}
+                                title="Delete mailbox"
+                                aria-label="Delete mailbox"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-red-300 transition-colors hover:border-red-700 hover:text-red-200"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
                 <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
                   <Hourglass className="w-5 h-5" />
@@ -2422,6 +2580,37 @@ export default function SettingsPage() {
           }}
         />
       )}
+
+      <MailboxFormDialog
+        open={mailboxDialogOpen}
+        onOpenChange={setMailboxDialogOpen}
+        mailbox={mailboxDialogMode === "create" ? null : activeMailbox}
+        mode={mailboxDialogMode}
+        organizations={database?.organizations ?? []}
+        onSaved={() => {
+          showSuccess(
+            mailboxDialogMode === "create"
+              ? "Mailbox connected"
+              : "Mailbox updated",
+          );
+          fetchData();
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(mailboxToDelete)}
+        onOpenChange={(open) => !open && setMailboxToDelete(null)}
+        title="Remove mailbox?"
+        description={
+          mailboxToDelete
+            ? `Disconnect ${mailboxToDelete.emailAddress}? Forge will stop syncing this mailbox.`
+            : undefined
+        }
+        confirmLabel="Remove"
+        destructive
+        isLoading={deletingMailbox}
+        onConfirm={handleDeleteMailbox}
+      />
     </div>
   );
 }
