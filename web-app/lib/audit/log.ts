@@ -12,9 +12,19 @@ export type AuditAction =
   | "task.delete"
   | "thread.delete"
   | "project.delete"
+  | "organization.delete"
+  | "organization.create"
+  | "organization.update"
+  | "project.create"
+  | "project.update"
   | "member.remove";
 
-export type AuditEntityType = "task" | "thread" | "project" | "member";
+export type AuditEntityType =
+  | "task"
+  | "thread"
+  | "project"
+  | "organization"
+  | "member";
 
 export interface AuditLogEntry {
   organizationId: string;

@@ -6,6 +6,11 @@ import {
   listRulesForUser,
   createRule,
 } from "@/lib/email-inbox/server";
+import { writeAuditLog } from "@/lib/audit/log";
+import {
+  evaluateConfirmGate,
+  type DestructiveAction,
+} from "@/lib/ai-agent/confirm-gate";
 
 /**
  * Tool layer for the in-app AI agent.
@@ -249,6 +254,151 @@ export const AGENT_TOOLS = [
       parameters: { type: "object", additionalProperties: false, properties: {} },
     },
   },
+  // ---- Organizations & projects (read / write / destructive) ----
+  {
+    type: "function" as const,
+    function: {
+      name: "list_organizations",
+      description:
+        "List the organizations the user belongs to (id, name, color). Use to resolve an organizationId before creating a project, or to answer questions about the user's orgs.",
+      parameters: { type: "object", additionalProperties: false, properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_organization",
+      description: "Fetch a single accessible organization by id or name (id, name, color, project count).",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string", description: "Case-insensitive exact/substring match if id is not provided." },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_project",
+      description: "Fetch a single accessible project by id or name (id, name, color, archived, organizationId, task count).",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string", description: "Case-insensitive exact/substring match if id is not provided." },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_organization",
+      description: "Create a new organization owned by the user.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          color: { type: "string", description: "Optional hex color like #6B7280." },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "update_organization",
+      description: "Rename or recolor an accessible organization.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          color: { type: "string" },
+        },
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_project",
+      description:
+        "Create a project inside an accessible organization. Resolve organizationId via list_organizations first if the user names an org.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          organizationId: { type: "string" },
+          name: { type: "string" },
+          color: { type: "string", description: "Optional hex color." },
+        },
+        required: ["organizationId", "name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "update_project",
+      description: "Rename, recolor, or archive/unarchive an accessible project.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          color: { type: "string" },
+          archived: { type: "boolean" },
+        },
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "delete_project",
+      description:
+        "DESTRUCTIVE, cascades to the project's tasks & sections. DOUBLE-CONFIRM REQUIRED. Step 1: call with just id or name (NO confirm) to get the impact and a confirmToken — this does NOT delete. Present the exact target + impact to the user and ask for explicit confirmation. Step 2: only after the user clearly says yes, call again with confirm:true AND the confirmToken from step 1. Never pass confirm:true without the user's explicit go-ahead.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string", description: "Used to resolve the target if id is not given." },
+          confirm: { type: "boolean", description: "Set true ONLY on the second call after the user confirmed." },
+          confirmToken: { type: "string", description: "The token returned by the first (unconfirmed) call." },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "delete_organization",
+      description:
+        "DESTRUCTIVE, cascades to ALL the org's projects and their tasks. DOUBLE-CONFIRM REQUIRED. Step 1: call with just id or name (NO confirm) to get the impact and a confirmToken — this does NOT delete. Present the exact target + impact to the user and ask for explicit confirmation. Step 2: only after the user clearly says yes, call again with confirm:true AND the confirmToken from step 1. Never pass confirm:true without the user's explicit go-ahead.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string", description: "Used to resolve the target if id is not given." },
+          confirm: { type: "boolean", description: "Set true ONLY on the second call after the user confirmed." },
+          confirmToken: { type: "string", description: "The token returned by the first (unconfirmed) call." },
+        },
+      },
+    },
+  },
   // ---- Daily prioritization ----
   {
     type: "function" as const,
@@ -423,6 +573,24 @@ export async function executeTool(
         return await deleteTask(ctx, args);
       case "list_projects":
         return await listProjects(ctx);
+      case "list_organizations":
+        return await listOrganizations(ctx);
+      case "get_organization":
+        return await getOrganization(ctx, args);
+      case "get_project":
+        return await getProject(ctx, args);
+      case "create_organization":
+        return await createOrganization(ctx, args);
+      case "update_organization":
+        return await updateOrganization(ctx, args);
+      case "create_project":
+        return await createProject(ctx, args);
+      case "update_project":
+        return await updateProject(ctx, args);
+      case "delete_project":
+        return await deleteProjectGated(ctx, args);
+      case "delete_organization":
+        return await deleteOrganizationGated(ctx, args);
       case "get_daily_capacity":
         return await getDailyCapacity(ctx);
       case "list_today_candidates":
@@ -604,6 +772,434 @@ async function listProjects(ctx: AgentToolContext): Promise<AgentToolResult> {
     .order("name", { ascending: true });
   if (error) return { ok: false, error: error.message };
   return { ok: true, data: { projects: (data || []).map((p: any) => ({ id: p.id, name: p.name })) } };
+}
+
+// ---- Organization & project executors (RLS-scoped via accessible ids) ----
+
+/** Resolve the org ids the user belongs to (the org-level RLS boundary). */
+async function resolveAccessibleOrgIds(ctx: AgentToolContext): Promise<Set<string>> {
+  const { data } = await ctx.admin
+    .from("user_organizations")
+    .select("organization_id")
+    .eq("user_id", ctx.userId);
+  return new Set(
+    (data || [])
+      .map((m: any) => m.organization_id)
+      .filter((id: any): id is string => typeof id === "string" && id.length > 0),
+  );
+}
+
+async function listOrganizations(ctx: AgentToolContext): Promise<AgentToolResult> {
+  const orgIds = await resolveAccessibleOrgIds(ctx);
+  if (orgIds.size === 0) return { ok: true, data: { organizations: [] } };
+  const { data, error } = await ctx.admin
+    .from("organizations")
+    .select("id, name, color")
+    .in("id", Array.from(orgIds))
+    .is("deleted_at", null)
+    .order("name", { ascending: true });
+  if (error) return { ok: false, error: error.message };
+  return {
+    ok: true,
+    data: {
+      organizations: (data || []).map((o: any) => ({ id: o.id, name: o.name, color: o.color ?? null })),
+    },
+  };
+}
+
+/** Resolve an org the user can access by id or (case-insensitive) name.
+ *  Returns the row, or a list of candidates when a name is ambiguous. */
+async function resolveOrg(
+  ctx: AgentToolContext,
+  args: Record<string, any>,
+): Promise<{ org?: any; candidates?: any[]; error?: string }> {
+  const orgIds = await resolveAccessibleOrgIds(ctx);
+  if (orgIds.size === 0) return { error: "You have no accessible organizations." };
+  const accessible = Array.from(orgIds);
+
+  if (typeof args.id === "string" && args.id) {
+    if (!orgIds.has(args.id)) return { error: "Organization not found or not accessible." };
+    const { data } = await ctx.admin
+      .from("organizations")
+      .select("id, name, color")
+      .eq("id", args.id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!data) return { error: "Organization not found or not accessible." };
+    return { org: data };
+  }
+
+  if (typeof args.name === "string" && args.name.trim()) {
+    const { data } = await ctx.admin
+      .from("organizations")
+      .select("id, name, color")
+      .in("id", accessible)
+      .is("deleted_at", null)
+      .ilike("name", `%${args.name.trim()}%`);
+    const matches = data || [];
+    if (matches.length === 0) return { error: `No accessible organization matches "${args.name}".` };
+    if (matches.length > 1) {
+      const exact = matches.filter((m: any) => m.name.toLowerCase() === args.name.trim().toLowerCase());
+      if (exact.length === 1) return { org: exact[0] };
+      return { candidates: matches.map((m: any) => ({ id: m.id, name: m.name })) };
+    }
+    return { org: matches[0] };
+  }
+
+  return { error: "Provide an organization id or name." };
+}
+
+/** Resolve a project the user can access by id or name. */
+async function resolveProject(
+  ctx: AgentToolContext,
+  args: Record<string, any>,
+): Promise<{ project?: any; candidates?: any[]; error?: string }> {
+  if (ctx.accessibleProjectIds.size === 0) return { error: "You have no accessible projects." };
+  const accessible = Array.from(ctx.accessibleProjectIds);
+
+  if (typeof args.id === "string" && args.id) {
+    if (!ctx.accessibleProjectIds.has(args.id)) return { error: "Project not found or not accessible." };
+    const { data } = await ctx.admin
+      .from("projects")
+      .select("id, name, color, archived, organization_id")
+      .eq("id", args.id)
+      .maybeSingle();
+    if (!data) return { error: "Project not found or not accessible." };
+    return { project: data };
+  }
+
+  if (typeof args.name === "string" && args.name.trim()) {
+    const { data } = await ctx.admin
+      .from("projects")
+      .select("id, name, color, archived, organization_id")
+      .in("id", accessible)
+      .ilike("name", `%${args.name.trim()}%`);
+    const matches = data || [];
+    if (matches.length === 0) return { error: `No accessible project matches "${args.name}".` };
+    if (matches.length > 1) {
+      const exact = matches.filter((m: any) => m.name.toLowerCase() === args.name.trim().toLowerCase());
+      if (exact.length === 1) return { project: exact[0] };
+      return { candidates: matches.map((m: any) => ({ id: m.id, name: m.name })) };
+    }
+    return { project: matches[0] };
+  }
+
+  return { error: "Provide a project id or name." };
+}
+
+async function getOrganization(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
+  const r = await resolveOrg(ctx, args);
+  if (r.candidates) return { ok: true, data: { ambiguous: true, candidates: r.candidates } };
+  if (!r.org) return { ok: false, error: r.error || "Organization not found." };
+  const { count } = await ctx.admin
+    .from("projects")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", r.org.id);
+  return {
+    ok: true,
+    data: { id: r.org.id, name: r.org.name, color: r.org.color ?? null, projectCount: count ?? 0 },
+  };
+}
+
+async function getProject(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
+  const r = await resolveProject(ctx, args);
+  if (r.candidates) return { ok: true, data: { ambiguous: true, candidates: r.candidates } };
+  if (!r.project) return { ok: false, error: r.error || "Project not found." };
+  const { count } = await ctx.admin
+    .from("tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("project_id", r.project.id)
+    .eq("completed", false);
+  return {
+    ok: true,
+    data: {
+      id: r.project.id,
+      name: r.project.name,
+      color: r.project.color ?? null,
+      archived: Boolean(r.project.archived),
+      organizationId: r.project.organization_id ?? null,
+      openTaskCount: count ?? 0,
+    },
+  };
+}
+
+async function createOrganization(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
+  const name = String(args.name || "").trim();
+  if (!name) return { ok: false, error: "Organization name is required." };
+
+  const insert: Record<string, any> = { name, archived: false, order_index: 0 };
+  if (typeof args.color === "string" && args.color) insert.color = args.color;
+
+  const { data: org, error } = await ctx.admin
+    .from("organizations")
+    .insert(insert)
+    .select("id, name, color")
+    .single();
+  if (error) return { ok: false, error: error.message };
+
+  // Make the creating user the owner so the org is RLS-accessible to them.
+  const { error: memberError } = await ctx.admin
+    .from("user_organizations")
+    .insert({ user_id: ctx.userId, organization_id: org.id, is_owner: true });
+  if (memberError) {
+    // Roll back the orphaned org so we don't leave an inaccessible record.
+    await ctx.admin.from("organizations").delete().eq("id", org.id);
+    return { ok: false, error: memberError.message };
+  }
+
+  await writeAuditLog(ctx.admin, {
+    organizationId: org.id,
+    actorUserId: ctx.userId,
+    action: "organization.create",
+    entityType: "organization",
+    entityId: org.id,
+    metadata: { name: org.name },
+  });
+
+  return { ok: true, data: { id: org.id, name: org.name, color: org.color ?? null } };
+}
+
+async function updateOrganization(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
+  const r = await resolveOrg(ctx, { id: args.id });
+  if (!r.org) return { ok: false, error: r.error || "Organization not found or not accessible." };
+
+  const update: Record<string, any> = {};
+  if (typeof args.name === "string" && args.name.trim()) update.name = args.name.trim();
+  if (typeof args.color === "string" && args.color) update.color = args.color;
+  if (Object.keys(update).length === 0) return { ok: false, error: "Nothing to update (provide name and/or color)." };
+
+  const { data, error } = await ctx.admin
+    .from("organizations")
+    .update(update)
+    .eq("id", r.org.id)
+    .select("id, name, color")
+    .single();
+  if (error) return { ok: false, error: error.message };
+
+  await writeAuditLog(ctx.admin, {
+    organizationId: r.org.id,
+    actorUserId: ctx.userId,
+    action: "organization.update",
+    entityType: "organization",
+    entityId: r.org.id,
+    metadata: update,
+  });
+
+  return { ok: true, data: { id: data.id, name: data.name, color: data.color ?? null } };
+}
+
+async function createProject(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
+  const orgId = String(args.organizationId || "");
+  const orgIds = await resolveAccessibleOrgIds(ctx);
+  if (!orgId || !orgIds.has(orgId)) {
+    return { ok: false, error: "A valid, accessible organizationId is required." };
+  }
+  const name = String(args.name || "").trim();
+  if (!name) return { ok: false, error: "Project name is required." };
+
+  const insert: Record<string, any> = {
+    name,
+    organization_id: orgId,
+    color: typeof args.color === "string" && args.color ? args.color : "#6B7280",
+    archived: false,
+    is_favorite: false,
+    order_index: 0,
+  };
+
+  const { data: project, error } = await ctx.admin
+    .from("projects")
+    .insert(insert)
+    .select("id, name, color, organization_id, archived")
+    .single();
+  if (error) return { ok: false, error: error.message };
+
+  // Best-effort owner membership (mirrors adapter.syncProjectMembers intent).
+  await ctx.admin
+    .from("user_projects")
+    .insert({ user_id: ctx.userId, project_id: project.id, is_owner: true })
+    .then(undefined, () => undefined);
+
+  await writeAuditLog(ctx.admin, {
+    organizationId: orgId,
+    actorUserId: ctx.userId,
+    action: "project.create",
+    entityType: "project",
+    entityId: project.id,
+    metadata: { name: project.name },
+  });
+
+  return {
+    ok: true,
+    data: {
+      id: project.id,
+      name: project.name,
+      color: project.color ?? null,
+      organizationId: project.organization_id,
+      archived: Boolean(project.archived),
+    },
+  };
+}
+
+async function updateProject(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
+  const r = await resolveProject(ctx, { id: args.id });
+  if (!r.project) return { ok: false, error: r.error || "Project not found or not accessible." };
+
+  const update: Record<string, any> = {};
+  if (typeof args.name === "string" && args.name.trim()) update.name = args.name.trim();
+  if (typeof args.color === "string" && args.color) update.color = args.color;
+  if (typeof args.archived === "boolean") update.archived = args.archived;
+  if (Object.keys(update).length === 0) {
+    return { ok: false, error: "Nothing to update (provide name, color, and/or archived)." };
+  }
+
+  const { data, error } = await ctx.admin
+    .from("projects")
+    .update(update)
+    .eq("id", r.project.id)
+    .select("id, name, color, organization_id, archived")
+    .single();
+  if (error) return { ok: false, error: error.message };
+
+  await writeAuditLog(ctx.admin, {
+    organizationId: data.organization_id,
+    actorUserId: ctx.userId,
+    action: "project.update",
+    entityType: "project",
+    entityId: data.id,
+    metadata: update,
+  });
+
+  return {
+    ok: true,
+    data: {
+      id: data.id,
+      name: data.name,
+      color: data.color ?? null,
+      organizationId: data.organization_id,
+      archived: Boolean(data.archived),
+    },
+  };
+}
+
+// ---- Destructive (double-confirm gated) ----
+
+/** Soft-delete an entity via the cascading, versioned RPC (recoverable). */
+async function softDeleteEntity(
+  ctx: AgentToolContext,
+  entityType: "organization" | "project",
+  id: string,
+): Promise<string> {
+  const { data: batchId, error } = await ctx.admin.rpc("soft_delete_entity", {
+    p_entity_type: entityType,
+    p_entity_id: id,
+  });
+  if (error) throw new Error(error.message);
+  return batchId as string;
+}
+
+async function deleteProjectGated(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
+  const action: DestructiveAction = "delete_project";
+  const r = await resolveProject(ctx, args);
+  if (r.candidates) {
+    return { ok: true, data: { ambiguous: true, candidates: r.candidates, note: "Multiple projects match — ask the user which one." } };
+  }
+  if (!r.project) return { ok: false, error: r.error || "Project not found or not accessible." };
+
+  const target = r.project;
+  const gate = evaluateConfirmGate({
+    action,
+    entityId: target.id,
+    confirm: args.confirm,
+    confirmToken: args.confirmToken,
+  });
+
+  if (!gate.allowed) {
+    // Step 1: compute impact, hand back a token, delete NOTHING.
+    const [{ count: taskCount }, { count: sectionCount }] = await Promise.all([
+      ctx.admin.from("tasks").select("id", { count: "exact", head: true }).eq("project_id", target.id),
+      ctx.admin.from("sections").select("id", { count: "exact", head: true }).eq("project_id", target.id),
+    ]);
+    return {
+      ok: true,
+      data: {
+        needsConfirmation: true,
+        target: { id: target.id, name: target.name },
+        impact: `Deleting project "${target.name}" will cascade-delete ${taskCount ?? 0} task(s) and ${sectionCount ?? 0} section(s). This is recoverable from Trash.`,
+        confirmToken: gate.expectedToken,
+        instruction:
+          "Present this exact target and impact to the user and ask for explicit confirmation. Only after they clearly say yes, call delete_project again with confirm:true and this confirmToken.",
+      },
+    };
+  }
+
+  // Step 2: confirmed — execute the cascade soft-delete + audit log.
+  const batchId = await softDeleteEntity(ctx, "project", target.id);
+  await writeAuditLog(ctx.admin, {
+    organizationId: target.organization_id,
+    actorUserId: ctx.userId,
+    action: "project.delete",
+    entityType: "project",
+    entityId: target.id,
+    metadata: { name: target.name, batchId },
+  });
+  return { ok: true, data: { deleted: true, id: target.id, name: target.name, batchId } };
+}
+
+async function deleteOrganizationGated(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
+  const action: DestructiveAction = "delete_organization";
+  const r = await resolveOrg(ctx, args);
+  if (r.candidates) {
+    return { ok: true, data: { ambiguous: true, candidates: r.candidates, note: "Multiple organizations match — ask the user which one." } };
+  }
+  if (!r.org) return { ok: false, error: r.error || "Organization not found or not accessible." };
+
+  const target = r.org;
+  const gate = evaluateConfirmGate({
+    action,
+    entityId: target.id,
+    confirm: args.confirm,
+    confirmToken: args.confirmToken,
+  });
+
+  if (!gate.allowed) {
+    // Step 1: compute impact, hand back a token, delete NOTHING.
+    const { data: projects } = await ctx.admin
+      .from("projects")
+      .select("id")
+      .eq("organization_id", target.id);
+    const projectIds = (projects || []).map((p: any) => p.id);
+    let taskCount = 0;
+    if (projectIds.length) {
+      const { count } = await ctx.admin
+        .from("tasks")
+        .select("id", { count: "exact", head: true })
+        .in("project_id", projectIds);
+      taskCount = count ?? 0;
+    }
+    return {
+      ok: true,
+      data: {
+        needsConfirmation: true,
+        target: { id: target.id, name: target.name },
+        impact: `Deleting organization "${target.name}" will cascade-delete ${projectIds.length} project(s) and their ${taskCount} task(s). This is recoverable from Trash.`,
+        confirmToken: gate.expectedToken,
+        instruction:
+          "Present this exact target and impact to the user and ask for explicit confirmation. Only after they clearly say yes, call delete_organization again with confirm:true and this confirmToken.",
+      },
+    };
+  }
+
+  // Step 2: confirmed — execute the cascade soft-delete + audit log.
+  const batchId = await softDeleteEntity(ctx, "organization", target.id);
+  await writeAuditLog(ctx.admin, {
+    organizationId: target.id,
+    actorUserId: ctx.userId,
+    action: "organization.delete",
+    entityType: "organization",
+    entityId: target.id,
+    metadata: { name: target.name, batchId },
+  });
+  return { ok: true, data: { deleted: true, id: target.id, name: target.name, batchId } };
 }
 
 // ---- Daily prioritization executors ----
