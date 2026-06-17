@@ -55,6 +55,18 @@ import { SectionView } from "@/components/section-view";
 import { AddSectionModal } from "@/components/add-section-modal";
 import { AddSectionDivider } from "@/components/add-section-divider";
 import { EmailWorkList } from "@/components/email-work-list";
+import {
+  selectTodayEmailWorkItems,
+  loadTodayEmailWorkControls,
+  saveTodayEmailWorkSort,
+  saveTodayEmailWorkClassFilter,
+  saveTodayEmailWorkSuggestedFilter,
+  saveTodayEmailWorkMailboxFilter,
+  DEFAULT_TODAY_EMAIL_WORK_CONTROLS,
+  type TodayEmailSort,
+  type TodayEmailClassFilter,
+  type TodayEmailSuggestedFilter,
+} from "@/lib/today-email-work";
 import { Tooltip } from "@/components/tooltip";
 import { format } from "date-fns";
 import {
@@ -651,49 +663,26 @@ export default function ViewPage({
   // Today → Email Work: sort + classification filter (default newest first),
   // a mailbox-sync indicator + refresh button, and a modal listing each
   // connected mailbox's last sync timestamp.
-  const [todayEmailSort, setTodayEmailSort] = useState<"newest" | "oldest">("newest");
-  const [todayEmailClass, setTodayEmailClass] = useState<string>("all");
-  // Persist Today → Email Work sort/filter across page loads via localStorage.
+  const [todayEmailSort, setTodayEmailSort] =
+    useState<TodayEmailSort>(DEFAULT_TODAY_EMAIL_WORK_CONTROLS.sort);
+  const [todayEmailClass, setTodayEmailClass] =
+    useState<TodayEmailClassFilter>(DEFAULT_TODAY_EMAIL_WORK_CONTROLS.classFilter);
+  const [todayEmailSuggested, setTodayEmailSuggested] =
+    useState<TodayEmailSuggestedFilter>(
+      DEFAULT_TODAY_EMAIL_WORK_CONTROLS.suggestedFilter,
+    );
+  const [todayEmailMailbox, setTodayEmailMailbox] = useState<string>(
+    DEFAULT_TODAY_EMAIL_WORK_CONTROLS.mailboxFilter,
+  );
+  // Hydrate Today → Email Work sort/filters from localStorage on mount
+  // (SSR-safe; unknown/legacy values fall back to defaults inside the helper).
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const storedSort = window.localStorage.getItem("todayEmailSort");
-      if (storedSort === "newest" || storedSort === "oldest") {
-        setTodayEmailSort(storedSort);
-      }
-      const storedClass = window.localStorage.getItem("todayEmailClass");
-      const allowedClasses = [
-        "all",
-        "actionable",
-        "newsletter",
-        "waiting",
-        "reference",
-        "spam",
-        "unknown",
-      ];
-      if (storedClass && allowedClasses.includes(storedClass)) {
-        setTodayEmailClass(storedClass);
-      }
-    } catch {
-      // Ignore (private mode / quota / SSR).
-    }
+    const c = loadTodayEmailWorkControls();
+    setTodayEmailSort(c.sort);
+    setTodayEmailClass(c.classFilter);
+    setTodayEmailSuggested(c.suggestedFilter);
+    setTodayEmailMailbox(c.mailboxFilter);
   }, []);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem("todayEmailSort", todayEmailSort);
-    } catch {
-      // Ignore.
-    }
-  }, [todayEmailSort]);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem("todayEmailClass", todayEmailClass);
-    } catch {
-      // Ignore.
-    }
-  }, [todayEmailClass]);
   const [syncingMailboxes, setSyncingMailboxes] = useState(false);
   const [showMailboxSyncModal, setShowMailboxSyncModal] = useState(false);
   const [showAddSection, setShowAddSection] = useState(false);
@@ -3555,22 +3544,19 @@ export default function ViewPage({
       // Today → Email Work: the inbox items eligible for Today, filtered by the
       // chosen classification and sorted newest/oldest by the most relevant
       // activity timestamp. Defensive against missing classification/timestamps.
-      const todayInboxItems = database.inboxItems
-        .filter(shouldShowInboxItemInToday)
-        .filter(
-          (item) =>
-            todayEmailClass === "all" ||
-            (item.classification || "unknown") === todayEmailClass,
-        )
-        .sort((a, b) => {
-          const at = new Date(
-            a.latestMessageAt || a.createdAt || 0,
-          ).getTime();
-          const bt = new Date(
-            b.latestMessageAt || b.createdAt || 0,
-          ).getTime();
-          return todayEmailSort === "newest" ? bt - at : at - bt;
-        });
+      const todayEligibleInboxItems = database.inboxItems.filter(
+        shouldShowInboxItemInToday,
+      );
+      const todayInboxItems = selectTodayEmailWorkItems(
+        todayEligibleInboxItems,
+        {
+          sort: todayEmailSort,
+          classFilter: todayEmailClass,
+          suggestedFilter: todayEmailSuggested,
+          mailboxFilter: todayEmailMailbox,
+        },
+        database.mailboxes.map((mb) => mb.id),
+      );
 
       // Helper: ensure parent tasks appear in sections with their children,
       // and children appear alongside their parents
@@ -4326,6 +4312,101 @@ export default function ViewPage({
                     </button>
                   </Tooltip>
                 </div>
+              </div>
+              {/* Controls row: sort + filters (classification, suggested task,
+                  mailbox). Each persists to localStorage on change. */}
+              <div className="flex flex-wrap items-center gap-2 px-1 pt-1">
+                <Select
+                  value={todayEmailSort}
+                  onValueChange={(value) => {
+                    const v = value as TodayEmailSort;
+                    setTodayEmailSort(v);
+                    saveTodayEmailWorkSort(v);
+                  }}
+                >
+                  <SelectTrigger
+                    className="h-7 w-[150px] bg-zinc-800 text-white text-xs border border-zinc-700"
+                    aria-label="Sort email work"
+                  >
+                    <SelectValue placeholder="Sort" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">Newest first</SelectItem>
+                    <SelectItem value="oldest">Oldest first</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select
+                  value={todayEmailClass}
+                  onValueChange={(value) => {
+                    const v = value as TodayEmailClassFilter;
+                    setTodayEmailClass(v);
+                    saveTodayEmailWorkClassFilter(v);
+                  }}
+                >
+                  <SelectTrigger
+                    className="h-7 w-[140px] bg-zinc-800 text-white text-xs border border-zinc-700"
+                    aria-label="Filter by classification"
+                  >
+                    <SelectValue placeholder="Classification" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All classes</SelectItem>
+                    <SelectItem value="actionable">Actionable</SelectItem>
+                    <SelectItem value="waiting">Waiting</SelectItem>
+                    <SelectItem value="reference">Reference</SelectItem>
+                    <SelectItem value="newsletter">Newsletter</SelectItem>
+                    <SelectItem value="transactional">Transactional</SelectItem>
+                    <SelectItem value="spam">Spam</SelectItem>
+                    <SelectItem value="unknown">Unknown</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select
+                  value={todayEmailSuggested}
+                  onValueChange={(value) => {
+                    const v = value as TodayEmailSuggestedFilter;
+                    setTodayEmailSuggested(v);
+                    saveTodayEmailWorkSuggestedFilter(v);
+                  }}
+                >
+                  <SelectTrigger
+                    className="h-7 w-[160px] bg-zinc-800 text-white text-xs border border-zinc-700"
+                    aria-label="Filter by suggested task"
+                  >
+                    <SelectValue placeholder="Suggested task" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any suggestion</SelectItem>
+                    <SelectItem value="has">Has suggested task</SelectItem>
+                    <SelectItem value="none">No suggested task</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {database.mailboxes.length > 0 && (
+                  <Select
+                    value={todayEmailMailbox}
+                    onValueChange={(value) => {
+                      setTodayEmailMailbox(value);
+                      saveTodayEmailWorkMailboxFilter(value);
+                    }}
+                  >
+                    <SelectTrigger
+                      className="h-7 w-[170px] bg-zinc-800 text-white text-xs border border-zinc-700"
+                      aria-label="Filter by mailbox"
+                    >
+                      <SelectValue placeholder="Mailbox" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All mailboxes</SelectItem>
+                      {database.mailboxes.map((mb) => (
+                        <SelectItem key={mb.id} value={mb.id}>
+                          {mb.displayName || mb.name || mb.emailAddress}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="mt-2">
                 {isDataLoading ? (
