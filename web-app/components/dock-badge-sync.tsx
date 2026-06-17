@@ -3,7 +3,11 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { publishDockBadgeCount } from "@/lib/dock-badge";
+import {
+  DOCK_BADGE_PROMPT_STORAGE_KEY,
+  publishDockBadgeCount,
+  shouldPromptForBadgePermission,
+} from "@/lib/dock-badge";
 
 const POLL_INTERVAL_MS = 30 * 1000;
 
@@ -75,26 +79,65 @@ export function DockBadgeSync() {
   // don't pester. Outside an installed app, do nothing (Safari tabs can't badge
   // anyway, and we don't want to prompt regular browser users).
   useEffect(() => {
-    if (typeof window === "undefined" || typeof Notification === "undefined") return;
-    if (Notification.permission !== "default") return;
-    const standalone = window.matchMedia?.("(display-mode: standalone)")?.matches;
-    if (!standalone) return;
-    const PROMPT_KEY = "dockBadgeNotifPrompted";
-    if (localStorage.getItem(PROMPT_KEY) === "true") return;
+    if (typeof window === "undefined" || typeof Notification === "undefined") {
+      return;
+    }
+
+    const standalone =
+      window.matchMedia?.("(display-mode: standalone)")?.matches === true ||
+      (navigator as Navigator & { standalone?: boolean }).standalone === true;
+
+    let alreadyPrompted = false;
+    try {
+      alreadyPrompted =
+        window.localStorage?.getItem(DOCK_BADGE_PROMPT_STORAGE_KEY) === "true";
+    } catch {
+      // Private mode / disabled storage — treat as not prompted.
+    }
+
+    if (
+      !shouldPromptForBadgePermission({
+        standalone,
+        permission: Notification.permission,
+        alreadyPrompted,
+      })
+    ) {
+      return;
+    }
+
+    // Safari requires requestPermission() to run inside a user-gesture handler.
+    // Fire once on the first interaction, then detach all listeners so we never
+    // prompt again this mount; the localStorage flag prevents re-prompting on
+    // future loads regardless of whether the user granted or denied.
+    const cleanup = () => {
+      window.removeEventListener("pointerdown", ask);
+      window.removeEventListener("keydown", ask);
+    };
+
     const ask = () => {
-      localStorage.setItem(PROMPT_KEY, "true");
-      Notification.requestPermission()
-        .catch(() => undefined)
-        .finally(() => void fetchAndPublishBadge());
-      window.removeEventListener("pointerdown", ask);
-      window.removeEventListener("keydown", ask);
+      cleanup();
+      try {
+        window.localStorage?.setItem(DOCK_BADGE_PROMPT_STORAGE_KEY, "true");
+      } catch {
+        // Ignore storage failures; the in-mount cleanup still prevents repeats.
+      }
+      // requestPermission may return a promise (modern) or use a legacy
+      // callback. Normalize to a promise and refresh the badge afterward.
+      try {
+        const result = Notification.requestPermission(() =>
+          void fetchAndPublishBadge(),
+        );
+        if (result && typeof result.then === "function") {
+          result.catch(() => undefined).finally(() => void fetchAndPublishBadge());
+        }
+      } catch {
+        // Some engines throw when called without a callback; ignore.
+      }
     };
-    window.addEventListener("pointerdown", ask, { once: true });
-    window.addEventListener("keydown", ask, { once: true });
-    return () => {
-      window.removeEventListener("pointerdown", ask);
-      window.removeEventListener("keydown", ask);
-    };
+
+    window.addEventListener("pointerdown", ask);
+    window.addEventListener("keydown", ask);
+    return cleanup;
   }, []);
 
   return null;
