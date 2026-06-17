@@ -940,6 +940,13 @@ export function TaskList({
                       </button>
                     )}
                     <span className="min-w-0 flex-1 whitespace-normal break-words">
+                      {emailThreadIdByTaskId?.[task.id] ? (
+                        <Mail
+                          className="mr-1.5 inline-block h-3.5 w-3.5 shrink-0 -translate-y-px text-sky-400/80"
+                          role="img"
+                          aria-label="Created from email"
+                        />
+                      ) : null}
                       {task.name}
                     </span>
                     {dominoByTaskId?.[task.id] ? (
