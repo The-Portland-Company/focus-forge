@@ -140,7 +140,26 @@ export async function DELETE(
     }
 
     const adapter = new SupabaseAdapter(supabase, session.user.id);
+
+    // Snapshot org/name for the audit entry before the soft-delete.
+    const { data: projectRow } = (await (supabase as any)
+      .from("projects")
+      .select("organization_id,name")
+      .eq("id", params.id)
+      .maybeSingle()) as { data: { organization_id: string; name: string } | null };
+
     const { batchId } = await adapter.deleteProject(params.id);
+
+    if (projectRow?.organization_id) {
+      await adapter.writeAuditLog({
+        organizationId: projectRow.organization_id,
+        actorUserId: session.user.id,
+        action: "project.delete",
+        entityType: "project",
+        entityId: params.id,
+        metadata: { name: projectRow.name ?? null, batchId },
+      });
+    }
 
     return NextResponse.json({ success: true, batchId });
   } catch (error) {

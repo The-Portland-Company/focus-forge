@@ -520,3 +520,32 @@ ALTER TABLE public.daily_plan_cache ENABLE ROW LEVEL SECURITY;
 DROP TRIGGER IF EXISTS update_daily_plan_cache_updated_at ON public.daily_plan_cache;
 CREATE TRIGGER update_daily_plan_cache_updated_at BEFORE UPDATE ON public.daily_plan_cache
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- audit_logs — append-only record of destructive actions for org Activity.
+-- See supabase/migrations/20260617140000_audit_logs.sql.
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  actor_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT,
+  metadata JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_org_created
+  ON public.audit_logs (organization_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
+  ON public.audit_logs (entity_type, entity_id);
+
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "audit_logs_org_select" ON public.audit_logs;
+CREATE POLICY "audit_logs_org_select" ON public.audit_logs FOR SELECT
+  USING (public.user_has_organization_access(organization_id));
+
+DROP POLICY IF EXISTS "audit_logs_org_insert" ON public.audit_logs;
+CREATE POLICY "audit_logs_org_insert" ON public.audit_logs FOR INSERT
+  WITH CHECK (public.user_has_organization_access(organization_id));
+-- Append-only: no UPDATE/DELETE policies (denied with RLS enabled).
