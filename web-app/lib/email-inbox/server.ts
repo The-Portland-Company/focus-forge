@@ -36,6 +36,7 @@ import {
   extractMailboxErrorMessage,
   extractPlainTextPreview,
   getMailboxPasswordValidationError,
+  isQuarantinedEmailStatus,
   normalizeMailboxPassword,
   normalizeSubject,
   sortInboxItems,
@@ -80,6 +81,7 @@ import type {
   SummaryProfile,
 } from "@/lib/types";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { getLocalDateString } from "@/lib/date-utils";
 import { retrieveRelevantAIMemory } from "@/lib/ai-memory/retrieval";
 import { getLatestActivePlaybook } from "@/lib/ai-memory/playbook";
 import {
@@ -2091,6 +2093,14 @@ async function createTasksForThreadInternal(params: {
   generatedBy: "ai" | "user" | "rule";
 }) {
   const admin = getAdminClient();
+
+  // Never create tasks from quarantined (or spam) threads. This guards every
+  // task-creation path — the AI/rule auto-pipeline and the explicit user
+  // "Convert to task" action — since all of them funnel through here.
+  if (isQuarantinedEmailStatus(params.thread?.status)) {
+    return [];
+  }
+
   const adapter = new SupabaseAdapter(admin, params.actorUserId);
   const { data: existingLinks } = await admin
     .from("email_thread_tasks")
@@ -2113,6 +2123,12 @@ async function createTasksForThreadInternal(params: {
   const createdLinks: any[] = [];
   let earliestDueDate: string | null = null;
 
+  // Email-derived tasks should surface in the Today view alongside normal
+  // tasks. If a suggestion carries no explicit due date, default it to today so
+  // it lands in the Today bucket (Today/Overdue/Tomorrow/Rest-of-Week sorting
+  // is purely due-date driven; a null due date would exclude it entirely).
+  const todayDueDate = getLocalDateString(new Date());
+
   for (const suggestion of params.suggestions) {
     const task = await adapter.createTask({
       name:
@@ -2128,7 +2144,7 @@ async function createTasksForThreadInternal(params: {
         "",
       projectId: params.projectId,
       priority: suggestion.priority ?? 3,
-      dueDate: suggestion.dueDate || null,
+      dueDate: suggestion.dueDate || todayDueDate,
       completed: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -2143,11 +2159,9 @@ async function createTasksForThreadInternal(params: {
     });
 
     createdLinks.push(task);
-    if (
-      suggestion.dueDate &&
-      (!earliestDueDate || suggestion.dueDate < earliestDueDate)
-    ) {
-      earliestDueDate = suggestion.dueDate;
+    const effectiveDueDate = suggestion.dueDate || todayDueDate;
+    if (!earliestDueDate || effectiveDueDate < earliestDueDate) {
+      earliestDueDate = effectiveDueDate;
     }
   }
 

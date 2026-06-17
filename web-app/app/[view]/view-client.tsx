@@ -55,18 +55,6 @@ import { SectionView } from "@/components/section-view";
 import { AddSectionModal } from "@/components/add-section-modal";
 import { AddSectionDivider } from "@/components/add-section-divider";
 import { EmailWorkList } from "@/components/email-work-list";
-import {
-  selectTodayEmailWorkItems,
-  loadTodayEmailWorkControls,
-  saveTodayEmailWorkSort,
-  saveTodayEmailWorkClassFilter,
-  saveTodayEmailWorkSuggestedFilter,
-  saveTodayEmailWorkMailboxFilter,
-  DEFAULT_TODAY_EMAIL_WORK_CONTROLS,
-  type TodayEmailSort,
-  type TodayEmailClassFilter,
-  type TodayEmailSuggestedFilter,
-} from "@/lib/today-email-work";
 import { Tooltip } from "@/components/tooltip";
 import { format } from "date-fns";
 import {
@@ -108,7 +96,6 @@ import {
   setBulkSelectionForTaskIds,
 } from "@/lib/project-bulk-selection";
 import { shouldShowInboxItemInToday } from "@/lib/email-inbox/shared";
-import { formatRelativeSync } from "@/lib/email-inbox/format-relative-sync";
 import { mergeDatabasePayload } from "@/lib/database-state";
 import {
   diffFreshTaskIds,
@@ -673,31 +660,8 @@ export default function ViewPage({
     restOfWeek: true,
   });
   const [showTodaySpamReview, setShowTodaySpamReview] = useState(false);
-  // Today → Email Work: sort + classification filter (default newest first),
-  // a mailbox-sync indicator + refresh button, and a modal listing each
-  // connected mailbox's last sync timestamp.
-  const [todayEmailSort, setTodayEmailSort] =
-    useState<TodayEmailSort>(DEFAULT_TODAY_EMAIL_WORK_CONTROLS.sort);
-  const [todayEmailClass, setTodayEmailClass] =
-    useState<TodayEmailClassFilter>(DEFAULT_TODAY_EMAIL_WORK_CONTROLS.classFilter);
-  const [todayEmailSuggested, setTodayEmailSuggested] =
-    useState<TodayEmailSuggestedFilter>(
-      DEFAULT_TODAY_EMAIL_WORK_CONTROLS.suggestedFilter,
-    );
-  const [todayEmailMailbox, setTodayEmailMailbox] = useState<string>(
-    DEFAULT_TODAY_EMAIL_WORK_CONTROLS.mailboxFilter,
-  );
-  // Hydrate Today → Email Work sort/filters from localStorage on mount
-  // (SSR-safe; unknown/legacy values fall back to defaults inside the helper).
-  useEffect(() => {
-    const c = loadTodayEmailWorkControls();
-    setTodayEmailSort(c.sort);
-    setTodayEmailClass(c.classFilter);
-    setTodayEmailSuggested(c.suggestedFilter);
-    setTodayEmailMailbox(c.mailboxFilter);
-  }, []);
-  const [syncingMailboxes, setSyncingMailboxes] = useState(false);
-  const [showMailboxSyncModal, setShowMailboxSyncModal] = useState(false);
+  // Email Work sort/filter controls and the mailbox-sync modal now live solely
+  // on the /email-inbox full view; the Today view no longer renders raw emails.
   const [showAddSection, setShowAddSection] = useState(false);
   const [sectionParentId, setSectionParentId] = useState<string | undefined>(
     undefined,
@@ -3547,32 +3511,10 @@ export default function ViewPage({
       const completedWeekTasks = allWeekTasks.filter((task) => task.completed);
       const activeWeekTasks = allWeekTasks.filter((task) => !task.completed);
 
-      // Most recent mailbox sync across all connected mailboxes.
-      // `database.mailboxes` can be undefined when the view is server-seeded
-      // with a payload that omits email data (loaded client-side later), so
-      // guard every access here to avoid crashing the whole Today view.
-      const lastMailboxSync = (database.mailboxes ?? []).reduce<string | null>((latest, mb) => {
-        if (!mb.lastSyncedAt) return latest;
-        if (!latest) return mb.lastSyncedAt;
-        return mb.lastSyncedAt > latest ? mb.lastSyncedAt : latest;
-      }, null);
-
-      // Today → Email Work: the inbox items eligible for Today, filtered by the
-      // chosen classification and sorted newest/oldest by the most relevant
-      // activity timestamp. Defensive against missing classification/timestamps.
-      const todayEligibleInboxItems = (database.inboxItems ?? []).filter(
-        shouldShowInboxItemInToday,
-      );
-      const todayInboxItems = selectTodayEmailWorkItems(
-        todayEligibleInboxItems,
-        {
-          sort: todayEmailSort,
-          classFilter: todayEmailClass,
-          suggestedFilter: todayEmailSuggested,
-          mailboxFilter: todayEmailMailbox,
-        },
-        (database.mailboxes ?? []).map((mb) => mb.id),
-      );
+      // Raw email items no longer render on the Today view. Tasks created from
+      // emails appear inline in the task sections below (flagged with a Mail
+      // icon in TaskList). Mailbox sync indicators and the Email Work list now
+      // live exclusively on the /email-inbox full view.
 
       // Helper: ensure parent tasks appear in sections with their children,
       // and children appear alongside their parents
@@ -4267,189 +4209,12 @@ export default function ViewPage({
                 }}
               />
             </div>
-            {/* Unified Today list: a single card containing the day's Email
-                Work (controls + EmailWorkList) immediately followed by the
-                "Today" task section, so email + task work read as one
-                continuous list. Tomorrow / Rest of the Week / Overdue remain
-                their own sections within this same card. This is a render-only
-                reorganization — the email sort/filter logic, domino wiring,
-                and task logic are unchanged.
-
-                Email Work — connected-mailbox sync indicator + refresh, plus the
-                day's email work list. The refresh button re-syncs due mailboxes
-                (POST /api/email/mailboxes/sync-due) and then refetches; the
-                "Synced Xm ago" affordance opens the per-mailbox last-sync modal
-                (rendered near the bottom of this view). */}
+            {/* Today list card: DailyPlanCard sits above; this card holds the
+                day's task sections (Today / Overdue / Tomorrow / Rest of the
+                Week). Raw email items no longer render here — tasks created
+                from emails appear inline in the task sections below with a Mail
+                icon indicator (see TaskList). */}
             <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 space-y-2 mx-4">
-              <div className="flex items-center gap-3 border-b border-zinc-700 py-2 px-1">
-                <div className="flex flex-1 items-center gap-2 text-sm font-medium text-zinc-500">
-                  <Mailbox className="h-4 w-4" />
-                  <span>
-                    Email Work{" "}
-                    {todayInboxItems.length > 0 && (
-                      <span className="text-zinc-600">
-                        ({todayInboxItems.length})
-                      </span>
-                    )}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowMailboxSyncModal(true)}
-                    className="rounded px-1.5 py-0.5 text-xs sm:text-[11px] text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 ring-theme"
-                    title="View connected mailboxes and last sync times"
-                    aria-label={`Synced ${formatRelativeSync(lastMailboxSync)}. Open connected mailboxes and last sync times.`}
-                  >
-                    Synced {formatRelativeSync(lastMailboxSync)}
-                  </button>
-                  <Tooltip
-                    content="Sync mailboxes now"
-                    side="bottom"
-                    align="end"
-                    className="inline-flex"
-                  >
-                    <button
-                      type="button"
-                      disabled={syncingMailboxes}
-                      onClick={async () => {
-                        setSyncingMailboxes(true);
-                        try {
-                          await fetch("/api/email/mailboxes/sync-due", {
-                            method: "POST",
-                            credentials: "include",
-                          });
-                          await fetchData({ includeInboxItems: true });
-                        } finally {
-                          setSyncingMailboxes(false);
-                        }
-                      }}
-                      className="rounded-md border border-zinc-700 p-2 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white focus-visible:outline-none focus-visible:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
-                      aria-label={syncingMailboxes ? "Syncing mailboxes…" : "Sync mailboxes now"}
-                      aria-busy={syncingMailboxes}
-                    >
-                      <RefreshCw
-                        className={`h-4 w-4 ${syncingMailboxes ? "animate-spin" : ""}`}
-                      />
-                    </button>
-                  </Tooltip>
-                </div>
-              </div>
-              {/* Controls row: sort + filters (classification, suggested task,
-                  mailbox). Each persists to localStorage on change. */}
-              <div className="flex flex-wrap items-center gap-2 px-1 pt-1">
-                <Select
-                  value={todayEmailSort}
-                  onValueChange={(value) => {
-                    const v = value as TodayEmailSort;
-                    setTodayEmailSort(v);
-                    saveTodayEmailWorkSort(v);
-                  }}
-                >
-                  <SelectTrigger
-                    className="h-7 w-[150px] bg-zinc-800 text-white text-xs border border-zinc-700"
-                    aria-label="Sort email work"
-                  >
-                    <SelectValue placeholder="Sort" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="newest">Newest first</SelectItem>
-                    <SelectItem value="oldest">Oldest first</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Select
-                  value={todayEmailClass}
-                  onValueChange={(value) => {
-                    const v = value as TodayEmailClassFilter;
-                    setTodayEmailClass(v);
-                    saveTodayEmailWorkClassFilter(v);
-                  }}
-                >
-                  <SelectTrigger
-                    className="h-7 w-[140px] bg-zinc-800 text-white text-xs border border-zinc-700"
-                    aria-label="Filter by classification"
-                  >
-                    <SelectValue placeholder="Classification" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All classes</SelectItem>
-                    <SelectItem value="actionable">Actionable</SelectItem>
-                    <SelectItem value="waiting">Waiting</SelectItem>
-                    <SelectItem value="reference">Reference</SelectItem>
-                    <SelectItem value="newsletter">Newsletter</SelectItem>
-                    <SelectItem value="transactional">Transactional</SelectItem>
-                    <SelectItem value="spam">Spam</SelectItem>
-                    <SelectItem value="unknown">Unknown</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Select
-                  value={todayEmailSuggested}
-                  onValueChange={(value) => {
-                    const v = value as TodayEmailSuggestedFilter;
-                    setTodayEmailSuggested(v);
-                    saveTodayEmailWorkSuggestedFilter(v);
-                  }}
-                >
-                  <SelectTrigger
-                    className="h-7 w-[160px] bg-zinc-800 text-white text-xs border border-zinc-700"
-                    aria-label="Filter by suggested task"
-                  >
-                    <SelectValue placeholder="Suggested task" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Any suggestion</SelectItem>
-                    <SelectItem value="has">Has suggested task</SelectItem>
-                    <SelectItem value="none">No suggested task</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {database.mailboxes.length > 0 && (
-                  <Select
-                    value={todayEmailMailbox}
-                    onValueChange={(value) => {
-                      setTodayEmailMailbox(value);
-                      saveTodayEmailWorkMailboxFilter(value);
-                    }}
-                  >
-                    <SelectTrigger
-                      className="h-7 w-[170px] bg-zinc-800 text-white text-xs border border-zinc-700"
-                      aria-label="Filter by mailbox"
-                    >
-                      <SelectValue placeholder="Mailbox" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All mailboxes</SelectItem>
-                      {database.mailboxes.map((mb) => (
-                        <SelectItem key={mb.id} value={mb.id}>
-                          {mb.displayName || mb.name || mb.emailAddress}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-              <div
-                className="mt-2"
-                role="region"
-                aria-label="Email work for today"
-                aria-busy={isDataLoading || isRefreshing}
-              >
-                {isDataLoading ? (
-                  <SkeletonTaskList count={3} />
-                ) : (
-                  <EmailWorkList
-                    items={todayInboxItems}
-                    mailboxes={database.mailboxes}
-                    projects={database.projects}
-                    freshlyUpdatedIds={freshlyUpdatedInboxIds}
-                    selectedId={selectedTodayEmailId}
-                    onSelect={(item) => setSelectedTodayEmailId(item.id)}
-                    emptyLabel="No email work for today."
-                  />
-                )}
-              </div>
               {isDataLoading ? (
                 <SkeletonSectionedTasks
                   sections={[
@@ -6117,77 +5882,6 @@ export default function ViewPage({
             }
           }}
         />
-      )}
-
-      {showMailboxSyncModal && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setShowMailboxSyncModal(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-zinc-100 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Connected mailboxes</h2>
-              <button
-                onClick={() => setShowMailboxSyncModal(false)}
-                aria-label="Close"
-                className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-              >
-                ✕
-              </button>
-            </div>
-            {database.mailboxes.length === 0 ? (
-              <p className="text-xs text-zinc-400">No mailboxes connected.</p>
-            ) : (
-              <ul className="space-y-1.5">
-                {database.mailboxes.map((mb) => (
-                  <li
-                    key={mb.id}
-                    className="flex items-center justify-between rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-zinc-100">
-                        {mb.displayName || mb.name || mb.emailAddress}
-                      </div>
-                      <div className="truncate text-xs sm:text-[10px] text-zinc-500">
-                        {mb.emailAddress}
-                      </div>
-                      {mb.lastSyncError ? (
-                        <div className="mt-0.5 truncate text-xs sm:text-[10px] text-red-400" title={mb.lastSyncError}>
-                          Last error: {mb.lastSyncError}
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="ml-3 whitespace-nowrap text-zinc-400">
-                      {mb.lastSyncedAt ? formatRelativeSync(mb.lastSyncedAt) : "never"}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                disabled={syncingMailboxes}
-                onClick={async () => {
-                  setSyncingMailboxes(true);
-                  try {
-                    await fetch("/api/email/mailboxes/sync-due", { method: "POST" });
-                    await fetchData();
-                  } finally {
-                    setSyncingMailboxes(false);
-                  }
-                }}
-                className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-200 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <RefreshCw className={`h-3 w-3 ${syncingMailboxes ? "animate-spin" : ""}`} />
-                Refresh all
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {showTodaySpamReview && (

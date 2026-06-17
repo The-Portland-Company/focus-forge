@@ -178,6 +178,13 @@ export function shouldShowInboxItemInToday(item: InboxItem) {
   );
 }
 
+// A thread/inbox item is "quarantined" when its status is the quarantine state
+// (or the related spam state, which is also withheld from the active inbox).
+// Quarantined threads must never spawn tasks.
+export function isQuarantinedEmailStatus(status?: string | null) {
+  return status === "quarantine" || status === "spam";
+}
+
 export function getVisibleMailboxSyncError(
   mailboxes: Mailbox[],
   selectedMailboxId: string,
