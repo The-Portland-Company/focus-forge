@@ -104,6 +104,18 @@ const endpointOverrides: Record<
     summary: "Update/delete a mobile task.",
     tags: ["mobile", "tasks"],
   },
+  "/api/mobile/tasks/estimate": {
+    auth: "bearer",
+    summary:
+      "AI task-time estimator. Returns predicted minutes for a single task, running through the user's configured estimator model waterfall (fallback chain). Accepts mobile access JWT or PAT bearer token (read/write/admin scope).",
+    tags: ["mobile", "tasks", "ai"],
+  },
+  "/api/mobile/tasks/estimate/bulk": {
+    auth: "bearer",
+    summary:
+      "AI task-time estimator (bulk). Estimates an inline array of tasks (up to 25), each through the user's configured estimator model waterfall. Accepts mobile access JWT or PAT bearer token (read/write/admin scope).",
+    tags: ["mobile", "tasks", "ai"],
+  },
   "/api/auth/login": {
     auth: "public",
     summary: "Login with email/password (web session cookies).",
@@ -257,6 +269,67 @@ const methodOverrides: Record<string, Partial<ApiMethodDoc>> = {
       `  -H "Authorization: Bearer ff_pat_..." \\`,
       `  -H "${JSON_HEADER}"`,
       "  -d '{\"email\":\"new.user@example.com\",\"firstName\":\"New\",\"lastName\":\"User\",\"organizationId\":\"00000000-0000-0000-0000-000000000000\",\"bypassEmailConfirmation\":false,\"sendPasswordReset\":true}'",
+    ].join("\n"),
+  },
+  "/api/mobile/tasks/estimate#POST": {
+    summary:
+      "Estimate how long a single task will take. Runs through the requesting user's configured estimator model waterfall (e.g. claude-opus-4-8 → gpt-4.1 → claude-sonnet-4-6 → grok-3), so it benefits from the full fallback chain. Accepts a mobile access JWT or a PAT bearer token (read/write/admin scope).",
+    request: {
+      headers: [JSON_HEADER, AUTH_HEADER],
+      query: [],
+      body: [
+        "name: string (required) — task title",
+        "description: string (optional)",
+        "projectName: string (optional) — project/context name to bias the estimate",
+        "context: string (optional) — alias for projectName",
+        "tags: string[] (optional)",
+        "priority: number (optional) — 1=urgent … 4=low",
+        "dueInDays: number (optional) — days until due (negative = overdue)",
+        "subtaskCount: number (optional)",
+      ],
+    },
+    responses: {
+      success:
+        '200: {"data":{"minutes":45,"confidence":"high|med|low","rationale":"one short sentence|null","model":"claude-opus-4-8"},"meta":{},"error":null}',
+      errors: [
+        '{"data":null,"error":{"code":"validation_error","message":"Task name is required"}}',
+        '{"data":null,"error":{"code":"invalid_access_token","message":"Access token is invalid or expired"}}',
+        '{"data":null,"error":{"code":"insufficient_scope","message":"PAT is missing required scope"}}',
+        '{"data":null,"error":{"code":"internal_error","message":"Failed to estimate task"}}',
+      ],
+    },
+    exampleCurl: [
+      'curl -X POST "<base-url>/api/mobile/tasks/estimate" \\',
+      `  -H "Authorization: Bearer ff_pat_..." \\`,
+      `  -H "${JSON_HEADER}" \\`,
+      "  -d '{\"name\":\"Write release notes for v2.4\",\"description\":\"Summarize the 12 merged PRs\",\"projectName\":\"Mobile App\",\"priority\":2}'",
+    ].join("\n"),
+  },
+  "/api/mobile/tasks/estimate/bulk#POST": {
+    summary:
+      "Estimate an inline array of tasks (up to 25) in one call. Each task runs through the user's configured estimator model waterfall. Unlike the web bulk route (which hydrates tasks from the DB by id), the mobile variant accepts inline task objects so unsaved/local tasks can be estimated. Per-task failures are returned inline; the call still succeeds.",
+    request: {
+      headers: [JSON_HEADER, AUTH_HEADER],
+      query: [],
+      body: [
+        "tasks: array (required, max 25) of objects, each: { id?: string, name: string (required), description?: string, projectName?: string, context?: string, tags?: string[], priority?: number, dueInDays?: number, subtaskCount?: number }",
+      ],
+    },
+    responses: {
+      success:
+        '200: {"data":{"results":[{"id":"local-1","minutes":45,"confidence":"high","rationale":"...","model":"claude-opus-4-8"},{"id":"local-2","error":"estimation_failed"}]},"meta":{},"error":null}',
+      errors: [
+        '{"data":null,"error":{"code":"validation_error","message":"tasks (non-empty array with name) is required"}}',
+        '{"data":null,"error":{"code":"invalid_access_token","message":"Access token is invalid or expired"}}',
+        '{"data":null,"error":{"code":"insufficient_scope","message":"PAT is missing required scope"}}',
+        '{"data":null,"error":{"code":"internal_error","message":"Failed to estimate tasks"}}',
+      ],
+    },
+    exampleCurl: [
+      'curl -X POST "<base-url>/api/mobile/tasks/estimate/bulk" \\',
+      `  -H "Authorization: Bearer ff_pat_..." \\`,
+      `  -H "${JSON_HEADER}" \\`,
+      "  -d '{\"tasks\":[{\"id\":\"local-1\",\"name\":\"Fix login crash\",\"priority\":1},{\"id\":\"local-2\",\"name\":\"Update docs\"}]}'",
     ].join("\n"),
   },
 };
