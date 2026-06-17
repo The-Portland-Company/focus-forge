@@ -9,6 +9,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EstimatePresets } from "@/components/estimate-presets";
+import {
+  EstimateHelpButton,
+  EstimateHelpModal,
+} from "@/components/estimate-help-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -104,6 +108,9 @@ export function EstimateReviewModal({
   const [delThis, setDelThis] = useState(true);
   const [delFuture, setDelFuture] = useState(false);
   const [delPast, setDelPast] = useState(false);
+
+  // Help modal
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // Project delete flow state
   const [confirmDeleteProjectOpen, setConfirmDeleteProjectOpen] = useState(false);
@@ -470,7 +477,10 @@ export function EstimateReviewModal({
       <DialogContent className="bg-zinc-900 border-zinc-800 max-w-xl [&>button.absolute]:rounded-full [&>button.absolute]:border [&>button.absolute]:border-zinc-700 [&>button.absolute]:bg-zinc-800 [&>button.absolute]:p-1.5 [&>button.absolute]:text-zinc-300 [&>button.absolute]:opacity-100 [&>button.absolute]:transition-colors [&>button.absolute]:hover:border-zinc-500 [&>button.absolute]:hover:bg-zinc-700 [&>button.absolute]:hover:text-white">
         <DialogHeader>
           <DialogTitle>
-            <span className="text-white">Estimate tasks</span>
+            <span className="inline-flex items-center gap-2 text-white">
+              Estimate tasks
+              <EstimateHelpButton onClick={() => setHelpOpen(true)} />
+            </span>
           </DialogTitle>
         </DialogHeader>
 
@@ -864,6 +874,8 @@ export function EstimateReviewModal({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <EstimateHelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
     </Dialog>
   );
 }
