@@ -14,6 +14,7 @@ const CONFIRMATION_REQUIRED_ACTIONS = new Set<ThreadAction>([
   "quarantine",
   "archive",
   "spam",
+  "delete",
   "always_delete_sender",
 ]);
 
