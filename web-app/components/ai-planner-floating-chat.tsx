@@ -348,9 +348,11 @@ export function AiPlannerFloatingChat({
     <>
       {!embedded && (
         <button
+          type="button"
           aria-label="Open AI assistant"
+          title="Open AI assistant"
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-50 rounded-full border border-zinc-700 bg-zinc-900 p-3 text-zinc-100 shadow-lg transition hover:border-zinc-500 hover:bg-zinc-800"
+          className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-50 rounded-full border border-zinc-700 bg-zinc-900 p-3 text-zinc-100 shadow-lg transition hover:border-zinc-500 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 ring-theme"
         >
           <Sparkles className="h-5 w-5" />
         </button>
@@ -371,9 +373,10 @@ export function AiPlannerFloatingChat({
             </div>
             <div className="flex items-center gap-1">
               <button
+                type="button"
                 onClick={startNewConversation}
                 disabled={sending || (messages.length === 0 && !sessionId)}
-                className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="New conversation"
                 title="New conversation"
               >
@@ -381,8 +384,9 @@ export function AiPlannerFloatingChat({
               </button>
               {!embedded && (
                 <button
+                  type="button"
                   onClick={openPopout}
-                  className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                  className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 ring-theme"
                   aria-label="Pop out assistant"
                   title="Open in a separate window"
                 >
@@ -390,9 +394,11 @@ export function AiPlannerFloatingChat({
                 </button>
               )}
               <button
+                type="button"
                 onClick={() => (embedded ? window.close() : setIsOpen(false))}
-                className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 ring-theme"
                 aria-label={embedded ? "Close window" : "Close assistant"}
+                title={embedded ? "Close window" : "Close assistant"}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -416,9 +422,10 @@ export function AiPlannerFloatingChat({
                     <div className="flex flex-wrap gap-2">
                       {SUGGESTIONS.map((s) => (
                         <button
+                          type="button"
                           key={s}
                           onClick={() => send(s)}
-                          className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs text-zinc-300 hover:border-zinc-500"
+                          className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs text-zinc-300 hover:border-zinc-500 focus-visible:outline-none focus-visible:ring-2 ring-theme"
                         >
                           {s}
                         </button>
@@ -478,9 +485,11 @@ export function AiPlannerFloatingChat({
             {recording ? (
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={cancelRecording}
-                  className="rounded-xl border border-zinc-700 bg-zinc-900 p-2 text-zinc-400 hover:text-zinc-100"
+                  className="rounded-xl border border-zinc-700 bg-zinc-900 p-2 text-zinc-400 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 ring-theme"
                   aria-label="Cancel recording"
+                  title="Cancel recording"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -498,9 +507,11 @@ export function AiPlannerFloatingChat({
                   </span>
                 </div>
                 <button
+                  type="button"
                   onClick={stopAndSend}
-                  className="flex h-[38px] items-center gap-1 rounded-xl bg-amber-500 px-3 text-sm font-medium text-black hover:bg-amber-400"
+                  className="flex h-[38px] items-center gap-1 rounded-xl bg-amber-500 px-3 text-sm font-medium text-black hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 ring-theme"
                   aria-label="Stop and send"
+                  title="Stop and send"
                 >
                   <Square className="h-4 w-4" /> Send
                 </button>
@@ -571,19 +582,24 @@ export function AiPlannerFloatingChat({
                 </Select>
                 {input.trim() ? (
                   <button
+                    type="button"
                     onClick={() => send(input)}
                     disabled={sending || transcribing}
-                    className="h-[38px] rounded-xl border border-zinc-700 bg-zinc-100 px-3 text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                    aria-busy={sending}
+                    className="h-[38px] rounded-xl border border-zinc-700 bg-zinc-100 px-3 text-zinc-950 transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 ring-theme disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
                     aria-label="Send message"
+                    title="Send message"
                   >
                     {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </button>
                 ) : (
                   <button
+                    type="button"
                     onClick={startRecording}
                     disabled={sending || transcribing}
-                    className="flex h-[38px] w-[42px] items-center justify-center rounded-xl border border-zinc-700 bg-zinc-100 text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
-                    aria-label="Record voice message"
+                    aria-busy={transcribing}
+                    className="flex h-[38px] w-[42px] items-center justify-center rounded-xl border border-zinc-700 bg-zinc-100 text-zinc-950 transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 ring-theme disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+                    aria-label={transcribing ? "Transcribing voice message…" : "Record voice message"}
                     title="Tap to speak"
                   >
                     {transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}

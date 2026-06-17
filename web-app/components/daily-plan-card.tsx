@@ -433,7 +433,9 @@ export function DailyPlanCard({
             type="button"
             onClick={replan}
             disabled={loading}
-            className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950/40 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-600 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-busy={loading}
+            aria-label={loading ? "Regenerating plan…" : "Replan: regenerate today's plan"}
+            className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950/40 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-600 focus-visible:outline-none focus-visible:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RefreshCw className="h-3 w-3" /> Replan
           </button>
@@ -441,7 +443,11 @@ export function DailyPlanCard({
       </div>
 
       {plan && briefing ? (
-        <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+        <div
+          role="region"
+          aria-label="Daily Domino Briefing"
+          className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2"
+        >
           <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-300">
             <Bomb className="h-3.5 w-3.5" />
             Daily Domino Briefing
@@ -493,7 +499,8 @@ export function DailyPlanCard({
               type="button"
               onClick={() => setShowHelp(true)}
               aria-label="What does Generate plan do?"
-              className="absolute -right-1 -top-1 z-10 rounded-full p-1 text-zinc-500 opacity-0 transition-opacity hover:text-zinc-200 focus:opacity-100 group-hover:opacity-100"
+              title="How Generate plan works"
+              className="absolute -right-1 -top-1 z-10 rounded-full p-1 text-zinc-500 opacity-0 transition-opacity hover:text-zinc-200 focus:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 ring-theme group-hover:opacity-100"
             >
               <HelpCircle className="h-4 w-4" />
             </button>
@@ -507,8 +514,10 @@ export function DailyPlanCard({
                   type="button"
                   onClick={() => fetchPlan()}
                   disabled={loading}
+                  aria-busy={loading}
                   aria-label="Generate plan"
-                  className="inline-flex items-center justify-center rounded-md bg-theme-gradient p-2 text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Generate plan"
+                  className="inline-flex items-center justify-center rounded-md bg-theme-gradient p-2 text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Sparkles className="h-4 w-4" />
                 </button>
