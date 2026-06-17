@@ -233,6 +233,24 @@ export function formatParticipantName(participant: InboxParticipant | null) {
   return emailAddress || "Unknown sender";
 }
 
+/**
+ * Tooltip text for the inbox-row "From" sender name. Reveals the underlying
+ * email address on hover, but only when it adds information: if the displayed
+ * name already IS the email address (no separate display name), there's nothing
+ * to reveal, so return null and skip the tooltip to avoid a redundant
+ * email-equals-email hover. `displayedName` is what the row actually renders
+ * (i.e. {@link formatParticipantName}'s output).
+ */
+export function getSenderEmailTooltip(
+  participant: InboxParticipant | null,
+  displayedName: string,
+): string | null {
+  const emailAddress = participant?.emailAddress?.trim();
+  if (!emailAddress) return null;
+  if (emailAddress === displayedName.trim()) return null;
+  return emailAddress;
+}
+
 export function formatParticipantLine(
   participants: InboxParticipant[] | undefined,
   role: "from" | "cc",
@@ -1221,25 +1239,41 @@ export function EmailWorkList({
                     )}
                   >
                     <span>From:</span>
-                    <Tooltip
-                      content={sender.emailAddress?.trim() || senderName}
-                      className="w-auto"
-                      side="top"
-                    >
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onSenderClick?.({
-                            name: senderName,
-                            email: sender.emailAddress,
-                          });
-                        }}
-                        className="max-w-[180px] truncate cursor-pointer text-zinc-400 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-200 sm:max-w-[240px]"
-                      >
-                        {senderName}
-                      </button>
-                    </Tooltip>
+                    {(() => {
+                      const senderEmailTooltip = getSenderEmailTooltip(
+                        sender,
+                        senderName,
+                      );
+                      const senderButton = (
+                        <button
+                          type="button"
+                          title={senderEmailTooltip ?? undefined}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onSenderClick?.({
+                              name: senderName,
+                              email: sender.emailAddress,
+                            });
+                          }}
+                          className="max-w-[180px] truncate cursor-pointer text-zinc-400 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-200 sm:max-w-[240px]"
+                        >
+                          {senderName}
+                        </button>
+                      );
+                      // Only reveal the email on hover when it differs from the
+                      // displayed name; otherwise the name already is the email.
+                      return senderEmailTooltip ? (
+                        <Tooltip
+                          content={senderEmailTooltip}
+                          className="w-auto"
+                          side="top"
+                        >
+                          {senderButton}
+                        </Tooltip>
+                      ) : (
+                        senderButton
+                      );
+                    })()}
                   </span>
                 ) : (
                   <span
