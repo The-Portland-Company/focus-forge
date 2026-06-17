@@ -559,7 +559,7 @@ export function TaskList({
     const isDueToday = !!(dueDateOnly && isToday(dueDateOnly));
     const isBlocked = blockedTaskIds.has(task.id);
     const actionVisibilityClass = revealActionsOnHover
-      ? "opacity-100 pointer-events-auto sm:opacity-0 sm:pointer-events-none sm:group-hover:opacity-100 sm:group-hover:pointer-events-auto"
+      ? "opacity-100 pointer-events-auto sm:opacity-0 sm:pointer-events-none sm:group-hover:opacity-100 sm:group-hover:pointer-events-auto sm:group-focus-within:opacity-100 sm:group-focus-within:pointer-events-auto"
       : "opacity-100 pointer-events-auto";
 
     // Pre-compute due date badge for flexible layout positioning
@@ -997,8 +997,13 @@ export function TaskList({
             <div className="relative flex items-center text-xs flex-shrink-0">
               {/* Hover actions are absolutely positioned so they reserve no row
                   width when hidden — prevents premature title wrapping. */}
+              {/* Toolbar floats left of the metadata column. It lives inside the
+                  row's `group` so group-hover/focus-within keep it shown. We use
+                  right-edge PADDING (pr-3) instead of a margin so the hit area is
+                  continuous — the cursor never crosses an unhittable gap on its
+                  way to the buttons (which previously dropped the hover state). */}
               <div
-                className={`absolute right-full top-1/2 z-30 mr-1 flex -translate-y-1/2 items-center gap-3 rounded-md bg-zinc-800/95 px-2 py-1 shadow-lg transition-opacity duration-200 ${actionVisibilityClass}`}
+                className={`absolute right-full top-1/2 z-30 flex -translate-y-1/2 items-center gap-3 rounded-md bg-zinc-800/95 py-1 pl-2 pr-3 shadow-lg transition-opacity duration-200 ${actionVisibilityClass}`}
               >
                 {((task as any).due_date || task.dueDate) && onTaskUpdate ? (
                   <span className="relative group/removedate flex items-center justify-center w-4">
