@@ -298,6 +298,11 @@ export function EmailThreadModal({
   );
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
   const queuedActionTimeoutRef = useRef<number | null>(null);
+  // Holds the action whose deletion/undo timer is still counting down. If the
+  // modal (the slide-out reading pane) unmounts before the undo window
+  // elapses, we flush this action so the delete is actually sent to the server
+  // instead of being silently dropped when the pending setTimeout is cleared.
+  const pendingQueuedActionRef = useRef<ThreadAction | null>(null);
   const { profile, updateProfile } = useUserProfile();
   const { preferences } = useUserPreferences();
   // Per-user Conversation ordering. Persisted on the profiles row; falls back
@@ -605,6 +610,16 @@ export function EmailThreadModal({
     return () => {
       if (queuedActionTimeoutRef.current !== null) {
         window.clearTimeout(queuedActionTimeoutRef.current);
+        queuedActionTimeoutRef.current = null;
+      }
+      // If a destructive action (e.g. delete) is still mid-undo when the
+      // slide-out pane unmounts, flush it now so the action actually reaches
+      // the server. Without this, clearing the timeout above would silently
+      // drop the delete and it would no-op.
+      const pendingAction = pendingQueuedActionRef.current;
+      if (pendingAction) {
+        pendingQueuedActionRef.current = null;
+        void executeThreadActionRef.current(pendingAction);
       }
     };
   }, []);
@@ -639,6 +654,9 @@ export function EmailThreadModal({
       window.clearTimeout(queuedActionTimeoutRef.current);
       queuedActionTimeoutRef.current = null;
     }
+    // Explicit cancel (Undo) and re-queue both route through here, so drop the
+    // pending action; only an unmount with an outstanding action should flush.
+    pendingQueuedActionRef.current = null;
     setQueuedAction(null);
     setIsQueuedActionNoticeVisible(false);
   };
@@ -998,6 +1016,12 @@ export function EmailThreadModal({
     }
   };
 
+  // Keep a stable reference to the latest executor so the unmount cleanup
+  // (which only runs once with an empty dependency array) can flush a pending
+  // queued action against the current thread instead of a stale closure.
+  const executeThreadActionRef = useRef(executeThreadAction);
+  executeThreadActionRef.current = executeThreadAction;
+
   const queueThreadAction = (action: ThreadAction) => {
     const undoSeconds =
       action === "delete"
@@ -1007,10 +1031,12 @@ export function EmailThreadModal({
     clearQueuedAction();
     setPendingConfirmAction(null);
     setQueuedAction(action);
+    pendingQueuedActionRef.current = action;
     setIsQueuedActionNoticeVisible(true);
     setStatusMessage(getQueuedThreadActionMessage(action, undoSeconds));
     queuedActionTimeoutRef.current = window.setTimeout(() => {
       queuedActionTimeoutRef.current = null;
+      pendingQueuedActionRef.current = null;
       setQueuedAction(null);
       setIsQueuedActionNoticeVisible(false);
       void executeThreadAction(action);
