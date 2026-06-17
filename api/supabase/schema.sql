@@ -414,3 +414,92 @@ CREATE POLICY "Users can insert their own preferences" ON user_preferences
 -- Tables: ai_memory_events, ai_memories (pgvector embedding), ai_playbooks,
 -- ai_decision_traces. RPC: match_ai_memories(). RLS: own-user + org-scoped.
 -- ============================================================================
+
+-- ============================================================================
+-- DOMINO EFFECT (stakes, chains & weighted scheduling)
+-- Applied via supabase/migrations/20260603200000_domino_stakes.sql (canonical DDL).
+-- Tables: stakes, stake_edges, task_stakes, stake_extraction_examples.
+-- All soft-delete (deleted_at, delete_batch_id) per entity_versioning precedent.
+-- stake_edges has a BEFORE INSERT cycle-rejection trigger (WITH RECURSIVE).
+-- RLS: stakes via user_has_organization_access(organization_id); edges/links via
+-- EXISTS join to the parent/linked stake's org; examples via auth.uid() = user_id.
+-- DDL mirrored below; see the migration for the authoritative version.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS public.stakes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('consequence', 'reward')),
+  name TEXT NOT NULL,
+  description TEXT,
+  monetary_value NUMERIC CHECK (monetary_value IS NULL OR monetary_value >= 0),
+  severity TEXT CHECK (severity IS NULL OR severity IN ('minor', 'moderate', 'severe', 'critical')),
+  trigger_at TIMESTAMPTZ,
+  recurrence TEXT,
+  recurrence_interval_days INTEGER CHECK (recurrence_interval_days IS NULL OR recurrence_interval_days > 0),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'defused', 'eliminated', 'expired')),
+  deleted_at TIMESTAMPTZ,
+  delete_batch_id UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_stakes_organization_id ON public.stakes (organization_id);
+CREATE INDEX IF NOT EXISTS idx_stakes_project_id ON public.stakes (project_id) WHERE project_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_stakes_deleted_at ON public.stakes (deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_stakes_delete_batch ON public.stakes (delete_batch_id) WHERE delete_batch_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_stakes_active_trigger_at
+  ON public.stakes (trigger_at)
+  WHERE status = 'active' AND deleted_at IS NULL;
+
+ALTER TABLE public.stakes ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.stake_edges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  parent_stake_id UUID NOT NULL REFERENCES public.stakes(id) ON DELETE CASCADE,
+  child_stake_id UUID NOT NULL REFERENCES public.stakes(id) ON DELETE CASCADE,
+  weight_multiplier NUMERIC NOT NULL DEFAULT 0.7,
+  deleted_at TIMESTAMPTZ,
+  delete_batch_id UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT stake_edges_no_self CHECK (parent_stake_id <> child_stake_id),
+  CONSTRAINT stake_edges_unique UNIQUE (parent_stake_id, child_stake_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stake_edges_parent ON public.stake_edges (parent_stake_id);
+CREATE INDEX IF NOT EXISTS idx_stake_edges_child ON public.stake_edges (child_stake_id);
+CREATE INDEX IF NOT EXISTS idx_stake_edges_deleted_at ON public.stake_edges (deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_stake_edges_delete_batch ON public.stake_edges (delete_batch_id) WHERE delete_batch_id IS NOT NULL;
+
+ALTER TABLE public.stake_edges ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.task_stakes (
+  task_id UUID NOT NULL REFERENCES public.tasks(id) ON DELETE CASCADE,
+  stake_id UUID NOT NULL REFERENCES public.stakes(id) ON DELETE CASCADE,
+  resolution_type TEXT NOT NULL CHECK (resolution_type IN ('defuses_once', 'eliminates')),
+  deleted_at TIMESTAMPTZ,
+  delete_batch_id UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (task_id, stake_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_stakes_task ON public.task_stakes (task_id);
+CREATE INDEX IF NOT EXISTS idx_task_stakes_stake ON public.task_stakes (stake_id);
+CREATE INDEX IF NOT EXISTS idx_task_stakes_deleted_at ON public.task_stakes (deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_task_stakes_delete_batch ON public.task_stakes (delete_batch_id) WHERE delete_batch_id IS NOT NULL;
+
+ALTER TABLE public.task_stakes ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.stake_extraction_examples (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  raw_input TEXT NOT NULL,
+  accepted_payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_stake_extraction_examples_user_created
+  ON public.stake_extraction_examples (user_id, created_at DESC);
+
+ALTER TABLE public.stake_extraction_examples ENABLE ROW LEVEL SECURITY;

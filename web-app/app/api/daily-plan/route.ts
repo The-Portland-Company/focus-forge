@@ -5,6 +5,8 @@ import { shouldShowInboxItemInToday } from "@/lib/email-inbox/shared";
 import { runDailyPlanner } from "@/lib/daily-plan/server";
 import { isOverdue, isToday, isTomorrow, isRestOfWeek } from "@/lib/date-utils";
 import { richTextToPlainText } from "@/lib/rich-text";
+import { SupabaseAdapter } from "@/lib/db/supabase-adapter";
+import { attachDominoAndSort } from "@/lib/daily-plan/domino";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +135,24 @@ export async function POST(request: NextRequest) {
     };
   });
 
+  // Domino Effect (Phase 4): load the stake graph for the user's org, compute
+  // deterministic domino scores, attach a compact `domino` object to each
+  // eligible task, and pre-sort so the AI sees a score-anchored order. Fully
+  // backward compatible: with zero stakes the plan behaves exactly as before.
+  let planTasksWithDomino = planTasks.map((t) => ({ ...t }));
+  try {
+    const adapter = new SupabaseAdapter(auth.supabase, auth.user.id);
+    const orgs = await adapter.getOrganizations();
+    const organizationId = orgs?.[0]?.id || null;
+    if (organizationId && planTasks.length > 0) {
+      const graph = await adapter.getDominoGraphData(organizationId);
+      planTasksWithDomino = attachDominoAndSort(planTasks, graph);
+    }
+  } catch {
+    // Non-fatal: fall back to the un-enriched, due-date-ordered tasks.
+    planTasksWithDomino = planTasks.map((t) => ({ ...t }));
+  }
+
   // Inbox items for Today
   let inboxItems: any[] = [];
   try {
@@ -194,7 +214,7 @@ export async function POST(request: NextRequest) {
       resolvedDate: requestedDate,
       capacityMinutes,
       trimToCapacity,
-      tasks: planTasks,
+      tasks: planTasksWithDomino,
       inboxItems: planInboxItems,
       timeBlocks: planBlocks,
       pinnedTaskIds,

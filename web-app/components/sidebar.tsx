@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus,
   Search,
+  Bomb,
   Calendar,
   CalendarDays,
   Star,
@@ -2181,6 +2182,33 @@ export function Sidebar({
           </Link>
         )}
         </NavReorderWrapper>
+
+        {isCollapsed ? (
+          <Tooltip content="Domino Board">
+            <Link
+              href="/domino"
+              className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors ${
+                currentView === "domino"
+                  ? "text-white"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              <Bomb className="w-4 h-4" />
+            </Link>
+          </Tooltip>
+        ) : (
+          <Link
+            href="/domino"
+            className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
+              currentView === "domino"
+                ? "text-white"
+                : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            <Bomb className="w-4 h-4" />
+            Domino Board
+          </Link>
+        )}
 
         <NavReorderWrapper id="organizations">
         {!isCollapsed && (

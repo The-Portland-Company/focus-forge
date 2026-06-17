@@ -69,6 +69,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { nullableEditFieldValue } from "@/lib/task-modal-payload";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { StakeEditor } from "@/components/stake-editor";
 
 interface PendingSubtask {
   name: string;
@@ -3049,6 +3050,14 @@ export function TaskModal({
               onChange={setRecurringConfig}
             />
           </div>
+
+          {/* Stakes (Domino Effect) — edit mode only, once a task id exists */}
+          {isEditMode && task?.id ? (
+            <StakeEditor
+              taskId={task.id}
+              organizationId={getDefaultOrganizationId() || undefined}
+            />
+          ) : null}
 
           {/* Subtasks */}
           <div>

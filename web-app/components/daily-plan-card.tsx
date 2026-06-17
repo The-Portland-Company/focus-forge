@@ -11,9 +11,11 @@ import {
   Inbox,
   ListChecks,
   HelpCircle,
+  Bomb,
 } from "lucide-react";
 import { SnoozePopover } from "@/components/snooze-popover";
 import { Tooltip } from "@/components/tooltip";
+import { DominoBadge } from "@/components/domino-badge";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +23,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { DailyPlanResponse } from "@/lib/daily-plan/types";
+import type {
+  DailyPlanResponse,
+  DailyPlanOrderedItem,
+  DominoTaskSummary,
+} from "@/lib/daily-plan/types";
+
+/**
+ * Read the optional compact domino summary off an ordered plan item. The
+ * daily-plan API may attach a `domino` object (see DominoTaskSummary) in
+ * addition to dominoScore/dominoRationale; we treat the whole thing as
+ * optional and unknown-shaped, returning null when absent.
+ */
+function getItemDomino(
+  item: DailyPlanOrderedItem | null | undefined,
+): DominoTaskSummary | null {
+  if (!item) return null;
+  const d = (item as { domino?: unknown }).domino;
+  if (!d || typeof d !== "object") return null;
+  return d as DominoTaskSummary;
+}
 
 export interface DailyPlanCardItemContext {
   task?: {
@@ -47,6 +68,31 @@ interface DailyPlanCardProps {
   onSnoozeTask: (taskId: string, snoozedUntilIso: string) => void;
   onSnoozeInboxItem: (inboxItemId: string, snoozedUntilIso: string) => void;
   onConvertInboxToTask: (inboxItemId: string) => void;
+  /**
+   * Called whenever a plan is loaded (fresh fetch or cache rehydrate) with the
+   * per-task domino summary + rationale maps, so the parent can surface domino
+   * badges on the Today / Next Up task rows. Optional.
+   */
+  onPlanLoaded?: (maps: {
+    dominoByTaskId: Record<string, DominoTaskSummary>;
+    dominoRationaleByTaskId: Record<string, string>;
+  }) => void;
+}
+
+/** Extract per-task domino + rationale maps from a plan's ordered items. */
+function extractDominoMaps(plan: DailyPlanResponse | null): {
+  dominoByTaskId: Record<string, DominoTaskSummary>;
+  dominoRationaleByTaskId: Record<string, string>;
+} {
+  const dominoByTaskId: Record<string, DominoTaskSummary> = {};
+  const dominoRationaleByTaskId: Record<string, string> = {};
+  for (const item of plan?.orderedItems ?? []) {
+    if (item.kind !== "task") continue;
+    const domino = getItemDomino(item);
+    if (domino) dominoByTaskId[item.id] = domino;
+    if (item.dominoRationale) dominoRationaleByTaskId[item.id] = item.dominoRationale;
+  }
+  return { dominoByTaskId, dominoRationaleByTaskId };
 }
 
 function formatMinutes(minutes: number): string {
@@ -67,6 +113,7 @@ export function DailyPlanCard({
   onSnoozeTask,
   onSnoozeInboxItem,
   onConvertInboxToTask,
+  onPlanLoaded,
 }: DailyPlanCardProps) {
   const [plan, setPlan] = useState<DailyPlanResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -123,6 +170,13 @@ export function DailyPlanCard({
     }
   }, [todayKey]);
 
+  // Surface per-task domino maps to the parent whenever the plan changes, so
+  // the Today / Next Up task rows can render matching domino badges.
+  useEffect(() => {
+    if (!onPlanLoaded) return;
+    onPlanLoaded(extractDominoMaps(plan));
+  }, [plan, onPlanLoaded]);
+
   const replan = useCallback(() => {
     try {
       localStorage.removeItem(todayKey);
@@ -171,6 +225,69 @@ export function DailyPlanCard({
         ? "bg-amber-400"
         : "bg-emerald-500";
 
+  // --- Daily Domino Briefing ------------------------------------------------
+  // Summarize the dominoes that fall soonest across the plan + the user's free
+  // capacity. All domino data is optional; the briefing is hidden when none of
+  // the planned tasks carry domino summaries.
+  const briefing = useMemo(() => {
+    const dominoes: { id: string; domino: DominoTaskSummary }[] = [];
+    for (const item of orderedItems) {
+      if (item.kind !== "task") continue;
+      const domino = getItemDomino(item);
+      if (domino) dominoes.push({ id: item.id, domino });
+    }
+    if (dominoes.length === 0) return null;
+
+    // Total $ at stake = largest dollar magnitude per task, summed.
+    let totalDollars = 0;
+    let nearest: string | null = null;
+    for (const { domino } of dominoes) {
+      let taskMax = 0;
+      for (const s of domino.stakes ?? []) {
+        const d = Number(s?.dollarEquivalent);
+        if (Number.isFinite(d) && Math.abs(d) > taskMax) taskMax = Math.abs(d);
+      }
+      totalDollars += taskMax;
+      const t = domino.nearestTriggerAt;
+      if (t && (!nearest || new Date(t).getTime() < new Date(nearest).getTime())) {
+        nearest = t;
+      }
+    }
+
+    const freeHours = Math.max(0, capacityMinutes) / 60;
+    return {
+      count: dominoes.length,
+      totalDollars,
+      nearest,
+      freeHours,
+    };
+  }, [orderedItems, capacityMinutes]);
+
+  const formatBriefingDollars = (value: number): string => {
+    if (!Number.isFinite(value) || value <= 0) return "$0";
+    if (value >= 1000) {
+      const k = value / 1000;
+      return `$${k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)}k`;
+    }
+    return `$${Math.round(value)}`;
+  };
+
+  const formatFreeHours = (hours: number): string => {
+    if (!Number.isFinite(hours) || hours <= 0) return "0h";
+    return hours % 1 === 0 ? `${hours}h` : `${hours.toFixed(1)}h`;
+  };
+
+  const formatBriefingCountdown = (triggerAt: string): string => {
+    const ms = new Date(triggerAt).getTime();
+    if (!Number.isFinite(ms)) return "soon";
+    const delta = ms - Date.now();
+    const abs = Math.abs(delta);
+    const days = Math.floor(abs / (24 * 60 * 60 * 1000));
+    const hours = Math.floor((abs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+    const span = days >= 1 ? `${days}d` : `${Math.max(1, hours)}h`;
+    return delta <= 0 ? `${span} overdue` : `in ${span}`;
+  };
+
   const renderCurrentBody = () => {
     if (!currentItem) {
       return (
@@ -193,6 +310,11 @@ export function DailyPlanCard({
               · {currentContext.task.projectName}
             </span>
           ) : null}
+          <DominoBadge
+            domino={getItemDomino(currentItem)}
+            rationale={currentItem.dominoRationale}
+            className="shrink-0"
+          />
         </div>
       ) : (
         <div className="flex items-center gap-2">
@@ -316,6 +438,26 @@ export function DailyPlanCard({
           </button>
         ) : null}
       </div>
+
+      {plan && briefing ? (
+        <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-300">
+            <Bomb className="h-3.5 w-3.5" />
+            Daily Domino Briefing
+          </div>
+          <p className="mt-1 text-xs text-zinc-300">
+            {briefing.count} domino{briefing.count === 1 ? "" : "es"} fall soon
+            {briefing.totalDollars > 0
+              ? ` (${formatBriefingDollars(briefing.totalDollars)} at stake)`
+              : ""}
+            {briefing.nearest
+              ? `, soonest ${formatBriefingCountdown(briefing.nearest)}`
+              : ""}
+            . With your {formatFreeHours(briefing.freeHours)} free, here&apos;s the
+            optimal set.
+          </p>
+        </div>
+      ) : null}
 
       <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
         {error ? (

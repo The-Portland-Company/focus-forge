@@ -1,6 +1,7 @@
 import type {
   DailyPlanRequest,
   DailyPlanResponse,
+  DominoTaskSummary,
 } from "@/lib/daily-plan/types";
 
 const PLANNER_MODEL = "gpt-4.1";
@@ -29,6 +30,8 @@ const RESPONSE_SCHEMA = {
             rationale: { type: "string" },
             suggestedStart: { type: ["string", "null"] },
             suggestedEnd: { type: ["string", "null"] },
+            dominoScore: { type: ["number", "null"] },
+            dominoRationale: { type: ["string", "null"] },
           },
           required: [
             "kind",
@@ -38,6 +41,8 @@ const RESPONSE_SCHEMA = {
             "rationale",
             "suggestedStart",
             "suggestedEnd",
+            "dominoScore",
+            "dominoRationale",
           ],
         },
       },
@@ -89,7 +94,10 @@ ${opts.trimToCapacity ? "Trim aggressively: defer items that do not fit within c
 
 Rules:
 - Output JSON only matching the provided schema, no markdown.
-- Rank from 1 (do first). Higher priority, deadline pressure, dependencies blocking other work, and overdue status all increase rank importance.
+- dominoScore is the PRIMARY ranking signal. Each task may carry a "domino" object with a precomputed score, the nearest trigger date, and the underlying stakes (what falls or pays off, in dollar-equivalents, and whether a resolver defuses it once or eliminates it for good). The tasks are already pre-sorted by this score; respect that order as the strong default. Higher dominoScore = do sooner.
+- Apply capacity and deadline judgment ON TOP of the domino order: you may move a task up for a hard imminent deadline, or down/defer if it cannot fit capacity and is not deadline-critical, but only override the domino order when there is a clear capacity or deadline reason — explain that reason.
+- Rank from 1 (do first). Within similar domino scores, higher priority, deadline pressure, dependencies blocking other work, and overdue status all increase rank importance.
+- Echo each task's domino score back in dominoScore (null if the task has no domino object). For EVERY task that has a domino object, dominoRationale MUST explain the domino concretely: what falls (or what reward lands), WHEN it triggers (the date), its dollar-equivalent, and whether the task defuses it once or eliminates it permanently. Fold this domino explanation into the main rationale too.
 - Pinned tasks must appear in orderedItems with a low rank (do soon).
 - estimateMinutes: use the provided estimate when present; otherwise propose one in estimatesProposed. Round to common chunks: 15, 30, 45, 60, 90, 120, 180, 240.
 - rationale: one short sentence per item explaining why it sits here.
@@ -110,6 +118,7 @@ interface PlanInputTask {
   isOverdue: boolean;
   blockedBy: string[];
   blocking: string[];
+  domino?: DominoTaskSummary;
 }
 
 interface PlanInputInboxItem {
