@@ -210,6 +210,17 @@ export function AiPlannerFloatingChat({
           pageContext: {
             view,
             visibleTaskCount: typeof visibleTaskCount === "number" ? visibleTaskCount : undefined,
+            // The Today view computes "today" in the browser's local timezone.
+            // Send it so the server-side agent resolves the same calendar date
+            // (the API host is typically UTC, which otherwise drifts a day).
+            timezone:
+              (() => {
+                try {
+                  return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+                } catch {
+                  return undefined;
+                }
+              })(),
           },
         }),
       });

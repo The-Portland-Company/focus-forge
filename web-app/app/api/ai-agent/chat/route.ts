@@ -109,6 +109,8 @@ export async function POST(request: NextRequest) {
       .slice(-30);
 
     const accessibleProjectIds = await resolveAccessibleProjectIds(admin, session.user.id);
+    const timezone =
+      typeof pageContext.timezone === "string" && pageContext.timezone ? pageContext.timezone : null;
 
     const result = await runAgent({
       conversation,
@@ -118,8 +120,9 @@ export async function POST(request: NextRequest) {
         projectName: project?.name ?? null,
         visibleTaskCount:
           typeof pageContext.visibleTaskCount === "number" ? pageContext.visibleTaskCount : null,
+        timezone,
       },
-      toolContext: { admin, userId: session.user.id, accessibleProjectIds },
+      toolContext: { admin, userId: session.user.id, accessibleProjectIds, timezone },
       preferredProvider,
     });
 
