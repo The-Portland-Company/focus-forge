@@ -4267,12 +4267,20 @@ export default function ViewPage({
                 }}
               />
             </div>
-            {/* Email Work — connected-mailbox sync indicator + refresh, plus the
+            {/* Unified Today list: a single card containing the day's Email
+                Work (controls + EmailWorkList) immediately followed by the
+                "Today" task section, so email + task work read as one
+                continuous list. Tomorrow / Rest of the Week / Overdue remain
+                their own sections within this same card. This is a render-only
+                reorganization — the email sort/filter logic, domino wiring,
+                and task logic are unchanged.
+
+                Email Work — connected-mailbox sync indicator + refresh, plus the
                 day's email work list. The refresh button re-syncs due mailboxes
                 (POST /api/email/mailboxes/sync-due) and then refetches; the
                 "Synced Xm ago" affordance opens the per-mailbox last-sync modal
                 (rendered near the bottom of this view). */}
-            <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 space-y-2 mx-4 mb-4">
+            <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 space-y-2 mx-4">
               <div className="flex items-center gap-3 border-b border-zinc-700 py-2 px-1">
                 <div className="flex flex-1 items-center gap-2 text-sm font-medium text-zinc-500">
                   <Mailbox className="h-4 w-4" />
@@ -4442,8 +4450,6 @@ export default function ViewPage({
                   />
                 )}
               </div>
-            </div>
-            <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 space-y-2 mx-4">
               {isDataLoading ? (
                 <SkeletonSectionedTasks
                   sections={[
@@ -4470,24 +4476,9 @@ export default function ViewPage({
                 </div>
               ) : (
                 <>
-                  {/* Overdue Section */}
-                  {overdueTasks.length > 0 && (
-                    <div>
-                      <SectionHeader
-                        title="Overdue"
-                        count={overdueTasks.filter((t) => !t.completed).length}
-                        section="overdue"
-                        isOpen={todaySections.overdue}
-                      />
-                      {todaySections.overdue && (
-                        <div className="mt-1">
-                          <>{renderTaskSection(overdueTasks, "today-overdue")}</>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Today Section */}
+                  {/* Today Section — rendered first so it sits directly beneath
+                      the Email Work list above, forming the single unified
+                      "today work" list (email items, then today's tasks). */}
                   <div>
                     <SectionHeader
                       title="Today"
@@ -4507,6 +4498,23 @@ export default function ViewPage({
                       </div>
                     )}
                   </div>
+
+                  {/* Overdue Section */}
+                  {overdueTasks.length > 0 && (
+                    <div>
+                      <SectionHeader
+                        title="Overdue"
+                        count={overdueTasks.filter((t) => !t.completed).length}
+                        section="overdue"
+                        isOpen={todaySections.overdue}
+                      />
+                      {todaySections.overdue && (
+                        <div className="mt-1">
+                          <>{renderTaskSection(overdueTasks, "today-overdue")}</>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Tomorrow Section */}
                   <div>
