@@ -28,6 +28,7 @@ import type {
   DailyPlanOrderedItem,
   DominoTaskSummary,
 } from "@/lib/daily-plan/types";
+import { dailyPlanStorageKey } from "@/lib/daily-plan/storage-key";
 
 /**
  * Read the optional compact domino summary off an ordered plan item. The
@@ -123,10 +124,7 @@ export function DailyPlanCard({
 
   // Cache the day's generated plan so navigating away + back doesn't burn AI
   // usage by re-running. Keyed on today's local date.
-  const todayKey = useMemo(() => {
-    const d = new Date();
-    return `dailyPlan:${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  }, []);
+  const todayKey = useMemo(() => dailyPlanStorageKey(), []);
 
   const fetchPlan = useCallback(async () => {
     setLoading(true);
