@@ -82,6 +82,12 @@ import {
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { clearDockBadge } from "@/lib/dock-badge";
+import {
+  KNOWN_MODELS,
+  defaultChainIds,
+  normalizeChainIds,
+  type AISurface,
+} from "@/lib/ai/model-chains";
 import { MailboxFormDialog } from "@/components/mailbox-form-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatRelativeSync } from "@/lib/email-inbox/format-relative-sync";
@@ -108,6 +114,12 @@ export default function SettingsPage() {
   );
   const [dockBadgeEnabled, setDockBadgeEnabled] = useState<boolean | null>(
     null,
+  );
+  const [estimatorChain, setEstimatorChain] = useState<string[]>(
+    defaultChainIds(),
+  );
+  const [assistantChain, setAssistantChain] = useState<string[]>(
+    defaultChainIds(),
   );
   const [emailDeleteUndoSeconds, setEmailDeleteUndoSeconds] = useState<number>(
     DEFAULT_EMAIL_DELETE_UNDO_SECONDS,
@@ -636,6 +648,9 @@ export default function SettingsPage() {
       setProfileColor(userColor);
       setAnimationsEnabled(userAnimations);
       setDockBadgeEnabled(userDockBadge);
+      const chains = (profile as any).ai_model_chains || {};
+      setEstimatorChain(normalizeChainIds(chains.estimator));
+      setAssistantChain(normalizeChainIds(chains.assistant));
       setThemePreset(userTheme);
       setProfileMemoji(userMemoji);
       setPriorityColor(userPriorityColor);
@@ -761,6 +776,95 @@ export default function SettingsPage() {
       setTimeout(() => setSaveStatus("idle"), 3000);
     }
   };
+
+  // Persist the two independent AI model chains. `surface` selects which chain
+  // is being edited so the estimator and assistant never clobber each other.
+  const saveModelChains = async (
+    surface: AISurface,
+    nextChain: string[],
+  ) => {
+    const estimator =
+      surface === "estimator" ? nextChain : estimatorChain;
+    const assistant =
+      surface === "assistant" ? nextChain : assistantChain;
+    setSaveStatus("saving");
+    try {
+      if (updateProfile) {
+        const result = await updateProfile({
+          ai_model_chains: { estimator, assistant },
+        });
+        if (result?.error) {
+          setSaveStatus("error");
+          setTimeout(() => setSaveStatus("idle"), 3000);
+          return;
+        }
+      }
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch {
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus("idle"), 3000);
+    }
+  };
+
+  // Set position `index` of a surface's chain to `modelId`, swapping whatever
+  // model currently occupies the target slot so every position stays unique.
+  const setChainPosition = (
+    surface: AISurface,
+    index: number,
+    modelId: string,
+  ) => {
+    const current = surface === "estimator" ? estimatorChain : assistantChain;
+    const next = [...current];
+    const existingIndex = next.indexOf(modelId);
+    if (existingIndex !== -1 && existingIndex !== index) {
+      // Swap so no model appears twice.
+      next[existingIndex] = next[index];
+    }
+    next[index] = modelId;
+    const normalized = normalizeChainIds(next);
+    if (surface === "estimator") setEstimatorChain(normalized);
+    else setAssistantChain(normalized);
+    void saveModelChains(surface, normalized);
+  };
+
+  const renderChainEditor = (
+    surface: AISurface,
+    chain: string[],
+    title: string,
+    description: string,
+  ) => (
+    <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+      <h3 className="text-lg font-medium mb-1">{title}</h3>
+      <p className="text-sm text-zinc-400 mb-4">{description}</p>
+      <div className="space-y-3">
+        {[0, 1, 2, 3].map((position) => (
+          <div key={position} className="flex items-center gap-3">
+            <label
+              className="w-28 text-sm text-zinc-300"
+              htmlFor={`${surface}-model-${position}`}
+            >
+              {position === 0 ? "1st (default)" : `${position + 1}th fallback`}
+            </label>
+            <select
+              id={`${surface}-model-${position}`}
+              value={chain[position] ?? ""}
+              onChange={(e) =>
+                setChainPosition(surface, position, e.target.value)
+              }
+              className="flex-1 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-white focus:ring-2 focus:ring-theme-primary"
+            >
+              {KNOWN_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   // Theme application is now handled by the shared utility
 
@@ -1439,6 +1543,32 @@ export default function SettingsPage() {
                     </p>
                   </div>
                 </label>
+              </div>
+
+              {/* AI model waterfalls (estimator + assistant are independent) */}
+              <div className="space-y-4">
+                <div>
+                  <h2 className="text-lg font-medium">AI model order</h2>
+                  <p className="text-sm text-zinc-400">
+                    Configure, independently, the quality-first fallback order
+                    for the time estimator and the assistant. The 1st model is
+                    the default; if it hits a balance, quota, or auth error the
+                    next model in that list is used. These two lists do not
+                    affect each other.
+                  </p>
+                </div>
+                {renderChainEditor(
+                  "estimator",
+                  estimatorChain,
+                  "Time estimator",
+                  "Models used to estimate how long a task will take.",
+                )}
+                {renderChainEditor(
+                  "assistant",
+                  assistantChain,
+                  "Assistant",
+                  "Models used by the AI assistant and planner.",
+                )}
               </div>
 
               {/* Email Accounts */}

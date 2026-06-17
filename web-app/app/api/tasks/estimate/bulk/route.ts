@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api/authz";
 import { estimateTaskMinutes } from "@/lib/ai-estimator/server";
 import { fetchRecentExamples } from "@/lib/ai-estimator/examples";
+import { fetchEstimatorModelChains } from "@/lib/ai-estimator/chains";
 
 const MAX_BATCH = 25;
 const CONCURRENCY = 5;
@@ -109,6 +110,9 @@ export async function POST(request: NextRequest) {
   const examplesByProject = new Map<string, Awaited<ReturnType<typeof fetchRecentExamples>>>();
   const globalExamples = await fetchRecentExamples(user.id, { limit: 12 });
 
+  // Load the user's estimator chain once for the whole batch.
+  const modelChains = await fetchEstimatorModelChains(supabase, user.id);
+
   const results = await runWithConcurrency(hydrated, CONCURRENCY, async (task) => {
     try {
       // Subtask short-circuit: if the parent has subtasks and they're all estimated, sum them.
@@ -145,6 +149,7 @@ export async function POST(request: NextRequest) {
         dueInDays: task.dueInDays,
         subtaskCount: task.subtaskCount,
         examples,
+        modelChains,
       });
 
       return {

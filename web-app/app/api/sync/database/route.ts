@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth'
 import { createClient } from '@/lib/supabase/server'
+import { defaultModelChains } from '@/lib/ai/model-chains'
 import { mapOrganizationFromDb, mapProjectFromDb, mapSectionFromDb, mapTagFromDb, mapTaskFromDb } from '@/lib/api/sync-mapper'
 
 export const dynamic = 'force-dynamic'
@@ -198,6 +199,8 @@ export async function GET(request: NextRequest) {
             profileMemoji: profile.profile_memoji || null,
             animationsEnabled: profile.animations_enabled ?? true,
             dockBadgeEnabled: profile.dock_badge_enabled ?? true,
+            aiModelChains:
+              (profile as any).ai_model_chains ?? defaultModelChains(),
             priorityColor: profile.priority_color || null,
             role: profile.role || null,
             status: (profile as any).status || 'active',
@@ -221,6 +224,8 @@ export async function GET(request: NextRequest) {
           profileMemoji: currentProfile.profile_memoji || null,
           animationsEnabled: currentProfile.animations_enabled ?? true,
           dockBadgeEnabled: currentProfile.dock_badge_enabled ?? true,
+          aiModelChains:
+            (currentProfile as any).ai_model_chains ?? defaultModelChains(),
           priorityColor: currentProfile.priority_color || null,
           role: currentProfile.role || null,
           status: (currentProfile as any).status || 'active',

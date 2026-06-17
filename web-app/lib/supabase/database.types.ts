@@ -343,6 +343,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          ai_model_chains: Json | null
           animations_enabled: boolean | null
           created_at: string | null
           dock_badge_enabled: boolean | null
@@ -374,6 +375,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          ai_model_chains?: Json | null
           animations_enabled?: boolean | null
           created_at?: string | null
           dock_badge_enabled?: boolean | null
@@ -405,6 +407,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          ai_model_chains?: Json | null
           animations_enabled?: boolean | null
           created_at?: string | null
           dock_badge_enabled?: boolean | null

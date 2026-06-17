@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api/authz";
-import { estimateTaskMinutes } from "@/lib/ai-estimator/server";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { retrieveRelevantAIMemory } from "@/lib/ai-memory/retrieval";
 import { getLatestActivePlaybook } from "@/lib/ai-memory/playbook";
@@ -9,6 +8,8 @@ import {
   buildPlaybookPromptBlock,
 } from "@/lib/ai-memory/prompt";
 import { recordDecisionTrace } from "@/lib/ai-memory/trace";
+import { estimateTaskMinutesWithModel } from "@/lib/ai-estimator/server";
+import { fetchEstimatorModelChains } from "@/lib/ai-estimator/chains";
 
 export async function POST(request: NextRequest) {
   const auth = await requireAuth(request);
@@ -64,12 +65,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await estimateTaskMinutes({
+    const modelChains = await fetchEstimatorModelChains(
+      getAdminClient(),
+      userId,
+    );
+    const estimate = await estimateTaskMinutesWithModel({
       name,
       description,
       memoryBlock,
       playbookBlock,
+      modelChains,
     });
+    const { model: usedModel, provider: usedProvider, ...result } = estimate;
 
     try {
       await recordDecisionTrace(getAdminClient(), {
@@ -84,8 +91,8 @@ export async function POST(request: NextRequest) {
         aiOutput: result as unknown as Record<string, unknown>,
         finalOutput: result as unknown as Record<string, unknown>,
         overriddenByRule: false,
-        modelProvider: "openai",
-        modelName: "gpt-4.1",
+        modelProvider: usedProvider,
+        modelName: usedModel,
       });
     } catch (e) {
       console.error("recordDecisionTrace (estimate) failed:", e);

@@ -17,6 +17,9 @@ CREATE TABLE profiles (
   profile_memoji TEXT,
   animations_enabled BOOLEAN DEFAULT true,
   dock_badge_enabled BOOLEAN NOT NULL DEFAULT true,
+  -- Independent, per-user AI model waterfall chains (quality-first ordering).
+  -- { estimator: string[], assistant: string[] } of known model ids.
+  ai_model_chains JSONB NOT NULL DEFAULT '{"estimator":["claude-opus-4-8","gpt-4.1","claude-sonnet-4-6","grok-3"],"assistant":["claude-opus-4-8","gpt-4.1","claude-sonnet-4-6","grok-3"]}'::jsonb,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
