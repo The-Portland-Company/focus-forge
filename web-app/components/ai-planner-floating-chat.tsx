@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useRecorder } from "@/lib/voice/use-recorder";
+import { STT_PROVIDER_OPTIONS, type SttProviderPreference } from "@/lib/voice/stt";
 
 type AgentMessage = {
   id: string;
@@ -77,6 +78,7 @@ interface AiPlannerFloatingChatProps {
 
 const SESSION_STORAGE_PREFIX = "aiAgentSession";
 const MODEL_STORAGE_KEY = "aiAgentModel";
+const STT_STORAGE_KEY = "aiVoiceProvider";
 
 const MODEL_OPTIONS = [
   { id: "auto", label: "Auto" },
@@ -128,6 +130,7 @@ export function AiPlannerFloatingChat({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [model, setModel] = useState<ModelChoice>("auto");
+  const [sttProvider, setSttProvider] = useState<SttProviderPreference>("auto");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // When set, the next send starts a fresh server-side session instead of
   // resuming the latest one for this scope.
@@ -149,6 +152,8 @@ export function AiPlannerFloatingChat({
     if (typeof window === "undefined") return;
     const saved = localStorage.getItem(MODEL_STORAGE_KEY) as ModelChoice | null;
     if (saved && MODEL_OPTIONS.some((m) => m.id === saved)) setModel(saved);
+    const savedStt = localStorage.getItem(STT_STORAGE_KEY) as SttProviderPreference | null;
+    if (savedStt && STT_PROVIDER_OPTIONS.some((o) => o.id === savedStt)) setSttProvider(savedStt);
   }, []);
 
   useEffect(() => {
@@ -283,6 +288,7 @@ export function AiPlannerFloatingChat({
       }
       const fd = new FormData();
       fd.append("audio", blob, "recording.webm");
+      if (sttProvider !== "auto") fd.append("provider", sttProvider);
       const resp = await fetch("/api/voice/transcribe", {
         method: "POST",
         body: fd,
@@ -534,6 +540,31 @@ export function AiPlannerFloatingChat({
                     {MODEL_OPTIONS.map((m) => (
                       <SelectItem key={m.id} value={m.id} className="text-xs">
                         {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={sttProvider}
+                  onValueChange={(value) => {
+                    const next = value as SttProviderPreference;
+                    setSttProvider(next);
+                    if (typeof window !== "undefined") localStorage.setItem(STT_STORAGE_KEY, next);
+                  }}
+                  disabled={sending || transcribing}
+                >
+                  <SelectTrigger
+                    title="Choose which voice transcription provider to use"
+                    aria-label="Choose voice transcription provider"
+                    className="h-[38px] w-auto gap-1 rounded-xl border-zinc-700 bg-zinc-900 px-2.5 text-xs text-zinc-300 hover:border-zinc-500"
+                  >
+                    <Mic className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                    <SelectValue placeholder="Auto" />
+                  </SelectTrigger>
+                  <SelectContent className="min-w-[12rem]">
+                    {STT_PROVIDER_OPTIONS.map((o) => (
+                      <SelectItem key={o.id} value={o.id} className="text-xs">
+                        {o.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
