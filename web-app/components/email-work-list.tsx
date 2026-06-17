@@ -979,8 +979,10 @@ export function EmailWorkList({
                   <div className="min-w-0">
                     <div
                       className={cn(
-                        "flex min-w-0 items-center gap-1.5 leading-5 break-words text-white",
-                        isVisuallyUnread ? "font-semibold" : "font-medium",
+                        "flex min-w-0 items-center gap-1.5 leading-5 break-words",
+                        isVisuallyUnread
+                          ? "font-semibold text-white"
+                          : "font-medium text-zinc-400",
                       )}
                     >
                       <Tooltip
