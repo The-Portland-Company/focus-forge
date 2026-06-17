@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { EstimateReviewModal } from "@/components/estimate-review-modal";
+import {
+  EstimateHelpButton,
+  EstimateHelpModal,
+} from "@/components/estimate-help-modal";
 import { Hourglass, Play, Sparkles, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -38,6 +42,7 @@ export function EstimatesView() {
   const [preview, setPreview] = useState<PreviewTask[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("queue");
   const [examples, setExamples] = useState<CalibrationExample[]>([]);
   const [examplesLoading, setExamplesLoading] = useState(false);
@@ -99,6 +104,7 @@ export function EstimatesView() {
         <div>
           <div className="inline-flex items-center gap-2 text-zinc-400 text-sm mb-2">
             <Hourglass className="w-4 h-4" /> Estimates
+            <EstimateHelpButton onClick={() => setHelpOpen(true)} />
           </div>
           <h1 className="text-2xl text-white font-semibold">
             {total == null
@@ -349,6 +355,8 @@ export function EstimatesView() {
         }}
         batchSize={20}
       />
+
+      <EstimateHelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
       </div>
     </div>
   );
