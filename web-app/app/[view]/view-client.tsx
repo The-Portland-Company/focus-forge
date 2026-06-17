@@ -3656,12 +3656,12 @@ export default function ViewPage({
         isOpen: boolean;
         actions?: ReactNode;
       }) => (
-        <div className="flex items-center gap-3 border-b border-zinc-700 py-2 px-1">
+        <div className="flex items-center gap-3 border-b border-[rgba(var(--theme-primary-rgb),0.30)] py-2 px-1">
           <button
             onClick={() => toggleSection(section)}
             className="group flex flex-1 items-center justify-between"
           >
-            <span className="flex items-center gap-2 text-sm font-medium text-zinc-500 transition-colors group-hover:text-zinc-400">
+            <span className="flex items-center gap-2 text-sm font-medium text-[rgba(var(--theme-primary-rgb),0.9)] transition-colors group-hover:text-[rgb(var(--theme-primary-rgb))]">
               <span>
                 {title}{" "}
                 {count > 0 && (
