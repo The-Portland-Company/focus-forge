@@ -24,7 +24,9 @@ import {
   MessageCircle,
   Mail,
   StickyNote,
+  Sparkles,
 } from "lucide-react";
+import { isAiCreatedTask } from "@/lib/email-inbox/ai-task-origin";
 import { format, addDays } from "date-fns";
 import { getStartOfDay, isToday, isOverdue } from "@/lib/date-utils";
 import { formatRecurringLabel } from "@/lib/recurring-utils";
@@ -56,6 +58,16 @@ interface TaskListProps {
   recentlySavedTaskIds?: Set<string>; // Tasks that just saved successfully (fading green check)
   freshlyUpdatedTaskIds?: Set<string>; // Tasks new/changed from a background refetch (fading green row)
   emailThreadIdByTaskId?: Record<string, string>; // task id -> linked email thread id
+  aiCreatedByTaskId?: Record<
+    string,
+    { threadId: string; generatedBy: string; rationale: string | null }
+  >; // task id -> AI-origin info for tasks the AI created from an email
+  onOpenAiRationale?: (args: {
+    taskId: string;
+    taskName: string;
+    threadId: string;
+    rationale: string | null;
+  }) => void;
   dominoByTaskId?: Record<string, DominoTaskSummary>; // task id -> compact domino summary
   dominoRationaleByTaskId?: Record<string, string>; // task id -> AI domino rationale
   onOpenEmailThread?: (threadId: string) => void;
@@ -192,6 +204,8 @@ export function TaskList({
   recentlySavedTaskIds,
   freshlyUpdatedTaskIds,
   emailThreadIdByTaskId,
+  aiCreatedByTaskId,
+  onOpenAiRationale,
   dominoByTaskId,
   dominoRationaleByTaskId,
   onOpenEmailThread,
@@ -940,7 +954,28 @@ export function TaskList({
                       </button>
                     )}
                     <span className="min-w-0 flex-1 whitespace-normal break-words">
-                      {emailThreadIdByTaskId?.[task.id] ? (
+                      {isAiCreatedTask(task.id, aiCreatedByTaskId) ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const link = aiCreatedByTaskId?.[task.id];
+                            if (link && onOpenAiRationale) {
+                              onOpenAiRationale({
+                                taskId: task.id,
+                                taskName: task.name,
+                                threadId: link.threadId,
+                                rationale: link.rationale,
+                              });
+                            }
+                          }}
+                          aria-label="AI-created — view reasoning"
+                          title="AI-created — view reasoning"
+                          className="mr-1.5 inline-flex shrink-0 -translate-y-px items-center align-middle text-violet-400/90 hover:text-violet-300 transition-colors"
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                        </button>
+                      ) : emailThreadIdByTaskId?.[task.id] ? (
                         <Mail
                           className="mr-1.5 inline-block h-3.5 w-3.5 shrink-0 -translate-y-px text-sky-400/80"
                           role="img"

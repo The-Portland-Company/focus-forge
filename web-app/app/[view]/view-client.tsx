@@ -48,6 +48,7 @@ import { TimeTrackingView } from "@/components/time-tracking-view";
 import { getBlockedTaskIds } from "@/lib/dependency-utils";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { TaskList } from "@/components/task-list";
+import { AiTaskRefinementModal } from "@/components/ai-task-refinement-modal";
 import { KanbanView } from "@/components/kanban-view";
 import { ColorPicker } from "@/components/color-picker";
 import { Database, Task, Project, Organization, Section } from "@/lib/types";
@@ -628,6 +629,17 @@ export default function ViewPage({
   const [emailTaskLinks, setEmailTaskLinks] = useState<
     Record<string, string>
   >({});
+  const [aiCreatedTasks, setAiCreatedTasks] = useState<
+    Record<
+      string,
+      { threadId: string; generatedBy: string; rationale: string | null }
+    >
+  >({});
+  const [aiRationaleModal, setAiRationaleModal] = useState<{
+    taskName: string;
+    threadId: string;
+    rationale: string | null;
+  } | null>(null);
   const [taskEmailThreadId, setTaskEmailThreadId] = useState<string | null>(
     null,
   );
@@ -1201,6 +1213,7 @@ export default function ViewPage({
       .then((response) => (response.ok ? response.json() : null))
       .then((payload) => {
         if (payload?.links) setEmailTaskLinks(payload.links);
+        if (payload?.aiCreated) setAiCreatedTasks(payload.aiCreated);
       })
       .catch(() => undefined);
   }, [user?.id, view]);
@@ -3735,6 +3748,17 @@ export default function ViewPage({
         recentlySavedTaskIds,
         freshlyUpdatedTaskIds,
         emailThreadIdByTaskId: emailTaskLinks,
+        aiCreatedByTaskId: aiCreatedTasks,
+        onOpenAiRationale: ({
+          taskName,
+          threadId,
+          rationale,
+        }: {
+          taskId: string;
+          taskName: string;
+          threadId: string;
+          rationale: string | null;
+        }) => setAiRationaleModal({ taskName, threadId, rationale }),
         dominoByTaskId,
         dominoRationaleByTaskId,
         onOpenEmailThread: (threadId: string) => setTaskEmailThreadId(threadId),
@@ -5937,6 +5961,14 @@ export default function ViewPage({
           }}
         />
       )}
+
+      <AiTaskRefinementModal
+        open={Boolean(aiRationaleModal)}
+        onClose={() => setAiRationaleModal(null)}
+        threadId={aiRationaleModal?.threadId ?? null}
+        taskName={aiRationaleModal?.taskName ?? ""}
+        fallbackRationale={aiRationaleModal?.rationale ?? null}
+      />
 
       {undoDelete && (
         <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50">
