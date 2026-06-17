@@ -1972,13 +1972,6 @@ export default function SettingsPage() {
                     <ExternalLink className="h-3.5 w-3.5" />
                     Public Focus: Time Prompt
                   </Link>
-                  <Link
-                    href="/developer/api"
-                    className="inline-flex items-center gap-2 rounded-full border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:border-zinc-500 hover:text-white"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    API Docs
-                  </Link>
                 </div>
               </div>
               <div className="flex items-start justify-between gap-2">
@@ -2327,6 +2320,17 @@ export default function SettingsPage() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Developer (de-emphasized) */}
+          <div className="pt-6 mt-8 border-t border-zinc-800/60">
+            <Link
+              href="/developer/api"
+              className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              <ExternalLink className="h-3 w-3" />
+              API Docs
+            </Link>
           </div>
         </div>
       </div>
