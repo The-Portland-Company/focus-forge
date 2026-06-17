@@ -237,7 +237,7 @@ export function EmailThreadAttachments({
 
   return (
     <>
-      <div className="mt-4 border-t border-zinc-800 pt-3">
+      <div className="mt-2 border-t border-zinc-800 pt-3">
         <button
           type="button"
           onClick={() => setIsOpen((current) => !current)}
