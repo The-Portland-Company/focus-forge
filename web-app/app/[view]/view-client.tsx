@@ -785,6 +785,29 @@ export default function ViewPage({
   const [projectWorkTab, setProjectWorkTab] = useState<ProjectWorkTab>("tasks");
   const focusedTaskIdRef = useRef<string | null>(null);
   const focusedTaskRowRef = useRef<HTMLElement | null>(null);
+  // The main content area is the scroll container for the Today/list views.
+  // Deleting a task triggers a full fetchData() that rebuilds the list; the
+  // removed row collapses the content height and the container would otherwise
+  // re-anchor (jump). We capture scrollTop before the delete and restore it
+  // across the resulting DOM commits to keep the view visually stable.
+  const mainScrollRef = useRef<HTMLElement | null>(null);
+  const restoreMainScrollTop = useCallback((target: number) => {
+    const container = mainScrollRef.current;
+    if (!container) return;
+    // Restore immediately and again on the next two frames: the list rebuild
+    // (and any layout/skeleton transitions) commits across a couple of frames,
+    // so a single set can be clobbered by a later reflow.
+    const apply = () => {
+      if (mainScrollRef.current) {
+        mainScrollRef.current.scrollTop = target;
+      }
+    };
+    apply();
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
+    });
+  }, []);
   const loadedProjectInboxIdsRef = useRef<Set<string>>(new Set());
   const loadingProjectInboxIdsRef = useRef<Set<string>>(new Set());
   const normalizedAuthEmail = (user?.email || "").trim().toLowerCase();
@@ -2135,6 +2158,9 @@ export default function ViewPage({
     if (!taskDeleteConfirm.taskId) return;
     const deletedName = taskDeleteConfirm.taskName;
     const deletingId = taskDeleteConfirm.taskId;
+    // Capture the scroll container position before the delete so the list
+    // rebuild from fetchData() doesn't re-anchor / jump the view.
+    const savedScrollTop = mainScrollRef.current?.scrollTop ?? 0;
     setDeletingTaskIds((prev) => new Set(prev).add(deletingId));
     try {
       const response = await fetch(`/api/tasks/${taskDeleteConfirm.taskId}`, {
@@ -2153,6 +2179,7 @@ export default function ViewPage({
           }, 15000);
         }
         await fetchData();
+        restoreMainScrollTop(savedScrollTop);
       }
     } catch (error) {
       console.error("Error deleting task:", error);
@@ -5831,7 +5858,10 @@ export default function ViewPage({
         sidebarElement
       )}
 
-      <main className="flex-1 min-w-0 text-white overflow-y-auto">
+      <main
+        ref={mainScrollRef}
+        className="flex-1 min-w-0 text-white overflow-y-auto"
+      >
         <div
           className={
             view === "upcoming"
