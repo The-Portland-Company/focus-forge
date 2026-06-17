@@ -1557,4 +1557,235 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
     if (error) throw error;
   }
+
+  // ---------------------------------------------------------------------------
+  // Domino Effect — stakes, edges, task links (Phase 3)
+  // RLS scopes every read/write to the authed user's org access; we additionally
+  // filter by organization_id / soft-delete to keep results tight.
+  // ---------------------------------------------------------------------------
+
+  async getStakes(organizationId: string) {
+    const supabase = this.supabase;
+    const { data, error } = await supabase
+      .from("stakes")
+      .select("*")
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  async getStakeById(id: string) {
+    const supabase = this.supabase;
+    const { data, error } = await supabase
+      .from("stakes")
+      .select("*")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data || null;
+  }
+
+  async createStake(stake: any) {
+    const supabase = this.supabase;
+    const { data, error } = await supabase
+      .from("stakes")
+      .insert(stake)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async updateStake(id: string, updates: any) {
+    const supabase = this.supabase;
+    const { data, error } = await supabase
+      .from("stakes")
+      .update(updates)
+      .eq("id", id)
+      .is("deleted_at", null)
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+    return data || null;
+  }
+
+  async softDeleteStake(id: string) {
+    const supabase = this.supabase;
+    const { data, error } = await supabase
+      .from("stakes")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id)
+      .is("deleted_at", null)
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+    return data || null;
+  }
+
+  async getStakeEdges(organizationId: string) {
+    const supabase = this.supabase;
+    // Edge RLS mirrors the parent stake's org; constrain to the org's stakes.
+    const { data: stakeRows, error: stakeError } = await supabase
+      .from("stakes")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null);
+
+    if (stakeError) throw stakeError;
+    const stakeIds = (stakeRows || []).map((row: { id: string }) => row.id);
+    if (stakeIds.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from("stake_edges")
+      .select("*")
+      .is("deleted_at", null)
+      .in("parent_stake_id", stakeIds);
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  async createStakeEdge(edge: {
+    parent_stake_id: string;
+    child_stake_id: string;
+    weight_multiplier?: number;
+  }) {
+    const supabase = this.supabase;
+    const { data, error } = await supabase
+      .from("stake_edges")
+      .insert(edge)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async deleteStakeEdge(parentStakeId: string, childStakeId: string) {
+    const supabase = this.supabase;
+    const { data, error } = await supabase
+      .from("stake_edges")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("parent_stake_id", parentStakeId)
+      .eq("child_stake_id", childStakeId)
+      .is("deleted_at", null)
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+    return data || null;
+  }
+
+  async getTaskStakeLinks(taskId: string) {
+    const supabase = this.supabase;
+    const { data, error } = await supabase
+      .from("task_stakes")
+      .select("*")
+      .eq("task_id", taskId)
+      .is("deleted_at", null);
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  async linkTaskStake(link: {
+    task_id: string;
+    stake_id: string;
+    resolution_type: "defuses_once" | "eliminates";
+  }) {
+    const supabase = this.supabase;
+    // Re-link revives a previously soft-deleted row to respect the (task_id,
+    // stake_id) PK; otherwise insert fresh.
+    const { data, error } = await supabase
+      .from("task_stakes")
+      .upsert(
+        {
+          task_id: link.task_id,
+          stake_id: link.stake_id,
+          resolution_type: link.resolution_type,
+          deleted_at: null,
+        },
+        { onConflict: "task_id,stake_id" },
+      )
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async unlinkTaskStake(taskId: string, stakeId: string) {
+    const supabase = this.supabase;
+    const { data, error } = await supabase
+      .from("task_stakes")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("task_id", taskId)
+      .eq("stake_id", stakeId)
+      .is("deleted_at", null)
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+    return data || null;
+  }
+
+  /**
+   * Bundle everything computeTaskDominoScores needs for an org: active,
+   * non-deleted stakes, their edges, every task↔stake link, and a
+   * task_id → time_estimate (minutes) map for effort scaling.
+   */
+  async getDominoGraphData(organizationId: string) {
+    const supabase = this.supabase;
+
+    const stakes = await this.getStakes(organizationId);
+    const edges = await this.getStakeEdges(organizationId);
+
+    const stakeIds = (stakes || []).map((s: { id: string }) => s.id);
+
+    let links: any[] = [];
+    if (stakeIds.length > 0) {
+      const { data: linkRows, error: linkError } = await supabase
+        .from("task_stakes")
+        .select("*")
+        .is("deleted_at", null)
+        .in("stake_id", stakeIds);
+
+      if (linkError) throw linkError;
+      links = linkRows || [];
+    }
+
+    const taskEffortMinutes: Record<string, number> = {};
+    const taskIds = Array.from(
+      new Set(
+        links
+          .map((l: { task_id: string }) => l.task_id)
+          .filter((id: any) => typeof id === "string" && id),
+      ),
+    ) as string[];
+
+    if (taskIds.length > 0) {
+      const { data: taskRows, error: taskError } = await supabase
+        .from("tasks")
+        .select("id, time_estimate")
+        .in("id", taskIds)
+        .is("deleted_at", null);
+
+      if (taskError) throw taskError;
+      for (const row of taskRows || []) {
+        if (typeof row.time_estimate === "number") {
+          taskEffortMinutes[String(row.id)] = row.time_estimate;
+        }
+      }
+    }
+
+    return { stakes, edges, links, taskEffortMinutes };
+  }
 }

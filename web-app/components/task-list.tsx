@@ -30,6 +30,8 @@ import { getStartOfDay, isToday, isOverdue } from "@/lib/date-utils";
 import { formatRecurringLabel } from "@/lib/recurring-utils";
 import { getBlockedTaskIds, getBlockingTasks } from "@/lib/dependency-utils";
 import { UserAvatar } from "@/components/user-avatar";
+import { DominoBadge } from "@/components/domino-badge";
+import type { DominoTaskSummary } from "@/lib/daily-plan/types";
 import * as Popover from "@radix-ui/react-popover";
 
 interface TaskListProps {
@@ -54,6 +56,8 @@ interface TaskListProps {
   recentlySavedTaskIds?: Set<string>; // Tasks that just saved successfully (fading green check)
   freshlyUpdatedTaskIds?: Set<string>; // Tasks new/changed from a background refetch (fading green row)
   emailThreadIdByTaskId?: Record<string, string>; // task id -> linked email thread id
+  dominoByTaskId?: Record<string, DominoTaskSummary>; // task id -> compact domino summary
+  dominoRationaleByTaskId?: Record<string, string>; // task id -> AI domino rationale
   onOpenEmailThread?: (threadId: string) => void;
   onAddDependency?: (task: Task) => void;
   showDescriptions?: boolean; // show description excerpts under all tasks
@@ -188,6 +192,8 @@ export function TaskList({
   recentlySavedTaskIds,
   freshlyUpdatedTaskIds,
   emailThreadIdByTaskId,
+  dominoByTaskId,
+  dominoRationaleByTaskId,
   onOpenEmailThread,
   onAddDependency,
   showDescriptions = false,
@@ -930,6 +936,13 @@ export function TaskList({
                     <span className="min-w-0 flex-1 whitespace-normal break-words">
                       {task.name}
                     </span>
+                    {dominoByTaskId?.[task.id] ? (
+                      <DominoBadge
+                        domino={dominoByTaskId[task.id]}
+                        rationale={dominoRationaleByTaskId?.[task.id]}
+                        className="shrink-0"
+                      />
+                    ) : null}
                   </div>
                   {task.description &&
                     (() => {

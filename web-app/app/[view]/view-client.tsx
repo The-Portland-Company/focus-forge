@@ -102,6 +102,7 @@ import {
   diffFreshInboxItemIds,
 } from "@/lib/fresh-data-diff";
 import { DailyPlanCard } from "@/components/daily-plan-card";
+import type { DominoTaskSummary } from "@/lib/daily-plan/types";
 
 // How often the app asks the server to pull new mail (POST /sync-due). The
 // server enforces its own per-mailbox poll floor, so these only bound how
@@ -645,6 +646,14 @@ export default function ViewPage({
   const [taskEmailThreadId, setTaskEmailThreadId] = useState<string | null>(
     null,
   );
+  // Per-task domino summaries + rationales surfaced by the daily plan, used to
+  // render domino badges on Today / Next Up task rows.
+  const [dominoByTaskId, setDominoByTaskId] = useState<
+    Record<string, DominoTaskSummary>
+  >({});
+  const [dominoRationaleByTaskId, setDominoRationaleByTaskId] = useState<
+    Record<string, string>
+  >({});
   const [todaySections, setTodaySections] = useState({
     email: true,
     overdue: true,
@@ -3749,6 +3758,8 @@ export default function ViewPage({
         recentlySavedTaskIds,
         freshlyUpdatedTaskIds,
         emailThreadIdByTaskId: emailTaskLinks,
+        dominoByTaskId,
+        dominoRationaleByTaskId,
         onOpenEmailThread: (threadId: string) => setTaskEmailThreadId(threadId),
         onAddDependency: (task: Task) => handleTaskEdit(task),
         showDescriptions: showTaskDescriptions,
@@ -4232,6 +4243,10 @@ export default function ViewPage({
                   )
                     .then(() => fetchData())
                     .catch(() => undefined);
+                }}
+                onPlanLoaded={({ dominoByTaskId, dominoRationaleByTaskId }) => {
+                  setDominoByTaskId(dominoByTaskId);
+                  setDominoRationaleByTaskId(dominoRationaleByTaskId);
                 }}
                 onConvertInboxToTask={(inboxItemId) => {
                   void fetch(
