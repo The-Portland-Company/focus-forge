@@ -96,6 +96,7 @@ import {
   setBulkSelectionForTaskIds,
 } from "@/lib/project-bulk-selection";
 import { shouldShowInboxItemInToday } from "@/lib/email-inbox/shared";
+import { formatRelativeSync } from "@/lib/email-inbox/format-relative-sync";
 import { mergeDatabasePayload } from "@/lib/database-state";
 import {
   diffFreshTaskIds,
@@ -124,21 +125,6 @@ const getDatabaseCoreCacheKey = (userId?: string | null) =>
 // database fetch; otherwise the badges go to 0 anywhere the user lands
 // (or refreshes) outside Today.
 const shouldIncludeInboxItemsForInitialView = (_view: string) => true;
-
-/** Compact "x ago" formatter for mailbox last-sync timestamps. */
-function formatRelativeSync(iso: string | null | undefined): string {
-  if (!iso) return "never";
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return "never";
-  const ms = Date.now() - t;
-  const m = Math.round(ms / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.round(h / 24);
-  return `${d}d ago`;
-}
 
 const readCachedDatabaseCore = (userId?: string | null): Database | null => {
   if (typeof window === "undefined") return null;
@@ -3566,6 +3552,26 @@ export default function ViewPage({
         return mb.lastSyncedAt > latest ? mb.lastSyncedAt : latest;
       }, null);
 
+      // Today → Email Work: the inbox items eligible for Today, filtered by the
+      // chosen classification and sorted newest/oldest by the most relevant
+      // activity timestamp. Defensive against missing classification/timestamps.
+      const todayInboxItems = database.inboxItems
+        .filter(shouldShowInboxItemInToday)
+        .filter(
+          (item) =>
+            todayEmailClass === "all" ||
+            (item.classification || "unknown") === todayEmailClass,
+        )
+        .sort((a, b) => {
+          const at = new Date(
+            a.latestMessageAt || a.createdAt || 0,
+          ).getTime();
+          const bt = new Date(
+            b.latestMessageAt || b.createdAt || 0,
+          ).getTime();
+          return todayEmailSort === "newest" ? bt - at : at - bt;
+        });
+
       // Helper: ensure parent tasks appear in sections with their children,
       // and children appear alongside their parents
       const addMissingFamily = (sectionTasks: Task[], allActive: Task[]) => {
@@ -4261,6 +4267,81 @@ export default function ViewPage({
                     .catch(() => undefined);
                 }}
               />
+            </div>
+            {/* Email Work — connected-mailbox sync indicator + refresh, plus the
+                day's email work list. The refresh button re-syncs due mailboxes
+                (POST /api/email/mailboxes/sync-due) and then refetches; the
+                "Synced Xm ago" affordance opens the per-mailbox last-sync modal
+                (rendered near the bottom of this view). */}
+            <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 space-y-2 mx-4 mb-4">
+              <div className="flex items-center gap-3 border-b border-zinc-700 py-2 px-1">
+                <div className="flex flex-1 items-center gap-2 text-sm font-medium text-zinc-500">
+                  <Mailbox className="h-4 w-4" />
+                  <span>
+                    Email Work{" "}
+                    {todayInboxItems.length > 0 && (
+                      <span className="text-zinc-600">
+                        ({todayInboxItems.length})
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowMailboxSyncModal(true)}
+                    className="rounded px-1.5 py-0.5 text-xs sm:text-[11px] text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+                    title="View connected mailboxes and last sync times"
+                    aria-label="View connected mailboxes and last sync times"
+                  >
+                    Synced {formatRelativeSync(lastMailboxSync)}
+                  </button>
+                  <Tooltip
+                    content="Sync mailboxes now"
+                    side="bottom"
+                    align="end"
+                    className="inline-flex"
+                  >
+                    <button
+                      type="button"
+                      disabled={syncingMailboxes}
+                      onClick={async () => {
+                        setSyncingMailboxes(true);
+                        try {
+                          await fetch("/api/email/mailboxes/sync-due", {
+                            method: "POST",
+                            credentials: "include",
+                          });
+                          await fetchData({ includeInboxItems: true });
+                        } finally {
+                          setSyncingMailboxes(false);
+                        }
+                      }}
+                      className="rounded-md border border-zinc-700 p-2 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label="Sync mailboxes now"
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 ${syncingMailboxes ? "animate-spin" : ""}`}
+                      />
+                    </button>
+                  </Tooltip>
+                </div>
+              </div>
+              <div className="mt-2">
+                {isDataLoading ? (
+                  <SkeletonTaskList count={3} />
+                ) : (
+                  <EmailWorkList
+                    items={todayInboxItems}
+                    mailboxes={database.mailboxes}
+                    projects={database.projects}
+                    freshlyUpdatedIds={freshlyUpdatedInboxIds}
+                    selectedId={selectedTodayEmailId}
+                    onSelect={(item) => setSelectedTodayEmailId(item.id)}
+                    emptyLabel="No email work for today."
+                  />
+                )}
+              </div>
             </div>
             <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4 space-y-2 mx-4">
               {isDataLoading ? (
