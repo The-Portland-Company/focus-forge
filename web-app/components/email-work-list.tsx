@@ -203,11 +203,11 @@ export function InboxDaySeparator({ label }: { label: string }) {
     <div
       role="separator"
       aria-label={label}
-      className="flex items-center gap-3 px-1 pt-1 text-[10px] font-semibold uppercase leading-none tracking-[0.18em] text-zinc-500 select-none"
+      className="flex items-center gap-3 px-1 pt-1 text-[10px] font-semibold uppercase leading-none tracking-[0.18em] text-[rgba(var(--theme-primary-rgb),0.85)] select-none"
     >
-      <span className="h-px flex-1 bg-zinc-700/60" />
+      <span className="h-px flex-1 bg-[rgba(var(--theme-primary-rgb),0.35)]" />
       <span>{label}</span>
-      <span className="h-px flex-1 bg-zinc-700/60" />
+      <span className="h-px flex-1 bg-[rgba(var(--theme-primary-rgb),0.35)]" />
     </div>
   );
 }
