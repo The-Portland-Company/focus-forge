@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createPlannerAdminClient, getAuthorizedProject } from "@/lib/ai-planner/persistence";
 import { resolveAccessibleProjectIds } from "@/lib/ai-agent/tools";
 import { runAgent, type AgentChatMessage } from "@/lib/ai-agent/server";
+import { describeImagesInMessage } from "@/lib/ai-agent/providers";
+import { extractImageUrls } from "@/lib/ai-agent/image-ingest";
 
 export const dynamic = "force-dynamic";
 
@@ -93,9 +95,34 @@ export async function POST(request: NextRequest) {
       agentSessionId = created.id;
     }
 
-    await admin
-      .from("ai_planner_messages")
-      .insert({ session_id: agentSessionId, role: "user", content_text: message });
+    // Detect any image URL(s) the user pasted and, if present, fetch them
+    // SSRF-safely and run a vision-describe step so the agent can "see" them.
+    // Persist only the URL *reference* in content_json — never raw bytes.
+    const imageUrls = extractImageUrls(message);
+    let vision: Awaited<ReturnType<typeof describeImagesInMessage>> | null = null;
+    if (imageUrls.length > 0) {
+      try {
+        vision = await describeImagesInMessage(message);
+      } catch {
+        vision = null; // never block the chat on the vision step
+      }
+    }
+
+    const userContentJson =
+      imageUrls.length > 0
+        ? {
+            imageUrls,
+            imagesDescribed: vision?.describedUrls ?? [],
+            imagesFailed: vision?.failedUrls ?? imageUrls,
+          }
+        : null;
+
+    await admin.from("ai_planner_messages").insert({
+      session_id: agentSessionId,
+      role: "user",
+      content_text: message,
+      ...(userContentJson ? { content_json: userContentJson } : {}),
+    });
 
     const { data: persisted } = await admin
       .from("ai_planner_messages")
@@ -107,6 +134,12 @@ export async function POST(request: NextRequest) {
       .filter((m: any) => (m.role === "user" || m.role === "assistant") && String(m.content_text || "").trim())
       .map((m: any) => ({ role: m.role, content: String(m.content_text) }))
       .slice(-30);
+
+    // Feed the vision-describe output (or honest fallback) to the agent as an
+    // extra assistant-visible context turn appended after the user message.
+    if (vision?.context) {
+      conversation.push({ role: "user", content: vision.context });
+    }
 
     const accessibleProjectIds = await resolveAccessibleProjectIds(admin, session.user.id);
     const timezone =

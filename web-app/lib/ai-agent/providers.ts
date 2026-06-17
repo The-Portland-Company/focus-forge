@@ -4,6 +4,164 @@ import {
   executeTool,
   type AgentToolContext,
 } from "@/lib/ai-agent/tools";
+import {
+  extractImageUrls,
+  fetchImageForVision,
+  type ImageBlock,
+} from "@/lib/ai-agent/image-ingest";
+
+/**
+ * Vision-capable Claude model used for the image-describe step. Per the
+ * claude-api skill, claude-opus-4-8 and claude-sonnet-4-6 are vision-capable;
+ * we use opus for the strongest image understanding.
+ */
+const VISION_MODEL = "claude-opus-4-8";
+
+export type VisionDescribeResult = {
+  /** URLs successfully ingested + described (persist these as references). */
+  describedUrls: string[];
+  /** URLs that could not be ingested (SSRF-blocked, non-image, fetch fail). */
+  failedUrls: string[];
+  /** Extracted text/context to feed into the agent, or "" when none. */
+  context: string;
+  /** True when at least one image URL was present in the message. */
+  hadImageUrls: boolean;
+};
+
+/**
+ * Detect image URL(s) in `messageText`, fetch them SSRF-safely, and run a
+ * one-shot vision call against a vision-capable Claude model to turn each image
+ * into text/context the existing (text-only) agent flow can use.
+ *
+ * This is the documented "vision-describe step" choice: rather than threading
+ * multimodal image blocks through the entire tool-calling loop (invasive, and
+ * the loop spans three providers with different wire formats), we do a focused
+ * one-shot vision call up front and feed its output as text. The model that
+ * actually views the image is a real vision model receiving a real IMAGE block.
+ *
+ * Graceful fallback: with no Anthropic key, or when every image fails to
+ * ingest, `context` carries an honest message and `failedUrls` is populated —
+ * the caller never silently dead-ends.
+ */
+export async function describeImagesInMessage(
+  messageText: string,
+  opts?: { apiKey?: () => string | undefined; fetchImpl?: typeof fetch },
+): Promise<VisionDescribeResult> {
+  const urls = extractImageUrls(messageText);
+  if (urls.length === 0) {
+    return { describedUrls: [], failedUrls: [], context: "", hadImageUrls: false };
+  }
+
+  const apiKey = (opts?.apiKey ?? (() => process.env.ANTHROPIC_API_KEY))();
+  if (!apiKey) {
+    return {
+      describedUrls: [],
+      failedUrls: urls,
+      hadImageUrls: true,
+      context:
+        "[Image ingestion unavailable: no vision model configured. I can't view the image(s) " +
+        "you linked. Paste the task name/text instead and I'll help.]",
+    };
+  }
+
+  const blocks: ImageBlock[] = [];
+  const describedUrls: string[] = [];
+  const failedUrls: string[] = [];
+  for (const url of urls) {
+    const r = await fetchImageForVision(url, {
+      fetchImpl: opts?.fetchImpl as any,
+    });
+    if (r.ok) {
+      blocks.push(r.block);
+      describedUrls.push(url);
+    } else {
+      failedUrls.push(url);
+    }
+  }
+
+  if (blocks.length === 0) {
+    return {
+      describedUrls: [],
+      failedUrls,
+      hadImageUrls: true,
+      context:
+        "[I couldn't view the image(s) you linked (they may be private, unreachable, or not an image). " +
+        "Paste the task name/text instead and I'll help.]",
+    };
+  }
+
+  // One-shot vision call. Build a multimodal user turn with the images + a
+  // describe instruction, and send to a vision-capable Claude model.
+  const userContent: any[] = [
+    ...blocks,
+    {
+      type: "text",
+      text:
+        "Describe what is shown in the image(s) above in concise detail. " +
+        "If they contain a task, note, screenshot of a UI, or any text, transcribe the " +
+        "relevant text and structure verbatim so it can be acted on. Output plain text only.",
+    },
+  ];
+
+  try {
+    const doFetch = (opts?.fetchImpl ?? fetch) as typeof fetch;
+    const response = await doFetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: VISION_MODEL,
+        max_tokens: 1200,
+        system:
+          "You are a vision assistant. Describe images accurately and transcribe any visible text.",
+        messages: [{ role: "user", content: userContent }],
+      }),
+    });
+    if (!response.ok) {
+      return {
+        describedUrls: [],
+        failedUrls: urls,
+        hadImageUrls: true,
+        context:
+          "[I couldn't view the image(s) right now (vision request failed). " +
+          "Paste the task name/text instead and I'll help.]",
+      };
+    }
+    const payload = await response.json();
+    const text = (Array.isArray(payload?.content) ? payload.content : [])
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("\n")
+      .trim();
+    if (!text) {
+      return {
+        describedUrls: [],
+        failedUrls: urls,
+        hadImageUrls: true,
+        context:
+          "[I couldn't extract anything useful from the image(s). Paste the task name/text instead.]",
+      };
+    }
+    return {
+      describedUrls,
+      failedUrls,
+      hadImageUrls: true,
+      context: `[Contents of the image(s) the user linked, as seen by a vision model:\n${text}\n]`,
+    };
+  } catch {
+    return {
+      describedUrls: [],
+      failedUrls: urls,
+      hadImageUrls: true,
+      context:
+        "[I couldn't view the image(s) right now (vision request errored). " +
+        "Paste the task name/text instead and I'll help.]",
+    };
+  }
+}
 
 /**
  * Multi-provider agent runners with a fallback chain.
