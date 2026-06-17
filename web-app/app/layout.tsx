@@ -3,7 +3,7 @@ import { Suspense } from "react"
 import { Inter } from "next/font/google"
 import { AuthProvider } from "@/contexts/AuthContext"
 import { ToastProvider } from "@/contexts/ToastContext"
-import { AiPlannerFloatingChat } from "@/components/ai-planner-floating-chat"
+import { AiPlannerFloatingChatLazy } from "@/components/ai-planner-floating-chat-lazy"
 import { DockBadgeSync } from "@/components/dock-badge-sync"
 import { EstimateReviewNudge } from "@/components/estimate-review-nudge"
 import "./globals.css"
@@ -50,7 +50,7 @@ export default function RootLayout({
             {children}
             <DockBadgeSync />
             <Suspense fallback={null}>
-              <AiPlannerFloatingChat />
+              <AiPlannerFloatingChatLazy />
             </Suspense>
             <Suspense fallback={null}>
               <EstimateReviewNudge />

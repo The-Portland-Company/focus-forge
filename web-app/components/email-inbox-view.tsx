@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import {
   type ChangeEvent,
   type CSSProperties,
@@ -62,15 +63,9 @@ import {
 } from "@/components/email-work-list";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
 import AiRulesTabs from "@/components/ai-rules-tabs";
-import {
-  EmailOutboundComposerModal,
-  type EmailComposerInitialDraft,
-} from "@/components/email-outbound-composer-modal";
+import { type EmailComposerInitialDraft } from "@/components/email-outbound-composer-modal";
 import { EmailSignatureContent } from "@/components/email-signature-content";
-import { EmailSpamReviewModal } from "@/components/email-spam-review-modal";
 import { EmailThreadAttachments } from "@/components/email-thread-attachments";
-import { EmailThreadModal } from "@/components/email-thread-modal";
-import { SenderHistoryModal } from "@/components/sender-history-modal";
 import { Tooltip } from "@/components/tooltip";
 import {
   Dialog,
@@ -174,6 +169,38 @@ import {
   normalizeEmailPanelWidthOverride,
 } from "@/lib/email-inbox/panel-width";
 import { cn } from "@/lib/utils";
+
+// Heavy, interaction-only modals are lazy-loaded so they stay out of the
+// initial inbox client bundle. They only render once the user opens an email,
+// the composer, the spam review, or a sender's history.
+const EmailThreadModal = dynamic(
+  () =>
+    import("@/components/email-thread-modal").then(
+      (mod) => mod.EmailThreadModal,
+    ),
+  { ssr: false },
+);
+const EmailOutboundComposerModal = dynamic(
+  () =>
+    import("@/components/email-outbound-composer-modal").then(
+      (mod) => mod.EmailOutboundComposerModal,
+    ),
+  { ssr: false },
+);
+const EmailSpamReviewModal = dynamic(
+  () =>
+    import("@/components/email-spam-review-modal").then(
+      (mod) => mod.EmailSpamReviewModal,
+    ),
+  { ssr: false },
+);
+const SenderHistoryModal = dynamic(
+  () =>
+    import("@/components/sender-history-modal").then(
+      (mod) => mod.SenderHistoryModal,
+    ),
+  { ssr: false },
+);
 
 type EmailInboxViewProps = {
   view: string;
@@ -1394,6 +1421,26 @@ export function EmailInboxView({
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
   const projectSearchInputRef = useRef<HTMLInputElement | null>(null);
   const replyFileInputRef = useRef<HTMLInputElement | null>(null);
+  // "Has ever been opened" latches: keep lazy modals unmounted (so their JS
+  // chunk stays out of the initial bundle) until first opened, then keep them
+  // mounted so their close/exit animations are preserved on subsequent toggles.
+  const threadModalShouldOpen = isThreadModalOpen && Boolean(selectedThreadId);
+  const [threadModalLoaded, setThreadModalLoaded] = useState(false);
+  const [spamReviewLoaded, setSpamReviewLoaded] = useState(false);
+  const [outboundComposerLoaded, setOutboundComposerLoaded] = useState(false);
+  const [senderHistoryLoaded, setSenderHistoryLoaded] = useState(false);
+  useEffect(() => {
+    if (threadModalShouldOpen) setThreadModalLoaded(true);
+  }, [threadModalShouldOpen]);
+  useEffect(() => {
+    if (isSpamReviewOpen) setSpamReviewLoaded(true);
+  }, [isSpamReviewOpen]);
+  useEffect(() => {
+    if (isOutboundComposerOpen) setOutboundComposerLoaded(true);
+  }, [isOutboundComposerOpen]);
+  useEffect(() => {
+    if (senderHistory) setSenderHistoryLoaded(true);
+  }, [senderHistory]);
   const inboxSearchInputRef = useRef<HTMLInputElement | null>(null);
   const replyAttachmentsRef = useRef<ComposerAttachment[]>([]);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
@@ -6042,34 +6089,38 @@ export function EmailInboxView({
         </DialogContent>
       </Dialog>
 
-      <EmailSpamReviewModal
-        open={isSpamReviewOpen}
-        onOpenChange={setIsSpamReviewOpen}
-        items={inboxItems}
-        mailboxes={mailboxes}
-        rules={data.emailRules}
-        mailboxFilterId={selectedMailboxId}
-        onRefresh={onRefresh}
-      />
+      {spamReviewLoaded && (
+        <EmailSpamReviewModal
+          open={isSpamReviewOpen}
+          onOpenChange={setIsSpamReviewOpen}
+          items={inboxItems}
+          mailboxes={mailboxes}
+          rules={data.emailRules}
+          mailboxFilterId={selectedMailboxId}
+          onRefresh={onRefresh}
+        />
+      )}
 
-      <EmailOutboundComposerModal
-        open={isOutboundComposerOpen}
-        mailboxes={mailboxes}
-        projects={data.projects}
-        signatures={emailSignatures}
-        selectedMailboxId={selectedMailboxId}
-        initialDraft={outboundComposerInitialDraft}
-        onOpenChange={(open) => {
-          setIsOutboundComposerOpen(open);
-          if (!open) setOutboundComposerInitialDraft(null);
-        }}
-        onSent={(result) => {
-          void handleOutboundComposerSent(result);
-        }}
-        onScheduled={() => {
-          void handleOutboundComposerScheduled();
-        }}
-      />
+      {outboundComposerLoaded && (
+        <EmailOutboundComposerModal
+          open={isOutboundComposerOpen}
+          mailboxes={mailboxes}
+          projects={data.projects}
+          signatures={emailSignatures}
+          selectedMailboxId={selectedMailboxId}
+          initialDraft={outboundComposerInitialDraft}
+          onOpenChange={(open) => {
+            setIsOutboundComposerOpen(open);
+            if (!open) setOutboundComposerInitialDraft(null);
+          }}
+          onSent={(result) => {
+            void handleOutboundComposerSent(result);
+          }}
+          onScheduled={() => {
+            void handleOutboundComposerScheduled();
+          }}
+        />
+      )}
 
       <Dialog
         open={isRuleEditorOpen}
@@ -6103,26 +6154,30 @@ export function EmailInboxView({
         </DialogContent>
       </Dialog>
 
-      <SenderHistoryModal
-        open={Boolean(senderHistory)}
-        senderName={senderHistory?.name || null}
-        senderEmail={senderHistory?.email || null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSenderHistory(null);
-          }
-        }}
-      />
+      {senderHistoryLoaded && (
+        <SenderHistoryModal
+          open={Boolean(senderHistory)}
+          senderName={senderHistory?.name || null}
+          senderEmail={senderHistory?.email || null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSenderHistory(null);
+            }
+          }}
+        />
+      )}
 
-      <EmailThreadModal
-        open={isThreadModalOpen && Boolean(selectedThreadId)}
-        threadId={selectedThreadId}
-        projects={data.projects}
-        hideEmailSignatures={hideEmailSignatures}
-        onRefresh={onRefresh}
-        onEditTask={onEditTask}
-        onOpenChange={setIsThreadModalOpen}
-      />
+      {threadModalLoaded && (
+        <EmailThreadModal
+          open={threadModalShouldOpen}
+          threadId={selectedThreadId}
+          projects={data.projects}
+          hideEmailSignatures={hideEmailSignatures}
+          onRefresh={onRefresh}
+          onEditTask={onEditTask}
+          onOpenChange={setIsThreadModalOpen}
+        />
+      )}
     </div>
   );
 }
