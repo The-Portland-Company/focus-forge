@@ -254,6 +254,67 @@ export function formatParticipantLine(
   return `${label}: ${participantNames.join(", ")}`;
 }
 
+/**
+ * Normalize the recipients for a given role (cc/bcc) into a deduped list of
+ * display strings. The participant payload is normally an array of
+ * {@link InboxParticipant}, but be defensive: it may be undefined, a single
+ * object, or even a bare string (e.g. from a malformed payload), so coerce
+ * everything into a flat array before filtering by role.
+ */
+export function normalizeRecipients(
+  participants: InboxParticipant[] | InboxParticipant | string | undefined | null,
+  role: "cc" | "bcc",
+): string[] {
+  const list: unknown[] = Array.isArray(participants)
+    ? participants
+    : participants == null
+      ? []
+      : [participants];
+
+  return Array.from(
+    new Set(
+      list
+        .map((entry) => {
+          if (typeof entry === "string") {
+            // A bare string can't carry a role, so we can't attribute it; skip.
+            return null;
+          }
+          if (!entry || typeof entry !== "object") return null;
+          const participant = entry as InboxParticipant;
+          if (participant.participantRole !== role) return null;
+          return formatParticipantValue(participant);
+        })
+        .filter((value): value is string => Boolean(value && value.trim())),
+    ),
+  );
+}
+
+/**
+ * Build the compact CC/BCC chips shown in the inbox row. Each chip carries a
+ * short label ("CC"/"BCC") and the full recipient list for its hover tooltip.
+ * Returns an empty array when there are no cc/bcc recipients so the existing
+ * layout is unaffected.
+ */
+export function getRecipientChips(
+  participants:
+    | InboxParticipant[]
+    | InboxParticipant
+    | string
+    | undefined
+    | null,
+): { role: "cc" | "bcc"; label: string; recipients: string[] }[] {
+  return (["cc", "bcc"] as const)
+    .map((role) => {
+      const recipients = normalizeRecipients(participants, role);
+      return {
+        role,
+        label: role.toUpperCase(),
+        recipients,
+      };
+    })
+    .filter((chip) => chip.recipients.length > 0);
+}
+
 export function getMailboxDisplayLabel(
   mailbox: Mailbox | null | undefined,
   item: Pick<InboxItem, "mailboxName" | "mailboxEmailAddress">,
@@ -847,7 +908,7 @@ export function EmailWorkList({
         const isProjectPickerOpen = activeProjectPickerThreadId === item.id;
         const sender = getPrimarySenderParticipant(item.participants);
         const senderName = formatParticipantName(sender);
-        const ccLine = formatParticipantLine(item.participants, "cc");
+        const recipientChips = getRecipientChips(item.participants);
         const rawSummaryText = item.summaryText
           ? formatInboxPreviewText(item.summaryText)
           : null;
@@ -1223,16 +1284,30 @@ export function EmailWorkList({
                     );
                   })()}
                 </span>
-                {ccLine ? (
-                  <span
-                    className={cn(
-                      "break-words",
-                      isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
-                    )}
-                  >
-                    {ccLine}
-                  </span>
-                ) : null}
+                {recipientChips.map((chip) => {
+                  const tooltipContent = `${chip.label}: ${chip.recipients.join(
+                    ", ",
+                  )}`;
+                  return (
+                    <Tooltip
+                      key={chip.role}
+                      content={tooltipContent}
+                      className="w-auto"
+                      side="top"
+                    >
+                      <span
+                        aria-label={tooltipContent}
+                        title={tooltipContent}
+                        className={cn(
+                          "inline-flex cursor-help items-center rounded-md border border-zinc-700/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wide",
+                          isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
+                        )}
+                      >
+                        {chip.label}
+                      </span>
+                    </Tooltip>
+                  );
+                })}
                 <span className="inline-flex items-center gap-1 break-words">
                   <Mail className="h-3.5 w-3.5" />
                   {mailboxLabel}

@@ -14,6 +14,8 @@ import {
   getProjectBadgeLabel,
   formatParticipantName,
   formatParticipantLine,
+  normalizeRecipients,
+  getRecipientChips,
   formatParticipantValue,
   getEmailReadStateBadgeClassName,
   getEmailReadStateLabel,
@@ -104,6 +106,75 @@ test("formatParticipantLine renders sender and cc labels with fallbacks", () => 
     ),
     "From: dan@example.com",
   );
+});
+
+test("normalizeRecipients dedupes by role and is defensive about shape", () => {
+  const participants = [
+    {
+      id: "cc-1",
+      emailAddress: "spencer@example.com",
+      displayName: "Spencer Hill",
+      participantRole: "cc",
+    },
+    {
+      id: "cc-2",
+      emailAddress: "spencer@example.com",
+      displayName: "Spencer Hill",
+      participantRole: "cc",
+    },
+    {
+      id: "bcc-1",
+      emailAddress: "secret@example.com",
+      displayName: null,
+      participantRole: "bcc",
+    },
+    {
+      id: "from-1",
+      emailAddress: "alerts@example.com",
+      displayName: "Alerts",
+      participantRole: "from",
+    },
+  ];
+
+  assert.deepEqual(normalizeRecipients(participants as any, "cc"), [
+    "Spencer Hill <spencer@example.com>",
+  ]);
+  assert.deepEqual(normalizeRecipients(participants as any, "bcc"), [
+    "secret@example.com",
+  ]);
+  // Defensive normalization: undefined, single object, and bare strings.
+  assert.deepEqual(normalizeRecipients(undefined, "cc"), []);
+  assert.deepEqual(normalizeRecipients(null, "cc"), []);
+  assert.deepEqual(normalizeRecipients("cc@example.com" as any, "cc"), []);
+  assert.deepEqual(
+    normalizeRecipients(participants[0] as any, "cc"),
+    ["Spencer Hill <spencer@example.com>"],
+  );
+});
+
+test("getRecipientChips emits CC/BCC chips only when recipients exist", () => {
+  assert.deepEqual(getRecipientChips([]), []);
+  assert.deepEqual(getRecipientChips(undefined), []);
+
+  const chips = getRecipientChips([
+    {
+      id: "cc-1",
+      emailAddress: "a@example.com",
+      displayName: "A",
+      participantRole: "cc",
+    },
+    {
+      id: "bcc-1",
+      emailAddress: "b@example.com",
+      displayName: "B",
+      participantRole: "bcc",
+    },
+  ] as any);
+
+  assert.deepEqual(chips, [
+    { role: "cc", label: "CC", recipients: ["A <a@example.com>"] },
+    { role: "bcc", label: "BCC", recipients: ["B <b@example.com>"] },
+  ]);
 });
 
 test("formatParticipantValue falls back to the email when no distinct name exists", () => {
