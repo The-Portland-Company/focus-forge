@@ -3,10 +3,13 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/lib/supabase/hooks";
 import {
+  clearDockBadge,
   DOCK_BADGE_PROMPT_STORAGE_KEY,
   publishDockBadgeCount,
   shouldPromptForBadgePermission,
+  shouldSyncDockBadge,
 } from "@/lib/dock-badge";
 
 const POLL_INTERVAL_MS = 30 * 1000;
@@ -44,9 +47,23 @@ export function DockBadgeSync() {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const pathname = usePathname();
+  const { profile } = useUserProfile();
 
-  // Steady-state polling: interval + tab focus + app data changes.
+  // Per-account "Dock badge" preference. Defaults ON: anything other than an
+  // explicit `false` (including while the profile is still loading) keeps the
+  // badge syncing, so existing users are unaffected until they opt out.
+  const badgeEnabled = shouldSyncDockBadge(profile?.dock_badge_enabled);
+
+  // Steady-state polling: interval + tab focus + app data changes. Short-circuit
+  // entirely when the user disabled the Dock badge — clear it once and never
+  // start the poller. Re-running on `badgeEnabled` means flipping the setting
+  // off clears immediately and flipping it back on resumes polling.
   useEffect(() => {
+    if (!badgeEnabled) {
+      clearDockBadge();
+      return;
+    }
+
     void fetchAndPublishBadge();
 
     const interval = window.setInterval(fetchAndPublishBadge, POLL_INTERVAL_MS);
@@ -64,14 +81,15 @@ export function DockBadgeSync() {
       );
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+  }, [badgeEnabled]);
 
   // Refresh immediately when auth state resolves or the route changes (e.g.
   // login -> /today) so the badge appears promptly rather than waiting for the
-  // next interval tick.
+  // next interval tick. Skip while the badge is disabled.
   useEffect(() => {
+    if (!badgeEnabled) return;
     void fetchAndPublishBadge();
-  }, [userId, pathname]);
+  }, [userId, pathname, badgeEnabled]);
 
   // The Safari/macOS Badging API silently no-ops unless Notification permission
   // has been granted IN THE INSTALLED WEB APP (per WebKit). Auto-prompt once on
