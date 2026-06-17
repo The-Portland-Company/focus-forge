@@ -1,6 +1,9 @@
 import type { CalibrationExample } from "./examples";
-
-const ESTIMATOR_MODEL = "gpt-4.1-mini";
+import {
+  runStructuredWaterfall,
+  type ModelSpec,
+} from "@/lib/ai/structured-waterfall";
+import { resolveChain, type AIModelChains } from "@/lib/ai/model-chains";
 
 export type EstimateConfidence = "low" | "med" | "high";
 
@@ -23,6 +26,20 @@ export interface EstimateTaskInput {
   /** Optional AI-memory context blocks appended to the system prompt. */
   memoryBlock?: string;
   playbookBlock?: string;
+  /**
+   * The user's persisted AI model chains. The estimator reads its own
+   * `estimator` slice (independent of the assistant). When absent, the
+   * quality-first default order is used.
+   */
+  modelChains?: Partial<AIModelChains> | null;
+  /** Explicit override of the resolved chain (mainly for tests). */
+  chain?: ModelSpec[];
+}
+
+export interface TaskEstimateResultWithModel extends TaskEstimateResult {
+  /** The model that produced this estimate (for logging/persistence). */
+  model: string;
+  provider: string;
 }
 
 const ESTIMATE_SCHEMA = {
@@ -119,68 +136,75 @@ function buildUserMessage(input: EstimateTaskInput): string {
   );
 }
 
-export async function estimateTaskMinutes(
-  input: EstimateTaskInput,
-): Promise<TaskEstimateResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+/**
+ * Defensively extract a JSON object from a model's raw text. Anthropic uses a
+ * "{"-prefill and may emit a trailing token; xAI/json_object can wrap in prose.
+ * We try a direct parse, then the first {...} slice.
+ */
+function parseEstimateJson(text: string): any {
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Fall through to brace-slice.
   }
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    try {
+      return JSON.parse(text.slice(start, end + 1));
+    } catch {
+      // Fall through.
+    }
+  }
+  throw new Error("Estimator returned invalid JSON");
+}
 
+export async function estimateTaskMinutesWithModel(
+  input: EstimateTaskInput,
+): Promise<TaskEstimateResultWithModel> {
   const cleanedName = input.name?.trim() || "";
   if (!cleanedName) {
     throw new Error("Task name is required for estimation");
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: ESTIMATOR_MODEL,
-      temperature: 0.1,
-      response_format: {
-        type: "json_schema",
-        json_schema: ESTIMATE_SCHEMA,
-      },
-      messages: [
-        {
-          role: "system",
-          content: `${SYSTEM_PROMPT}${
-            input.playbookBlock ? `\n\n${input.playbookBlock}` : ""
-          }${input.memoryBlock ? `\n\n${input.memoryBlock}` : ""}`,
-        },
-        { role: "user", content: buildUserMessage(input) },
-      ],
-    }),
+  // Resolve the estimator's OWN chain (independent from the assistant). When no
+  // explicit chain/override is provided, fall back to the quality-first default.
+  const chain =
+    input.chain ?? resolveChain("estimator", input.modelChains);
+
+  const systemPrompt = `${SYSTEM_PROMPT}${
+    input.playbookBlock ? `\n\n${input.playbookBlock}` : ""
+  }${input.memoryBlock ? `\n\n${input.memoryBlock}` : ""}`;
+
+  const { text, model, provider } = await runStructuredWaterfall(chain, {
+    systemPrompt,
+    userMessage: buildUserMessage(input),
+    // Strict json_schema for OpenAI; Anthropic/xAI rely on prompt + parsing.
+    jsonSchema: ESTIMATE_SCHEMA as unknown as Record<string, unknown>,
+    temperature: 0.1,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `OpenAI estimator request failed (${response.status}): ${errorText}`,
-    );
-  }
+  const parsed = parseEstimateJson(text);
 
-  const payload = await response.json();
-  const content = payload?.choices?.[0]?.message?.content;
-  if (!content || typeof content !== "string") {
-    throw new Error("Estimator response missing JSON content");
-  }
-
-  let parsed: any;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error("Estimator returned invalid JSON");
-  }
+  // Log which model produced the estimate.
+  console.info(
+    `[estimator] estimate produced by ${provider}/${model} (${clampMinutes(parsed.minutes)}min)`,
+  );
 
   return {
     minutes: clampMinutes(parsed.minutes),
     confidence: normalizeConfidence(parsed.confidence),
     rationale:
       typeof parsed.rationale === "string" ? parsed.rationale : undefined,
+    model,
+    provider,
   };
+}
+
+export async function estimateTaskMinutes(
+  input: EstimateTaskInput,
+): Promise<TaskEstimateResult> {
+  const { minutes, confidence, rationale } =
+    await estimateTaskMinutesWithModel(input);
+  return { minutes, confidence, rationale };
 }

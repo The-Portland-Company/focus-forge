@@ -1342,6 +1342,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       profileMemoji: data.profile_memoji,
       animationsEnabled: data.animations_enabled,
       dockBadgeEnabled: data.dock_badge_enabled,
+      aiModelChains: data.ai_model_chains,
       priorityColor: data.priority_color,
       emailDeleteUndoSeconds: data.email_delete_undo_seconds,
       dailyCapacityMinutes: data.daily_capacity_minutes,
@@ -1372,6 +1373,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
       supabaseUpdates.animations_enabled = updates.animationsEnabled;
     if (updates.dockBadgeEnabled !== undefined)
       supabaseUpdates.dock_badge_enabled = updates.dockBadgeEnabled;
+    if (updates.aiModelChains !== undefined)
+      supabaseUpdates.ai_model_chains = updates.aiModelChains;
     if (updates.priorityColor !== undefined)
       supabaseUpdates.priority_color = updates.priorityColor;
     if (updates.emailDeleteUndoSeconds !== undefined)
@@ -1400,6 +1403,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       profileMemoji: data.profile_memoji,
       animationsEnabled: data.animations_enabled,
       dockBadgeEnabled: data.dock_badge_enabled,
+      aiModelChains: data.ai_model_chains,
       priorityColor: data.priority_color,
       emailDeleteUndoSeconds: data.email_delete_undo_seconds,
       dailyCapacityMinutes: data.daily_capacity_minutes,

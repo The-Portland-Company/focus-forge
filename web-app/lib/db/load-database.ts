@@ -1,4 +1,5 @@
 import { SupabaseAdapter } from "@/lib/db/supabase-adapter";
+import { defaultModelChains } from "@/lib/ai/model-chains";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import {
   getRuleStatsForUser,
@@ -225,6 +226,7 @@ export async function loadDatabaseForUser(
       profileMemoji: null,
       animationsEnabled: true,
       dockBadgeEnabled: true,
+      aiModelChains: defaultModelChains(),
       priorityColor: null,
       emailDeleteUndoSeconds: 60,
       createdAt: new Date().toISOString(),
@@ -342,6 +344,8 @@ export async function loadDatabaseForUser(
           profileMemoji: profile.profile_memoji || null,
           animationsEnabled: profile.animations_enabled ?? true,
           dockBadgeEnabled: profile.dock_badge_enabled ?? true,
+          aiModelChains:
+            (profile as any).ai_model_chains ?? defaultModelChains(),
           priorityColor: profile.priority_color || null,
           emailDeleteUndoSeconds: profile.email_delete_undo_seconds ?? 60,
           status: profile.status || "active",
