@@ -2801,7 +2801,7 @@ export function Sidebar({
                   return (
                     <div
                       key={user.id}
-                      className="flex items-center justify-between px-3 py-1.5 rounded-lg text-sm text-zinc-500 group"
+                      className="flex items-center justify-between px-3 py-1 rounded-lg text-sm text-zinc-500 group"
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <Clock className="w-3 h-3 text-zinc-600 flex-shrink-0" />
