@@ -60,7 +60,7 @@ const ESTIMATE_SCHEMA = {
   },
 } as const;
 
-const SYSTEM_PROMPT = `You estimate how long a single task will take a specific knowledge worker.
+export const SYSTEM_PROMPT = `You estimate how long a single task will take a specific knowledge worker.
 
 Rules:
 - Output JSON only matching the provided schema, no markdown.
@@ -108,7 +108,7 @@ function formatExamples(examples?: CalibrationExample[]): string {
   return `\nThis user's recent calibrations (most recent first):\n${lines.join("\n")}\n`;
 }
 
-function buildUserMessage(input: EstimateTaskInput): string {
+export function buildUserMessage(input: EstimateTaskInput): string {
   const cleanedName = input.name.trim();
   const cleanedDescription = (input.description || "").toString().trim();
 

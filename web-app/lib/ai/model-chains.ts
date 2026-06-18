@@ -25,6 +25,14 @@ export const KNOWN_MODELS: KnownModel[] = [
   { id: "gpt-4.1", label: "GPT-4.1 (OpenAI)", provider: "openai" },
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Anthropic)", provider: "anthropic" },
   { id: "grok-3", label: "Grok 3 (xAI)", provider: "xai" },
+  // Our fine-tuned estimator: a LoRA on Gemma-2B-it served by Cloudflare
+  // Workers AI. Selectable in the estimator chain but NOT in DEFAULT_CHAIN_IDS,
+  // so it is opt-in (never auto-appended to a user's chain).
+  {
+    id: "ff-estimator-gemma2b",
+    label: "Focus Forge Estimator (fine-tuned, Gemma-2B)",
+    provider: "cf-workers-ai",
+  },
 ];
 
 const MODEL_BY_ID = new Map(KNOWN_MODELS.map((m) => [m.id, m]));

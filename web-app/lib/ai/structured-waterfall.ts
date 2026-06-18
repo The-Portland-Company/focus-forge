@@ -23,7 +23,11 @@
  * upstream billing detection keeps working.
  */
 
-export type WaterfallProvider = "anthropic" | "openai" | "xai";
+export type WaterfallProvider =
+  | "anthropic"
+  | "openai"
+  | "xai"
+  | "cf-workers-ai";
 
 export interface ModelSpec {
   provider: WaterfallProvider;
@@ -74,6 +78,8 @@ export function apiKeyEnvVar(provider: WaterfallProvider): string {
       return "ANTHROPIC_API_KEY";
     case "xai":
       return "XAI_API_KEY";
+    case "cf-workers-ai":
+      return "CLOUDFLARE_API_TOKEN";
   }
 }
 
@@ -209,6 +215,78 @@ async function runAnthropic(
   return text;
 }
 
+/**
+ * Maps a registered Cloudflare model id to its Workers AI base model + LoRA
+ * adapter name. Our fine-tuned estimator is a LoRA on a small Workers-AI base
+ * model (Gemma-2B-it). The adapter name can be overridden per deployment via
+ * CF_ESTIMATOR_LORA so we can promote new adapter versions without a code ship.
+ */
+function cfModelConfig(
+  modelId: string,
+  env: Record<string, string | undefined>,
+): { baseModel: string; lora: string } | null {
+  if (modelId === "ff-estimator-gemma2b") {
+    return {
+      baseModel: "@cf/google/gemma-2b-it-lora",
+      lora: env.CF_ESTIMATOR_LORA || "ff-estimator-gemma2b",
+    };
+  }
+  return null;
+}
+
+async function runCloudflareWorkersAI(
+  spec: ModelSpec,
+  apiKey: string,
+  input: WaterfallInput,
+  env: Record<string, string | undefined>,
+): Promise<string> {
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+  if (!accountId) {
+    throw new Error("cf-workers-ai: CLOUDFLARE_ACCOUNT_ID not configured");
+  }
+  const cfg = cfModelConfig(spec.model, env);
+  if (!cfg) {
+    throw new Error(`cf-workers-ai: unknown model "${spec.model}"`);
+  }
+
+  // Workers AI has no json_schema wire support; demand strict JSON in-prompt.
+  const system =
+    input.systemPrompt +
+    "\n\nReturn ONLY a single valid JSON object matching the requested schema. " +
+    "No prose, no markdown, no code fences. Begin your reply with '{'.";
+
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${cfg.baseModel}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        lora: cfg.lora,
+        max_tokens: 512,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: input.userMessage },
+        ],
+      }),
+    },
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(
+      `cf-workers-ai request failed (${response.status}): ${text.slice(0, 400)}`,
+    );
+  }
+  const payload = await response.json();
+  const text = payload?.result?.response;
+  if (!text || typeof text !== "string") {
+    throw new Error("cf-workers-ai: response missing result.response");
+  }
+  return text;
+}
+
 /** Default real runner that hits the provider HTTP APIs. */
 export const defaultModelRunner: SingleModelRunner = async (spec, input) => {
   const apiKey = process.env[apiKeyEnvVar(spec.provider)];
@@ -222,6 +300,8 @@ export const defaultModelRunner: SingleModelRunner = async (spec, input) => {
       return runOpenAICompatible(spec, XAI_URL, apiKey, input, false);
     case "anthropic":
       return runAnthropic(spec, apiKey, input);
+    case "cf-workers-ai":
+      return runCloudflareWorkersAI(spec, apiKey, input, process.env);
   }
 };
 
