@@ -6108,6 +6108,7 @@ export function EmailInboxView({
           projects={data.projects}
           signatures={emailSignatures}
           selectedMailboxId={selectedMailboxId}
+          userId={currentUserId}
           initialDraft={outboundComposerInitialDraft}
           onOpenChange={(open) => {
             setIsOutboundComposerOpen(open);

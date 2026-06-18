@@ -1595,6 +1595,98 @@ async function sendNewEmailPushNotifications(params: {
   };
 }
 
+export async function suggestRecipients(params: {
+  userId: string;
+  query?: string | null;
+  limit?: number;
+}): Promise<Array<{ email: string; name: string | null; count: number }>> {
+  const admin = getAdminClient();
+  const accessibleMailboxRows = await getAccessibleMailboxRows(params.userId);
+  const mailboxIds = accessibleMailboxRows.map((row: any) => String(row.id));
+  const limit =
+    typeof params.limit === "number" && params.limit > 0
+      ? Math.floor(params.limit)
+      : 8;
+
+  if (mailboxIds.length === 0) {
+    return [];
+  }
+
+  const MESSAGE_CAP = 2000;
+  const [{ data: messageRows }, { data: draftRows }] = await Promise.all([
+    admin
+      .from("email_messages")
+      .select("to_json,cc_json,from_json")
+      .in("mailbox_id", mailboxIds)
+      .order("created_at", { ascending: false })
+      .limit(MESSAGE_CAP),
+    admin
+      .from("email_outbound_drafts")
+      .select("to_json,cc_json,bcc_json")
+      .in("mailbox_id", mailboxIds)
+      .order("created_at", { ascending: false })
+      .limit(MESSAGE_CAP),
+  ]);
+
+  const aggregates = new Map<
+    string,
+    { email: string; name: string | null; count: number }
+  >();
+
+  const ingestAddressList = (value: unknown) => {
+    for (const address of mapReplyAddressList(value)) {
+      const email = address.email.trim().toLowerCase();
+      if (!email) {
+        continue;
+      }
+      const existing = aggregates.get(email);
+      if (existing) {
+        existing.count += 1;
+        if (!existing.name && address.name) {
+          existing.name = address.name;
+        }
+      } else {
+        aggregates.set(email, {
+          email,
+          name: address.name || null,
+          count: 1,
+        });
+      }
+    }
+  };
+
+  for (const row of (messageRows || []) as any[]) {
+    ingestAddressList(row.to_json);
+    ingestAddressList(row.cc_json);
+    ingestAddressList(row.from_json);
+  }
+  for (const row of (draftRows || []) as any[]) {
+    ingestAddressList(row.to_json);
+    ingestAddressList(row.cc_json);
+    ingestAddressList(row.bcc_json);
+  }
+
+  const trimmedQuery = (params.query || "").trim().toLowerCase();
+  let results = Array.from(aggregates.values());
+
+  if (trimmedQuery) {
+    results = results.filter(
+      (entry) =>
+        entry.email.includes(trimmedQuery) ||
+        (entry.name ? entry.name.toLowerCase().includes(trimmedQuery) : false),
+    );
+  }
+
+  results.sort((a, b) => {
+    if (b.count !== a.count) {
+      return b.count - a.count;
+    }
+    return a.email.localeCompare(b.email);
+  });
+
+  return results.slice(0, limit);
+}
+
 export async function listMailboxesForUser(userId: string): Promise<Mailbox[]> {
   const admin = getAdminClient();
   const rows = await getAccessibleMailboxRows(userId);
