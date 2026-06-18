@@ -600,3 +600,11 @@ DROP TRIGGER IF EXISTS update_task_estimate_examples_updated_at ON public.task_e
 CREATE TRIGGER update_task_estimate_examples_updated_at
   BEFORE UPDATE ON public.task_estimate_examples
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- Public flag on email-linked tasks (mirror of
+-- supabase/migrations/20260618010000_email_task_public.sql). Additive + idempotent.
+-- The flag lives on the link row; tasks are already org-visible, and email
+-- content stays gated by user_can_access_mailbox / user_can_access_email_thread,
+-- so no task/email RLS change is needed.
+ALTER TABLE public.email_thread_tasks
+  ADD COLUMN IF NOT EXISTS public boolean NOT NULL DEFAULT false;

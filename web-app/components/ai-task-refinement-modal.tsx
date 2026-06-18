@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sparkles, Mail, Loader2, CheckCircle2, ShieldOff } from "lucide-react";
+import {
+  Sparkles,
+  Mail,
+  Loader2,
+  CheckCircle2,
+  ShieldOff,
+  Globe,
+  Lock,
+} from "lucide-react";
+import { useToast } from "@/contexts/ToastContext";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +34,12 @@ interface AiTaskRefinementModalProps {
   taskName: string;
   /** Per-task rationale snapshot stored on the email_thread_tasks link, if any. */
   fallbackRationale?: string | null;
+  /** Task id of the email-linked task (enables the Public/Private toggle). */
+  taskId?: string | null;
+  /** Current public state of the email link, if known. */
+  isPublic?: boolean;
+  /** Called after the public flag is successfully toggled. */
+  onPublicChange?: (taskId: string, isPublic: boolean) => void;
 }
 
 export function AiTaskRefinementModal({
@@ -33,12 +48,46 @@ export function AiTaskRefinementModal({
   threadId,
   taskName,
   fallbackRationale,
+  taskId,
+  isPublic,
+  onPublicChange,
 }: AiTaskRefinementModalProps) {
+  const { showError } = useToast();
   const [loading, setLoading] = useState(false);
   const [signals, setSignals] = useState<AiRationaleSignals | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [excluding, setExcluding] = useState(false);
   const [excluded, setExcluded] = useState(false);
+  const [publicState, setPublicState] = useState<boolean>(isPublic ?? false);
+  const [savingPublic, setSavingPublic] = useState(false);
+
+  // Keep local toggle in sync with the latest known state when (re)opened.
+  useEffect(() => {
+    setPublicState(isPublic ?? false);
+  }, [isPublic, open]);
+
+  const handleTogglePublic = async () => {
+    if (!taskId || savingPublic) return;
+    const next = !publicState;
+    // Optimistic update; revert on error.
+    setPublicState(next);
+    setSavingPublic(true);
+    try {
+      const res = await fetch("/api/email/task-links", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId, public: next }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      onPublicChange?.(taskId, next);
+    } catch {
+      setPublicState(!next);
+      showError("Couldn't update visibility. Please try again.");
+    } finally {
+      setSavingPublic(false);
+    }
+  };
 
   useEffect(() => {
     if (!open || !threadId) return;
@@ -158,6 +207,50 @@ export function AiTaskRefinementModal({
             )}
             {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
           </div>
+
+          {/* Public/Private visibility toggle (email-linked tasks only) */}
+          {taskId && (
+            <button
+              type="button"
+              onClick={handleTogglePublic}
+              disabled={savingPublic}
+              className="flex items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3 text-left transition-colors hover:border-zinc-700 disabled:opacity-60"
+            >
+              <div className="flex items-start gap-2">
+                {publicState ? (
+                  <Globe className="mt-0.5 h-4 w-4 text-emerald-400" />
+                ) : (
+                  <Lock className="mt-0.5 h-4 w-4 text-zinc-400" />
+                )}
+                <div>
+                  <div className="text-xs font-medium text-zinc-200">
+                    {publicState ? "Public task" : "Private task"}
+                  </div>
+                  <div className="text-[11px] text-zinc-400">
+                    {publicState
+                      ? "Visible to your org. The email stays private to you."
+                      : "Only you see this task. Make it visible to your org."}
+                  </div>
+                </div>
+              </div>
+              <span
+                aria-hidden
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
+                  publicState ? "bg-emerald-600" : "bg-zinc-700"
+                }`}
+              >
+                {savingPublic ? (
+                  <Loader2 className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 animate-spin text-white" />
+                ) : (
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      publicState ? "translate-x-4" : "translate-x-0.5"
+                    }`}
+                  />
+                )}
+              </span>
+            </button>
+          )}
         </div>
 
         <DialogFooter className="mt-3 flex-col gap-2 sm:flex-col">
