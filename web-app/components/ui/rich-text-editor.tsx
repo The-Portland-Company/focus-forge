@@ -28,6 +28,7 @@ interface RichTextEditorProps {
   placeholder?: string
   className?: string
   minHeightClassName?: string
+  contentClassName?: string
   disabled?: boolean
 }
 
@@ -73,6 +74,7 @@ export function RichTextEditor({
   placeholder = "Write something...",
   className,
   minHeightClassName = "min-h-[140px]",
+  contentClassName,
   disabled = false,
 }: RichTextEditorProps) {
   const editor = useEditor({
@@ -232,7 +234,7 @@ export function RichTextEditor({
         </ToolbarButton>
       </div>
 
-      <EditorContent editor={editor} />
+      <EditorContent editor={editor} className={contentClassName} />
     </div>
   )
 }

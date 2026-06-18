@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { FloatingFieldLabel } from "@/components/ui/floating-field-label";
 import { Input } from "@/components/ui/input";
+import { RecipientAutocompleteInput } from "@/components/ui/recipient-autocomplete-input";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import {
   Select,
@@ -32,6 +33,12 @@ import {
   getApplicableEmailSignatures,
   getDefaultEmailSignature,
 } from "@/lib/email-signatures";
+import {
+  loadDefaultMailboxId,
+  loadMailboxSignatureId,
+  saveDefaultMailboxId,
+  saveMailboxSignatureId,
+} from "@/lib/email-composer-prefs";
 import { formatReplyAttachmentSize } from "@/lib/email-reply";
 import { hasRichTextContent, richTextToPlainText } from "@/lib/rich-text";
 import type {
@@ -72,6 +79,7 @@ type EmailOutboundComposerModalProps = {
   projects: Project[];
   signatures: EmailSignature[];
   selectedMailboxId: string;
+  userId?: string | null;
   onOpenChange: (open: boolean) => void;
   onSent?: (result: { mailboxId: string; threadId?: string | null }) => void;
   onScheduled?: (draft: EmailOutboundDraft) => void;
@@ -109,6 +117,7 @@ export function EmailOutboundComposerModal({
   projects,
   signatures,
   selectedMailboxId,
+  userId,
   onOpenChange,
   onSent,
   onScheduled,
@@ -130,6 +139,18 @@ export function EmailOutboundComposerModal({
   const [busyState, setBusyState] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  // Real send/schedule progress reported along the bottom of the composer.
+  // step is the 0-based index of the current/last-completed stage.
+  const [sendProgress, setSendProgress] = useState<{
+    label: string;
+    step: number;
+    total: number;
+    failed?: boolean;
+  } | null>(null);
+  // Suppresses persisting the signature selection while we are programmatically
+  // restoring the per-mailbox default (so restoring doesn't masquerade as a
+  // user choice).
+  const restoringSignatureRef = useRef(false);
   // While true, an initialDraft attachment is being copied in (fetch blob +
   // upload). Send/Schedule stay disabled until it lands or fails-with-notice.
   const [importingAttachment, setImportingAttachment] = useState(false);
@@ -163,21 +184,60 @@ export function EmailOutboundComposerModal({
       setBusyState(null);
       setErrorMessage(null);
       setStatusMessage(null);
+      setSendProgress(null);
       setImportingAttachment(false);
       return;
     }
 
-    setMailboxId(selectedMailboxId !== "all" ? selectedMailboxId : "");
+    // Prefer the explicitly-selected inbox; otherwise restore the user's last
+    // chosen inbox (persisted), validated against the mailboxes still available.
+    const explicit = selectedMailboxId !== "all" ? selectedMailboxId : "";
+    let nextMailboxId = explicit;
+    if (!nextMailboxId) {
+      const stored = loadDefaultMailboxId(userId);
+      if (stored && mailboxes.some((mailbox) => mailbox.id === stored)) {
+        nextMailboxId = stored;
+      }
+    }
+    setMailboxId(nextMailboxId);
     setSubject(initialDraft?.subject ?? "");
     setContent(initialDraft?.body ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectedMailboxId]);
 
+  // Persist the chosen inbox as the default for future opens (skip the empty
+  // "no selection yet" state and only while the composer is open).
+  useEffect(() => {
+    if (!open || !mailboxId) return;
+    saveDefaultMailboxId(userId, mailboxId);
+  }, [mailboxId, open, userId]);
+
+  // When the inbox changes (or the composer opens), restore the signature the
+  // user last associated with this inbox; fall back to the signature library's
+  // default for the mailbox. Marked as a restore so it isn't re-persisted.
   useEffect(() => {
     if (!open) return;
-    const defaultSignature = getDefaultEmailSignature(signatures, mailboxId || null);
-    setSelectedSignatureId(defaultSignature?.id || null);
-  }, [mailboxId, open, signatures]);
+    const applicable = getApplicableEmailSignatures(signatures, mailboxId || null);
+    const savedId = loadMailboxSignatureId(userId, mailboxId || null);
+    const saved =
+      savedId && applicable.some((signature) => signature.id === savedId)
+        ? savedId
+        : null;
+    const fallback = getDefaultEmailSignature(signatures, mailboxId || null);
+    restoringSignatureRef.current = true;
+    setSelectedSignatureId(saved ?? fallback?.id ?? null);
+  }, [mailboxId, open, signatures, userId]);
+
+  // Persist a user-driven signature choice as the default for the current
+  // inbox. Skips the programmatic restore above.
+  useEffect(() => {
+    if (!open || !mailboxId) return;
+    if (restoringSignatureRef.current) {
+      restoringSignatureRef.current = false;
+      return;
+    }
+    saveMailboxSignatureId(userId, mailboxId, selectedSignatureId);
+  }, [selectedSignatureId, open, mailboxId, userId]);
 
   // Import any pre-populated attachments (e.g. a forwarded thread attachment).
   // The binary lives behind the streaming download route, so we fetch it as a
@@ -389,11 +449,15 @@ export function EmailOutboundComposerModal({
   const handleSend = async () => {
     if (busyState) return;
 
+    const total = 3;
     setBusyState("send");
     setErrorMessage(null);
+    setSendProgress({ label: "Saving draft…", step: 0, total });
 
     try {
       const draft = await ensureDraft();
+      setSendProgress({ label: "Delivering message…", step: 1, total });
+
       const response = await fetch(`/api/email/outbound-drafts/${draft.id}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -405,12 +469,18 @@ export function EmailOutboundComposerModal({
         throw new Error(payload.error || "Failed to send email");
       }
 
+      setSendProgress({ label: "Sent", step: 3, total });
       onOpenChange(false);
       onSent?.({
         mailboxId,
         threadId: payload.threadId || null,
       });
     } catch (error) {
+      setSendProgress((current) =>
+        current
+          ? { ...current, label: "Send failed", failed: true }
+          : { label: "Send failed", step: 0, total, failed: true },
+      );
       setErrorMessage(
         error instanceof Error ? error.message : "Failed to send email",
       );
@@ -422,8 +492,10 @@ export function EmailOutboundComposerModal({
   const handleSchedule = async () => {
     if (busyState) return;
 
+    const total = 2;
     setBusyState("schedule");
     setErrorMessage(null);
+    setSendProgress({ label: "Saving draft…", step: 0, total });
 
     try {
       if (!scheduledFor) {
@@ -431,6 +503,7 @@ export function EmailOutboundComposerModal({
       }
 
       const draft = await ensureDraft();
+      setSendProgress({ label: "Scheduling…", step: 1, total });
       const response = await fetch(
         `/api/email/outbound-drafts/${draft.id}/schedule`,
         {
@@ -448,9 +521,15 @@ export function EmailOutboundComposerModal({
         throw new Error(payload.error || "Failed to schedule email");
       }
 
+      setSendProgress({ label: "Scheduled", step: 2, total });
       onOpenChange(false);
       onScheduled?.(payload as EmailOutboundDraft);
     } catch (error) {
+      setSendProgress((current) =>
+        current
+          ? { ...current, label: "Scheduling failed", failed: true }
+          : { label: "Scheduling failed", step: 0, total, failed: true },
+      );
       setErrorMessage(
         error instanceof Error ? error.message : "Failed to schedule email",
       );
@@ -480,22 +559,36 @@ export function EmailOutboundComposerModal({
           ) : null}
 
           <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <FloatingFieldLabel label="From" />
+            <div className="relative pt-2">
+              <FloatingFieldLabel label="Inbox" />
               <Select value={mailboxId} onValueChange={setMailboxId}>
-                <SelectTrigger className="border-zinc-700 bg-zinc-900 text-zinc-100">
-                  <SelectValue placeholder="Choose sender mailbox" />
+                <SelectTrigger className="h-auto min-h-[2.5rem] border-zinc-700 bg-zinc-900 text-zinc-100">
+                  <SelectValue placeholder="Choose sender inbox">
+                    {selectedMailbox ? (
+                      <span className="flex min-w-0 flex-col text-left">
+                        <span className="truncate">{selectedMailbox.name}</span>
+                        <span className="truncate text-xs text-zinc-400">
+                          {selectedMailbox.emailAddress}
+                        </span>
+                      </span>
+                    ) : null}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent className="border-zinc-800 bg-zinc-950 text-zinc-100">
                   {mailboxes.map((mailbox) => (
                     <SelectItem key={mailbox.id} value={mailbox.id}>
-                      {mailbox.name} ({mailbox.emailAddress})
+                      <span className="flex min-w-0 flex-col text-left">
+                        <span className="truncate">{mailbox.name}</span>
+                        <span className="truncate text-xs text-zinc-400">
+                          {mailbox.emailAddress}
+                        </span>
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
+            <div className="relative pt-2">
               <FloatingFieldLabel label="Project" />
               <Select value={projectId || "__none__"} onValueChange={(value) => setProjectId(value === "__none__" ? "" : value)}>
                 <SelectTrigger className="border-zinc-700 bg-zinc-900 text-zinc-100">
@@ -516,9 +609,9 @@ export function EmailOutboundComposerModal({
           <div className="space-y-3">
             <div className="relative pt-2">
               <FloatingFieldLabel label="To" />
-              <Input
+              <RecipientAutocompleteInput
                 value={toInput}
-                onChange={(event) => setToInput(event.target.value)}
+                onChange={setToInput}
                 placeholder="alice@example.com, Bob <bob@example.com>"
                 className="border-zinc-700 bg-zinc-900 text-zinc-100"
               />
@@ -526,18 +619,18 @@ export function EmailOutboundComposerModal({
             <div className="grid gap-3 md:grid-cols-2">
               <div className="relative pt-2">
                 <FloatingFieldLabel label="Cc" />
-                <Input
+                <RecipientAutocompleteInput
                   value={ccInput}
-                  onChange={(event) => setCcInput(event.target.value)}
+                  onChange={setCcInput}
                   placeholder="Optional"
                   className="border-zinc-700 bg-zinc-900 text-zinc-100"
                 />
               </div>
               <div className="relative pt-2">
                 <FloatingFieldLabel label="Bcc" />
-                <Input
+                <RecipientAutocompleteInput
                   value={bccInput}
-                  onChange={(event) => setBccInput(event.target.value)}
+                  onChange={setBccInput}
                   placeholder="Optional"
                   className="border-zinc-700 bg-zinc-900 text-zinc-100"
                 />
@@ -552,27 +645,6 @@ export function EmailOutboundComposerModal({
                 className="border-zinc-700 bg-zinc-900 text-zinc-100"
               />
             </div>
-            <div className="space-y-1">
-              <FloatingFieldLabel label="Signature" />
-              <Select
-                value={selectedSignatureId || "__none__"}
-                onValueChange={(value) =>
-                  setSelectedSignatureId(value === "__none__" ? null : value)
-                }
-              >
-                <SelectTrigger className="border-zinc-700 bg-zinc-900 text-zinc-100">
-                  <SelectValue placeholder="No signature" />
-                </SelectTrigger>
-                <SelectContent className="border-zinc-800 bg-zinc-950 text-zinc-100">
-                  <SelectItem value="__none__">No signature</SelectItem>
-                  {applicableSignatures.map((signature) => (
-                    <SelectItem key={signature.id} value={signature.id}>
-                      {signature.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60">
@@ -580,7 +652,8 @@ export function EmailOutboundComposerModal({
               value={content}
               onChange={setContent}
               placeholder="Write your email..."
-              minHeightClassName="min-h-[280px]"
+              minHeightClassName="min-h-[240px]"
+              contentClassName="resize-y overflow-auto min-h-[240px] max-h-[70vh]"
             />
             <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 px-3 py-3">
               <Tooltip content="Add attachments" className="w-auto">
@@ -706,6 +779,59 @@ export function EmailOutboundComposerModal({
               ))}
             </div>
           ) : null}
+
+          <div className="relative pt-2">
+            <FloatingFieldLabel label="Signature" />
+            <Select
+              value={selectedSignatureId || "__none__"}
+              onValueChange={(value) =>
+                setSelectedSignatureId(value === "__none__" ? null : value)
+              }
+            >
+              <SelectTrigger className="border-zinc-700 bg-zinc-900 text-zinc-100">
+                <SelectValue placeholder="No signature" />
+              </SelectTrigger>
+              <SelectContent className="border-zinc-800 bg-zinc-950 text-zinc-100">
+                <SelectItem value="__none__">No signature</SelectItem>
+                {applicableSignatures.map((signature) => (
+                  <SelectItem key={signature.id} value={signature.id}>
+                    {signature.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {sendProgress ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span
+                  className={
+                    sendProgress.failed ? "text-red-300" : "text-zinc-300"
+                  }
+                >
+                  {sendProgress.label}
+                </span>
+                <span className="text-zinc-500">
+                  Step {Math.min(sendProgress.step + (sendProgress.failed ? 0 : 1), sendProgress.total)} of {sendProgress.total}
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    sendProgress.failed ? "bg-red-500" : "bg-theme-gradient"
+                  }`}
+                  style={{
+                    width: `${Math.round(
+                      (Math.min(sendProgress.step, sendProgress.total) /
+                        sendProgress.total) *
+                        100,
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <input
@@ -715,13 +841,6 @@ export function EmailOutboundComposerModal({
           multiple
           onChange={(event) => void handleFileInputChange(event)}
         />
-
-        {selectedMailbox ? (
-          <div className="text-xs text-zinc-500">
-            Sending from {selectedMailbox.displayName || selectedMailbox.name}{" "}
-            &lt;{selectedMailbox.emailAddress}&gt;
-          </div>
-        ) : null}
       </DialogContent>
     </Dialog>
   );
