@@ -2,6 +2,7 @@ import type { CalibrationExample } from "./examples";
 import {
   runStructuredWaterfall,
   type ModelSpec,
+  type WaterfallFallback,
 } from "@/lib/ai/structured-waterfall";
 import { resolveChain, type AIModelChains } from "@/lib/ai/model-chains";
 
@@ -40,6 +41,8 @@ export interface TaskEstimateResultWithModel extends TaskEstimateResult {
   /** The model that produced this estimate (for logging/persistence). */
   model: string;
   provider: string;
+  /** Models tried and skipped (e.g. out of credits) before the one used. */
+  fallbacks: WaterfallFallback[];
 }
 
 const ESTIMATE_SCHEMA = {
@@ -176,13 +179,16 @@ export async function estimateTaskMinutesWithModel(
     input.playbookBlock ? `\n\n${input.playbookBlock}` : ""
   }${input.memoryBlock ? `\n\n${input.memoryBlock}` : ""}`;
 
-  const { text, model, provider } = await runStructuredWaterfall(chain, {
-    systemPrompt,
-    userMessage: buildUserMessage(input),
-    // Strict json_schema for OpenAI; Anthropic/xAI rely on prompt + parsing.
-    jsonSchema: ESTIMATE_SCHEMA as unknown as Record<string, unknown>,
-    temperature: 0.1,
-  });
+  const { text, model, provider, fallbacks } = await runStructuredWaterfall(
+    chain,
+    {
+      systemPrompt,
+      userMessage: buildUserMessage(input),
+      // Strict json_schema for OpenAI; Anthropic/xAI rely on prompt + parsing.
+      jsonSchema: ESTIMATE_SCHEMA as unknown as Record<string, unknown>,
+      temperature: 0.1,
+    },
+  );
 
   const parsed = parseEstimateJson(text);
 
@@ -198,6 +204,7 @@ export async function estimateTaskMinutesWithModel(
       typeof parsed.rationale === "string" ? parsed.rationale : undefined,
     model,
     provider,
+    fallbacks,
   };
 }
 

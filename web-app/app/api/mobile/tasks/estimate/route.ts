@@ -8,6 +8,7 @@ import { getAdminClient } from "@/lib/supabase/admin";
 import { estimateTaskMinutesWithModel } from "@/lib/ai-estimator/server";
 import { fetchEstimatorModelChains } from "@/lib/ai-estimator/chains";
 import { isRecoverableProviderError } from "@/lib/ai/structured-waterfall";
+import { modelLabel } from "@/lib/ai/model-chains";
 
 /**
  * POST /api/mobile/tasks/estimate
@@ -88,12 +89,31 @@ export async function POST(request: NextRequest) {
       modelChains,
     });
 
+    // When earlier models in the chain were skipped (e.g. out of credits),
+    // tell the client which model actually produced the estimate and why we
+    // fell back, so the UI can surface it (e.g. "GPT-4.1 (OpenAI) is out of
+    // credits — analyzed with Claude Opus 4.8 (Anthropic) instead.").
+    const usedLabel = modelLabel(estimate.model);
+    const billingFallback = estimate.fallbacks.find((f) => f.billing);
+    let notice: string | null = null;
+    if (billingFallback) {
+      notice =
+        `${modelLabel(billingFallback.model)} is out of credits — ` +
+        `analyzed with ${usedLabel} instead.`;
+    } else if (estimate.fallbacks.length > 0) {
+      notice =
+        `${modelLabel(estimate.fallbacks[0].model)} was unavailable — ` +
+        `analyzed with ${usedLabel} instead.`;
+    }
+
     return NextResponse.json(
       mobileSuccess({
         minutes: estimate.minutes,
         confidence: estimate.confidence,
         rationale: estimate.rationale ?? null,
         model: estimate.model,
+        modelLabel: usedLabel,
+        notice,
       }),
       { status: 200 },
     );
