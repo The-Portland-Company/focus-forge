@@ -282,6 +282,58 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
   return normalized
 }
 
+/**
+ * Resolve a batch of user ids to display names using the profiles table.
+ * Returns a Map keyed by user id -> display name (first+last, else email).
+ * Done in a single query to avoid N+1 lookups.
+ */
+export const resolveUserNames = async (
+  userIds: Array<string | null | undefined>,
+): Promise<Map<string, string>> => {
+  const ids = [
+    ...new Set(
+      userIds.filter(
+        (id): id is string => typeof id === 'string' && id.length > 0,
+      ),
+    ),
+  ]
+  const names = new Map<string, string>()
+  if (ids.length === 0) return names
+
+  const admin = getAdminClient()
+  const { data } = await admin
+    .from('profiles')
+    .select('id, first_name, last_name, email')
+    .in('id', ids)
+
+  ;(data || []).forEach((profile: any) => {
+    const firstName = profile?.first_name || ''
+    const lastName = profile?.last_name || ''
+    const name =
+      `${firstName} ${lastName}`.trim() || profile?.email || null
+    if (profile?.id && name) names.set(String(profile.id), name)
+  })
+
+  return names
+}
+
+/**
+ * Ensure a mobile task object carries the snake_case assignment fields the
+ * iOS app expects. The adapter already resolves `assignedToName` (camelCase)
+ * via a joined profile, so this is a pure shape adapter with no extra queries.
+ */
+export const serializeMobileTask = <T extends Record<string, any>>(
+  task: T,
+): T & { assigned_to: string | null; assigned_to_name: string | null } => ({
+  ...task,
+  assigned_to: task?.assigned_to ?? task?.assignedTo ?? null,
+  assigned_to_name: task?.assignedToName ?? null,
+})
+
+export const serializeMobileTasks = <T extends Record<string, any>>(
+  tasks: T[],
+) => tasks.map((task) => serializeMobileTask(task))
+
 const getDateOnly = (value?: string | null) => {
   if (!value) return null
   return value.includes('T') ? value.split('T')[0] : value

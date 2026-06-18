@@ -6,6 +6,8 @@ import {
   mobileFailure,
   mobileSuccess,
   normalizeTaskInput,
+  serializeMobileTask,
+  serializeMobileTasks,
   verifyMobileAccessTokenOrPat,
 } from "@/lib/mobile/api";
 import { sendTaskLifecycleNotifications } from "@/lib/task-notifications";
@@ -42,7 +44,7 @@ export async function GET(request: NextRequest) {
     const filtered = filterTasksByView(tasks, view);
 
     return NextResponse.json(
-      mobileSuccess(filtered, {
+      mobileSuccess(serializeMobileTasks(filtered), {
         view,
         project_id: projectId || null,
         count: filtered.length,
@@ -119,7 +121,9 @@ export async function POST(request: NextRequest) {
       previousText: "",
     });
 
-    return NextResponse.json(mobileSuccess(newTask), { status: 201 });
+    return NextResponse.json(mobileSuccess(serializeMobileTask(newTask)), {
+      status: 201,
+    });
   } catch (error) {
     return NextResponse.json(
       mobileFailure("internal_error", "Failed to create task", error),

@@ -5,6 +5,7 @@ import {
   getVisibleMobileUserIds,
   mobileFailure,
   mobileSuccess,
+  serializeMobileTasks,
   verifyMobileAccessTokenOrPat,
 } from '@/lib/mobile/api'
 
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
           user,
           organizations,
           projects,
-          tasks: todayTasks,
+          tasks: serializeMobileTasks(todayTasks),
         },
         {
           total_tasks: tasks.length,
