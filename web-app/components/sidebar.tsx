@@ -1667,7 +1667,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/search"
-            className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center gap-3 pl-1.5 pr-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "search"
                 ? "text-white"
                 : "text-zinc-400 hover:text-white"
@@ -1696,7 +1696,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/today"
-            className={`w-full flex items-center justify-between gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center justify-between gap-3 pl-1.5 pr-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "today"
                 ? "text-white"
                 : "text-zinc-400 hover:text-white"
@@ -1750,7 +1750,7 @@ export function Sidebar({
             <div className="flex items-center gap-1">
               <Link
                 href="/email-inbox"
-                className={`flex-1 flex items-center justify-between gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
+                className={`flex-1 flex items-center justify-between gap-3 pl-1.5 pr-3 py-1 rounded-lg text-sm transition-colors ${
                   currentView.startsWith("email-")
                     ? "text-white"
                     : "text-zinc-400 hover:text-white"
@@ -2057,7 +2057,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/upcoming"
-            className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center gap-3 pl-1.5 pr-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "upcoming"
                 ? "text-white"
                 : "text-zinc-400 hover:text-white"
@@ -2086,7 +2086,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/estimates"
-            className={`w-full flex items-center justify-between gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center justify-between gap-3 pl-1.5 pr-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "estimates"
                 ? "text-white"
                 : "text-zinc-400 hover:text-white"
@@ -2124,7 +2124,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/calendar"
-            className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center gap-3 pl-1.5 pr-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "calendar"
                 ? "text-white"
                 : "text-zinc-400 hover:text-white"
@@ -2152,7 +2152,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/domino"
-            className={`w-full flex items-center gap-3 px-3 py-1 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center gap-3 pl-1.5 pr-3 py-1 rounded-lg text-sm transition-colors ${
               currentView === "domino"
                 ? "text-white"
                 : "text-zinc-400 hover:text-white"
