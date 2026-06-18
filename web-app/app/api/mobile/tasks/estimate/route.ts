@@ -7,6 +7,7 @@ import {
 import { getAdminClient } from "@/lib/supabase/admin";
 import { estimateTaskMinutesWithModel } from "@/lib/ai-estimator/server";
 import { fetchEstimatorModelChains } from "@/lib/ai-estimator/chains";
+import { isRecoverableProviderError } from "@/lib/ai/structured-waterfall";
 
 /**
  * POST /api/mobile/tasks/estimate
@@ -97,8 +98,37 @@ export async function POST(request: NextRequest) {
       { status: 200 },
     );
   } catch (error) {
+    // Surface the REAL underlying error server-side. A raw Error object passed
+    // as `details` serializes to `{}` (Error fields are non-enumerable), which
+    // is why this endpoint previously returned an opaque `details:{}` 500 and
+    // hid the actual cause (e.g. a missing/failing provider key).
+    const message =
+      error instanceof Error ? error.message : String(error);
+    console.error("[mobile/tasks/estimate] estimate failed:", message, error);
+
+    // No usable AI provider configured for this user's model chain → 503 with a
+    // specific, client-friendly message instead of a generic internal_error.
+    if (
+      message.includes("No AI provider configured") ||
+      message.startsWith("All AI models in the chain failed")
+    ) {
+      const billing = isRecoverableProviderError(message);
+      return NextResponse.json(
+        mobileFailure(
+          billing ? "estimator_unavailable" : "estimator_not_configured",
+          billing
+            ? "The AI estimator is temporarily unavailable (provider quota or billing). Please try again later or enter an estimate manually."
+            : "The AI estimator is not configured. An AI provider API key (OpenAI, Anthropic, or xAI) must be set on the server.",
+          { reason: message },
+        ),
+        { status: 503 },
+      );
+    }
+
     return NextResponse.json(
-      mobileFailure("internal_error", "Failed to estimate task", error),
+      mobileFailure("internal_error", "Failed to estimate task", {
+        reason: message,
+      }),
       { status: 500 },
     );
   }
