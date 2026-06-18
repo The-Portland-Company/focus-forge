@@ -8,6 +8,7 @@ import {
 } from "@/components/estimate-help-modal";
 import { Hourglass, Pencil, Play, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useUserProfile } from "@/lib/supabase/hooks";
 import {
   Dialog,
   DialogContent,
@@ -68,6 +69,21 @@ export function EstimatesView() {
   const [editor, setEditor] = useState<ExampleDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const { profile, updateProfile } = useUserProfile();
+  const [contributing, setContributing] = useState(false);
+
+  useEffect(() => {
+    if (profile) setContributing(Boolean(profile.contributes_training_data));
+  }, [profile]);
+
+  const toggleContribute = useCallback(
+    async (next: boolean) => {
+      setContributing(next); // optimistic
+      const res = await updateProfile?.({ contributes_training_data: next });
+      if (res?.error) setContributing((prev) => !prev); // revert on failure
+    },
+    [updateProfile],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -351,6 +367,25 @@ export function EstimatesView() {
               <Plus className="w-4 h-4" /> Add example
             </button>
           </div>
+
+          <label className="mb-6 flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={contributing}
+              onChange={(e) => toggleContribute(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[rgb(var(--theme-primary-rgb))]"
+            />
+            <span className="text-xs text-zinc-400">
+              <span className="text-zinc-200 font-medium">
+                Help improve the shared estimator model.
+              </span>{" "}
+              When on, your approved examples may be included (pooled with other
+              opted-in users) to train Focus Forge&rsquo;s shared fine-tuned
+              estimator. Your examples remain private to your account either way —
+              this only controls whether they contribute to the shared model. You
+              can turn it off anytime.
+            </span>
+          </label>
           {examplesLoading && examples.length === 0 ? (
             <div className="rounded-lg border border-zinc-800 overflow-hidden">
               <table className="w-full text-sm">
