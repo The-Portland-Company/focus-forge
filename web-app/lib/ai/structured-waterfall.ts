@@ -38,6 +38,16 @@ export interface WaterfallInput {
   temperature?: number;
 }
 
+/** A model that was tried and skipped before the successful one. */
+export interface WaterfallFallback {
+  provider: WaterfallProvider;
+  model: string;
+  /** Short reason, e.g. "out of credits" or "error". */
+  reason: string;
+  /** True when the failure was a balance/quota/auth (billing) error. */
+  billing: boolean;
+}
+
 export interface WaterfallResult {
   /** Raw text the chosen model returned (defensively parse it yourself). */
   text: string;
@@ -45,6 +55,8 @@ export interface WaterfallResult {
   model: string;
   /** The provider that produced the result. */
   provider: WaterfallProvider;
+  /** Models tried and skipped (in order) before the one that succeeded. */
+  fallbacks: WaterfallFallback[];
 }
 
 /** A single-model runner. Injectable for tests. */
@@ -153,12 +165,19 @@ async function runAnthropic(
   input: WaterfallInput,
 ): Promise<string> {
   // Anthropic has no json_schema response_format; demand strict JSON in the
-  // system prompt and prefill the assistant turn with "{" to force a JSON
-  // object start. The caller parses defensively.
+  // system prompt and parse defensively.
+  //
+  // NOTE: the newer Anthropic models (e.g. claude-opus-4-8, claude-sonnet-4-6)
+  // reject BOTH a `temperature` parameter ("`temperature` is deprecated for
+  // this model") AND an assistant-message prefill ("This model does not support
+  // assistant message prefill. The conversation must end with a user message").
+  // So we no longer send `temperature` and no longer prefill "{"; the strict
+  // system-prompt instruction plus the defensive caller-side parse handle JSON
+  // extraction across every model.
   const system =
     input.systemPrompt +
     "\n\nReturn ONLY a single valid JSON object that matches the requested schema. " +
-    "No prose, no markdown, no code fences.";
+    "No prose, no markdown, no code fences. Begin your reply with '{'.";
 
   const response = await fetch(ANTHROPIC_URL, {
     method: "POST",
@@ -170,12 +189,8 @@ async function runAnthropic(
     body: JSON.stringify({
       model: spec.model,
       max_tokens: 4096,
-      temperature: input.temperature ?? 0.2,
       system,
-      messages: [
-        { role: "user", content: input.userMessage },
-        { role: "assistant", content: "{" },
-      ],
+      messages: [{ role: "user", content: input.userMessage }],
     }),
   });
   if (!response.ok) {
@@ -191,8 +206,7 @@ async function runAnthropic(
     .map((b) => b.text)
     .join("");
   if (!text) throw new Error("anthropic: response missing content");
-  // We prefilled "{", so the model continues from there — re-prepend it.
-  return "{" + text;
+  return text;
 }
 
 /** Default real runner that hits the provider HTTP APIs. */
@@ -239,13 +253,15 @@ export async function runStructuredWaterfall(
   }
 
   const errors: string[] = [];
+  const fallbacks: WaterfallFallback[] = [];
   for (const spec of runnable) {
     try {
       const text = await runner(spec, input);
-      return { text, model: spec.model, provider: spec.provider };
+      return { text, model: spec.model, provider: spec.provider, fallbacks };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (isRecoverableProviderError(msg)) {
+      const billing = isRecoverableProviderError(msg);
+      if (billing) {
         console.warn(
           `[waterfall] ${spec.provider}/${spec.model} hit a balance/quota/auth error, falling through: ${msg}`,
         );
@@ -254,6 +270,12 @@ export async function runStructuredWaterfall(
           `[waterfall] ${spec.provider}/${spec.model} failed (non-recoverable), falling through: ${msg}`,
         );
       }
+      fallbacks.push({
+        provider: spec.provider,
+        model: spec.model,
+        reason: billing ? "out of credits" : "unavailable",
+        billing,
+      });
       errors.push(`${spec.provider}/${spec.model}: ${msg}`);
     }
   }

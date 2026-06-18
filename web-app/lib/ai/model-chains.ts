@@ -61,6 +61,11 @@ export function modelSpecFor(id: string): ModelSpec | null {
   return m ? { provider: m.provider, model: m.id } : null;
 }
 
+/** Human-friendly label for a known model id (falls back to the id itself). */
+export function modelLabel(id: string): string {
+  return MODEL_BY_ID.get(id)?.label ?? id;
+}
+
 /**
  * Normalize a raw stored chain (string[]): drop unknown ids, de-dupe, and
  * append any known models the user omitted so the chain always covers all 4 in
