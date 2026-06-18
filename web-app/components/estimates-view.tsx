@@ -6,8 +6,16 @@ import {
   EstimateHelpButton,
   EstimateHelpModal,
 } from "@/components/estimate-help-modal";
-import { Hourglass, Play, Sparkles, Trash2 } from "lucide-react";
+import { Hourglass, Pencil, Play, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface PreviewTask {
   id: string;
@@ -21,11 +29,22 @@ interface PreviewTask {
 interface CalibrationExample {
   id: string;
   taskName: string;
+  taskDescription?: string | null;
   projectName?: string | null;
   aiSuggestedMinutes?: number | null;
   aiConfidence?: string | null;
   acceptedMinutes: number;
+  source?: string | null;
   createdAt: string;
+}
+
+/** Editor state for the add/edit example modal. `id` null = creating. */
+interface ExampleDraft {
+  id: string | null;
+  taskName: string;
+  taskDescription: string;
+  projectName: string;
+  acceptedMinutes: string;
 }
 
 const PRIORITY_DOT: Record<number, string> = {
@@ -46,6 +65,9 @@ export function EstimatesView() {
   const [tab, setTab] = useState<Tab>("queue");
   const [examples, setExamples] = useState<CalibrationExample[]>([]);
   const [examplesLoading, setExamplesLoading] = useState(false);
+  const [editor, setEditor] = useState<ExampleDraft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,6 +118,80 @@ export function EstimatesView() {
     },
     [],
   );
+
+  const openCreate = useCallback(() => {
+    setEditorError(null);
+    setEditor({
+      id: null,
+      taskName: "",
+      taskDescription: "",
+      projectName: "",
+      acceptedMinutes: "",
+    });
+  }, []);
+
+  const openEdit = useCallback((ex: CalibrationExample) => {
+    setEditorError(null);
+    setEditor({
+      id: ex.id,
+      taskName: ex.taskName,
+      taskDescription: ex.taskDescription ?? "",
+      projectName: ex.projectName ?? "",
+      acceptedMinutes: String(ex.acceptedMinutes),
+    });
+  }, []);
+
+  const saveEditor = useCallback(async () => {
+    if (!editor) return;
+    const name = editor.taskName.trim();
+    const minutes = Number(editor.acceptedMinutes);
+    if (!name) {
+      setEditorError("Task name is required.");
+      return;
+    }
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 480) {
+      setEditorError("Minutes must be a number between 1 and 480.");
+      return;
+    }
+    setSaving(true);
+    setEditorError(null);
+    try {
+      const payload = {
+        taskName: name,
+        taskDescription: editor.taskDescription.trim() || null,
+        projectName: editor.projectName.trim() || null,
+        acceptedMinutes: Math.round(minutes),
+      };
+      const res = await fetch(
+        editor.id
+          ? `/api/tasks/estimate/examples?id=${editor.id}`
+          : "/api/tasks/estimate/examples",
+        {
+          method: editor.id ? "PATCH" : "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error || `Save failed (${res.status})`);
+      }
+      const { example } = (await res.json()) as { example: CalibrationExample };
+      setExamples((rows) => {
+        const without = rows.filter((r) => r.id !== example.id);
+        return [example, ...without].sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+      });
+      setEditor(null);
+    } catch (e) {
+      setEditorError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }, [editor]);
 
   return (
     <div className="text-white">
@@ -239,13 +335,22 @@ export function EstimatesView() {
         )
       ) : (
         <div>
-          <p className="text-xs text-zinc-500 mb-4 max-w-prose">
-            These are AI calibration rules — one is recorded each time you
-            approve an estimate. They&rsquo;re replayed to the AI as examples
-            of your pace, so future suggestions match how long things actually
-            take you. Deleting one removes it from the AI&rsquo;s training
-            signal.
-          </p>
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <p className="text-xs text-zinc-500 max-w-prose">
+              These are AI calibration rules — one is recorded each time you
+              approve an estimate, and you can add or edit your own. They&rsquo;re
+              replayed to the AI as examples of your pace (and are the training
+              set for your model), so future suggestions match how long things
+              actually take you. They are private to your account.
+            </p>
+            <button
+              type="button"
+              onClick={openCreate}
+              className="shrink-0 inline-flex items-center gap-2 rounded-md border border-zinc-700 text-zinc-200 px-3 py-1.5 text-sm hover:bg-zinc-800"
+            >
+              <Plus className="w-4 h-4" /> Add example
+            </button>
+          </div>
           {examplesLoading && examples.length === 0 ? (
             <div className="rounded-lg border border-zinc-800 overflow-hidden">
               <table className="w-full text-sm">
@@ -320,7 +425,16 @@ export function EstimatesView() {
                           day: "numeric",
                         })}
                       </td>
-                      <td className="px-2 py-2 text-right">
+                      <td className="px-2 py-2 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(ex)}
+                          className="text-zinc-600 hover:text-zinc-200 p-1"
+                          title="Edit this example"
+                          aria-label={`Edit rule for ${ex.taskName}`}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           type="button"
                           onClick={() => deleteExample(ex.id)}
@@ -357,6 +471,111 @@ export function EstimatesView() {
       />
 
       <EstimateHelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+
+      <Dialog
+        open={editor !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditor(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {editor?.id ? "Edit example" : "Add training example"}
+            </DialogTitle>
+            <DialogDescription>
+              Teach the estimator how long a kind of task takes you. This example
+              is private to your account.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editor ? (
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Task name
+                </label>
+                <input
+                  type="text"
+                  value={editor.taskName}
+                  onChange={(e) =>
+                    setEditor({ ...editor, taskName: e.target.value })
+                  }
+                  placeholder="e.g. Draft a customer outreach email"
+                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-[rgb(var(--theme-primary-rgb))]"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">
+                    Project (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={editor.projectName}
+                    onChange={(e) =>
+                      setEditor({ ...editor, projectName: e.target.value })
+                    }
+                    placeholder="e.g. Marketing"
+                    className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-[rgb(var(--theme-primary-rgb))]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">
+                    Minutes (1–480)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={480}
+                    value={editor.acceptedMinutes}
+                    onChange={(e) =>
+                      setEditor({ ...editor, acceptedMinutes: e.target.value })
+                    }
+                    placeholder="30"
+                    className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-[rgb(var(--theme-primary-rgb))]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Description / notes (optional)
+                </label>
+                <textarea
+                  value={editor.taskDescription}
+                  onChange={(e) =>
+                    setEditor({ ...editor, taskDescription: e.target.value })
+                  }
+                  rows={3}
+                  placeholder="Any context that affects how long it takes…"
+                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-[rgb(var(--theme-primary-rgb))]"
+                />
+              </div>
+              {editorError ? (
+                <p className="text-sm text-red-400">{editorError}</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setEditor(null)}
+              className="rounded-md px-4 py-2 text-sm text-zinc-300 hover:text-white"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={saveEditor}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-md bg-theme-gradient text-white px-4 py-2 text-sm hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : editor?.id ? "Save changes" : "Add example"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       </div>
     </div>
   );
