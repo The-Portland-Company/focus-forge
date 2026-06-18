@@ -11,6 +11,7 @@ import {
   evaluateConfirmGate,
   type DestructiveAction,
 } from "@/lib/ai-agent/confirm-gate";
+import { selectTodayTasks } from "@/lib/daily-plan/today-selection";
 
 /**
  * Tool layer for the in-app AI agent.
@@ -421,6 +422,15 @@ export const AGENT_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "list_today_view",
+      description:
+        "Return the EXACT set of tasks and inbox items that appear in the user's Today view right now — overdue tasks, tasks due today, tasks due tomorrow, tasks due later this week, and actionable inbox items. Use this (NOT list_tasks with dueFilter=today) when the user asks 'what's in my Today view', 'what tasks do I have today', or any question about what they see on the Today screen.",
+      parameters: { type: "object", additionalProperties: false, properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "add_task_to_today",
       description:
         "Surface a task in the Today view by setting its due date to today. Use after deciding which tasks the user should focus on today.",
@@ -595,6 +605,8 @@ export async function executeTool(
         return await getDailyCapacity(ctx);
       case "list_today_candidates":
         return await listTodayCandidates(ctx);
+      case "list_today_view":
+        return await listTodayView(ctx);
       case "add_task_to_today":
         return await addTaskToToday(ctx, args);
       case "set_task_estimate":
@@ -1273,6 +1285,28 @@ async function listTodayCandidates(ctx: AgentToolContext): Promise<AgentToolResu
   }));
 
   return { ok: true, data: { today, candidates } };
+}
+
+async function listTodayView(ctx: AgentToolContext): Promise<AgentToolResult> {
+  try {
+    const selection = await selectTodayTasks(
+      ctx.admin,
+      ctx.userId,
+      ctx.accessibleProjectIds,
+    );
+    return {
+      ok: true,
+      data: {
+        taskCount: selection.tasks.length,
+        inboxItemCount: selection.inboxItems.length,
+        tasks: selection.tasks,
+        inboxItems: selection.inboxItems,
+        note: "This is the exact set the Today view shows: overdue + today + tomorrow + rest-of-week tasks (unsnoozed, incomplete) plus actionable inbox items.",
+      },
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to load Today view" };
+  }
 }
 
 async function addTaskToToday(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {

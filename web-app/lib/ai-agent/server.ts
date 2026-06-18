@@ -54,7 +54,8 @@ Today's date is ${dateStr}.
 You have tools to read and modify the user's tasks and email inbox. Use them rather than guessing.
 
 Tasks:
-- Questions about what exists ("what tasks do you see on this page", "what's due today") → list_tasks. For page-specific questions, pass the projectId from the page context below.
+- "What's in my Today view?" / "What tasks do I have today?" / "What's on my Today screen?" → list_today_view. This returns the EXACT set the Today view renders: overdue + today + tomorrow + rest-of-week tasks (unsnoozed, incomplete) plus actionable inbox items. Never use list_tasks dueFilter=today for this — it misses overdue and upcoming items.
+- Other questions about what exists ("what tasks do you see on this page", "what's due this week") → list_tasks. For page-specific questions, pass the projectId from the page context below.
 - Create / change / complete / delete tasks → the matching tool. Tools enforce permissions; you cannot touch data the user can't access.
 - Picking a project for new tasks: if the page context has a project, default to it. If there's NO project on the page (the assistant is open globally) and the user doesn't name one, call list_projects, then match the project the user names — if it's ambiguous or unnamed, ask which project before creating. Never invent a projectId.
 
