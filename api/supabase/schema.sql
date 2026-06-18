@@ -552,3 +552,51 @@ DROP POLICY IF EXISTS "audit_logs_org_insert" ON public.audit_logs;
 CREATE POLICY "audit_logs_org_insert" ON public.audit_logs FOR INSERT
   WITH CHECK (public.user_has_organization_access(organization_id));
 -- Append-only: no UPDATE/DELETE policies (denied with RLS enabled).
+
+-- AI estimator training set (per-user, HITL-curatable). Source migrations:
+--   20260602200000_task_time_estimate.sql (base table + select/insert/delete RLS)
+--   20260618000000_estimate_examples_hitl.sql (source, updated_at, UPDATE RLS)
+CREATE TABLE IF NOT EXISTS public.task_estimate_examples (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  task_id UUID REFERENCES public.tasks(id) ON DELETE SET NULL,
+  task_name TEXT NOT NULL,
+  task_description TEXT,
+  project_name TEXT,
+  tags TEXT[],
+  priority INTEGER,
+  ai_suggested_minutes INTEGER,
+  ai_confidence TEXT,
+  accepted_minutes INTEGER NOT NULL CHECK (accepted_minutes BETWEEN 1 AND 480),
+  source TEXT NOT NULL DEFAULT 'accepted'
+    CHECK (source IN ('accepted', 'manual', 'edited')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS task_estimate_examples_user_created_idx
+  ON public.task_estimate_examples (user_id, created_at DESC);
+
+ALTER TABLE public.task_estimate_examples ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "task_estimate_examples_own_select" ON public.task_estimate_examples;
+CREATE POLICY "task_estimate_examples_own_select" ON public.task_estimate_examples FOR SELECT
+  USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "task_estimate_examples_own_insert" ON public.task_estimate_examples;
+CREATE POLICY "task_estimate_examples_own_insert" ON public.task_estimate_examples FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "task_estimate_examples_own_update" ON public.task_estimate_examples;
+CREATE POLICY "task_estimate_examples_own_update" ON public.task_estimate_examples FOR UPDATE
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "task_estimate_examples_own_delete" ON public.task_estimate_examples;
+CREATE POLICY "task_estimate_examples_own_delete" ON public.task_estimate_examples FOR DELETE
+  USING (auth.uid() = user_id);
+
+DROP TRIGGER IF EXISTS update_task_estimate_examples_updated_at ON public.task_estimate_examples;
+CREATE TRIGGER update_task_estimate_examples_updated_at
+  BEFORE UPDATE ON public.task_estimate_examples
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
