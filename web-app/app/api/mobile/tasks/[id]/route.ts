@@ -4,12 +4,48 @@ import {
   mobileFailure,
   mobileSuccess,
   normalizeTaskInput,
+  serializeMobileTask,
   verifyMobileAccessTokenOrPat,
 } from "@/lib/mobile/api";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { sendTaskLifecycleNotifications } from "@/lib/task-notifications";
 import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
+
+export async function GET(
+  request: NextRequest,
+  props: { params: Promise<{ id: string }> },
+) {
+  try {
+    const auth = await verifyMobileAccessTokenOrPat(
+      request.headers.get("authorization"),
+    );
+
+    if (!auth.ok) {
+      return NextResponse.json(auth.error, { status: auth.status });
+    }
+
+    const params = await props.params;
+    const adapter = await getMobileAdapterForUser(auth.user.id);
+    const task = await adapter.getTask(params.id);
+
+    if (!task) {
+      return NextResponse.json(
+        mobileFailure("task_not_found", "Task not found for current user"),
+        { status: 404 },
+      );
+    }
+
+    return NextResponse.json(mobileSuccess(serializeMobileTask(task)), {
+      status: 200,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      mobileFailure("internal_error", "Failed to fetch task", error),
+      { status: 500 },
+    );
+  }
+}
 
 export async function PATCH(
   request: NextRequest,
@@ -71,7 +107,9 @@ export async function PATCH(
         .join("\n"),
     });
 
-    return NextResponse.json(mobileSuccess(updated), { status: 200 });
+    return NextResponse.json(mobileSuccess(serializeMobileTask(updated)), {
+      status: 200,
+    });
   } catch (error) {
     return NextResponse.json(
       mobileFailure("internal_error", "Failed to update task", error),
