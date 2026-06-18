@@ -5480,7 +5480,15 @@ export default function ViewPage({
                       )}
                     </div>
                   </div>
-                  {projectFiltersExpanded && (
+                  <div
+                    className="overflow-hidden transition-all duration-200 ease-in-out"
+                    style={
+                      projectFiltersExpanded
+                        ? { maxHeight: "200px", opacity: 1, marginTop: "12px" }
+                        : { maxHeight: "0px", opacity: 0, marginTop: "0px" }
+                    }
+                    aria-hidden={!projectFiltersExpanded}
+                  >
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
@@ -5595,7 +5603,7 @@ export default function ViewPage({
                       </SelectContent>
                     </Select>
                   </div>
-                  )}
+                  </div>
                 </div>
 
                 {isDataLoading ? (
