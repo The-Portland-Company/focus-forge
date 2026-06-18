@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { buildTaskLinkMaps } from "@/lib/email-inbox/task-links";
 
 // GET /api/email/task-links — map of task_id -> thread_id for tasks created
 // from / linked to email threads (RLS scopes rows to the current user).
@@ -22,33 +23,83 @@ export async function GET() {
     // email_thread_tasks isn't in the generated DB types yet
     const { data, error } = await (supabase as any)
       .from("email_thread_tasks")
-      .select("task_id, thread_id, generated_by, rationale");
+      .select("task_id, thread_id, generated_by, rationale, public");
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const links: Record<string, string> = {};
-    const aiCreated: Record<
-      string,
-      { threadId: string; generatedBy: string; rationale: string | null }
-    > = {};
-    for (const row of data || []) {
-      links[row.task_id] = row.thread_id;
-      if (row.generated_by === "ai") {
-        aiCreated[row.task_id] = {
-          threadId: row.thread_id,
-          generatedBy: row.generated_by,
-          rationale: row.rationale ?? null,
-        };
-      }
-    }
+    // links/aiCreated/publicByTaskId maps (publicByTaskId lets clients show and
+    // toggle Public/Private without a re-fetch).
+    const { links, aiCreated, publicByTaskId } = buildTaskLinkMaps(data);
 
-    return NextResponse.json({ links, aiCreated });
+    return NextResponse.json({ links, aiCreated, publicByTaskId });
   } catch (error) {
     console.error("GET /api/email/task-links error:", error);
     return NextResponse.json(
       { error: "Failed to fetch email task links" },
+      { status: 500 },
+    );
+  }
+}
+
+// PATCH /api/email/task-links — set the `public` flag on an email-linked task.
+// Body: { taskId: string, public: boolean }. RLS ("Users can manage email
+// thread tasks") restricts the update to users with access to the linked
+// mailbox, so only someone who can see the email can change its publicness.
+// This only flips a flag on the link row; it never exposes email content.
+export async function PATCH(request: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { session },
+      error: authError,
+    } = await supabase.auth.getSession();
+
+    if (authError || !session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    let body: { taskId?: unknown; public?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const taskId = typeof body.taskId === "string" ? body.taskId : null;
+    const isPublic = body.public;
+    if (!taskId || typeof isPublic !== "boolean") {
+      return NextResponse.json(
+        { error: "taskId (string) and public (boolean) are required" },
+        { status: 400 },
+      );
+    }
+
+    // email_thread_tasks isn't in the generated DB types yet.
+    const { data, error } = await (supabase as any)
+      .from("email_thread_tasks")
+      .update({ public: isPublic })
+      .eq("task_id", taskId)
+      .select("task_id, public");
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!data || data.length === 0) {
+      // No row updated => either no email link for this task, or RLS blocked it.
+      return NextResponse.json(
+        { error: "No email-linked task found for this task" },
+        { status: 404 },
+      );
+    }
+
+    return NextResponse.json({ taskId, public: isPublic });
+  } catch (error) {
+    console.error("PATCH /api/email/task-links error:", error);
+    return NextResponse.json(
+      { error: "Failed to update email task link" },
       { status: 500 },
     );
   }

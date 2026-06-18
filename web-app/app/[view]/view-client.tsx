@@ -635,7 +635,11 @@ export default function ViewPage({
       { threadId: string; generatedBy: string; rationale: string | null }
     >
   >({});
+  const [emailPublicByTaskId, setEmailPublicByTaskId] = useState<
+    Record<string, boolean>
+  >({});
   const [aiRationaleModal, setAiRationaleModal] = useState<{
+    taskId: string;
     taskName: string;
     threadId: string;
     rationale: string | null;
@@ -1214,6 +1218,8 @@ export default function ViewPage({
       .then((payload) => {
         if (payload?.links) setEmailTaskLinks(payload.links);
         if (payload?.aiCreated) setAiCreatedTasks(payload.aiCreated);
+        if (payload?.publicByTaskId)
+          setEmailPublicByTaskId(payload.publicByTaskId);
       })
       .catch(() => undefined);
   }, [user?.id, view]);
@@ -3750,6 +3756,7 @@ export default function ViewPage({
         emailThreadIdByTaskId: emailTaskLinks,
         aiCreatedByTaskId: aiCreatedTasks,
         onOpenAiRationale: ({
+          taskId,
           taskName,
           threadId,
           rationale,
@@ -3758,7 +3765,7 @@ export default function ViewPage({
           taskName: string;
           threadId: string;
           rationale: string | null;
-        }) => setAiRationaleModal({ taskName, threadId, rationale }),
+        }) => setAiRationaleModal({ taskId, taskName, threadId, rationale }),
         dominoByTaskId,
         dominoRationaleByTaskId,
         onOpenEmailThread: (threadId: string) => setTaskEmailThreadId(threadId),
@@ -5968,6 +5975,15 @@ export default function ViewPage({
         threadId={aiRationaleModal?.threadId ?? null}
         taskName={aiRationaleModal?.taskName ?? ""}
         fallbackRationale={aiRationaleModal?.rationale ?? null}
+        taskId={aiRationaleModal?.taskId ?? null}
+        isPublic={
+          aiRationaleModal
+            ? emailPublicByTaskId[aiRationaleModal.taskId] ?? false
+            : false
+        }
+        onPublicChange={(taskId, isPublic) =>
+          setEmailPublicByTaskId((prev) => ({ ...prev, [taskId]: isPublic }))
+        }
       />
 
       {undoDelete && (
