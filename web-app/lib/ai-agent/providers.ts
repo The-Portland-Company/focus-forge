@@ -11,6 +11,57 @@ import {
 } from "@/lib/ai-agent/image-ingest";
 
 /**
+ * Upstream LLM calls had no timeout, and the agent had no overall deadline. A
+ * slow/hung provider — or a 6-round tool loop, or provider failover — could run
+ * past the edge proxy's ~100s timeout, dropping the connection so the browser
+ * reported "Load failed" instead of a clean error. These bound every call.
+ *
+ * AGENT_DEADLINE_MS is the wall-clock budget for the WHOLE agent turn, SHARED
+ * across the provider waterfall, so total time stays comfortably under the
+ * ~100s Cloudflare edge timeout even when we fail over between providers.
+ */
+const AGENT_DEADLINE_MS = 85_000;
+/** Hard ceiling for any single upstream LLM HTTP call. */
+const PER_CALL_TIMEOUT_MS = 60_000;
+/** Floor so a near-exhausted budget still gives a final call a fighting chance. */
+const MIN_CALL_TIMEOUT_MS = 4_000;
+
+/** ms remaining until the shared deadline (never negative). */
+function msUntil(deadline: number): number {
+  return Math.max(0, deadline - Date.now());
+}
+
+/** Per-call timeout: as much of the remaining budget as we'll allow one call. */
+function callTimeout(deadline: number): number {
+  return Math.min(PER_CALL_TIMEOUT_MS, Math.max(MIN_CALL_TIMEOUT_MS, msUntil(deadline)));
+}
+
+/**
+ * fetch() with an AbortController-based timeout. Throws a clear, provider-tagged
+ * error on timeout so the waterfall can fail over (or the route can surface a
+ * clean message) instead of the request hanging until the connection drops.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  label: string,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Vision-capable Claude model used for the image-describe step. Per the
  * claude-api skill, claude-opus-4-8 and claude-sonnet-4-6 are vision-capable;
  * we use opus for the strongest image understanding.
@@ -103,6 +154,8 @@ export async function describeImagesInMessage(
     },
   ];
 
+  const visionController = new AbortController();
+  const visionTimer = setTimeout(() => visionController.abort(), PER_CALL_TIMEOUT_MS);
   try {
     const doFetch = (opts?.fetchImpl ?? fetch) as typeof fetch;
     const response = await doFetch("https://api.anthropic.com/v1/messages", {
@@ -119,6 +172,7 @@ export async function describeImagesInMessage(
           "You are a vision assistant. Describe images accurately and transcribe any visible text.",
         messages: [{ role: "user", content: userContent }],
       }),
+      signal: visionController.signal,
     });
     if (!response.ok) {
       return {
@@ -160,6 +214,8 @@ export async function describeImagesInMessage(
         "[I couldn't view the image(s) right now (vision request errored). " +
         "Paste the task name/text instead and I'll help.]",
     };
+  } finally {
+    clearTimeout(visionTimer);
   }
 }
 
@@ -297,6 +353,12 @@ type RunInput = {
   systemPrompt: string;
   conversation: Array<{ role: "user" | "assistant"; content: string }>;
   toolContext: AgentToolContext;
+  /**
+   * Absolute wall-clock deadline (Date.now() ms) shared across the provider
+   * waterfall. Each runner caps its LLM calls against it and stops looping once
+   * it passes, guaranteeing the route returns before the edge proxy timeout.
+   */
+  deadline?: number;
 };
 
 export interface AgentProvider {
@@ -316,7 +378,8 @@ function makeOpenAICompatibleProvider(opts: {
   return {
     name: opts.name,
     isConfigured: () => Boolean(opts.apiKey()),
-    async run({ systemPrompt, conversation, toolContext }) {
+    async run({ systemPrompt, conversation, toolContext, deadline: deadlineInput }) {
+      const deadline = deadlineInput ?? Date.now() + AGENT_DEADLINE_MS;
       const apiKey = opts.apiKey();
       if (!apiKey) throw new Error(`${opts.name}: not configured`);
 
@@ -342,22 +405,35 @@ function makeOpenAICompatibleProvider(opts: {
               "(e.g. what you couldn't do and why). Do not promise further actions.",
           },
         ];
-        const resp = await fetch(opts.baseUrl, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: opts.model, temperature: 0.3, messages: summaryMessages }),
-        });
+        const resp = await fetchWithTimeout(
+          opts.baseUrl,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: opts.model, temperature: 0.3, messages: summaryMessages }),
+          },
+          callTimeout(deadline),
+          `${opts.name} final-summary`,
+        );
         if (!resp.ok) throw new Error(`${opts.name} final-summary failed (${resp.status})`);
         const data = await resp.json();
         return String(data?.choices?.[0]?.message?.content || "").trim();
       };
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-        const response = await fetch(opts.baseUrl, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: opts.model, temperature: 0.3, tools: AGENT_TOOLS, messages }),
-        });
+        // Out of budget mid-loop: stop looping and synthesize a final answer
+        // from what we have rather than risk dropping the connection.
+        if (msUntil(deadline) <= MIN_CALL_TIMEOUT_MS) break;
+        const response = await fetchWithTimeout(
+          opts.baseUrl,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: opts.model, temperature: 0.3, tools: AGENT_TOOLS, messages }),
+          },
+          callTimeout(deadline),
+          opts.name,
+        );
         if (!response.ok) {
           const text = await response.text();
           throw new Error(`${opts.name} request failed (${response.status}): ${text.slice(0, 400)}`);
@@ -451,7 +527,8 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
   return {
     name: "anthropic",
     isConfigured: () => Boolean(opts.apiKey()),
-    async run({ systemPrompt, conversation, toolContext }) {
+    async run({ systemPrompt, conversation, toolContext, deadline: deadlineInput }) {
+      const deadline = deadlineInput ?? Date.now() + AGENT_DEADLINE_MS;
       const apiKey = opts.apiKey();
       if (!apiKey) throw new Error("anthropic: not configured");
 
@@ -472,21 +549,26 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
               "(e.g. what you couldn't do and why). Do not promise further actions.",
           },
         ];
-        const resp = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
+        const resp = await fetchWithTimeout(
+          "https://api.anthropic.com/v1/messages",
+          {
+            method: "POST",
+            headers: {
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              model: opts.model,
+              max_tokens: 1500,
+              temperature: 0.3,
+              system: systemPrompt,
+              messages: summaryMessages,
+            }),
           },
-          body: JSON.stringify({
-            model: opts.model,
-            max_tokens: 1500,
-            temperature: 0.3,
-            system: systemPrompt,
-            messages: summaryMessages,
-          }),
-        });
+          callTimeout(deadline),
+          "anthropic final-summary",
+        );
         if (!resp.ok) throw new Error(`anthropic final-summary failed (${resp.status})`);
         const data = await resp.json();
         const blocks: any[] = Array.isArray(data?.content) ? data.content : [];
@@ -498,7 +580,10 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
       };
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
+        if (msUntil(deadline) <= MIN_CALL_TIMEOUT_MS) break;
+        const response = await fetchWithTimeout(
+          "https://api.anthropic.com/v1/messages",
+          {
           method: "POST",
           headers: {
             "x-api-key": apiKey,
@@ -513,7 +598,10 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
             tools: anthropicTools,
             messages,
           }),
-        });
+          },
+          callTimeout(deadline),
+          "anthropic",
+        );
         if (!response.ok) {
           const text = await response.text();
           throw new Error(`anthropic request failed (${response.status}): ${text.slice(0, 400)}`);
@@ -655,19 +743,24 @@ function makeOpenAICompatibleStructuredProvider(opts: {
           ? { type: "json_schema", json_schema: jsonSchema }
           : { type: "json_object" };
 
-      const response = await fetch(opts.baseUrl, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: opts.model,
-          temperature: temperature ?? 0.2,
-          response_format: responseFormat,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userMessage },
-          ],
-        }),
-      });
+      const response = await fetchWithTimeout(
+        opts.baseUrl,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: opts.model,
+            temperature: temperature ?? 0.2,
+            response_format: responseFormat,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userMessage },
+            ],
+          }),
+        },
+        PER_CALL_TIMEOUT_MS,
+        opts.name,
+      );
       if (!response.ok) {
         const text = await response.text();
         throw new Error(`${opts.name} request failed (${response.status}): ${text.slice(0, 400)}`);
@@ -701,24 +794,29 @@ function makeAnthropicStructuredProvider(opts: {
         "\n\nReturn ONLY a single valid JSON object that matches the requested schema. " +
         "No prose, no markdown, no code fences.";
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
+      const response = await fetchWithTimeout(
+        "https://api.anthropic.com/v1/messages",
+        {
+          method: "POST",
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: opts.model,
+            max_tokens: 4096,
+            temperature: temperature ?? 0.2,
+            system,
+            messages: [
+              { role: "user", content: userMessage },
+              { role: "assistant", content: "{" },
+            ],
+          }),
         },
-        body: JSON.stringify({
-          model: opts.model,
-          max_tokens: 4096,
-          temperature: temperature ?? 0.2,
-          system,
-          messages: [
-            { role: "user", content: userMessage },
-            { role: "assistant", content: "{" },
-          ],
-        }),
-      });
+        PER_CALL_TIMEOUT_MS,
+        "anthropic",
+      );
       if (!response.ok) {
         const text = await response.text();
         throw new Error(`anthropic request failed (${response.status}): ${text.slice(0, 400)}`);
@@ -805,10 +903,15 @@ export async function runAgentWithFallback(
     }
   }
 
+  // One shared deadline for the whole turn, so failing over between providers
+  // can't accumulate past the edge proxy timeout.
+  const deadline = input.deadline ?? Date.now() + AGENT_DEADLINE_MS;
+
   const errors: string[] = [];
   for (const provider of providers) {
+    if (msUntil(deadline) <= 0) break;
     try {
-      return await provider.run(input);
+      return await provider.run({ ...input, deadline });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       errors.push(`${provider.name}: ${msg}`);
