@@ -315,7 +315,8 @@ export const AGENT_TOOLS = [
     type: "function" as const,
     function: {
       name: "update_organization",
-      description: "Rename or recolor an accessible organization.",
+      description:
+        "Rename, recolor, or archive/unarchive an accessible organization. Set archived:true to archive, false to unarchive.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -323,6 +324,7 @@ export const AGENT_TOOLS = [
           id: { type: "string" },
           name: { type: "string" },
           color: { type: "string" },
+          archived: { type: "boolean" },
         },
         required: ["id"],
       },
@@ -350,7 +352,8 @@ export const AGENT_TOOLS = [
     type: "function" as const,
     function: {
       name: "update_project",
-      description: "Rename, recolor, or archive/unarchive an accessible project.",
+      description:
+        "Rename, recolor, archive/unarchive, or MOVE an accessible project to a different organization. To move it, pass organizationId (resolve the target org via list_organizations first). Set archived:true to archive, false to unarchive.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -359,6 +362,11 @@ export const AGENT_TOOLS = [
           name: { type: "string" },
           color: { type: "string" },
           archived: { type: "boolean" },
+          organizationId: {
+            type: "string",
+            description:
+              "Move the project into this organization (must be accessible). Resolve via list_organizations.",
+          },
         },
         required: ["id"],
       },
@@ -978,13 +986,15 @@ async function updateOrganization(ctx: AgentToolContext, args: Record<string, an
   const update: Record<string, any> = {};
   if (typeof args.name === "string" && args.name.trim()) update.name = args.name.trim();
   if (typeof args.color === "string" && args.color) update.color = args.color;
-  if (Object.keys(update).length === 0) return { ok: false, error: "Nothing to update (provide name and/or color)." };
+  if (typeof args.archived === "boolean") update.archived = args.archived;
+  if (Object.keys(update).length === 0)
+    return { ok: false, error: "Nothing to update (provide name, color, and/or archived)." };
 
   const { data, error } = await ctx.admin
     .from("organizations")
     .update(update)
     .eq("id", r.org.id)
-    .select("id, name, color")
+    .select("id, name, color, archived")
     .single();
   if (error) return { ok: false, error: error.message };
 
@@ -997,7 +1007,15 @@ async function updateOrganization(ctx: AgentToolContext, args: Record<string, an
     metadata: update,
   });
 
-  return { ok: true, data: { id: data.id, name: data.name, color: data.color ?? null } };
+  return {
+    ok: true,
+    data: {
+      id: data.id,
+      name: data.name,
+      color: data.color ?? null,
+      archived: Boolean(data.archived),
+    },
+  };
 }
 
 async function createProject(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
@@ -1060,8 +1078,20 @@ async function updateProject(ctx: AgentToolContext, args: Record<string, any>): 
   if (typeof args.name === "string" && args.name.trim()) update.name = args.name.trim();
   if (typeof args.color === "string" && args.color) update.color = args.color;
   if (typeof args.archived === "boolean") update.archived = args.archived;
+  // Move to a different organization. Only allow targets the user can access so
+  // a project can't be moved into someone else's org.
+  if (typeof args.organizationId === "string" && args.organizationId) {
+    const orgIds = await resolveAccessibleOrgIds(ctx);
+    if (!orgIds.has(args.organizationId)) {
+      return { ok: false, error: "Target organizationId is not accessible." };
+    }
+    update.organization_id = args.organizationId;
+  }
   if (Object.keys(update).length === 0) {
-    return { ok: false, error: "Nothing to update (provide name, color, and/or archived)." };
+    return {
+      ok: false,
+      error: "Nothing to update (provide name, color, archived, and/or organizationId).",
+    };
   }
 
   const { data, error } = await ctx.admin
