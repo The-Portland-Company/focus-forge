@@ -233,7 +233,24 @@ export async function describeImagesInMessage(
  */
 
 const MAX_TOOL_ROUNDS = 6;
-const MUTATING_TOOLS = new Set(["create_task", "update_task", "complete_task", "delete_task"]);
+// Tools whose successful execution changes data the UI shows (so the client
+// should refresh the page body AND the left-nav org/project tree). This must
+// cover org/project mutations too — not just tasks — otherwise creating,
+// editing, or deleting an org/project leaves the nav stale until a manual
+// reload. Detected by the create_/update_/delete_/complete_ naming convention
+// (covers tasks, projects, orgs, inbox rules, and any future CRUD tool) plus a
+// few mutating tools that don't follow that prefix.
+const MUTATING_TOOL_EXTRAS = new Set([
+  "add_task_to_today",
+  "set_task_estimate",
+  "inbox_action",
+]);
+
+function isMutatingTool(name: string | undefined | null): boolean {
+  if (!name) return false;
+  if (/^(create|update|delete|complete)_/.test(name)) return true;
+  return MUTATING_TOOL_EXTRAS.has(name);
+}
 
 /**
  * How many times the EXACT same tool call (name + serialized args) may actually
@@ -481,7 +498,7 @@ function makeOpenAICompatibleProvider(opts: {
           }
           const result = await executeTool(toolContext, fnName, args);
           toolsUsed.push(fnName);
-          if (result.ok && MUTATING_TOOLS.has(fnName)) mutated = true;
+          if (result.ok && isMutatingTool(fnName)) mutated = true;
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result).slice(0, 8000) });
         }
       }
@@ -643,7 +660,7 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
           }
           const result = await executeTool(toolContext, use.name, use.input || {});
           toolsUsed.push(use.name);
-          if (result.ok && MUTATING_TOOLS.has(use.name)) mutated = true;
+          if (result.ok && isMutatingTool(use.name)) mutated = true;
           toolResults.push({
             type: "tool_result",
             tool_use_id: use.id,

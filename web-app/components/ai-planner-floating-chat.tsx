@@ -244,24 +244,24 @@ export function AiPlannerFloatingChat({
         },
       ]);
 
-      // Refresh the page after any data-changing action. Trust both the
-      // server's `mutated` flag and the set of tools that actually ran, so a
-      // create/edit/delete reflects without a manual refresh even if the flag
-      // is under-reported. Dispatch a global event too, so any mounted view
-      // (and the voice feature) refreshes via one shared mechanism.
-      const MUTATING_TOOLS = new Set([
-        "create_task",
-        "update_task",
-        "complete_task",
-        "delete_task",
+      // Refresh the page after any data-changing action. Trust the server's
+      // `mutated` flag and, as a fallback, the set of tools that actually ran.
+      // The fallback uses the same create_/update_/delete_/complete_ naming
+      // convention as the server so org/project mutations (create_project,
+      // delete_organization, …) refresh the left-nav tree too — not just tasks.
+      // Dispatch a global event so any mounted view (and the voice feature)
+      // refreshes via one shared mechanism.
+      const NON_PREFIXED_MUTATING_TOOLS = new Set([
         "add_task_to_today",
         "set_task_estimate",
         "inbox_action",
       ]);
+      const toolMutates = (t: string) =>
+        /^(create|update|delete|complete)_/.test(t) ||
+        NON_PREFIXED_MUTATING_TOOLS.has(t);
       const didMutate =
         Boolean(data.mutated) ||
-        (Array.isArray(data.toolsUsed) &&
-          data.toolsUsed.some((t: string) => MUTATING_TOOLS.has(t)));
+        (Array.isArray(data.toolsUsed) && data.toolsUsed.some(toolMutates));
       if (didMutate) {
         if (onCreated) await onCreated();
         if (typeof window !== "undefined") {
