@@ -1177,6 +1177,36 @@ export function Sidebar({
       })
       .sort((a, b) => (a.order || 0) - (b.order || 0));
 
+  // Flatten an org's projects into a parent-before-children ordering, tagging
+  // each with __depth for indentation, so sub-projects render nested under
+  // their parent. A child whose parent isn't in the visible set (e.g. archived)
+  // is treated as top-level so it never disappears.
+  const orgProjectTree = (orgId: string): Array<Project & { __depth: number }> => {
+    const all = orgProjects(orgId);
+    const ids = new Set(all.map((p) => p.id));
+    const childrenByParent = new Map<string | null, Project[]>();
+    for (const project of all) {
+      const rawParent = (project as any).parent_id ?? project.parentId ?? null;
+      const parentKey = rawParent && ids.has(rawParent) ? rawParent : null;
+      const bucket = childrenByParent.get(parentKey) ?? [];
+      bucket.push(project);
+      childrenByParent.set(parentKey, bucket);
+    }
+    const sortByOrder = (a: Project, b: Project) =>
+      (a.order || 0) - (b.order || 0);
+    const out: Array<Project & { __depth: number }> = [];
+    const walk = (parentKey: string | null, depth: number) => {
+      for (const project of (childrenByParent.get(parentKey) ?? []).sort(
+        sortByOrder,
+      )) {
+        out.push({ ...project, __depth: depth });
+        walk(project.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return out;
+  };
+
   const formatGb = (bytes: number) => (bytes / 1024 ** 3).toFixed(1);
 
   const getProjectAcronym = (name: string) => {
@@ -2473,9 +2503,14 @@ export function Sidebar({
 
                     {expandedOrgs.includes(org.id) && (
                       <div className="ml-4 space-y-0">
-                        {orgProjects(org.id).map((project) => (
+                        {orgProjectTree(org.id).map((project) => (
                           <div
                             key={project.id}
+                            style={
+                              (project as { __depth?: number }).__depth
+                                ? { marginLeft: (project as { __depth?: number }).__depth! * 14 }
+                                : undefined
+                            }
                             draggable
                             onDragStart={(e) => {
                               setDraggedProject(project.id);
