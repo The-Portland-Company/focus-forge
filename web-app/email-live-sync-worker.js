@@ -221,6 +221,37 @@ async function stopWatcher(mailboxId) {
   }
 }
 
+// Liveness probe for an already-connected watcher. ImapFlow keeps a mailbox in
+// IDLE and emits "exists" on new mail, but a connection can half-die (NAT/idle
+// timeout on Railway's egress, a silently dropped socket) WITHOUT emitting
+// "close" — leaving a zombie watcher (state.active === true) that never fires
+// "exists" again. That mailbox then silently falls back to the 60s+ client poll
+// (lib/email-inbox/server.ts BACKGROUND_SYNC_FLOOR_MS), which presents as the
+// reported 3-5 minute sync latency. A cheap per-cycle NOOP detects the dead
+// socket; on failure we force close() so the existing "close" handler runs the
+// normal reconnect/backoff path (no duplicate reconnect logic here).
+async function probeWatcher(mailboxId) {
+  const state = watchers.get(mailboxId);
+  if (!state || !state.active || !state.client || state.syncing || stopping) {
+    return;
+  }
+
+  try {
+    await state.client.noop();
+  } catch (error) {
+    console.error("[EmailLiveSync] liveness probe failed; forcing reconnect", {
+      mailboxId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    try {
+      // Emits "close" -> existing reconnect-with-backoff handler recovers it.
+      state.client.close();
+    } catch {
+      // ignore: the watcher is already being torn down
+    }
+  }
+}
+
 async function refreshWatchers() {
   const supabase = createAdminClient();
   const { data: mailboxes, error } = await supabase
@@ -255,6 +286,12 @@ async function refreshWatchers() {
       void connectWatcher(mailbox);
     }
   }
+
+  // Probe watchers that were already connected before this cycle, to detect and
+  // recover zombie connections that died without emitting "close".
+  await Promise.all(
+    Array.from(watchers.keys()).map((mailboxId) => probeWatcher(mailboxId)),
+  );
 }
 
 async function run(options = {}) {
