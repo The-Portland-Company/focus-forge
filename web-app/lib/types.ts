@@ -51,6 +51,8 @@ export interface Project {
   devnotesMeta?: string;
   color: string;
   organizationId: string;
+  /** Parent project id when this is a sub-project; null/undefined at top level. */
+  parentId?: string | null;
   ownerId?: string; // User who owns this project
   memberIds?: string[];
   isFavorite: boolean;

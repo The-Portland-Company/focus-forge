@@ -367,6 +367,11 @@ export const AGENT_TOOLS = [
             description:
               "Move the project into this organization (must be accessible). Resolve via list_organizations.",
           },
+          parentId: {
+            type: ["string", "null"],
+            description:
+              "Nest this project UNDER another project as a sub-project (pass the parent project's id, resolved via list_projects). The parent must be in the same organization. Pass null (or empty string) to un-nest it back to the top level. The parent cannot be the project itself or one of its own descendants.",
+          },
         },
         required: ["id"],
       },
@@ -787,11 +792,21 @@ async function listProjects(ctx: AgentToolContext): Promise<AgentToolResult> {
   if (ctx.accessibleProjectIds.size === 0) return { ok: true, data: { projects: [] } };
   const { data, error } = await ctx.admin
     .from("projects")
-    .select("id, name")
+    .select("id, name, organization_id, parent_id")
     .in("id", Array.from(ctx.accessibleProjectIds))
     .order("name", { ascending: true });
   if (error) return { ok: false, error: error.message };
-  return { ok: true, data: { projects: (data || []).map((p: any) => ({ id: p.id, name: p.name })) } };
+  return {
+    ok: true,
+    data: {
+      projects: (data || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        organizationId: p.organization_id,
+        parentId: p.parent_id ?? null,
+      })),
+    },
+  };
 }
 
 // ---- Organization & project executors (RLS-scoped via accessible ids) ----
@@ -1093,10 +1108,38 @@ async function updateProject(ctx: AgentToolContext, args: Record<string, any>): 
     }
     update.organization_id = args.organizationId;
   }
+  // Nest under (or un-nest from) a parent project as a sub-project.
+  if (args.parentId !== undefined) {
+    if (args.parentId === null || args.parentId === "") {
+      update.parent_id = null; // promote back to top level
+    } else if (typeof args.parentId === "string") {
+      const parentRes = await resolveProject(ctx, { id: args.parentId });
+      if (!parentRes.project) {
+        return { ok: false, error: parentRes.error || "Parent project not found or not accessible." };
+      }
+      if (parentRes.project.id === r.project.id) {
+        return { ok: false, error: "A project cannot be its own parent." };
+      }
+      // Parent must live in the project's (post-move) organization.
+      const effectiveOrgId = update.organization_id ?? r.project.organization_id;
+      if (parentRes.project.organization_id !== effectiveOrgId) {
+        return {
+          ok: false,
+          error: "The parent project must be in the same organization as the project.",
+        };
+      }
+      // Cycle guard: walk the parent's ancestor chain; reject if it reaches us.
+      const ancestors = await collectProjectAncestorIds(ctx, parentRes.project.id);
+      if (ancestors.has(r.project.id)) {
+        return { ok: false, error: "That would create a circular project hierarchy." };
+      }
+      update.parent_id = parentRes.project.id;
+    }
+  }
   if (Object.keys(update).length === 0) {
     return {
       ok: false,
-      error: "Nothing to update (provide name, color, archived, and/or organizationId).",
+      error: "Nothing to update (provide name, color, archived, organizationId, and/or parentId).",
     };
   }
 
@@ -1104,7 +1147,7 @@ async function updateProject(ctx: AgentToolContext, args: Record<string, any>): 
     .from("projects")
     .update(update)
     .eq("id", r.project.id)
-    .select("id, name, color, organization_id, archived")
+    .select("id, name, color, organization_id, archived, parent_id")
     .single();
   if (error) return { ok: false, error: error.message };
 
@@ -1124,9 +1167,35 @@ async function updateProject(ctx: AgentToolContext, args: Record<string, any>): 
       name: data.name,
       color: data.color ?? null,
       organizationId: data.organization_id,
+      parentId: data.parent_id ?? null,
       archived: Boolean(data.archived),
     },
   };
+}
+
+/**
+ * Walk a project's parent_id chain to the root, returning every ancestor id.
+ * Used to prevent circular sub-project hierarchies. Bounded to a sane depth so
+ * a pre-existing cycle (shouldn't happen) can't loop forever.
+ */
+async function collectProjectAncestorIds(
+  ctx: AgentToolContext,
+  startId: string,
+): Promise<Set<string>> {
+  const ancestors = new Set<string>();
+  let current: string | null = startId;
+  for (let i = 0; i < 50 && current; i += 1) {
+    ancestors.add(current);
+    const { data }: { data: { parent_id: string | null } | null } = await ctx.admin
+      .from("projects")
+      .select("parent_id")
+      .eq("id", current)
+      .maybeSingle();
+    const next: string | null = data?.parent_id ?? null;
+    if (!next || ancestors.has(next)) break;
+    current = next;
+  }
+  return ancestors;
 }
 
 // ---- Destructive (double-confirm gated) ----

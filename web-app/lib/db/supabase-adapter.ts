@@ -535,6 +535,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
     return {
       ...project,
       organizationId: project.organization_id,
+      parentId: project.parent_id ?? null,
       isFavorite: project.is_favorite ?? false,
       devnotesMeta: project.devnotes_meta ?? null,
       orderIndex: project.order_index,
