@@ -1043,6 +1043,12 @@ async function createProject(ctx: AgentToolContext, args: Record<string, any>): 
     .single();
   if (error) return { ok: false, error: error.message };
 
+  // Keep the in-turn accessible-project snapshot current so the model can
+  // immediately operate on (move/rename/archive/delete) the project it just
+  // created within the SAME conversation turn. Without this, the static set
+  // resolved at request start treats the new project as "not accessible".
+  ctx.accessibleProjectIds.add(project.id);
+
   // Best-effort owner membership (mirrors adapter.syncProjectMembers intent).
   await ctx.admin
     .from("user_projects")
