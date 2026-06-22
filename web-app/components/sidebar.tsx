@@ -51,6 +51,7 @@ import {
 } from "lucide-react";
 import { Database, Project, Task, User as AppUser } from "@/lib/types";
 import { UserAvatar } from "@/components/user-avatar";
+import { getMemojiPath } from "@/lib/memoji";
 import { NavTasksBadge } from "@/components/nav-tasks-modal";
 import { ThemeModeToggle } from "@/components/theme-mode-toggle";
 import { Tooltip } from "./tooltip";
@@ -1330,9 +1331,17 @@ export function Sidebar({
         <div className="relative flex items-center justify-between mb-3">
           {!isCollapsed ? (
             <>
-              {/* -ml-1.5 negates the header's px-1.5, so the memoji sits snug
-                  against the left edge with little/no horizontal spacing. */}
-              <div className="flex items-center gap-1.5 rounded-lg min-w-0 -ml-1.5">
+              {/* -ml-1.5 negates the header's px-1.5 so the memoji sits snug
+                  against the left edge — the memoji asset has built-in
+                  transparent padding that still reads as proper spacing. The
+                  solid initials-fallback circle has no such padding, so only
+                  apply the negative margin when a memoji is present; otherwise
+                  keep the normal px-1.5 spacing so both look identical. */}
+              <div
+                className={`flex items-center gap-1.5 rounded-lg min-w-0 ${
+                  getMemojiPath(data.users?.[0]?.profileMemoji) ? "-ml-1.5" : ""
+                }`}
+              >
                 <UserAvatar
                   name={
                     data.users?.[0]?.name ||

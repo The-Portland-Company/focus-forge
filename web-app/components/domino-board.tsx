@@ -6,7 +6,14 @@
 // list (v1 — no graph layout lib). Fetches GET /api/domino/board.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bomb, Loader2, RefreshCw, Gift, AlertTriangle, Wrench } from "lucide-react";
+import { Bomb, Loader2, RefreshCw, Gift, AlertTriangle, Wrench, HelpCircle } from "lucide-react";
+
+// Shared explainer shown both in the header "?" popover and the empty state.
+const DOMINO_HELP_PARAGRAPHS = [
+  "The Domino Board shows what happens if a task slips. Add a stake to a task — a consequence you want to avoid or a reward you're working toward — and that stake becomes a domino.",
+  "When a task has a fall date, its stake \"falls\" if the task isn't resolved in time. Stakes can chain: resolving (or failing) one task can knock over the next, so you can see the cascade before it happens.",
+  "To get started, open a task, add a stake (consequence or reward), and give it a fall date. Resolver tasks are the work that keeps a domino standing.",
+];
 
 interface BoardResolver {
   taskId: string;
@@ -68,6 +75,7 @@ export function DominoBoard() {
   const [data, setData] = useState<BoardResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -186,6 +194,19 @@ export function DominoBoard() {
         <div className="flex items-center gap-2">
           <Bomb className="h-5 w-5 text-amber-400" />
           <h1 className="text-lg font-semibold text-white">Domino Board</h1>
+          <button
+            type="button"
+            onClick={() => setShowHelp((current) => !current)}
+            aria-label="How the Domino Board works"
+            aria-expanded={showHelp}
+            className={`inline-flex h-6 w-6 items-center justify-center rounded-full border transition-colors ${
+              showHelp
+                ? "border-amber-400/60 bg-amber-400/10 text-amber-300"
+                : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+            }`}
+          >
+            <HelpCircle className="h-4 w-4" />
+          </button>
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin text-zinc-500" />
           ) : null}
@@ -200,6 +221,19 @@ export function DominoBoard() {
         </button>
       </div>
 
+      {showHelp ? (
+        <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-4 text-sm text-zinc-300">
+          <div className="mb-2 flex items-center gap-2 font-medium text-amber-200">
+            <HelpCircle className="h-4 w-4" /> How the Domino Board works
+          </div>
+          <div className="space-y-2 text-zinc-300">
+            {DOMINO_HELP_PARAGRAPHS.map((paragraph, index) => (
+              <p key={index}>{paragraph}</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {error ? (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
           {error}
@@ -207,8 +241,15 @@ export function DominoBoard() {
       ) : null}
 
       {!error && !loading && (data?.stakes.length ?? 0) === 0 ? (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-center text-sm text-zinc-400">
-          No active stakes yet. Add stakes to a task to see your dominoes here.
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-sm text-zinc-400">
+          <p className="text-center font-medium text-zinc-300">
+            No active stakes yet. Add stakes to a task to see your dominoes here.
+          </p>
+          <div className="mx-auto mt-4 max-w-xl space-y-2 text-left text-zinc-400">
+            {DOMINO_HELP_PARAGRAPHS.map((paragraph, index) => (
+              <p key={index}>{paragraph}</p>
+            ))}
+          </div>
         </div>
       ) : null}
 
