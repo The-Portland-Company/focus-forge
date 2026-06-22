@@ -18,7 +18,9 @@ import {
   AlertCircle,
   Gift,
   AlertTriangle,
+  HelpCircle,
 } from "lucide-react";
+import { STAKE_WHAT_IS, STAKE_EXAMPLES } from "@/lib/domino/help";
 
 type StakeKind = "consequence" | "reward";
 type ResolutionType = "defuses_once" | "eliminates";
@@ -88,6 +90,7 @@ export function StakeEditor({ taskId, organizationId }: StakeEditorProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showStakeHelp, setShowStakeHelp] = useState(false);
 
   // New-stake form
   const [newName, setNewName] = useState("");
@@ -400,11 +403,44 @@ export function StakeEditor({ taskId, organizationId }: StakeEditorProps) {
 
   return (
     <div className="space-y-3">
-      <label className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
         <Bomb className="h-3.5 w-3.5" />
         Stakes
+        <button
+          type="button"
+          onClick={() => setShowStakeHelp((current) => !current)}
+          aria-label="What are stakes?"
+          aria-expanded={showStakeHelp}
+          className={`inline-flex h-4 w-4 items-center justify-center rounded-full border transition-colors ${
+            showStakeHelp
+              ? "border-amber-400/60 text-amber-300"
+              : "border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          <HelpCircle className="h-3 w-3" />
+        </button>
         {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-      </label>
+      </div>
+
+      {showStakeHelp ? (
+        <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 text-xs normal-case tracking-normal text-zinc-300">
+          <p className="text-zinc-300">{STAKE_WHAT_IS}</p>
+          <div className="mt-2 font-medium text-zinc-200">Examples</div>
+          <ul className="mt-1 space-y-1">
+            {STAKE_EXAMPLES.map((example) => (
+              <li key={example.label} className="flex gap-1.5 text-zinc-400">
+                <span aria-hidden>{example.emoji}</span>
+                <span>
+                  <span className="font-medium text-zinc-300">
+                    {example.label}:
+                  </span>{" "}
+                  {example.text}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">

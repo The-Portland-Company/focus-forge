@@ -7,13 +7,65 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bomb, Loader2, RefreshCw, Gift, AlertTriangle, Wrench, HelpCircle } from "lucide-react";
+import {
+  DOMINO_BOARD_INTRO,
+  DOMINO_BOARD_POINTS,
+  DOMINO_BOARD_GET_STARTED,
+  STAKE_EXAMPLES,
+} from "@/lib/domino/help";
 
-// Shared explainer shown both in the header "?" popover and the empty state.
-const DOMINO_HELP_PARAGRAPHS = [
-  "The Domino Board shows what happens if a task slips. Add a stake to a task — a consequence you want to avoid or a reward you're working toward — and that stake becomes a domino.",
-  "When a task has a fall date, its stake \"falls\" if the task isn't resolved in time. Stakes can chain: resolving (or failing) one task can knock over the next, so you can see the cascade before it happens.",
-  "To get started, open a task, add a stake (consequence or reward), and give it a fall date. Resolver tasks are the work that keeps a domino standing.",
-];
+// Shared explainer rendered in the header "?" popover and the empty state.
+function DominoHelpContent() {
+  return (
+    <div className="space-y-3 text-sm text-zinc-300">
+      <p>{DOMINO_BOARD_INTRO}</p>
+
+      {/* Mini cascade illustration (no screenshot needed). */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {["Pay storage unit", "Keep access", "Avoid $40/wk fee"].map(
+          (node, index) => (
+            <span key={node} className="flex items-center gap-2">
+              <span className="rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-amber-200">
+                {node}
+              </span>
+              {index < 2 ? <span className="text-zinc-500">→</span> : null}
+            </span>
+          ),
+        )}
+      </div>
+
+      <dl className="space-y-1.5">
+        {DOMINO_BOARD_POINTS.map((point) => (
+          <div key={point.term} className="flex gap-2">
+            <dt className="shrink-0 font-medium text-amber-200">
+              {point.term}:
+            </dt>
+            <dd className="text-zinc-400">{point.detail}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <div>
+        <div className="mb-1 font-medium text-zinc-200">Examples</div>
+        <ul className="space-y-1.5">
+          {STAKE_EXAMPLES.map((example) => (
+            <li key={example.label} className="flex gap-2 text-zinc-400">
+              <span aria-hidden>{example.emoji}</span>
+              <span>
+                <span className="font-medium text-zinc-300">
+                  {example.label}:
+                </span>{" "}
+                {example.text}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <p className="text-zinc-400">{DOMINO_BOARD_GET_STARTED}</p>
+    </div>
+  );
+}
 
 interface BoardResolver {
   taskId: string;
@@ -222,15 +274,11 @@ export function DominoBoard() {
       </div>
 
       {showHelp ? (
-        <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-4 text-sm text-zinc-300">
+        <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-4">
           <div className="mb-2 flex items-center gap-2 font-medium text-amber-200">
             <HelpCircle className="h-4 w-4" /> How the Domino Board works
           </div>
-          <div className="space-y-2 text-zinc-300">
-            {DOMINO_HELP_PARAGRAPHS.map((paragraph, index) => (
-              <p key={index}>{paragraph}</p>
-            ))}
-          </div>
+          <DominoHelpContent />
         </div>
       ) : null}
 
@@ -241,14 +289,12 @@ export function DominoBoard() {
       ) : null}
 
       {!error && !loading && (data?.stakes.length ?? 0) === 0 ? (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-sm text-zinc-400">
-          <p className="text-center font-medium text-zinc-300">
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+          <p className="text-center text-sm font-medium text-zinc-300">
             No active stakes yet. Add stakes to a task to see your dominoes here.
           </p>
-          <div className="mx-auto mt-4 max-w-xl space-y-2 text-left text-zinc-400">
-            {DOMINO_HELP_PARAGRAPHS.map((paragraph, index) => (
-              <p key={index}>{paragraph}</p>
-            ))}
+          <div className="mx-auto mt-4 max-w-xl">
+            <DominoHelpContent />
           </div>
         </div>
       ) : null}
