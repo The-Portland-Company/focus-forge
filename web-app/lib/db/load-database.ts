@@ -350,8 +350,12 @@ export async function loadDatabaseForUser(
           emailDeleteUndoSeconds: profile.email_delete_undo_seconds ?? 60,
           status: profile.status || "active",
           invitedAt: profile.invited_at || null,
-          inviteToken: profile.invite_token || null,
-          inviteExpiresAt: profile.invite_expires_at || null,
+          // SECURITY: never expose the invite secret to clients. Any org member
+          // received it via the loaded DB, and accept-invite only needs
+          // email + invite_token to set a password + confirm the account — i.e.
+          // it enabled takeover of any pending invitee. Pending status is still
+          // surfaced via `status`/`invitedAt`; resend/cancel resolve the token
+          // server-side by user id, so it never needs to reach the client.
           createdAt: profile.created_at,
           updatedAt: profile.updated_at,
         }));
