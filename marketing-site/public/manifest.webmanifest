@@ -1,0 +1,12 @@
+{
+  "name": "Focus Forge",
+  "short_name": "Focus Forge",
+  "description": "The task manager your AI agents can actually run.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#007AFF",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
