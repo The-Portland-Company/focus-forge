@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { toApiKeyMeta } from "@/lib/api/keys/queries";
 import { generateApiKeySecret, hashApiKeySecret, extractPrefixFromSecret } from "@/lib/api/keys/utils";
 import { normalizeApiKeyCreateRequest } from "@/lib/api/keys/validation";
@@ -22,7 +22,12 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data, error } = await supabase
+    // Data ops run through the service client, explicitly scoped to the
+    // authenticated user.id. The cookie-bound user client does not reliably
+    // forward the JWT to PostgREST in route handlers (auth.uid() arrives NULL),
+    // which silently returns zero rows here and fails RLS on insert/update.
+    const db = createServiceClient();
+    const { data, error } = await db
       .from("personal_access_tokens")
       .select(
         "id, name, prefix, scopes, expires_at, last_used_at, created_at, created_by, is_active",
@@ -67,8 +72,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: normalized.error }, { status: 400 });
     }
 
+    // Service client scoped to the verified user.id (see GET note above).
+    const db = createServiceClient();
     const { name, scopes, expiresAt } = normalized.payload;
-    const { count, error: countError } = await supabase
+    const { count, error: countError } = await db
       .from("personal_access_tokens")
       .select("id", { count: "exact", head: true })
       .eq("created_by", user.id)
@@ -92,7 +99,7 @@ export async function POST(request: NextRequest) {
     const prefix = extractPrefixFromSecret(secret);
     const hashedKey = hashApiKeySecret(secret);
 
-    const { data: created, error: createError } = await supabase
+    const { data: created, error: createError } = await db
       .from("personal_access_tokens")
       .insert({
         name,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 export async function DELETE(
   request: NextRequest,
@@ -20,7 +20,11 @@ export async function DELETE(
     }
 
     const { id } = params;
-    const { data: token, error: tokenError } = await supabase
+    // Service client scoped to the verified user.id — the cookie-bound user
+    // client does not reliably forward the JWT to PostgREST here (auth.uid()
+    // NULL), so RLS-scoped reads/updates would silently no-op.
+    const db = createServiceClient();
+    const { data: token, error: tokenError } = await db
       .from("personal_access_tokens")
       .select("id")
       .eq("id", id)
@@ -32,7 +36,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Token not found" }, { status: 404 });
     }
 
-    const { error: revokeError } = await supabase
+    const { error: revokeError } = await db
       .from("personal_access_tokens")
       .update({ is_active: false })
       .eq("id", id)
