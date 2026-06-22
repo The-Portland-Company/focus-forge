@@ -18,15 +18,15 @@ export async function GET(
     const params = await props.params;
     const supabase = await createClient();
     const {
-      data: { session },
+      data: { user },
       error: authError,
-    } = await supabase.auth.getSession();
+    } = await supabase.auth.getUser();
 
-    if (authError || !session?.user) {
+    if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const authz = await requireOrgAdmin(supabase, session.user.id, params.id);
+    const authz = await requireOrgAdmin(supabase, user.id, params.id);
     if (!authz.authorized) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -64,15 +64,15 @@ export async function POST(
     const params = await props.params;
     const supabase = await createClient();
     const {
-      data: { session },
+      data: { user },
       error: authError,
-    } = await supabase.auth.getSession();
+    } = await supabase.auth.getUser();
 
-    if (authError || !session?.user) {
+    if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const authz = await requireOrgAdmin(supabase, session.user.id, params.id);
+    const authz = await requireOrgAdmin(supabase, user.id, params.id);
     if (!authz.authorized) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -96,7 +96,7 @@ export async function POST(
         hashed_key: hashedKey,
         scopes,
         expires_at: expiresAt,
-        created_by: session.user.id,
+        created_by: user.id,
       } as any)
       .select(
         "id, name, prefix, scopes, expires_at, last_used_at, created_at, created_by, is_active, organization_id",
