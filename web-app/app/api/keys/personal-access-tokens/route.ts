@@ -10,12 +10,15 @@ const MAX_ACTIVE_PATS_PER_USER = 20;
 export async function GET() {
   try {
     const supabase = await createClient();
+    // Use getUser() (not getSession()) — it revalidates against the Auth server
+    // and refreshes the access token on the client, so RLS reads/writes that
+    // depend on auth.uid() use a valid, non-expired token.
     const {
-      data: { session },
+      data: { user },
       error: authError,
-    } = await supabase.auth.getSession();
+    } = await supabase.auth.getUser();
 
-    if (authError || !session?.user) {
+    if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -24,7 +27,7 @@ export async function GET() {
       .select(
         "id, name, prefix, scopes, expires_at, last_used_at, created_at, created_by, is_active",
       )
-      .eq("created_by", session.user.id)
+      .eq("created_by", user.id)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -47,12 +50,15 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
+    // getUser() revalidates + refreshes the token so the INSERT below carries a
+    // valid JWT; otherwise a stale access token makes auth.uid() NULL and the
+    // RLS WITH CHECK (created_by = auth.uid()) rejects the row.
     const {
-      data: { session },
+      data: { user },
       error: authError,
-    } = await supabase.auth.getSession();
+    } = await supabase.auth.getUser();
 
-    if (authError || !session?.user) {
+    if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -65,7 +71,7 @@ export async function POST(request: NextRequest) {
     const { count, error: countError } = await supabase
       .from("personal_access_tokens")
       .select("id", { count: "exact", head: true })
-      .eq("created_by", session.user.id)
+      .eq("created_by", user.id)
       .eq("is_active", true);
 
     if (countError) {
@@ -94,7 +100,7 @@ export async function POST(request: NextRequest) {
         hashed_key: hashedKey,
         scopes,
         expires_at: expiresAt,
-        created_by: session.user.id,
+        created_by: user.id,
       } as any)
       .select("id, name, prefix, scopes, expires_at, last_used_at, created_at, created_by, is_active")
       .single();
