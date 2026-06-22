@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
+import { getAdminClient } from "@/lib/supabase/admin";
 
 export async function DELETE(
   request: NextRequest,
@@ -23,7 +24,7 @@ export async function DELETE(
     // Service client scoped to the verified user.id — the cookie-bound user
     // client does not reliably forward the JWT to PostgREST here (auth.uid()
     // NULL), so RLS-scoped reads/updates would silently no-op.
-    const db = createServiceClient();
+    const db = getAdminClient();
     const { data: token, error: tokenError } = await db
       .from("personal_access_tokens")
       .select("id")

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
+import { getAdminClient } from "@/lib/supabase/admin";
 import { toApiKeyMeta } from "@/lib/api/keys/queries";
 import { generateApiKeySecret, hashApiKeySecret, extractPrefixFromSecret } from "@/lib/api/keys/utils";
 import { normalizeApiKeyCreateRequest } from "@/lib/api/keys/validation";
@@ -26,7 +27,7 @@ export async function GET() {
     // authenticated user.id. The cookie-bound user client does not reliably
     // forward the JWT to PostgREST in route handlers (auth.uid() arrives NULL),
     // which silently returns zero rows here and fails RLS on insert/update.
-    const db = createServiceClient();
+    const db = getAdminClient();
     const { data, error } = await db
       .from("personal_access_tokens")
       .select(
@@ -42,7 +43,7 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json({ tokens: (data || []).map((row) => toApiKeyMeta(row as any)) });
+    return NextResponse.json({ tokens: ((data || []) as any[]).map((row) => toApiKeyMeta(row as any)) });
   } catch (error) {
     console.error("GET /api/keys/personal-access-tokens error:", error);
     return NextResponse.json(
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Service client scoped to the verified user.id (see GET note above).
-    const db = createServiceClient();
+    const db = getAdminClient();
     const { name, scopes, expiresAt } = normalized.payload;
     const { count, error: countError } = await db
       .from("personal_access_tokens")
