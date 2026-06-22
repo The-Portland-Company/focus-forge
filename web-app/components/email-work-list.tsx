@@ -66,6 +66,12 @@ type EmailWorkListProps = {
   projects: Project[];
   selectedId?: string | null;
   freshlyUpdatedIds?: Set<string>; // ids new/changed via background refetch (green flash)
+  /** Thread ids whose delete request is in flight: row shows a strike-through
+   *  on its text plus a small "Deleting…" spinner (optimistic state). */
+  deletingIds?: Set<string>;
+  /** Thread ids whose delete succeeded: row slides off to the right and
+   *  collapses so the remaining rows shift up to fill the gap. */
+  removingIds?: Set<string>;
   alwaysShowSummary?: boolean;
   alwaysShowExcerpt?: boolean;
   onSelect?: (item: InboxItem) => void;
@@ -741,6 +747,8 @@ export function EmailWorkList({
   projects,
   selectedId,
   freshlyUpdatedIds,
+  deletingIds,
+  removingIds,
   alwaysShowSummary = false,
   alwaysShowExcerpt = false,
   onSelect,
@@ -972,6 +980,8 @@ export function EmailWorkList({
         const showDaySeparator =
           relativeDay !== null && relativeDay !== previousRelativeDay;
         const isSelected = selectedId === item.id;
+        const isDeleting = deletingIds?.has(item.id) ?? false;
+        const isRemoving = removingIds?.has(item.id) ?? false;
         const isVisuallyUnread = getEmailWorkVisualUnreadState({
           isSelected,
           isUnread: item.isUnread,
@@ -1044,7 +1054,9 @@ export function EmailWorkList({
               freshlyUpdatedIds?.has(item.id) && !isSelected
                 ? "fresh-data-highlight"
                 : "",
+              isRemoving ? "animate-email-row-removing" : "",
             )}
+            aria-busy={isDeleting || isRemoving}
             style={getEmailWorkItemStyle({
               isSelected,
               isUnread: isVisuallyUnread,
@@ -1056,6 +1068,9 @@ export function EmailWorkList({
                 isVisuallyUnread
                   ? "font-semibold opacity-100"
                   : "font-normal opacity-85",
+                isDeleting
+                  ? "line-through decoration-rose-400/70 decoration-2 opacity-60"
+                  : "",
               )}
             >
               <div
@@ -1173,6 +1188,12 @@ export function EmailWorkList({
                 </div>
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                {isDeleting ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-xs sm:text-[10px] font-medium uppercase tracking-wide text-rose-300 no-underline">
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                    Deleting…
+                  </span>
+                ) : null}
                 {/* Quarantine threads keep a distinct text badge; the SPAM /
                     "Flagged" text label is removed because the left-aligned
                     skull icon already signals spam-classified rows. */}

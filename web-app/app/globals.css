@@ -770,6 +770,39 @@ input[type="checkbox"]:focus {
   pointer-events: none;
 }
 
+/* Email row deletion: once the delete succeeds the row slides off to the
+   right while collapsing its height so the remaining rows shift up to fill
+   the gap. Margins/padding collapse to 0 so the list `space-y` gap closes
+   smoothly. */
+@keyframes email-row-slide-off-right {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+    max-height: 240px;
+  }
+  55% {
+    opacity: 0;
+    transform: translateX(45%);
+    max-height: 240px;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(70%);
+    max-height: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-width: 0;
+  }
+}
+
+.animate-email-row-removing {
+  animation: email-row-slide-off-right 0.35s ease-in forwards;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 /* Gradient strikethrough on task completion */
 .gradient-strikethrough {
   position: relative;

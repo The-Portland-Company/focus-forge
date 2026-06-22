@@ -231,6 +231,10 @@ const BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 30 * 1000;
 // When Supabase Realtime is connected it carries new-mail signals, so the
 // poll only needs to act as a slow safety net.
 const REALTIME_CONNECTED_POLL_INTERVAL_MS = 60 * 1000;
+// Duration of the row slide-off animation (keep in sync with the
+// `email-row-slide-off-right` keyframe in globals.css). After this delay the
+// deleted thread is dropped from the list state.
+const EMAIL_ROW_REMOVAL_ANIMATION_MS = 360;
 const EMAIL_DETAIL_PANEL_DEFAULT_WIDTH = 380;
 const EMAIL_DETAIL_PANEL_MIN_WIDTH = 320;
 const EMAIL_DETAIL_PANEL_MAX_WIDTH = 720;
@@ -1414,6 +1418,15 @@ export function EmailInboxView({
   );
   const [isDesktopSplitLayout, setIsDesktopSplitLayout] = useState(false);
   const [isThreadModalOpen, setIsThreadModalOpen] = useState(false);
+  // Optimistic delete animation: ids with a delete request in flight (row shows
+  // a strike-through + "Deleting…" spinner) and ids whose delete succeeded and
+  // are sliding off the list before being dropped from state.
+  const [deletingThreadIds, setDeletingThreadIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [removingThreadIds, setRemovingThreadIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [isReplyDragActive, setIsReplyDragActive] = useState(false);
   const [isOutboundComposerOpen, setIsOutboundComposerOpen] = useState(false);
   const [outboundComposerInitialDraft, setOutboundComposerInitialDraft] =
@@ -2693,6 +2706,116 @@ export function EmailInboxView({
     }
   };
 
+  // Delete path with the optimistic strike-through → slide-off animation.
+  // 1) close the open detail panel immediately, 2) strike + spinner the row
+  // while the request is in flight, 3) on success slide the row off to the
+  // right (remaining rows shift up) before dropping it from state, 4) on
+  // failure revert the optimistic state and surface the error.
+  const handleDeleteThreadWithAnimation = async (
+    action: ThreadAction,
+    threadId: string,
+    shouldUpdateSelectedThread: boolean,
+  ) => {
+    const previousSelectedThreadId = selectedThreadId;
+    const previousSelectedThread = selectedThread;
+    const wasThreadModalOpen = isThreadModalOpen;
+
+    // 1. Immediately collapse the reading/detail panel for this thread.
+    if (selectedThreadId === threadId) {
+      setSelectedThreadId(null);
+      setSelectedThread(null);
+      setIsThreadModalOpen(false);
+    }
+
+    // 2. Optimistic "deleting" row state: strike-through + "Deleting…" spinner.
+    setDeletingThreadIds((current) => {
+      const next = new Set(current);
+      next.add(threadId);
+      return next;
+    });
+    setBusyState(action);
+
+    try {
+      const response = await fetch(`/api/email/threads/${threadId}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to apply thread action");
+      }
+
+      // 3. Success → hand the row to the slide-off animation, then drop it.
+      setDeletingThreadIds((current) => {
+        const next = new Set(current);
+        next.delete(threadId);
+        return next;
+      });
+      setRemovingThreadIds((current) => {
+        const next = new Set(current);
+        next.add(threadId);
+        return next;
+      });
+
+      window.setTimeout(() => {
+        const currentItems = inboxSnapshotRef.current;
+        const optimisticItems = applyOptimisticThreadActionState(
+          currentItems,
+          threadId,
+          action,
+        );
+        if (optimisticItems !== currentItems) {
+          inboxSnapshotRef.current = optimisticItems;
+          setInboxItems(optimisticItems);
+          setQuarantineCount(
+            optimisticItems.filter((item) => item.status === "quarantine")
+              .length,
+          );
+        }
+        setRemovingThreadIds((current) => {
+          const next = new Set(current);
+          next.delete(threadId);
+          return next;
+        });
+        void refreshInboxState().catch(() => {
+          // Keep the optimistic removal instead of blocking on a slow refresh.
+        });
+      }, EMAIL_ROW_REMOVAL_ANIMATION_MS);
+
+      updateStatus(`Applied ${action.replace(/_/g, " ")}.`);
+    } catch (error) {
+      // 4. Failure → revert optimistic state and restore the detail panel.
+      setDeletingThreadIds((current) => {
+        const next = new Set(current);
+        next.delete(threadId);
+        return next;
+      });
+      setRemovingThreadIds((current) => {
+        const next = new Set(current);
+        next.delete(threadId);
+        return next;
+      });
+
+      if (
+        shouldUpdateSelectedThread &&
+        previousSelectedThread &&
+        previousSelectedThreadId === threadId
+      ) {
+        setSelectedThreadId(previousSelectedThreadId);
+        setSelectedThread(previousSelectedThread);
+        setIsThreadModalOpen(wasThreadModalOpen);
+      }
+
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to apply action",
+      );
+    } finally {
+      setBusyState(null);
+    }
+  };
+
   const handleThreadAction = async (
     action: ThreadAction,
     options?: {
@@ -2704,6 +2827,16 @@ export function EmailInboxView({
     if (!threadId) return;
 
     const shouldUpdateSelectedThread = options?.updateSelectedThread ?? true;
+
+    if (action === "delete" || action === "always_delete_sender") {
+      await handleDeleteThreadWithAnimation(
+        action,
+        threadId,
+        shouldUpdateSelectedThread,
+      );
+      return;
+    }
+
     const previousItems = inboxSnapshotRef.current;
     const previousSelectedThread = selectedThread;
     const optimisticItems = applyOptimisticThreadActionState(
@@ -4816,6 +4949,8 @@ export function EmailInboxView({
                 projects={data.projects}
                 selectedId={selectedThreadId}
                 freshlyUpdatedIds={freshlyUpdatedInboxIds}
+                deletingIds={deletingThreadIds}
+                removingIds={removingThreadIds}
                 alwaysShowSummary={alwaysShowSummary}
                 alwaysShowExcerpt={alwaysShowExcerpt}
                 activeProjectPickerThreadId={inlineProjectPickerThreadId}
