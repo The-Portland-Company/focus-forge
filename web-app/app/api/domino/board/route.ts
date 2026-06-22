@@ -12,20 +12,39 @@ export async function GET(request: NextRequest) {
   try {
     const adapter = new SupabaseAdapter(auth.supabase, auth.user.id);
 
-    let organizationId: string | null =
-      request.nextUrl.searchParams.get("organizationId");
-    if (!organizationId) {
+    // Resolve which organizations to include. With an explicit ?organizationId
+    // we scope to that one; otherwise aggregate across ALL of the user's orgs so
+    // a stake shows on the board no matter which org its task lives in (the
+    // board previously only queried the user's first org, hiding stakes created
+    // in any other org).
+    const requestedOrgId = request.nextUrl.searchParams.get("organizationId");
+    let organizationIds: string[];
+    if (requestedOrgId) {
+      organizationIds = [requestedOrgId];
+    } else {
       const orgs = await adapter.getOrganizations();
-      organizationId = orgs?.[0]?.id || null;
+      organizationIds = (orgs ?? []).map((o: { id: string }) => o.id);
     }
-    if (!organizationId) {
+    if (organizationIds.length === 0) {
       return NextResponse.json(
         { error: "organization_id is required" },
         { status: 400 },
       );
     }
 
-    const graph = await adapter.getDominoGraphData(organizationId);
+    // Merge the per-org graphs into one board-wide graph.
+    const graph: { stakes: any[]; edges: any[]; links: any[] } = {
+      stakes: [],
+      edges: [],
+      links: [],
+    };
+    for (const orgId of organizationIds) {
+      const orgGraph = await adapter.getDominoGraphData(orgId);
+      graph.stakes.push(...((orgGraph.stakes as any[]) ?? []));
+      graph.edges.push(...((orgGraph.edges as any[]) ?? []));
+      graph.links.push(...((orgGraph.links as any[]) ?? []));
+    }
+
     const stakeGraph = buildGraph(graph.stakes, graph.edges);
 
     // Resolver tasks per stake, from the links.
