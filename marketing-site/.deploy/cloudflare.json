@@ -1,0 +1,11 @@
+{
+  "$comment": "Non-secret deploy manifest. The Cloudflare API token is NOT here — it lives in the gitignored token_file below (or $CLOUDFLARE_API_TOKEN). Resolved at runtime by ~/.claude/scripts/cf-deploy. One-time: create a TPC-scoped 'Edit Cloudflare Workers' token and write it to the token_file (mode 600). Update account_id + domain once confirmed for The Portland Company.",
+  "project": "focus-forge-marketing",
+  "account_id": "38d9c1cbb51d83ab247e96dd7685974e",
+  "pages_project": "focus-forge-marketing",
+  "domain": "getfocusforge.theportlandcompany.com",
+  "token_file": "~/.config/cloudflare/the-portland-company.env",
+  "env_token_var": "CLOUDFLARE_API_TOKEN",
+  "deploy": "npm run build && npm run deploy:production",
+  "verify_url": "https://getfocusforge.theportlandcompany.com/"
+}

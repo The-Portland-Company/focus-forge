@@ -1,0 +1,28 @@
+# Focus Forge
+
+> Focus Forge is a fast, dark-first task and project management app with a
+> built-in AI agent. It works like Todoist, but is designed to be driven by AI
+> agents — including autonomous Claude Code loops that clear your backlog through
+> pull requests and verify deployments. Built by The Portland Company.
+
+## What it does
+- Task management: due dates, priorities, tags, subtasks, reminders, recurring tasks, Today and Upcoming views.
+- AI agent: ask questions about any project and have the agent create, edit, and complete tasks. Resilient 3-provider fallback.
+- Organizations & projects: multi-org, favorites, archiving, drag-and-drop ordering, role-based team access.
+- Calendar & time-blocking: schedule tasks and plan your day.
+- Email integration: connected inbox, drafts, and composer next to your tasks.
+- DevNotes: structured, machine-readable metadata embedded on a task (branch, PR, deploy status), stored separately from the visible description.
+
+## Autonomous loop
+Focus Forge is built to be run by agents. A recurring Claude Code command watches
+Focus Forge for new or open tasks, spawns a team of subagents to complete each one
+through pull requests, and verifies deployment to staging and production.
+
+The command:
+/loop 1m Watch /focus-forge for existing or new Tasks. Spawn a Team of Subagents to complete all of them through PRs, and verify deployment to staging and production.
+
+## Platforms
+Web (any modern browser), native iOS, native macOS — one synced account.
+
+## Maker
+The Portland Company — Portland, Oregon. https://theportlandcompany.com

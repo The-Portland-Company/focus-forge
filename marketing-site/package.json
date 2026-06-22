@@ -1,0 +1,31 @@
+{
+  "name": "focus-forge-marketing-site",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3255",
+    "build": "next build",
+    "start": "next start -p 3255",
+    "lint": "next lint",
+    "deploy:production": "npx --yes wrangler@latest pages deploy ./out --project-name=focus-forge-marketing --branch=main"
+  },
+  "dependencies": {
+    "lucide-react": "^0.536.0",
+    "next": "^16.1.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.9",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.0",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
