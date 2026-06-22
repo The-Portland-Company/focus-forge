@@ -18,41 +18,89 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     const supabase = createClient()
+    let cancelled = false
 
-    const applySessionState = async ({ allowError }: { allowError: boolean }) => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
+    const fail = (msg: string) => {
+      if (cancelled) return
+      setState('error')
+      setMessage(msg)
+    }
 
-      if (session?.user) {
-        setState('ready')
+    // Recovery links arrive in one of three shapes:
+    //  1. Implicit flow  -> #access_token=...&refresh_token=...&type=recovery
+    //  2. PKCE flow       -> ?code=...
+    //  3. Error           -> #error=...&error_description=...
+    // We establish the session explicitly here rather than relying on
+    // detectSessionInUrl, which is unreliable with the SSR cookie client +
+    // the pkce flowType when implicit hash tokens are delivered.
+    const establishSession = async () => {
+      // Already have a usable session (e.g. detectSessionInUrl beat us to it).
+      const existing = await supabase.auth.getSession()
+      if (existing.data.session?.user) {
+        if (!cancelled) setState('ready')
         return
       }
 
-      if (allowError) {
-        setState('error')
-        setMessage('This reset link is invalid or has expired. Request a new password reset email.')
+      const hash = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : ''
+      const hashParams = new URLSearchParams(hash)
+      const queryParams = new URLSearchParams(
+        typeof window !== 'undefined' ? window.location.search : ''
+      )
+
+      const hashError = hashParams.get('error_description') || hashParams.get('error')
+      if (hashError) {
+        fail(decodeURIComponent(hashError))
+        return
+      }
+
+      const accessToken = hashParams.get('access_token')
+      const refreshToken = hashParams.get('refresh_token')
+      const code = queryParams.get('code')
+
+      try {
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          })
+          if (error) throw error
+        } else if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code)
+          if (error) throw error
+        } else {
+          fail(
+            'This reset link is invalid or has expired. Request a new password reset email.'
+          )
+          return
+        }
+      } catch (error) {
+        fail(
+          error instanceof Error
+            ? error.message
+            : 'This reset link is invalid or has expired. Request a new password reset email.'
+        )
+        return
+      }
+
+      const { data } = await supabase.auth.getSession()
+      if (cancelled) return
+      if (data.session?.user) {
+        setState('ready')
+        // Strip the sensitive tokens from the address bar.
+        if (typeof window !== 'undefined') {
+          window.history.replaceState(null, '', window.location.pathname)
+        }
+      } else {
+        fail(
+          'This reset link is invalid or has expired. Request a new password reset email.'
+        )
       }
     }
 
-    const timer = window.setTimeout(() => {
-      void applySessionState({ allowError: true })
-    }, 400)
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if ((event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') && session?.user) {
-        window.clearTimeout(timer)
-        setState('ready')
-      }
-    })
-
-    void applySessionState({ allowError: false })
+    void establishSession()
 
     return () => {
-      window.clearTimeout(timer)
-      subscription.unsubscribe()
+      cancelled = true
     }
   }, [])
 
