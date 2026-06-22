@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getAdminClient } from "@/lib/supabase/admin";
 import { requireOrgAdmin } from "@/lib/api/authz";
 import { toApiKeyMeta } from "@/lib/api/keys/queries";
 import {
@@ -26,12 +27,18 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const authz = await requireOrgAdmin(supabase, user.id, params.id);
+    // Authorize and read with the cookie-less admin client: the cookie-bound
+    // user client doesn't reliably forward the JWT to PostgREST here
+    // (auth.uid() NULL), which would make RLS-scoped profile/membership lookups
+    // return nothing and 403 legitimate admins. requireOrgAdmin filters
+    // explicitly by the server-verified user.id, so this stays correctly scoped.
+    const db = getAdminClient();
+    const authz = await requireOrgAdmin(db, user.id, params.id);
     if (!authz.authorized) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("organization_api_keys")
       .select(
         "id, name, prefix, scopes, expires_at, last_used_at, created_at, created_by, is_active, organization_id",
@@ -46,7 +53,7 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({ keys: (data || []).map((row) => toApiKeyMeta(row as any)) });
+    return NextResponse.json({ keys: ((data || []) as any[]).map((row) => toApiKeyMeta(row as any)) });
   } catch (error) {
     console.error("GET /api/organizations/[id]/api-keys error:", error);
     return NextResponse.json(
@@ -72,7 +79,9 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const authz = await requireOrgAdmin(supabase, user.id, params.id);
+    // See GET note — authorize + write via the cookie-less admin client.
+    const db = getAdminClient();
+    const authz = await requireOrgAdmin(db, user.id, params.id);
     if (!authz.authorized) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -87,7 +96,7 @@ export async function POST(
     const prefix = extractPrefixFromSecret(secret);
     const hashedKey = hashApiKeySecret(secret);
 
-    const { data: created, error: createError } = await supabase
+    const { data: created, error: createError } = await db
       .from("organization_api_keys")
       .insert({
         organization_id: params.id,

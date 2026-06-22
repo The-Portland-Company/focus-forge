@@ -6,6 +6,7 @@ import { ToastProvider } from "@/contexts/ToastContext"
 import { AiPlannerFloatingChatLazy } from "@/components/ai-planner-floating-chat-lazy"
 import { DockBadgeSync } from "@/components/dock-badge-sync"
 import { EstimateReviewNudge } from "@/components/estimate-review-nudge"
+import { AgentIntroNudge } from "@/components/agent-intro-nudge"
 import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"] })
@@ -54,6 +55,9 @@ export default function RootLayout({
             </Suspense>
             <Suspense fallback={null}>
               <EstimateReviewNudge />
+            </Suspense>
+            <Suspense fallback={null}>
+              <AgentIntroNudge />
             </Suspense>
           </ToastProvider>
         </AuthProvider>
