@@ -8,12 +8,14 @@ export async function DELETE(
   try {
     const params = await props.params;
     const supabase = await createClient();
+    // getUser() revalidates + refreshes the token so the RLS update below runs
+    // with a valid auth.uid() (stale tokens otherwise fail can_manage checks).
     const {
-      data: { session },
+      data: { user },
       error: authError,
-    } = await supabase.auth.getSession();
+    } = await supabase.auth.getUser();
 
-    if (authError || !session?.user) {
+    if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -22,7 +24,7 @@ export async function DELETE(
       .from("personal_access_tokens")
       .select("id")
       .eq("id", id)
-      .eq("created_by", session.user.id)
+      .eq("created_by", user.id)
       .eq("is_active", true)
       .single();
 
@@ -34,7 +36,7 @@ export async function DELETE(
       .from("personal_access_tokens")
       .update({ is_active: false })
       .eq("id", id)
-      .eq("created_by", session.user.id);
+      .eq("created_by", user.id);
 
     if (revokeError) {
       return NextResponse.json(
