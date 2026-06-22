@@ -138,6 +138,9 @@ export default function SettingsPage() {
     null,
   );
   const [personalTokenName, setPersonalTokenName] = useState("");
+  const [personalTokenTab, setPersonalTokenTab] = useState<
+    "active" | "expired" | "revoked"
+  >("active");
   const [personalTokenExpiresAt, setPersonalTokenExpiresAt] = useState("");
   const [personalTokenScopes, setPersonalTokenScopes] = useState<string[]>([
     "read",
@@ -2139,7 +2142,19 @@ export default function SettingsPage() {
                     type="datetime-local"
                     value={personalTokenExpiresAt}
                     onChange={(e) => setPersonalTokenExpiresAt(e.target.value)}
-                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none"
+                    // Open the native date+time picker on click/focus, not just
+                    // when the small calendar icon is tapped.
+                    onClick={(e) => {
+                      try {
+                        (e.currentTarget as any).showPicker?.();
+                      } catch {}
+                    }}
+                    onFocus={(e) => {
+                      try {
+                        (e.currentTarget as any).showPicker?.();
+                      } catch {}
+                    }}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none cursor-pointer [color-scheme:dark]"
                   />
                 </div>
                 <button
@@ -2235,46 +2250,106 @@ export default function SettingsPage() {
                   No personal access tokens yet.
                 </div>
               ) : (
-                <div className="mt-4 grid gap-3">
-                  {personalAccessTokens.map((token) => (
-                    <div
-                      key={token.id}
-                      className="rounded-lg border border-zinc-800 p-3 bg-zinc-950/60"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <p className="font-medium flex items-center gap-2">
-                            {token.name}
-                            {!token.isActive && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">
-                                Revoked
-                              </span>
-                            )}
-                          </p>
-                          <p className="text-xs text-zinc-400 mt-1">
-                            {token.scopes.join(", ")} · Expires:{" "}
-                            {token.expiresAt || "No expiry"}
-                          </p>
-                          <p className="text-xs text-zinc-500 mt-1">
-                            Created: {token.createdAt} · Last used:{" "}
-                            {token.lastUsedAt || "Never"}
-                          </p>
-                          <p className="text-xs font-mono text-zinc-500 mt-1">
-                            {token.maskedKey}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => revokePersonalAccessToken(token.id)}
-                          className={`px-3 py-1.5 rounded text-xs ${token.isActive ? "bg-red-600 hover:bg-red-500" : "bg-zinc-700"} text-white`}
-                          disabled={!token.isActive}
-                        >
-                          Revoke
-                        </button>
+                (() => {
+                  const tokenIsExpired = (t: ApiKeyMeta) =>
+                    !!t.expiresAt &&
+                    !Number.isNaN(Date.parse(t.expiresAt)) &&
+                    Date.parse(t.expiresAt) <= Date.now();
+                  const groups = {
+                    active: personalAccessTokens.filter(
+                      (t) => t.isActive && !tokenIsExpired(t),
+                    ),
+                    expired: personalAccessTokens.filter(
+                      (t) => t.isActive && tokenIsExpired(t),
+                    ),
+                    revoked: personalAccessTokens.filter((t) => !t.isActive),
+                  };
+                  const tabs: {
+                    key: "active" | "expired" | "revoked";
+                    label: string;
+                  }[] = [
+                    { key: "active", label: "Active" },
+                    { key: "expired", label: "Expired" },
+                    { key: "revoked", label: "Revoked" },
+                  ];
+                  const visible = groups[personalTokenTab];
+                  return (
+                    <div className="mt-4">
+                      <div className="flex flex-wrap gap-1 border-b border-zinc-800 mb-3">
+                        {tabs.map((tab) => (
+                          <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setPersonalTokenTab(tab.key)}
+                            className={`px-3 py-1.5 text-sm rounded-t-lg border-b-2 -mb-px transition-colors ${
+                              personalTokenTab === tab.key
+                                ? "border-theme-primary text-white"
+                                : "border-transparent text-zinc-400 hover:text-zinc-200"
+                            }`}
+                          >
+                            {tab.label}
+                            <span className="ml-1.5 text-xs text-zinc-500">
+                              {groups[tab.key].length}
+                            </span>
+                          </button>
+                        ))}
                       </div>
+                      {visible.length === 0 ? (
+                        <div className="text-sm text-zinc-500 py-4">
+                          No {personalTokenTab} tokens.
+                        </div>
+                      ) : (
+                        <div className="grid gap-3">
+                          {visible.map((token) => (
+                            <div
+                              key={token.id}
+                              className="rounded-lg border border-zinc-800 p-3 bg-zinc-950/60"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <p className="font-medium flex items-center gap-2">
+                                    {token.name}
+                                    {!token.isActive && (
+                                      <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                                        Revoked
+                                      </span>
+                                    )}
+                                    {token.isActive && tokenIsExpired(token) && (
+                                      <span className="text-xs px-2 py-0.5 rounded bg-amber-900/40 text-amber-300 border border-amber-800/80">
+                                        Expired
+                                      </span>
+                                    )}
+                                  </p>
+                                  <p className="text-xs text-zinc-400 mt-1">
+                                    {token.scopes.join(", ")} · Expires:{" "}
+                                    {token.expiresAt || "No expiry"}
+                                  </p>
+                                  <p className="text-xs text-zinc-500 mt-1">
+                                    Created: {token.createdAt} · Last used:{" "}
+                                    {token.lastUsedAt || "Never"}
+                                  </p>
+                                  <p className="text-xs font-mono text-zinc-500 mt-1">
+                                    {token.maskedKey}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    revokePersonalAccessToken(token.id)
+                                  }
+                                  className={`px-3 py-1.5 rounded text-xs ${token.isActive ? "bg-red-600 hover:bg-red-500" : "bg-zinc-700"} text-white`}
+                                  disabled={!token.isActive}
+                                >
+                                  Revoke
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
+                  );
+                })()
               )}
             </div>
           </div>
