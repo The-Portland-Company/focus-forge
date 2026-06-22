@@ -47,16 +47,40 @@ export async function GET(request: NextRequest) {
 
     const stakeGraph = buildGraph(graph.stakes, graph.edges);
 
+    // Resolve task names for every resolver task so the board can show which
+    // Task(s) keep each domino standing (click-to-view-task). The graph links
+    // only carry task_id + resolution_type; join the tasks table here.
+    const resolverTaskIds = Array.from(
+      new Set(
+        (graph.links as any[])
+          .map((l) => l.task_id)
+          .filter((id: any) => typeof id === "string" && id),
+      ),
+    ) as string[];
+
+    const taskNameById = new Map<string, string>();
+    if (resolverTaskIds.length > 0) {
+      const { data: taskRows } = await auth.supabase
+        .from("tasks")
+        .select("id, name")
+        .in("id", resolverTaskIds)
+        .is("deleted_at", null);
+      for (const row of (taskRows as any[]) ?? []) {
+        taskNameById.set(String(row.id), row.name ?? "");
+      }
+    }
+
     // Resolver tasks per stake, from the links.
     const resolversByStake = new Map<
       string,
-      { taskId: string; resolutionType: string }[]
+      { taskId: string; resolutionType: string; taskName: string | null }[]
     >();
     for (const link of graph.links as any[]) {
       const list = resolversByStake.get(link.stake_id) ?? [];
       list.push({
         taskId: link.task_id,
         resolutionType: link.resolution_type,
+        taskName: taskNameById.get(String(link.task_id)) ?? null,
       });
       resolversByStake.set(link.stake_id, list);
     }
