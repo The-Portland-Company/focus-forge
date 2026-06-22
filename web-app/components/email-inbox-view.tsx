@@ -1427,6 +1427,11 @@ export function EmailInboxView({
   const [removingThreadIds, setRemovingThreadIds] = useState<Set<string>>(
     () => new Set(),
   );
+  // When the user deletes the currently-open thread we close the detail panel
+  // and keep it closed — without this the "auto-select first visible thread"
+  // effect would immediately re-open another thread. Reset whenever the user
+  // manually selects a thread.
+  const suppressInboxAutoSelectRef = useRef(false);
   const [isReplyDragActive, setIsReplyDragActive] = useState(false);
   const [isOutboundComposerOpen, setIsOutboundComposerOpen] = useState(false);
   const [outboundComposerInitialDraft, setOutboundComposerInitialDraft] =
@@ -1967,6 +1972,8 @@ export function EmailInboxView({
   };
 
   const handleSelectThread = (item: InboxItem) => {
+    // Manual selection resumes normal auto-select behavior after a delete.
+    suppressInboxAutoSelectRef.current = false;
     setSelectedThreadId(item.id);
     // On desktop (split layout) the thread populates the right-side detail
     // pane. On mobile there is no side pane, so open the dedicated full-screen
@@ -2167,6 +2174,9 @@ export function EmailInboxView({
       setSelectedThread(null);
       return;
     }
+    // Don't auto-reopen a thread right after the user deleted the open one —
+    // the panel should stay closed until they pick another email.
+    if (suppressInboxAutoSelectRef.current) return;
     if (
       !selectedThreadId ||
       !visibleInboxItems.some((item) => item.id === selectedThreadId)
@@ -2720,8 +2730,10 @@ export function EmailInboxView({
     const previousSelectedThread = selectedThread;
     const wasThreadModalOpen = isThreadModalOpen;
 
-    // 1. Immediately collapse the reading/detail panel for this thread.
+    // 1. Immediately collapse the reading/detail panel for this thread and
+    //    keep it closed (suppress the auto-select-first effect).
     if (selectedThreadId === threadId) {
+      suppressInboxAutoSelectRef.current = true;
       setSelectedThreadId(null);
       setSelectedThread(null);
       setIsThreadModalOpen(false);
@@ -2803,6 +2815,7 @@ export function EmailInboxView({
         previousSelectedThread &&
         previousSelectedThreadId === threadId
       ) {
+        suppressInboxAutoSelectRef.current = false;
         setSelectedThreadId(previousSelectedThreadId);
         setSelectedThread(previousSelectedThread);
         setIsThreadModalOpen(wasThreadModalOpen);
