@@ -797,7 +797,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
           tags:task_tags(tag:tags(*)),
           reminders(*),
           attachments(*),
-          assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color, profile_memoji)
+          assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color, profile_memoji),
+          creator:profiles!tasks_created_by_fkey(id, first_name, last_name, email)
         `,
         )
         .is("deleted_at", null)
@@ -849,6 +850,14 @@ export class SupabaseAdapter implements DatabaseAdapter {
         assigneeMemoji = task.assignee.profile_memoji || null;
       }
 
+      let creatorName: string | null = null;
+      if (task.creator) {
+        const firstName = task.creator.first_name || "";
+        const lastName = task.creator.last_name || "";
+        creatorName =
+          `${firstName} ${lastName}`.trim() || task.creator.email || null;
+      }
+
       return {
         ...task,
         // Map snake_case to camelCase for frontend compatibility
@@ -863,6 +872,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
         assignedToColor: assigneeColor,
         assignedToInitial: assigneeInitial,
         assignedToMemoji: assigneeMemoji,
+        createdBy: task.created_by,
+        createdByName: creatorName,
         completedAt: task.completed_at,
         createdAt: task.created_at,
         updatedAt: task.updated_at,
@@ -902,7 +913,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
         tags:task_tags(tag:tags(*)),
         reminders(*),
         attachments(*),
-        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color, profile_memoji)
+        assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color, profile_memoji),
+        creator:profiles!tasks_created_by_fkey(id, first_name, last_name, email)
       `,
       )
       .eq("id", id)
@@ -929,6 +941,14 @@ export class SupabaseAdapter implements DatabaseAdapter {
       assigneeMemoji = data.assignee.profile_memoji || null;
     }
 
+    let creatorName: string | null = null;
+    if (data.creator) {
+      const firstName = data.creator.first_name || "";
+      const lastName = data.creator.last_name || "";
+      creatorName =
+        `${firstName} ${lastName}`.trim() || data.creator.email || null;
+    }
+
     // Transform the data to match the expected format
     return {
       ...data,
@@ -944,6 +964,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
       assignedToColor: assigneeColor,
       assignedToInitial: assigneeInitial,
       assignedToMemoji: assigneeMemoji,
+      createdBy: data.created_by,
+      createdByName: creatorName,
       completedAt: data.completed_at,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
@@ -1003,6 +1025,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
     // Only these columns exist on the tasks table
     const allowedColumns = new Set([
       "name",
+      "created_by",
       "description",
       "devnotes_meta",
       "due_date",
@@ -1049,6 +1072,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       dueTime: "due_time",
       parentId: "parent_id",
       assignedTo: "assigned_to",
+      createdBy: "created_by",
       completedAt: "completed_at",
       createdAt: "created_at",
       updatedAt: "updated_at",
@@ -1078,6 +1102,12 @@ export class SupabaseAdapter implements DatabaseAdapter {
       const column = fieldMap[key] || key;
       if (!allowedColumns.has(column)) continue;
       taskData[column] = val;
+    }
+
+    // Stamp the creator from the acting user when not explicitly provided so
+    // every task records who created it (mobile API, PAT/agent, and web app).
+    if (taskData.created_by == null && this.userId) {
+      taskData.created_by = this.userId;
     }
 
     // Create the task
