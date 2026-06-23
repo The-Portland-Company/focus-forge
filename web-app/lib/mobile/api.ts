@@ -324,10 +324,17 @@ export const resolveUserNames = async (
  */
 export const serializeMobileTask = <T extends Record<string, any>>(
   task: T,
-): T & { assigned_to: string | null; assigned_to_name: string | null } => ({
+): T & {
+  assigned_to: string | null
+  assigned_to_name: string | null
+  created_by: string | null
+  created_by_name: string | null
+} => ({
   ...task,
   assigned_to: task?.assigned_to ?? task?.assignedTo ?? null,
   assigned_to_name: task?.assignedToName ?? null,
+  created_by: task?.created_by ?? task?.createdBy ?? null,
+  created_by_name: task?.createdByName ?? null,
 })
 
 export const serializeMobileTasks = <T extends Record<string, any>>(
