@@ -395,6 +395,34 @@ function normalizeContentPart(value?: string | null) {
   return normalized ? normalized : null;
 }
 
+// Standard signature delimiter ("--" or "-- " with a trailing space) on its
+// own line, including any surrounding whitespace/blank lines so neither the
+// delimiter nor the gap around it leaks into the rendered output.
+const SIGNATURE_DELIMITER_REGEX = /(?:\r?\n)\s*--[ \t]*(?:\r?\n)/;
+
+function splitOnDelimiter(text: string): { body: string; signature: string } | null {
+  const match = SIGNATURE_DELIMITER_REGEX.exec(text);
+  if (!match || typeof match.index !== "number") {
+    return null;
+  }
+
+  const body = text.slice(0, match.index);
+  const signature = text.slice(match.index + match[0].length);
+  return { body, signature };
+}
+
+// Right-trim trailing blank lines (and trailing whitespace) from the main
+// content so the gap that preceded the removed delimiter never renders.
+function trimBodyContentPart(value: string) {
+  return value.replace(/[\s ]+$/u, "");
+}
+
+// Left-trim leading blank lines/whitespace from the signature so the removed
+// delimiter and the gap below it never render.
+function trimSignatureContentPart(value: string) {
+  return value.replace(/^[\s ]+/u, "");
+}
+
 export function extractEmailSignatureContentParts(params: {
   html?: string | null;
   text?: string | null;
@@ -403,12 +431,33 @@ export function extractEmailSignatureContentParts(params: {
   const text = params.text?.trim() || null;
 
   if (html) {
+    const delimiterSplit = splitOnDelimiter(html);
+    if (delimiterSplit) {
+      const bodyHtml = normalizeContentPart(trimBodyContentPart(delimiterSplit.body));
+      const signatureHtml = normalizeContentPart(
+        trimSignatureContentPart(delimiterSplit.signature),
+      );
+      if (signatureHtml) {
+        return {
+          bodyHtml,
+          signatureHtml,
+          bodyText: text,
+          signatureText: null,
+          hasSignature: true,
+        };
+      }
+    }
+
     const signatureIndex = findSignatureMarkerIndex(html);
 
     if (signatureIndex > 0) {
       return {
-        bodyHtml: normalizeContentPart(html.slice(0, signatureIndex)),
-        signatureHtml: normalizeContentPart(html.slice(signatureIndex)),
+        bodyHtml: normalizeContentPart(
+          trimBodyContentPart(html.slice(0, signatureIndex)),
+        ),
+        signatureHtml: normalizeContentPart(
+          trimSignatureContentPart(html.slice(signatureIndex)),
+        ),
         bodyText: text,
         signatureText: null,
         hasSignature: true,
@@ -417,14 +466,35 @@ export function extractEmailSignatureContentParts(params: {
   }
 
   if (text && !html) {
+    const delimiterSplit = splitOnDelimiter(text);
+    if (delimiterSplit) {
+      const bodyText = normalizeContentPart(trimBodyContentPart(delimiterSplit.body));
+      const signatureText = normalizeContentPart(
+        trimSignatureContentPart(delimiterSplit.signature),
+      );
+      if (signatureText) {
+        return {
+          bodyHtml: null,
+          signatureHtml: null,
+          bodyText,
+          signatureText,
+          hasSignature: true,
+        };
+      }
+    }
+
     const signatureIndex = findSignatureMarkerIndex(text);
 
     if (signatureIndex > 0) {
       return {
         bodyHtml: null,
         signatureHtml: null,
-        bodyText: normalizeContentPart(text.slice(0, signatureIndex)),
-        signatureText: normalizeContentPart(text.slice(signatureIndex)),
+        bodyText: normalizeContentPart(
+          trimBodyContentPart(text.slice(0, signatureIndex)),
+        ),
+        signatureText: normalizeContentPart(
+          trimSignatureContentPart(text.slice(signatureIndex)),
+        ),
         hasSignature: true,
       };
     }
