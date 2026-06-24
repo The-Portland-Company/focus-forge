@@ -3993,8 +3993,8 @@ export function EmailInboxView({
 
   return (
     <div className="min-w-0 space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-nowrap items-start justify-between gap-4">
+        <div className="min-w-0">
           <div className="flex items-center gap-2.5">
             {!isQuarantineView ? (
               <div className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-3 text-sm font-medium">
@@ -4036,7 +4036,7 @@ export function EmailInboxView({
                 : "Email threads are pre-processed and rendered as work items."}
           </p>
         </div>
-        <div className="flex flex-nowrap items-center justify-end gap-2">
+        <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
           {visibleInboxItems.length > 0 ? (
             <div className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-1.5 text-sm text-zinc-400">
               <Tooltip content="Previous page" className="w-auto" side="bottom">

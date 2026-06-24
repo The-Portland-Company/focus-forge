@@ -18,6 +18,7 @@ type TaskRow = {
   description: string | null;
   project_id: string | null;
   assigned_to: string | null;
+  created_by: string | null;
 };
 
 type ProjectRow = {
@@ -282,7 +283,7 @@ async function fetchTaskContext(taskId: string) {
   const admin = getAdminClient();
   const { data: task, error: taskError } = await admin
     .from("tasks")
-    .select("id,name,description,project_id,assigned_to")
+    .select("id,name,description,project_id,assigned_to,created_by")
     .eq("id", taskId)
     .single();
 
@@ -682,6 +683,173 @@ export async function sendTaskCommentNotifications(options: {
     );
   } catch (error) {
     console.error("Failed to send task comment notifications", {
+      taskId: options.taskId,
+      actorUserId: options.actorUserId,
+      error,
+    });
+  }
+}
+
+// Stakeholders (creator + me) are always notified about a task's lifecycle, so
+// completion replies thread under the original "task created" email.
+const TASK_LIFECYCLE_CC_EMAIL = "agency@theportlandcompany.com";
+
+function getThreadingDomain() {
+  const fromEmail =
+    process.env.RESEND_FROM_EMAIL ||
+    "noreply@focusforge.theportlandcompany.com";
+  const atIndex = fromEmail.lastIndexOf("@");
+  return atIndex >= 0
+    ? fromEmail.slice(atIndex + 1)
+    : "focusforge.theportlandcompany.com";
+}
+
+// Deterministic Message-ID for the "task created" email so the "task completed"
+// email can reference it (In-Reply-To / References) without persisting the id.
+function getTaskThreadMessageId(taskId: string) {
+  return `<task-${taskId}-created@${getThreadingDomain()}>`;
+}
+
+// Sends one email about a task to its creator + assignee, always Cc'ing the
+// agency inbox, with threading headers so created/completed land in one thread.
+async function sendTaskThreadEmail(options: {
+  kind: string;
+  task: TaskRow;
+  project: ProjectRow | null;
+  organization: OrganizationRow | null;
+  subject: string;
+  intro: string;
+  detailsTail?: Array<{ label: string; value: string | null | undefined }>;
+  headers: Record<string, string>;
+}) {
+  const { task, project, organization } = options;
+
+  const stakeholderIds = Array.from(
+    new Set(
+      [task.created_by, task.assigned_to].filter(
+        (value): value is string =>
+          typeof value === "string" && value.length > 0,
+      ),
+    ),
+  );
+  const profiles = await fetchProfilesByIds(stakeholderIds);
+
+  const toEmails = Array.from(
+    new Set(
+      stakeholderIds
+        .map((id) => profiles.get(id)?.email || null)
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && value.length > 0,
+        )
+        .map((email) => email.toLowerCase()),
+    ),
+  ).filter((email) => email !== TASK_LIFECYCLE_CC_EMAIL.toLowerCase());
+
+  // Resend requires at least one "to" recipient; fall back to the agency inbox.
+  const to = toEmails.length > 0 ? toEmails : [TASK_LIFECYCLE_CC_EMAIL];
+  const cc = toEmails.length > 0 ? [TASK_LIFECYCLE_CC_EMAIL] : undefined;
+
+  const taskUrl = getTaskLink(task.project_id);
+  const details = [
+    { label: "Task", value: task.name },
+    { label: "Project", value: project?.name || null },
+    { label: "Organization", value: organization?.name || null },
+    ...(options.detailsTail || []),
+  ];
+
+  const delivery = await sendEmailMessage({
+    to,
+    cc,
+    headers: options.headers,
+    subject: options.subject,
+    html: renderNotificationHtml({
+      title: options.subject,
+      greeting: "Hi there,",
+      intro: options.intro,
+      details,
+      excerpt: getRichTextPreview(task.description || "", 240) || null,
+      actionUrl: taskUrl,
+      actionLabel: "Open Task",
+    }),
+    text: renderNotificationText({
+      greeting: "Hi there,",
+      intro: options.intro,
+      details,
+      excerpt: getRichTextPreview(task.description || "", 240) || null,
+      actionUrl: taskUrl,
+    }),
+  });
+
+  console.info("Task lifecycle email sent", {
+    kind: options.kind,
+    entityId: task.id,
+    to,
+    cc,
+    messageId: delivery.messageId,
+  });
+
+  return delivery;
+}
+
+export async function sendTaskCreatedNotification(options: {
+  taskId: string;
+  actorUserId: string;
+}) {
+  try {
+    const [{ task, project, organization }, actorProfiles] = await Promise.all([
+      fetchTaskContext(options.taskId),
+      fetchProfilesByIds([options.actorUserId]),
+    ]);
+    const actorName = getProfileDisplayName(actorProfiles.get(options.actorUserId));
+
+    await sendTaskThreadEmail({
+      kind: "task_created",
+      task,
+      project,
+      organization,
+      subject: `New task: ${task.name}`,
+      intro: `${actorName} created the task "${task.name}" in Focus: Forge.`,
+      detailsTail: [{ label: "Created by", value: actorName }],
+      headers: { "Message-ID": getTaskThreadMessageId(task.id) },
+    });
+  } catch (error) {
+    console.error("Failed to send task created notification", {
+      taskId: options.taskId,
+      actorUserId: options.actorUserId,
+      error,
+    });
+  }
+}
+
+export async function sendTaskCompletedNotification(options: {
+  taskId: string;
+  actorUserId: string;
+}) {
+  try {
+    const [{ task, project, organization }, actorProfiles] = await Promise.all([
+      fetchTaskContext(options.taskId),
+      fetchProfilesByIds([options.actorUserId]),
+    ]);
+    const actorName = getProfileDisplayName(actorProfiles.get(options.actorUserId));
+    const threadId = getTaskThreadMessageId(task.id);
+
+    await sendTaskThreadEmail({
+      kind: "task_completed",
+      task,
+      project,
+      organization,
+      // "Re:" + the same root subject keeps it in the created thread.
+      subject: `Re: New task: ${task.name}`,
+      intro: `${actorName} marked the task "${task.name}" as completed in Focus: Forge.`,
+      detailsTail: [{ label: "Completed by", value: actorName }],
+      headers: {
+        "In-Reply-To": threadId,
+        References: threadId,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to send task completed notification", {
       taskId: options.taskId,
       actorUserId: options.actorUserId,
       error,

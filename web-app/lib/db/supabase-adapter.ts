@@ -1259,6 +1259,19 @@ export class SupabaseAdapter implements DatabaseAdapter {
       if (allowedColumns.has(column)) taskData[column] = val;
     }
 
+    // Detect a not-completed -> completed transition so stakeholders get a
+    // "task completed" email (threaded under the original "task created" one).
+    // Checked before the write so we only fire on the actual transition.
+    let justCompleted = false;
+    if (taskData.completed === true) {
+      const { data: prior } = await supabase
+        .from("tasks")
+        .select("completed")
+        .eq("id", id)
+        .maybeSingle();
+      justCompleted = prior ? prior.completed !== true : false;
+    }
+
     // Update the task
     if (Object.keys(taskData).length > 0) {
       const { error } = await supabase
@@ -1267,6 +1280,25 @@ export class SupabaseAdapter implements DatabaseAdapter {
         .eq("id", id);
 
       if (error) throw error;
+    }
+
+    if (justCompleted) {
+      void (async () => {
+        try {
+          const { sendTaskCompletedNotification } = await import(
+            "@/lib/task-notifications"
+          );
+          await sendTaskCompletedNotification({
+            taskId: id,
+            actorUserId: this.userId,
+          });
+        } catch (notifyError) {
+          console.error("Failed to dispatch task completed notification", {
+            taskId: id,
+            error: notifyError,
+          });
+        }
+      })();
     }
 
     // Update tags if provided
