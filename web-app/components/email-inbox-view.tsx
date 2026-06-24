@@ -19,10 +19,12 @@ import {
   Ban,
   Bot,
   Check,
+  CheckSquare,
   CircleHelp,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Copy,
   Expand,
   ExternalLink,
@@ -43,6 +45,7 @@ import {
   SendHorizontal,
   SlidersHorizontal,
   Sparkles,
+  Square,
   Shield,
   ShieldAlert,
   Trash2,
@@ -1080,6 +1083,18 @@ export function buildEmailThreadPopoutUrl(
   return url.toString();
 }
 
+// Removes a leading greeting ("Hi Spencer,", "Hello ", "Hey ", "Dear ") from
+// AI-generated summary/title text and re-capitalizes the first character.
+// Does not mutate stored data — call only at render time.
+function stripAiGreeting(text: string | null | undefined): string {
+  if (!text) {
+    return "";
+  }
+  const stripped = text.replace(/^\s*(hi|hello|hey|dear)\b[^,\n]*,?\s*/i, "");
+  const result = stripped || text;
+  return result.charAt(0).toUpperCase() + result.slice(1);
+}
+
 function getInboxItemReceivedTime(item: InboxItem) {
   const timestamp =
     item.latestInboundAt || item.latestMessageAt || item.createdAt;
@@ -1436,6 +1451,46 @@ export function EmailInboxView({
   const [isOutboundComposerOpen, setIsOutboundComposerOpen] = useState(false);
   const [outboundComposerInitialDraft, setOutboundComposerInitialDraft] =
     useState<EmailComposerInitialDraft | null>(null);
+  // Optimistic completed-state overrides for linked tasks, keyed by task id.
+  // Falls back to the task's persisted `completed` flag when no override.
+  const [completedLinkedTaskOverrides, setCompletedLinkedTaskOverrides] =
+    useState<Record<string, boolean>>({});
+  // Optimistically flip the linked task's completed state, then best-effort
+  // persist via PUT /api/tasks/:id. Keeps the row visible (strike-through).
+  const handleToggleLinkedTaskCompleted = async (
+    taskId: string,
+    next: boolean,
+  ) => {
+    setCompletedLinkedTaskOverrides((current) => ({
+      ...current,
+      [taskId]: next,
+    }));
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          completed: next,
+          completed_at: next ? new Date().toISOString() : null,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error("Failed to update task");
+      }
+    } catch {
+      // Revert the optimistic flip on failure.
+      setCompletedLinkedTaskOverrides((current) => ({
+        ...current,
+        [taskId]: !next,
+      }));
+    }
+  };
+  // When true the user is actively searching/editing the project field, so we
+  // show the raw input instead of the selected-project chip occupying it.
+  const [isEditingProjectField, setIsEditingProjectField] = useState(false);
+  // Reveals previously-collapsed older conversation messages.
+  const [showOlderConversation, setShowOlderConversation] = useState(false);
   const projectPickerRef = useRef<HTMLDivElement | null>(null);
   const projectSearchInputRef = useRef<HTMLInputElement | null>(null);
   const replyFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1912,11 +1967,39 @@ export function EmailInboxView({
       return;
     }
 
-    window.open(
-      buildEmailThreadPopoutUrl(window.location.href, selectedThreadId),
-      `email-thread-${selectedThreadId}`,
-      "popup=yes,width=1280,height=900,resizable=yes,scrollbars=yes",
+    // Safari only opens a *separate* window (rather than a tab or reusing the
+    // current page) when the features string includes explicit sizing. We also
+    // build a real standalone thread URL (a popout query on the current path
+    // that auto-opens the thread) and a unique per-thread window name so it is
+    // never confused with the current document / reloaded.
+    const targetUrl = buildEmailThreadPopoutUrl(
+      window.location.href,
+      selectedThreadId,
     );
+    const features = [
+      "popup=yes",
+      "width=900",
+      "height=1000",
+      "menubar=no",
+      "toolbar=no",
+      "location=no",
+      "status=no",
+      "resizable=yes",
+      "scrollbars=yes",
+    ].join(",");
+
+    const popout = window.open(
+      targetUrl,
+      `thread-${selectedThreadId}`,
+      features,
+    );
+
+    // If the popup was blocked, fail gracefully rather than navigating away.
+    if (!popout) {
+      return;
+    }
+
+    popout.focus();
   };
 
   const focusInboxSearchInput = () => {
@@ -3248,6 +3331,7 @@ export function EmailInboxView({
   const closeProjectPicker = () => {
     setIsProjectPickerOpen(false);
     setProjectSearchQuery("");
+    setIsEditingProjectField(false);
   };
 
   const closeInlineProjectPicker = () => {
@@ -5133,7 +5217,7 @@ export function EmailInboxView({
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
           ) : selectedThread ? (
-            <div className="min-w-0 space-y-5">
+            <div className="min-w-0 space-y-4">
               <div className="border-b border-zinc-800 pb-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
@@ -5152,7 +5236,7 @@ export function EmailInboxView({
                     ) : null}
                   </div>
                   <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
-                    {isTrashView ? null : isQuarantineView ? (
+                    {isQuarantineView ? (
                       <>
                         <Tooltip
                           content="Mark Not Spam"
@@ -5182,74 +5266,100 @@ export function EmailInboxView({
                           icon: getThreadActionButtonIcon("approve"),
                         })}
                       </>
-                    ) : (
-                      renderThreadActionButton("quarantine", {
-                        icon: getThreadActionButtonIcon("quarantine"),
-                      })
-                    )}
-                    {isTrashView
-                      ? null
-                      : renderThreadActionButton("archive", {
-                          icon: getThreadActionButtonIcon("archive"),
-                        })}
-                    {isTrashView
-                      ? null
-                      : renderThreadActionButton("spam", {
-                          icon: getThreadActionButtonIcon("spam"),
-                        })}
-                    {isTrashView
-                      ? null
-                      : renderThreadActionButton("delete", {
-                          icon: getThreadActionButtonIcon("delete"),
-                          destructive: true,
-                        })}
+                    ) : null}
+                    <Tooltip content="Mark read" className="w-auto" side="top">
+                      <button
+                        type="button"
+                        onClick={() => void handleThreadAction("mark_read")}
+                        disabled={
+                          Boolean(busyState) || !selectedThread.isUnread
+                        }
+                        title={
+                          selectedThread.isUnread
+                            ? "Mark thread as read"
+                            : "Thread already read"
+                        }
+                        aria-label={
+                          selectedThread.isUnread
+                            ? "Mark thread as read"
+                            : "Thread already read"
+                        }
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        {busyState === "mark_read" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <MailCheck className="h-4 w-4" />
+                        )}
+                      </button>
+                    </Tooltip>
                   </div>
                 </div>
                 <div className="mt-4 min-w-0 space-y-3">
-                  <div className="flex min-w-0 items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="inline-flex min-w-0 items-center gap-2 text-sm font-semibold text-white">
-                        <Sparkles className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-                        <span className="truncate">
-                          {selectedThread.actionTitle?.trim()
-                            ? selectedThread.actionTitle
-                            : formatEmailSubject(selectedThread.subject)}
-                        </span>
-                      </div>
-                      <div className="mt-1 truncate text-xs text-zinc-500">
-                        Subject: {formatEmailSubject(selectedThread.subject)}
-                      </div>
+                      {selectedThread.actionTitle?.trim() ? (
+                        <>
+                          <div className="inline-flex min-w-0 items-center gap-2 text-sm font-semibold text-white">
+                            <Tooltip
+                              content="AI-generated title"
+                              className="w-auto shrink-0"
+                              side="bottom"
+                            >
+                              <span className="inline-flex">
+                                <Sparkles className="h-3.5 w-3.5 shrink-0 text-[rgb(var(--theme-primary-rgb))]" />
+                              </span>
+                            </Tooltip>
+                            <span className="truncate">
+                              {stripAiGreeting(selectedThread.actionTitle)}
+                            </span>
+                          </div>
+                          <div className="mt-1 truncate text-xs text-zinc-500">
+                            {formatEmailSubject(selectedThread.subject)}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="inline-flex min-w-0 items-center gap-2 text-sm font-semibold text-white">
+                          <span className="truncate">
+                            {formatEmailSubject(selectedThread.subject)}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEmailHtmlRenderMode((current) =>
-                          current === "preserve" ? "simplified" : "preserve",
-                        )
-                      }
-                      className="inline-flex shrink-0 items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs sm:text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
-                    >
-                      {getEmailHtmlRenderModeToggleLabel(emailHtmlRenderMode)}
-                    </button>
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                      {isTrashView ? null : (
+                        <>
+                          {renderThreadActionButton("quarantine", {
+                            icon: getThreadActionButtonIcon("quarantine"),
+                          })}
+                          {renderThreadActionButton("archive", {
+                            icon: getThreadActionButtonIcon("archive"),
+                          })}
+                          {renderThreadActionButton("spam", {
+                            icon: getThreadActionButtonIcon("spam"),
+                          })}
+                          {renderThreadActionButton("delete", {
+                            icon: getThreadActionButtonIcon("delete"),
+                            destructive: true,
+                          })}
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEmailHtmlRenderMode((current) =>
+                            current === "preserve" ? "simplified" : "preserve",
+                          )
+                        }
+                        className="inline-flex shrink-0 items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs sm:text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                      >
+                        {getEmailHtmlRenderModeToggleLabel(emailHtmlRenderMode)}
+                      </button>
+                    </div>
                   </div>
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
-                    {selectedThreadShowsSecondaryActionTitle &&
-                    selectedThread.actionTitle ? (
-                      <div className="mb-3 flex items-start gap-2 break-words text-[13px] italic text-zinc-400">
-                        <Tooltip
-                          content="AI Summary"
-                          className="w-auto shrink-0"
-                          side="bottom"
-                        >
-                          <span className="inline-flex">
-                            <Bot className="mt-0.5 h-3.5 w-3.5 text-zinc-400" />
-                          </span>
-                        </Tooltip>
-                        <span className="min-w-0 break-words">
-                          {selectedThread.actionTitle}
-                        </span>
-                      </div>
-                    ) : null}
+                    {/* AI title now renders once as the headline above; the
+                        former duplicate AI-summary line was removed. */}
                     {selectedThreadPrimaryEntry?.contentHtml ||
                     selectedThreadPrimaryEntry?.content ? (
                       <EmailSignatureContent
@@ -5284,18 +5394,61 @@ export function EmailInboxView({
                   <FloatingFieldLabel label="Project" />
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                    {/* When a project is selected and the user isn't actively
+                        typing, show it as a colored-dot chip occupying the field
+                        (inline, left of the cursor) with an × to clear. */}
+                    {selectedProject &&
+                    !isEditingProjectField &&
+                    busyState !== "project" ? (
+                      <div className="absolute inset-y-0 left-10 right-10 flex items-center">
+                        <span className="inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-950/80 px-2.5 py-1 text-xs text-zinc-200">
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: selectedProject.color }}
+                          />
+                          <span className="truncate">
+                            {selectedProject.name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleProjectAssign(
+                                selectedThreadId || "",
+                                "",
+                              );
+                            }}
+                            aria-label="Clear project"
+                            title="Clear project"
+                            className="inline-flex shrink-0 items-center text-zinc-500 transition-colors hover:text-zinc-200"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      </div>
+                    ) : null}
                     <input
                       ref={projectSearchInputRef}
                       type="text"
                       value={projectSearchQuery}
-                      onFocus={() => setIsProjectPickerOpen(true)}
+                      onFocus={() => {
+                        setIsEditingProjectField(true);
+                        setIsProjectPickerOpen(true);
+                      }}
+                      onBlur={() => {
+                        if (!projectSearchQuery.trim()) {
+                          setIsEditingProjectField(false);
+                        }
+                      }}
                       onChange={(event) => {
                         setProjectSearchQuery(event.target.value);
+                        setIsEditingProjectField(true);
                         setIsProjectPickerOpen(true);
                       }}
                       onKeyDown={(event) => {
                         if (event.key === "Escape") {
                           event.preventDefault();
+                          setIsEditingProjectField(false);
                           closeProjectPicker();
                           return;
                         }
@@ -5305,12 +5458,17 @@ export function EmailInboxView({
                           filteredInboxProjects.length > 0
                         ) {
                           event.preventDefault();
+                          setIsEditingProjectField(false);
                           handleProjectPickerSelect(
                             filteredInboxProjects[0].id,
                           );
                         }
                       }}
-                      placeholder="Search projects..."
+                      placeholder={
+                        selectedProject && !isEditingProjectField
+                          ? ""
+                          : "Add project..."
+                      }
                       disabled={busyState === "project" || isCreatingProject}
                       className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2.5 pl-10 pr-10 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
                     />
@@ -5436,41 +5594,9 @@ export function EmailInboxView({
                 </div>
               </div>
 
-              {!isTrashView ? (
-                <div className="flex justify-end pt-1">
-                  {pendingConfirmAction === "delete" ? (
-                    <div className="inline-flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => queueThreadAction("delete")}
-                        disabled={Boolean(busyState) || Boolean(queuedAction)}
-                        className="inline-flex items-center gap-2 rounded-lg border border-red-800/60 bg-red-950/50 px-3 py-2 text-sm font-medium text-red-100 transition-colors hover:border-red-700 hover:text-white disabled:opacity-50"
-                      >
-                        <Check className="h-4 w-4" />
-                        Confirm Delete
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPendingConfirmAction(null)}
-                        disabled={Boolean(busyState) || Boolean(queuedAction)}
-                        className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleActionButtonClick("delete")}
-                      disabled={Boolean(busyState) || Boolean(queuedAction)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm font-medium text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      Delete Email
-                    </button>
-                  )}
-                </div>
-              ) : null}
+              {/* Standalone "Delete Email" button removed: Delete now lives in
+                  the title action row via renderThreadActionButton("delete"),
+                  which carries the same confirm-delete flow. */}
 
               {queuedAction && isQueuedActionNoticeVisible ? (
                 <div className="flex items-center gap-3 rounded-xl border border-[rgb(var(--theme-primary-rgb))]/30 bg-[rgb(var(--theme-primary-rgb))]/10 px-3 py-2 text-sm text-zinc-200">
@@ -5505,14 +5631,59 @@ export function EmailInboxView({
                     Linked Tasks
                   </div>
                   <div className="space-y-2">
-                    {selectedThread.linkedTasks.map((task: any) => (
-                      <div
-                        key={task.id}
-                        className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-300"
-                      >
-                        {task.name}
-                      </div>
-                    ))}
+                    {selectedThread.linkedTasks.map((task: any) => {
+                      const override = completedLinkedTaskOverrides[task.id];
+                      const isCompleted =
+                        override !== undefined
+                          ? override
+                          : Boolean(task.completed);
+                      return (
+                        <div
+                          key={task.id}
+                          className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-300"
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleToggleLinkedTaskCompleted(
+                                task.id,
+                                !isCompleted,
+                              )
+                            }
+                            aria-label={
+                              isCompleted
+                                ? "Mark task as incomplete"
+                                : "Mark task as complete"
+                            }
+                            title={
+                              isCompleted
+                                ? "Mark task as incomplete"
+                                : "Mark task as complete"
+                            }
+                            className={cn(
+                              "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors",
+                              isCompleted
+                                ? "text-[rgb(var(--theme-primary-rgb))] hover:text-white"
+                                : "text-zinc-500 hover:text-zinc-300",
+                            )}
+                          >
+                            {isCompleted ? (
+                              <CheckSquare className="h-4 w-4" />
+                            ) : (
+                              <Square className="h-4 w-4" />
+                            )}
+                          </button>
+                          <span
+                            className={cn(
+                              "min-w-0 flex-1 break-words",
+                              isCompleted && "text-zinc-500 line-through",
+                            )}
+                          >
+                            {task.name}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ) : null}
@@ -5550,56 +5721,35 @@ export function EmailInboxView({
                         )}
                       </button>
                     </Tooltip>
-                    <Tooltip content="Modal popout" className="w-auto">
-                      <button
-                        type="button"
-                        onClick={() => setIsThreadModalOpen(true)}
-                        disabled={!selectedThreadId}
-                        title="Open thread in modal"
-                        aria-label="Open thread in modal"
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        <Expand className="h-4 w-4" />
-                      </button>
-                    </Tooltip>
-                    <Tooltip content="Separate window" className="w-auto">
-                      <button
-                        type="button"
-                        onClick={handleOpenThreadWindow}
-                        disabled={!selectedThreadId}
-                        title="Open thread in separate window"
-                        aria-label="Open thread in separate window"
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </button>
-                    </Tooltip>
-                    <Tooltip content="Mark read" className="w-auto">
-                      <button
-                        type="button"
-                        onClick={() => void handleThreadAction("mark_read")}
-                        disabled={
-                          Boolean(busyState) || !selectedThread.isUnread
-                        }
-                        title={
-                          selectedThread.isUnread
-                            ? "Mark thread as read"
-                            : "Thread already read"
-                        }
-                        aria-label={
-                          selectedThread.isUnread
-                            ? "Mark thread as read"
-                            : "Thread already read"
-                        }
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        {busyState === "mark_read" ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <MailCheck className="h-4 w-4" />
-                        )}
-                      </button>
-                    </Tooltip>
+                    {/* Combined docking control: a single trigger that, on
+                        hover, slides left to reveal both docking options
+                        (modal popout + separate window). */}
+                    <div className="group flex items-center justify-end">
+                      <Tooltip content="Separate window" className="w-auto">
+                        <button
+                          type="button"
+                          onClick={handleOpenThreadWindow}
+                          disabled={!selectedThreadId}
+                          title="Open thread in separate window"
+                          aria-label="Open thread in separate window"
+                          className="ml-2 inline-flex h-9 max-w-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 opacity-0 transition-all duration-200 group-hover:max-w-[44px] group-hover:w-9 group-hover:opacity-100 hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          <ExternalLink className="h-4 w-4 shrink-0" />
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Modal popout" className="w-auto">
+                        <button
+                          type="button"
+                          onClick={() => setIsThreadModalOpen(true)}
+                          disabled={!selectedThreadId}
+                          title="Open thread in modal"
+                          aria-label="Open thread in modal"
+                          className="ml-2 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          <Expand className="h-4 w-4" />
+                        </button>
+                      </Tooltip>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {selectedReplyDraft ? (
@@ -5988,11 +6138,30 @@ export function EmailInboxView({
               </div>
 
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                <div className="mb-3 text-xs uppercase tracking-wide text-zinc-500">
+                <div className="mb-2 text-xs uppercase tracking-wide text-zinc-500">
                   Conversation
                 </div>
-                <div className="space-y-3">
-                  {selectedThreadConversationEntries.map((entry: any) => {
+                {selectedThreadConversationEntries.length > 1 &&
+                !showOlderConversation ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowOlderConversation(true)}
+                    className="mx-auto mb-2 flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/70 px-3 py-1 text-xs text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200"
+                    aria-label="Show earlier messages"
+                    title="Show earlier messages"
+                  >
+                    <ChevronUp className="h-3.5 w-3.5" />
+                    {selectedThreadConversationEntries.length - 1} earlier
+                    {selectedThreadConversationEntries.length - 1 === 1
+                      ? " message"
+                      : " messages"}
+                  </button>
+                ) : null}
+                <div className="space-y-2">
+                  {(showOlderConversation
+                    ? selectedThreadConversationEntries
+                    : selectedThreadConversationEntries.slice(-1)
+                  ).map((entry: any) => {
                     const entryAuthorEmail =
                       entry.authorEmail?.toLowerCase().trim() || null;
                     const currentUserEmail =

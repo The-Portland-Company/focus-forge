@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { EmailHtmlContent } from "@/components/ui/email-html-content";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import type { EmailHtmlRenderMode } from "@/lib/email-html-render-mode";
@@ -70,28 +70,11 @@ export function EmailSignatureContent({
   return (
     <div>
       {renderContent(parts.bodyHtml, parts.bodyText, contentClassName)}
-      <div className={cn("group/signature mt-4", collapsedClassName)}>
-        <button
-          type="button"
-          onClick={() => setIsOpen((current) => !current)}
-          className={cn(
-            "flex w-full items-center gap-3 text-xs sm:text-[11px] uppercase tracking-[0.18em] text-zinc-500 transition-opacity duration-200",
-            isOpen ? "opacity-100" : "opacity-0 group-hover/signature:opacity-100",
-          )}
-        >
-          <span className="h-px flex-1 bg-zinc-800" />
-          <span className="inline-flex items-center gap-1 whitespace-nowrap">
-            {isOpen ? "Hide Email Signature" : "Reveal Email Signature"}
-            <ChevronDown
-              className={cn("h-3.5 w-3.5 transition-transform", isOpen && "rotate-180")}
-            />
-          </span>
-          <span className="h-px flex-1 bg-zinc-800" />
-        </button>
+      <div className={cn("mt-4", collapsedClassName)}>
         <div
           className={cn(
             "overflow-hidden transition-all duration-200",
-            isOpen ? "mt-3 max-h-[2000px] opacity-100" : "max-h-0 opacity-0",
+            isOpen ? "mb-3 max-h-[2000px] opacity-100" : "max-h-0 opacity-0",
           )}
         >
           {renderContent(
@@ -99,6 +82,25 @@ export function EmailSignatureContent({
             parts.signatureText,
             signatureClassName || contentClassName,
           )}
+        </div>
+        <div className="relative flex items-center justify-center">
+          <span
+            aria-hidden
+            className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-zinc-800"
+          />
+          <button
+            type="button"
+            onClick={() => setIsOpen((current) => !current)}
+            aria-expanded={isOpen}
+            aria-label={isOpen ? "Hide email signature" : "Show email signature"}
+            className="relative inline-flex h-6 w-10 items-center justify-center rounded-full border border-zinc-800 bg-zinc-950 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
+          >
+            {isOpen ? (
+              <ChevronUp className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5" />
+            )}
+          </button>
         </div>
       </div>
     </div>

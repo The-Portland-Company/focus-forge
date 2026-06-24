@@ -15,8 +15,11 @@ import {
   Ban,
   Bot,
   Check,
+  CheckSquare,
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   ExternalLink,
   FolderSearch,
   GripVertical,
@@ -26,7 +29,6 @@ import {
   MailCheck,
   MailPlus,
   Maximize2,
-  Minimize2,
   PanelBottom,
   PanelRight,
   Pencil,
@@ -34,6 +36,7 @@ import {
   SendHorizontal,
   ShieldAlert,
   Sparkles,
+  Square,
   Trash2,
   X,
 } from "lucide-react";
@@ -133,6 +136,7 @@ type EmailThreadDetail = InboxItem & {
   linkedTasks?: Array<{
     id: string;
     name: string;
+    completed?: boolean;
   }>;
   activeReplyDraft?: EmailReplyDraft | null;
   project_id?: string | null;
@@ -224,6 +228,18 @@ function getThreadEntryPreview(
     : `${flattened.slice(0, maxLength).trimEnd()}…`;
 }
 
+/**
+ * Strip a leading greeting (e.g. "Hi Spencer,", "Hello Spencer") from
+ * AI-generated text before display. Does not mutate stored data — only the
+ * displayed string. Capitalizes the first remaining letter.
+ */
+function stripAiGreeting(text: string | null | undefined): string {
+  if (!text) return "";
+  const stripped = text.replace(/^\s*(hi|hello|hey|dear)\b[^,\n]*,?\s*/i, "");
+  if (!stripped) return text.trim();
+  return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+}
+
 function EmailActorAvatar({
   name,
   email,
@@ -291,6 +307,15 @@ export function EmailThreadModal({
     null,
   );
   const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
+  // Session-local completion overrides keyed by task id. Falls back to the
+  // task's own `completed` field. Lets the strikethrough toggle work visually
+  // and persist for the session even if the server payload lacks the field.
+  const [taskCompletionOverrides, setTaskCompletionOverrides] = useState<
+    Record<string, boolean>
+  >({});
+  // Whether older (past) conversation messages beyond the first are revealed.
+  // Collapsed by default when there are several so the newest read stays tight.
+  const [showOlderMessages, setShowOlderMessages] = useState(false);
   // Per-thread collapse memory: which conversation messages are expanded.
   // Restored from (and persisted to) localStorage keyed by thread id.
   const [threadExpandState, setThreadExpandState] = useState<ThreadExpandState>(
@@ -364,13 +389,22 @@ export function EmailThreadModal({
   );
   // Real AI summary for the thread. Prefer the AI-generated summaryText; fall
   // back to the secondary action title when it adds info beyond the subject.
-  const aiSummaryText =
+  const aiSummaryText = stripAiGreeting(
     thread?.summaryText?.trim() ||
-    (thread &&
+      (thread &&
+      shouldShowSecondaryActionTitle(thread.actionTitle, thread.subject) &&
+      thread.actionTitle?.trim()
+        ? thread.actionTitle.trim()
+        : ""),
+  );
+  // AI-generated headline title (separate from the original subject). Greeting
+  // stripped for display only.
+  const aiActionTitle =
+    thread &&
     shouldShowSecondaryActionTitle(thread.actionTitle, thread.subject) &&
     thread.actionTitle?.trim()
-      ? thread.actionTitle.trim()
-      : "");
+      ? stripAiGreeting(thread.actionTitle.trim())
+      : "";
 
   const conversationEntryIds = useMemo(
     () => conversationEntries.map((entry) => entry.id),
@@ -603,6 +637,8 @@ export function EmailThreadModal({
     setReplyError(null);
     setPendingDeleteTaskId(null);
     setTaskBusyId(null);
+    setTaskCompletionOverrides({});
+    setShowOlderMessages(false);
     setSummaryPanelTab("summary");
   }, [threadId]);
 
@@ -802,6 +838,48 @@ export function EmailThreadModal({
   const handleEditLinkedTask = (taskId: string) => {
     if (!onEditTask) return;
     void onEditTask(taskId);
+  };
+
+  const isLinkedTaskCompleted = (task: {
+    id: string;
+    completed?: boolean;
+  }) =>
+    taskCompletionOverrides[task.id] ?? Boolean(task.completed);
+
+  // Toggle a linked task's completed state. Optimistically flips the local
+  // override (so the strikethrough applies immediately and persists for the
+  // session) and best-effort persists to the server via PATCH.
+  const handleToggleLinkedTaskCompleted = async (task: {
+    id: string;
+    completed?: boolean;
+  }) => {
+    const next = !isLinkedTaskCompleted(task);
+    setTaskCompletionOverrides((current) => ({
+      ...current,
+      [task.id]: next,
+    }));
+    setTaskBusyId(task.id);
+
+    try {
+      const response = await fetch(`/api/tasks/${task.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          completed: next,
+          completed_at: next ? new Date().toISOString() : null,
+        }),
+      });
+
+      await parseApiResponse(response, "Failed to update task");
+      await refreshParent();
+    } catch (error) {
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to update task",
+      );
+    } finally {
+      setTaskBusyId(null);
+    }
   };
 
   const handleDeleteLinkedTask = async (taskId: string) => {
@@ -1234,6 +1312,38 @@ export function EmailThreadModal({
                 : "Email thread"}
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {thread && !loadingThread ? (
+                <Tooltip
+                  content={
+                    canMarkThreadAsRead(thread)
+                      ? "Mark thread as read"
+                      : "Thread already read"
+                  }
+                  className="w-auto"
+                  side="bottom"
+                  align="end"
+                >
+                  <button
+                    type="button"
+                    onClick={() => void handleThreadAction("mark_read")}
+                    disabled={
+                      Boolean(busyState) || !canMarkThreadAsRead(thread)
+                    }
+                    aria-label={
+                      canMarkThreadAsRead(thread)
+                        ? "Mark thread as read"
+                        : "Thread already read"
+                    }
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    {busyState === "mark_read" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <MailCheck className="h-4 w-4" />
+                    )}
+                  </button>
+                </Tooltip>
+              ) : null}
               {conversationEntries.length > 0 ? (
                 <Tooltip
                   content={
@@ -1253,23 +1363,22 @@ export function EmailThreadModal({
                         ? "Collapse all messages"
                         : "Expand all messages"
                     }
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
                   >
                     {allConversationExpanded ? (
-                      <Minimize2 className="h-3.5 w-3.5" />
+                      <ChevronsDownUp className="h-4 w-4" />
                     ) : (
-                      <Maximize2 className="h-3.5 w-3.5" />
+                      <ChevronsUpDown className="h-4 w-4" />
                     )}
-                    <span className="hidden sm:inline">
-                      {allConversationExpanded ? "Collapse All" : "Expand All"}
-                    </span>
                   </button>
                 </Tooltip>
               ) : null}
+              {/* Combined docking control: collapses to the active mode's icon
+                  and slides left on hover to reveal all three options. */}
               <div
                 role="group"
                 aria-label="Thread display mode"
-                className="inline-flex items-center gap-0.5 rounded-lg border border-zinc-700 bg-zinc-900 p-0.5"
+                className="group inline-flex items-center justify-end gap-0.5 rounded-lg border border-zinc-700 bg-zinc-900 p-0.5"
               >
                 {EMAIL_THREAD_DISPLAY_MODE_OPTIONS.map((option) => {
                   const isActive = displayMode === option.value;
@@ -1294,13 +1403,13 @@ export function EmailThreadModal({
                         aria-label={option.label}
                         aria-pressed={isActive}
                         className={cn(
-                          "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors",
+                          "inline-flex h-7 items-center justify-center overflow-hidden rounded-md transition-all duration-200",
                           isActive
-                            ? "bg-zinc-700 text-white"
-                            : "text-zinc-400 hover:text-white",
+                            ? "w-7 bg-zinc-700 text-white"
+                            : "w-0 max-w-0 opacity-0 group-hover:w-7 group-hover:max-w-[28px] group-hover:opacity-100 text-zinc-400 hover:text-white",
                         )}
                       >
-                        <Icon className="h-4 w-4" />
+                        <Icon className="h-4 w-4 shrink-0" />
                       </button>
                     </Tooltip>
                   );
@@ -1335,44 +1444,66 @@ export function EmailThreadModal({
                           email={primaryThreadEntry?.authorEmail}
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="text-xs uppercase tracking-wide text-zinc-500">
-                            From
-                          </div>
-                          <div className="truncate text-sm font-medium text-zinc-100">
-                            {getEmailActorName(
-                              primaryThreadEntry?.authorName,
-                              primaryThreadEntry?.authorEmail,
-                            )}
-                          </div>
-                          {primaryThreadEntry?.authorEmail &&
-                          primaryThreadEntry.authorEmail !==
-                            primaryThreadEntry.authorName ? (
-                            <div className="truncate text-xs text-zinc-500">
-                              {primaryThreadEntry.authorEmail}
+                          {/* From line: actor (name + inline muted email) on the
+                              left, timestamp floated right. */}
+                          <div className="flex items-baseline justify-between gap-3">
+                            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                              <span className="text-xs uppercase tracking-wide text-zinc-500">
+                                From
+                              </span>
+                              <span className="truncate text-sm font-medium text-zinc-100">
+                                {getEmailActorName(
+                                  primaryThreadEntry?.authorName,
+                                  primaryThreadEntry?.authorEmail,
+                                )}
+                              </span>
+                              {primaryThreadEntry?.authorEmail &&
+                              primaryThreadEntry.authorEmail !==
+                                primaryThreadEntry.authorName ? (
+                                <span className="truncate text-xs text-zinc-500">
+                                  {primaryThreadEntry.authorEmail}
+                                </span>
+                              ) : null}
                             </div>
-                          ) : null}
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <Sparkles
-                              className="h-4 w-4 shrink-0 text-[rgb(var(--theme-primary-rgb))]"
-                              aria-hidden
-                            />
-                            <span className="min-w-0 truncate text-sm font-semibold text-white">
-                              {thread.subject
-                                ? formatEmailSubject(thread.subject)
-                                : "Email thread"}
-                            </span>
-                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-700/50 bg-emerald-950/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                              Active
-                            </span>
+                            {primaryThreadEntry?.createdAt ? (
+                              <span className="shrink-0 text-xs text-zinc-500">
+                                {formatEmailTimestamp(
+                                  primaryThreadEntry.createdAt,
+                                )}
+                              </span>
+                            ) : null}
                           </div>
-                          {primaryThreadEntry?.createdAt ? (
-                            <div className="mt-1 text-xs text-zinc-500">
-                              {formatEmailTimestamp(
-                                primaryThreadEntry.createdAt,
-                              )}
+                          {/* Title: AI-generated headline (with AI icon +
+                              tooltip) when present, with the original subject
+                              shown muted underneath. No duplicate rendering. */}
+                          <div className="mt-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              {aiActionTitle ? (
+                                <Tooltip
+                                  content="AI-generated title"
+                                  className="w-auto"
+                                  side="bottom"
+                                  align="start"
+                                >
+                                  <Bot
+                                    className="h-4 w-4 shrink-0 text-[rgb(var(--theme-primary-rgb))]"
+                                    aria-label="AI-generated title"
+                                  />
+                                </Tooltip>
+                              ) : null}
+                              <span className="min-w-0 truncate text-sm font-semibold text-white">
+                                {aiActionTitle ||
+                                  (thread.subject
+                                    ? formatEmailSubject(thread.subject)
+                                    : "Email thread")}
+                              </span>
                             </div>
-                          ) : null}
+                            {aiActionTitle && thread.subject ? (
+                              <div className="mt-1 truncate text-xs text-zinc-500">
+                                {formatEmailSubject(thread.subject)}
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1427,8 +1558,34 @@ export function EmailThreadModal({
                           ref={projectPickerRef}
                           className="relative w-full sm:w-[240px]"
                         >
-                          <div className="relative">
+                          <div className="relative flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 pl-9 pr-10 py-1 transition-colors focus-within:ring-2 ring-theme">
                             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                            {/* Selected project chips render INSIDE the field,
+                                left of the typing cursor. */}
+                            {associatedProjects.map((project) => (
+                              <span
+                                key={project.id}
+                                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-zinc-700/80 bg-zinc-900/70 py-0.5 pl-2 pr-1 text-xs text-zinc-200"
+                              >
+                                <span
+                                  className="h-2 w-2 shrink-0 rounded-full"
+                                  style={{ backgroundColor: project.color }}
+                                />
+                                <span className="truncate">{project.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleRemoveProjectChip(project.id)
+                                  }
+                                  disabled={busyState === "project"}
+                                  aria-label={`Remove ${project.name}`}
+                                  title={`Remove ${project.name}`}
+                                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-white disabled:opacity-50"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </span>
+                            ))}
                             <input
                               type="text"
                               value={projectSearchQuery}
@@ -1454,9 +1611,13 @@ export function EmailThreadModal({
                                   );
                                 }
                               }}
-                              placeholder="Add project..."
+                              placeholder={
+                                associatedProjects.length > 0
+                                  ? ""
+                                  : "Add project..."
+                              }
                               disabled={busyState === "project"}
-                              className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-10 pr-10 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
+                              className="h-7 min-w-[80px] flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-zinc-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                             />
                             <button
                               type="button"
@@ -1477,36 +1638,6 @@ export function EmailThreadModal({
                               )}
                             </button>
                           </div>
-                          {associatedProjects.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {associatedProjects.map((project) => (
-                                <span
-                                  key={project.id}
-                                  className="inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-900/70 py-1 pl-3 pr-1.5 text-xs text-zinc-300"
-                                >
-                                  <span
-                                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                                    style={{ backgroundColor: project.color }}
-                                  />
-                                  <span className="truncate">
-                                    {project.name}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleRemoveProjectChip(project.id)
-                                    }
-                                    disabled={busyState === "project"}
-                                    aria-label={`Remove ${project.name}`}
-                                    title={`Remove ${project.name}`}
-                                    className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-white disabled:opacity-50"
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </button>
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
                           {isProjectPickerOpen ? (
                             <div className="absolute right-0 top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
                               {filteredInboxProjects.length > 0 ? (
@@ -1588,14 +1719,60 @@ export function EmailThreadModal({
                                 const isConfirmingDelete =
                                   pendingDeleteTaskId === task.id;
                                 const isTaskBusy = taskBusyId === task.id;
+                                const isCompleted =
+                                  isLinkedTaskCompleted(task);
 
                                 return (
                                   <div
                                     key={task.id}
                                     className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-300"
                                   >
-                                    <span className="min-w-0 flex-1 truncate">
-                                      {task.name}
+                                    <Tooltip
+                                      content={
+                                        isCompleted
+                                          ? "Reopen task"
+                                          : "Mark complete"
+                                      }
+                                      className="w-auto"
+                                      side="bottom"
+                                      align="start"
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void handleToggleLinkedTaskCompleted(
+                                            task,
+                                          )
+                                        }
+                                        disabled={isTaskBusy}
+                                        aria-pressed={isCompleted}
+                                        aria-label={
+                                          isCompleted
+                                            ? "Reopen task"
+                                            : "Mark task complete"
+                                        }
+                                        className={cn(
+                                          "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-50",
+                                          isCompleted
+                                            ? "text-[rgb(var(--theme-primary-rgb))]"
+                                            : "text-zinc-500 hover:text-zinc-200",
+                                        )}
+                                      >
+                                        {isCompleted ? (
+                                          <CheckSquare className="h-4 w-4" />
+                                        ) : (
+                                          <Square className="h-4 w-4" />
+                                        )}
+                                      </button>
+                                    </Tooltip>
+                                    <span
+                                      className={cn(
+                                        "min-w-0 flex-1 truncate",
+                                        isCompleted &&
+                                          "text-zinc-500 line-through",
+                                      )}
+                                    >
+                                      {stripAiGreeting(task.name)}
                                     </span>
                                     {isConfirmingDelete ? (
                                       <div className="flex shrink-0 items-center gap-2">
@@ -1758,6 +1935,11 @@ export function EmailThreadModal({
                       icon: <Ban className="h-4 w-4" />,
                       destructive: true,
                     })}
+                    {renderThreadActionButton("delete", {
+                      icon: <Trash2 className="h-4 w-4" />,
+                      label: "Delete email",
+                      destructive: true,
+                    })}
                   </div>
                 </div>
               </div>
@@ -1853,12 +2035,43 @@ export function EmailThreadModal({
                     </button>
                   ) : null}
                 </div>
-                <div className="space-y-3">
-                  {orderedConversationEntries.map((entry) => {
+                <div className="space-y-1.5">
+                  {orderedConversationEntries.map((entry, entryIndex) => {
                     const isExpanded = isThreadMessageExpanded(
                       threadExpandState,
                       entry.id,
                     );
+                    const hiddenOlderCount =
+                      orderedConversationEntries.length - 1;
+                    // Centered bumper to reveal older (past) messages: shown
+                    // between the first message and the rest when collapsed.
+                    if (
+                      entryIndex === 1 &&
+                      !showOlderMessages &&
+                      hiddenOlderCount > 0
+                    ) {
+                      return (
+                        <div
+                          key="older-messages-bumper"
+                          className="flex justify-center py-0.5"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setShowOlderMessages(true)}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs font-medium text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white"
+                          >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                            <span>
+                              Show {hiddenOlderCount} older message
+                              {hiddenOlderCount === 1 ? "" : "s"}
+                            </span>
+                          </button>
+                        </div>
+                      );
+                    }
+                    if (entryIndex >= 1 && !showOlderMessages) {
+                      return null;
+                    }
 
                     return (
                       <div
@@ -1988,45 +2201,14 @@ export function EmailThreadModal({
                       <ExternalLink className="h-4 w-4" />
                     </button>
                   </Tooltip>
-                  <Tooltip content="Mark read" className="w-auto">
-                    <button
-                      type="button"
-                      onClick={() => void handleThreadAction("mark_read")}
-                      disabled={
-                        Boolean(busyState) || !canMarkThreadAsRead(thread)
-                      }
-                      title={
-                        canMarkThreadAsRead(thread)
-                          ? "Mark thread as read"
-                          : "Thread already read"
-                      }
-                      aria-label={
-                        canMarkThreadAsRead(thread)
-                          ? "Mark thread as read"
-                          : "Thread already read"
-                      }
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      {busyState === "mark_read" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <MailCheck className="h-4 w-4" />
-                      )}
-                    </button>
-                  </Tooltip>
                   {selectedReplyDraftId ? (
                     <div className="rounded-full border border-zinc-700 px-2 py-1 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
                       Draft active
                     </div>
                   ) : null}
-                  {/* Single Delete Email control, fixed at the bottom-right of
-                      the modal. Confirmation (inline Confirm/Undo) + hover
-                      tooltip are provided by renderThreadActionButton. */}
-                  {renderThreadActionButton("delete", {
-                    icon: <Trash2 className="h-4 w-4" />,
-                    label: "Delete email",
-                    destructive: true,
-                  })}
+                  {/* Mark-read lives in the top-right header; the destructive
+                      cluster (Quarantine/Archive/Spam/Delete) lives in the
+                      title row. */}
                 </div>
                 {replyStyleOverrideEnabled ? (
                   <div className="mb-3 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
