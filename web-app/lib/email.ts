@@ -30,6 +30,11 @@ interface SendEmailMessageParams {
   html: string;
   text: string;
   cc?: string | string[];
+  /**
+   * Optional RFC 5322 headers (e.g. Message-ID, In-Reply-To, References) used
+   * to keep related notifications grouped in the same email thread.
+   */
+  headers?: Record<string, string>;
 }
 
 export async function sendEmailMessage({
@@ -38,11 +43,13 @@ export async function sendEmailMessage({
   html,
   text,
   cc,
+  headers,
 }: SendEmailMessageParams) {
   const { data, error } = await getResend().emails.send({
     from: `${FROM_NAME} <${FROM_EMAIL}>`,
     to: Array.isArray(to) ? to : [to],
     ...(cc ? { cc: Array.isArray(cc) ? cc : [cc] } : {}),
+    ...(headers ? { headers } : {}),
     subject,
     html,
     text,

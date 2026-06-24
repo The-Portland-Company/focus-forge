@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { SupabaseAdapter } from "@/lib/db/supabase-adapter";
-import { sendTaskLifecycleNotifications } from "@/lib/task-notifications";
+import {
+  sendTaskLifecycleNotifications,
+  sendTaskCreatedNotification,
+} from "@/lib/task-notifications";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
 import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
 
@@ -87,6 +90,11 @@ export async function POST(request: NextRequest) {
       actorUserId: session.user.id,
       previousAssignedTo: null,
       previousText: "",
+    });
+
+    void sendTaskCreatedNotification({
+      taskId: newTask.id,
+      actorUserId: session.user.id,
     });
 
     return NextResponse.json(newTask);

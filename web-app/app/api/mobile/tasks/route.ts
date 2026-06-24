@@ -10,7 +10,10 @@ import {
   serializeMobileTasks,
   verifyMobileAccessTokenOrPat,
 } from "@/lib/mobile/api";
-import { sendTaskLifecycleNotifications } from "@/lib/task-notifications";
+import {
+  sendTaskLifecycleNotifications,
+  sendTaskCreatedNotification,
+} from "@/lib/task-notifications";
 import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
 
@@ -119,6 +122,11 @@ export async function POST(request: NextRequest) {
       actorUserId: auth.user.id,
       previousAssignedTo: null,
       previousText: "",
+    });
+
+    void sendTaskCreatedNotification({
+      taskId: newTask.id,
+      actorUserId: auth.user.id,
     });
 
     return NextResponse.json(mobileSuccess(serializeMobileTask(newTask)), {

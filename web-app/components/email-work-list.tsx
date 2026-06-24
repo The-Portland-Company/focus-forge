@@ -1269,6 +1269,27 @@ export function EmailWorkList({
                     </Tooltip>
                   </div>
                 ) : null}
+                {/* Hover-revealed delete on every row (outside triage views,
+                    which already render an always-visible delete above). */}
+                {!showTodayTriageActions ? (
+                  <Tooltip
+                    content="Delete email"
+                    className="w-auto"
+                    side="top"
+                  >
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void onThreadAction?.(item, "delete");
+                      }}
+                      className="inline-flex h-11 w-11 sm:h-7 sm:w-7 items-center justify-center rounded-md text-zinc-400 opacity-0 transition hover:bg-zinc-800 hover:text-rose-300 focus-visible:opacity-100 group-hover:opacity-100"
+                      aria-label="Delete email"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </Tooltip>
+                ) : null}
                 {/* Thread created (received) date/time on the AI-subject row,
                     right-aligned. Prefers the thread's createdAt so the row
                     surfaces when the thread first arrived; falls back to the
