@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTasksRealtime } from "@/hooks/use-tasks-realtime";
 import { EstimatesView } from "@/components/estimates-view";
 import { TimeTrackingView } from "@/components/time-tracking-view";
 import { getBlockedTaskIds } from "@/lib/dependency-utils";
@@ -1087,6 +1088,20 @@ export default function ViewPage({
       window.removeEventListener("voice-tasks:reverted", refresh);
     };
   }, [fetchData]);
+
+  // Realtime: tasks arrive via DB push (INSERT/UPDATE/DELETE on public.tasks for
+  // accessible projects) instead of refetch-on-render. Additive to the load-once
+  // initial fetch above — the scoped channel only refetches when a row actually
+  // changes. project ids are derived from the already-loaded projects.
+  const realtimeProjectIds = database.projects.map((project) => project.id);
+  useTasksRealtime({
+    userId: user?.id,
+    enabled: !chromeOnly && !isEmailThreadPopout,
+    projectIds: realtimeProjectIds,
+    onChange: () => {
+      void fetchData();
+    },
+  });
 
   const loadProjectInboxItems = useCallback(
     async (projectId: string, options: { force?: boolean } = {}) => {
