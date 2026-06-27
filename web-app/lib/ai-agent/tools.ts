@@ -73,7 +73,7 @@ export async function resolveAccessibleProjectIds(
 }
 
 const TASK_SELECT =
-  "id, name, description, priority, due_date, due_time, deadline, completed, completed_at, project_id, section_id, parent_id, created_at, updated_at";
+  "id, name, description, priority, due_date, due_time, deadline, completed, completed_at, requires_hitl, project_id, section_id, parent_id, created_at, updated_at";
 
 function shapeTask(row: any) {
   return {
@@ -85,6 +85,7 @@ function shapeTask(row: any) {
     dueTime: row.due_time ?? null,
     deadline: row.deadline ?? null,
     completed: Boolean(row.completed),
+    requiresHitl: Boolean(row.requires_hitl),
     projectId: row.project_id ?? null,
     sectionId: row.section_id ?? null,
     parentId: row.parent_id ?? null,
@@ -757,6 +758,18 @@ async function completeTask(ctx: AgentToolContext, args: Record<string, any>): P
   const task = await loadAuthorizedTask(ctx, String(args.taskId));
   if (!task) return { ok: false, error: "Task not found or not accessible." };
   const completed = args.completed !== false;
+
+  // Human-in-the-loop guard: the AI agent must never auto-complete a task that
+  // is flagged requires_hitl. Re-opening (completed === false) is still allowed.
+  // This is the AI auto-completion enforcement point for the in-app agent — the
+  // only code path through which the model can mark a task done.
+  if (completed && task.requires_hitl) {
+    return {
+      ok: false,
+      error:
+        "This task is flagged \"Requires Human in the Loop (HITL) to complete\" and cannot be completed by the AI agent. Flag it for a human to review and complete.",
+    };
+  }
 
   const { data, error } = await ctx.admin
     .from("tasks")

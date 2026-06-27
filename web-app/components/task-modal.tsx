@@ -228,6 +228,7 @@ export function TaskModal({
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState<string>("");
   const [copiedId, setCopiedId] = useState(false);
+  const [requiresHitl, setRequiresHitl] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -257,6 +258,10 @@ export function TaskModal({
           : "",
       );
       setPriority(task.priority);
+      // Handle both snake_case and camelCase for the HITL flag
+      setRequiresHitl(
+        Boolean((task as any).requires_hitl ?? task.requiresHitl ?? false),
+      );
       // Handle both snake_case and camelCase for projectId
       const projectId = (task as any).project_id || task.projectId || "";
       // If no project, try to select the first available project as default
@@ -326,6 +331,7 @@ export function TaskModal({
       setDeadline("");
       setDeadlineTime("");
       setPriority(4);
+      setRequiresHitl(false);
       setSelectedProject(defaultProjectId || "");
       setSelectedParentTask(null);
       setReminders([]);
@@ -534,6 +540,7 @@ export function TaskModal({
           : deadline
         : emptyEditValue,
       priority,
+      requiresHitl,
       projectId: effectiveProjectId,
       parentId: selectedParentTask || emptyEditValue,
       tags: selectedTags,
@@ -2574,6 +2581,45 @@ export function TaskModal({
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Requires Human in the Loop (HITL) to complete */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setRequiresHitl((v) => !v)}
+              aria-pressed={requiresHitl}
+              className="flex w-full items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3 text-left transition-colors hover:border-zinc-700"
+            >
+              <div className="flex items-start gap-2">
+                <UserCheck
+                  className={`mt-0.5 h-4 w-4 ${
+                    requiresHitl ? "text-amber-400" : "text-zinc-400"
+                  }`}
+                />
+                <div>
+                  <div className="text-sm font-medium text-zinc-200">
+                    Requires Human in the Loop (HITL) to complete
+                  </div>
+                  <div className="text-[11px] text-zinc-400">
+                    AI agents won&apos;t auto-complete this task — only a human
+                    can mark it done.
+                  </div>
+                </div>
+              </div>
+              <span
+                aria-hidden
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
+                  requiresHitl ? "bg-amber-500" : "bg-zinc-700"
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    requiresHitl ? "translate-x-4" : "translate-x-0.5"
+                  }`}
+                />
+              </span>
+            </button>
           </div>
 
           {/* Reminders */}
