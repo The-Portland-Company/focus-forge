@@ -25,6 +25,7 @@ import {
   Mail,
   StickyNote,
   Sparkles,
+  UserCheck,
 } from "lucide-react";
 import { isAiCreatedTask } from "@/lib/email-inbox/ai-task-origin";
 import { format, addDays } from "date-fns";
@@ -1264,6 +1265,16 @@ export function TaskList({
                     <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/priority:opacity-100 transition-opacity pointer-events-none z-50">
                       Priority {task.priority}
                     </span>
+                  </span>
+                ) : null}
+
+                {((task as any).requires_hitl ?? task.requiresHitl) ? (
+                  <span
+                    className="inline-flex items-center gap-1 flex-shrink-0 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs sm:text-[10px] font-medium uppercase tracking-[0.12em] text-amber-300"
+                    title="Requires Human in the Loop (HITL) to complete — AI agents won't auto-complete this task"
+                  >
+                    <UserCheck className="h-3 w-3" />
+                    HITL
                   </span>
                 ) : null}
 

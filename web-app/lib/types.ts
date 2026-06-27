@@ -77,6 +77,11 @@ export interface Task {
   name: string;
   description?: string;
   devnotesMeta?: string | null;
+  /**
+   * "Requires Human in the Loop (HITL) to complete." When true, AI agents /
+   * automation must not auto-complete this task — only a human may mark it done.
+   */
+  requiresHitl?: boolean;
   dueDate?: string;
   dueTime?: string;
   priority: 1 | 2 | 3 | 4;

@@ -862,6 +862,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
         ...task,
         // Map snake_case to camelCase for frontend compatibility
         devnotesMeta: task.devnotes_meta,
+        requiresHitl: task.requires_hitl ?? false,
         projectId: task.project_id,
         dueDate: task.due_date,
         dueTime: task.due_time,
@@ -954,6 +955,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       ...data,
       // Map snake_case to camelCase for frontend compatibility
       devnotesMeta: data.devnotes_meta,
+      requiresHitl: data.requires_hitl ?? false,
       projectId: data.project_id,
       dueDate: data.due_date,
       dueTime: data.due_time,
@@ -1028,6 +1030,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "created_by",
       "description",
       "devnotes_meta",
+      "requires_hitl",
       "due_date",
       "due_time",
       "priority",
@@ -1067,6 +1070,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
     // Map camelCase fields to snake_case for Supabase
     const fieldMap: Record<string, string> = {
       devnotesMeta: "devnotes_meta",
+      requiresHitl: "requires_hitl",
       projectId: "project_id",
       dueDate: "due_date",
       dueTime: "due_time",
@@ -1186,6 +1190,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "name",
       "description",
       "devnotes_meta",
+      "requires_hitl",
       "due_date",
       "due_time",
       "priority",
@@ -1224,6 +1229,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
     const fieldMap: Record<string, string> = {
       devnotesMeta: "devnotes_meta",
+      requiresHitl: "requires_hitl",
       projectId: "project_id",
       dueDate: "due_date",
       dueTime: "due_time",
