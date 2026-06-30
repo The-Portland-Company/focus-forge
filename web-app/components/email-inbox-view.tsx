@@ -4026,7 +4026,7 @@ export function EmailInboxView({
                   : "Email Inbox"}
             </h1>
           </div>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 whitespace-nowrap text-sm text-zinc-500">
             {isQuarantineView
               ? "Review suspected spam and decide what Fluid should do next."
               : isSentView
