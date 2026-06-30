@@ -1926,12 +1926,110 @@ export async function getRuleStatsForUser(userId: string) {
   };
 }
 
+// Thread columns matched by a free-text inbox search. Keep aligned with the
+// fields a human scans when looking for a thread.
+const SEARCH_THREAD_COLUMNS = [
+  "subject",
+  "normalized_subject",
+  "preview_text",
+  "summary_text",
+  "action_title",
+] as const;
+
+/**
+ * Split a free-text search query into individual terms (AND semantics).
+ * Strips PostgREST `.or()` filter metacharacters (commas, parens, percent,
+ * backslash, asterisk) that would otherwise break the generated filter string
+ * or be interpreted as wildcards. Pure helper — unit tested.
+ */
+export function parseInboxSearchTerms(query: string): string[] {
+  if (!query) return [];
+  return query
+    .split(/\s+/)
+    .map((term) => term.replace(/[,()%*\\]/g, "").trim())
+    .filter((term) => term.length > 0);
+}
+
+/**
+ * Build the PostgREST `.or()` filter expression that matches a single term
+ * against every searchable thread column via ILIKE. Pure helper — unit tested.
+ */
+export function buildThreadSearchOrFilter(term: string): string {
+  return SEARCH_THREAD_COLUMNS.map(
+    (column) => `${column}.ilike.%${term}%`,
+  ).join(",");
+}
+
+/**
+ * Resolve the set of thread ids (within the user's accessible mailboxes) that
+ * match a free-text search query. A thread matches a term if any searchable
+ * thread column ILIKEs it OR any of its participants' display name / email
+ * address ILIKEs it. Multi-word queries use AND-of-terms: a thread must match
+ * EVERY term (across the combined searchable surface) to be included.
+ *
+ * PostgREST cannot easily OR a thread-column filter against a participant
+ * subquery, so each term is resolved in two reads (threads + participants) and
+ * the id sets are unioned; the per-term union sets are then intersected to get
+ * the AND-of-terms result.
+ */
+async function resolveSearchThreadIds(
+  admin: ReturnType<typeof getAdminClient>,
+  mailboxIds: string[],
+  terms: string[],
+): Promise<string[]> {
+  let intersection: Set<string> = new Set<string>();
+
+  for (let i = 0; i < terms.length; i += 1) {
+    const term = terms[i];
+    const [{ data: threadMatches }, { data: participantMatches }] =
+      await Promise.all([
+        admin
+          .from("email_threads")
+          .select("id")
+          .in("mailbox_id", mailboxIds)
+          .or(buildThreadSearchOrFilter(term)),
+        // email_participants has no mailbox_id column, so match participants
+        // globally here; the final thread query re-scopes to the user's
+        // mailboxes (`.in("mailbox_id", mailboxIds)` + `.in("id", matchedIds)`),
+        // so cross-mailbox thread ids can't leak into the result.
+        admin
+          .from("email_participants")
+          .select("thread_id")
+          .or(`display_name.ilike.%${term}%,email_address.ilike.%${term}%`),
+      ]);
+
+    const termSet = new Set<string>();
+    ((threadMatches || []) as any[]).forEach((row) =>
+      termSet.add(String(row.id)),
+    );
+    ((participantMatches || []) as any[]).forEach((row) =>
+      termSet.add(String(row.thread_id)),
+    );
+
+    if (i === 0) {
+      intersection = termSet;
+    } else {
+      intersection = new Set<string>(
+        Array.from(intersection).filter((id) => termSet.has(id)),
+      );
+    }
+
+    // Early-out: once the running intersection is empty, no thread can match.
+    if (intersection.size === 0) {
+      return [];
+    }
+  }
+
+  return Array.from(intersection);
+}
+
 export async function listInboxItemsForUser(
   userId: string,
   options: {
     status?: string;
     mailboxId?: string;
     projectId?: string;
+    search?: string;
   } = {},
 ) {
   const admin = getAdminClient();
@@ -1939,6 +2037,24 @@ export async function listInboxItemsForUser(
   const mailboxIds = mailboxes.map((mailbox) => mailbox.id);
   if (mailboxIds.length === 0) {
     return [];
+  }
+
+  // Server-side search resolves matching thread ids across the WHOLE mailbox
+  // set (not just the recent-200 window) so a query finds matches regardless of
+  // recency. We then fetch the LIST_THREAD_COLUMNS rows for those ids, still
+  // scoped to the user's mailboxes and ordered by latest_message_at desc.
+  const searchTerms = parseInboxSearchTerms((options.search || "").trim());
+  const isSearching = searchTerms.length > 0;
+  let searchThreadIds: string[] = [];
+  if (isSearching) {
+    searchThreadIds = await resolveSearchThreadIds(
+      admin,
+      mailboxIds,
+      searchTerms,
+    );
+    if (searchThreadIds.length === 0) {
+      return [];
+    }
   }
 
   // Explicit column list: only the fields mapThreadToInboxItem actually reads
@@ -1962,7 +2078,14 @@ export async function listInboxItemsForUser(
     .order("latest_message_at", { ascending: false })
     // Cap the result set: the UI paginates client-side at 50/page, so 200 keeps
     // several pages of the most-recent threads without dragging full history.
+    // When searching, this caps the matched set (newest 200 matches) instead.
     .limit(200);
+
+  // When searching, restrict to the matched thread ids (resolved across the
+  // full mailbox above). The mailbox scope + ordering + 200 cap still apply.
+  if (isSearching) {
+    query = query.in("id", searchThreadIds);
+  }
 
   if (options.status) {
     query = query.eq("status", options.status);

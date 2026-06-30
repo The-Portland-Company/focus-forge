@@ -1379,6 +1379,13 @@ export function EmailInboxView({
   const [selectedThread, setSelectedThread] = useState<any | null>(null);
   const [mailboxes, setMailboxes] = useState(data.mailboxes);
   const [inboxItems, setInboxItems] = useState(data.inboxItems);
+  // Server-backed search results across the FULL mailbox (not just the recent
+  // 200 loaded in `inboxItems`). Populated by a debounced fetch when the user
+  // types a broad (non-field-scoped) term; null when no server search is active.
+  const [serverSearchItems, setServerSearchItems] = useState<
+    InboxItem[] | null
+  >(null);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [quarantineCount, setQuarantineCount] = useState(data.quarantineCount);
   const [browserNotificationPermission, setBrowserNotificationPermission] =
     useState<NotificationPermission | "unsupported">("unsupported");
@@ -1600,17 +1607,85 @@ export function EmailInboxView({
     profile?.email_delete_undo_seconds,
   );
 
+  // The broad (non-field-scoped) portion of the search query that the SERVER
+  // searches across the full mailbox. Field-scoped terms (from:/subject:/etc.)
+  // and date ranges stay client-side and are applied on top of the results.
+  const serverSearchQuery = useMemo(() => {
+    const trimmed = inboxSearchQuery.trim();
+    if (!trimmed || isEmailInboxSearchHelpQuery(trimmed)) return "";
+    const parsed = parseEmailInboxSearchQuery(trimmed);
+    const broad = parsed.broadTerms.join(" ").trim();
+    // Require at least one broad term of length >= 2 to avoid firing on a
+    // single character or a purely field-scoped query.
+    if (!parsed.broadTerms.some((term) => term.length >= 2)) return "";
+    return broad;
+  }, [inboxSearchQuery]);
+
+  // Debounced server-side search across the full mailbox. AbortController +
+  // request-id guard ensure a stale (older) response can never overwrite the
+  // results of a newer query. On error we fall back to client-side filtering of
+  // the already-loaded items (never blank the list).
+  const searchRequestIdRef = useRef(0);
+  useEffect(() => {
+    if (!serverSearchQuery) {
+      // Query cleared / no broad term: drop server results, revert to capped list.
+      searchRequestIdRef.current += 1;
+      setServerSearchItems(null);
+      setSearchLoading(false);
+      return;
+    }
+
+    const requestId = ++searchRequestIdRef.current;
+    const controller = new AbortController();
+    setSearchLoading(true);
+
+    const timer = setTimeout(() => {
+      fetch(`/api/email/inbox?search=${encodeURIComponent(serverSearchQuery)}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("search request failed");
+          const items = (await response.json()) as InboxItem[];
+          // Ignore stale responses: only the most recent request may commit.
+          if (requestId !== searchRequestIdRef.current) return;
+          setServerSearchItems(Array.isArray(items) ? items : []);
+          setSearchLoading(false);
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          if (requestId !== searchRequestIdRef.current) return;
+          // Fall back to client-side filtering of loaded items on error.
+          console.error("Email inbox server search failed", error);
+          setServerSearchItems(null);
+          setSearchLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [serverSearchQuery]);
+
+  // When a server search is active, use its full-mailbox results as the base
+  // list for the visible pipeline instead of the recency-capped `inboxItems`.
+  // All client-side refinements (folder/mailbox/status, field-scoped search,
+  // date range, sort, pagination) still run on top.
+  const isServerSearchActive = serverSearchItems !== null;
+  const baseInboxItems = isServerSearchActive ? serverSearchItems : inboxItems;
+
   const filteredInboxItems = useMemo(
     () =>
       filterInboxItemsForView({
-        inboxItems,
+        inboxItems: baseInboxItems,
         selectedMailboxId,
         filterTab: inboxFilterTab,
         retainedSpamThreadIds,
         view,
       }),
     [
-      inboxItems,
+      baseInboxItems,
       inboxFilterTab,
       retainedSpamThreadIds,
       selectedMailboxId,
@@ -4367,6 +4442,18 @@ export function EmailInboxView({
                 {isRefreshing ? (
                   <Tooltip content="Refreshing…" className="w-auto" side="bottom">
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
+                  </Tooltip>
+                ) : null}
+                {searchLoading ? (
+                  <Tooltip
+                    content="Searching full mailbox…"
+                    className="w-auto"
+                    side="bottom"
+                  >
+                    <span className="inline-flex items-center gap-1 text-xs text-zinc-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Searching…
+                    </span>
                   </Tooltip>
                 ) : null}
               </div>

@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
       status: request.nextUrl.searchParams.get("status") || undefined,
       mailboxId: request.nextUrl.searchParams.get("mailboxId") || undefined,
       projectId: request.nextUrl.searchParams.get("projectId") || undefined,
+      search: request.nextUrl.searchParams.get("search") || undefined,
     });
     return NextResponse.json(items);
   } catch (error) {
