@@ -66,21 +66,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log('Auth state change:', event)
-        
-        if (event === 'TOKEN_REFRESHED') {
-          console.log('Token refreshed successfully')
-        }
-        
         if (event === 'SIGNED_OUT') {
           setUser(null)
           return
         }
-        
+
         setUser(session?.user ?? null)
-        
-        // Apply theme on auth state change
-        if (session?.user) {
+
+        // Only fetch the profile (theme) on an actual new sign-in. The initial
+        // load is already handled above, and TOKEN_REFRESHED / INITIAL_SESSION
+        // fire repeatedly (token refresh runs ~hourly) — refetching the profile
+        // on every one of those events was a large source of duplicate
+        // public.profiles egress.
+        if (event === 'SIGNED_IN' && session?.user) {
           const { data: profile } = await supabase
             .from('profiles')
             .select('profile_color, animations_enabled, theme_preset')

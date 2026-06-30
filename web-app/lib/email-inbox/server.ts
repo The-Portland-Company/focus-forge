@@ -1,3 +1,4 @@
+import { cache } from "react";
 import {
   SupabaseAdapter,
   resolveVisibleProjectIds,
@@ -190,7 +191,15 @@ async function hydrateMessageAttachmentMetadata(
   return hydratedRows;
 }
 
-async function getVisibleScope(userId: string): Promise<VisibleScope> {
+// Request-scoped memoization. A single email API request fans out into many
+// access checks (ensureThreadAccess -> ensureMailboxAccess, ensureProjectAccess,
+// ensureOrganizationAccess, etc.), each of which previously re-queried
+// user_organizations + profiles (and mailboxes/mailbox_members/projects).
+// React's cache() dedupes these by argument within one server request, which
+// collapses the dominant source of repeated auth/permission egress.
+const getVisibleScope = cache(async function getVisibleScope(
+  userId: string,
+): Promise<VisibleScope> {
   const admin = getAdminClient();
   const [{ data: memberships }, { data: profile }] = await Promise.all([
     admin
@@ -211,9 +220,11 @@ async function getVisibleScope(userId: string): Promise<VisibleScope> {
     orgIds: orgMemberships.map((membership) => membership.organization_id),
     role: (profile?.role as string | null) || null,
   };
-}
+});
 
-async function getAccessibleMailboxRows(userId: string) {
+const getAccessibleMailboxRows = cache(async function getAccessibleMailboxRows(
+  userId: string,
+) {
   const admin = getAdminClient();
   const scope = await getVisibleScope(userId);
   const { data: mailboxes } = await admin
@@ -238,9 +249,9 @@ async function getAccessibleMailboxRows(userId: string) {
     }
     return false;
   });
-}
+});
 
-async function getVisibleProjectsForUser(
+const getVisibleProjectsForUser = cache(async function getVisibleProjectsForUser(
   userId: string,
   organizationId?: string | null,
 ): Promise<ProjectOption[]> {
@@ -279,7 +290,7 @@ async function getVisibleProjectsForUser(
       ) || visibility.explicitProjectIds.has(String(project.id))
     );
   });
-}
+});
 
 async function ensureMailboxAccess(userId: string, mailboxId: string) {
   const mailboxRows = await getAccessibleMailboxRows(userId);
