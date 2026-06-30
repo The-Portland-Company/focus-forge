@@ -2846,6 +2846,72 @@ export async function deleteMailbox(userId: string, mailboxId: string) {
   return { id: mailboxId, deleted: true };
 }
 
+// Max number of threads analyzed by the AI concurrently per backfill batch.
+// Keeps OpenAI usage bounded so a large sync can't fan out an unbounded number
+// of parallel model calls.
+const THREAD_ANALYSIS_CONCURRENCY = 3;
+
+// Cap on how many previously-unanalyzed threads we retry per sync. Threads whose
+// AI analysis failed (or never ran) leave `analysis_json` NULL and get picked up
+// here on a later sync, without a dedicated `needs_analysis` column.
+const THREAD_ANALYSIS_RETRY_LIMIT = 25;
+
+// Strong references to in-flight background analysis tasks. On the persistent
+// Railway Node server (`node start.js`) an un-awaited promise is fine to run to
+// completion, but we must keep a reference so it isn't garbage-collected before
+// it settles. Each task removes itself on completion.
+const pendingThreadAnalysisTasks = new Set<Promise<void>>();
+
+/**
+ * Run the expensive AI analysis (`reprocessThread`) for a set of threads OUT of
+ * the sync critical path. Threads are already persisted with a cheap preview, so
+ * the inbox can render them immediately; this backfills analysis_json /
+ * summary_text / task_suggestions_json / action_* and, because `email_threads`
+ * has realtime enabled (REPLICA IDENTITY FULL + publication), each UPDATE pushes
+ * to subscribed clients automatically (the row's owner_user_id / mailbox_id are
+ * set, so the realtime filter matches).
+ *
+ * Idempotent and failure-isolated: a failure on one thread is logged and leaves
+ * the cheap preview in place (a later sync retries it via the analysis_json IS
+ * NULL sweep); it never loses the message or aborts the batch.
+ */
+function runThreadAnalysisInBackground(
+  threadIds: string[],
+  actorUserId: string,
+): Promise<void> {
+  const queue = Array.from(new Set(threadIds.map(String)));
+  if (queue.length === 0) {
+    return Promise.resolve();
+  }
+
+  const task = (async () => {
+    const worker = async () => {
+      for (;;) {
+        const threadId = queue.shift();
+        if (!threadId) return;
+        try {
+          await reprocessThread(threadId, actorUserId);
+        } catch (error) {
+          console.error(
+            "[email-inbox] Background thread analysis failed",
+            threadId,
+            extractMailboxErrorMessage(error),
+          );
+        }
+      }
+    };
+
+    const workerCount = Math.min(THREAD_ANALYSIS_CONCURRENCY, queue.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  })();
+
+  pendingThreadAnalysisTasks.add(task);
+  void task.finally(() => {
+    pendingThreadAnalysisTasks.delete(task);
+  });
+  return task;
+}
+
 export async function syncMailboxById(userId: string, mailboxId: string) {
   const admin = getAdminClient();
   const mailbox = await ensureMailboxManage(userId, mailboxId);
@@ -2930,13 +2996,52 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       );
     }
 
+    // The changed threads are already persisted with a cheap preview
+    // (subject / preview_text / latest_message_at / classification="unknown")
+    // during ingest, so the inbox can render them immediately. Fetch those
+    // rows for push notifications instead of blocking on the AI step.
     const processedThreads = new Map<string, any>();
-    for (const threadId of changedThreadIds) {
-      const thread = await reprocessThread(threadId, mailbox.owner_user_id);
-      if (thread?.id) {
-        processedThreads.set(String(thread.id), thread);
+    if (changedThreadIds.size > 0) {
+      const { data: cheapThreads } = await admin
+        .from("email_threads")
+        .select("*")
+        .in("id", Array.from(changedThreadIds));
+      for (const thread of cheapThreads || []) {
+        if (thread?.id) {
+          processedThreads.set(String(thread.id), thread);
+        }
       }
     }
+
+    // Run the expensive AI analysis OUT of the sync critical path. Also retry a
+    // bounded set of previously-unanalyzed threads (analysis_json IS NULL) for
+    // this mailbox so transient AI failures self-heal on a later sync without a
+    // dedicated needs_analysis column. The UPDATE that reprocessThread writes
+    // pushes the backfilled analysis to realtime subscribers automatically.
+    const threadsNeedingAnalysis = new Set<string>(
+      Array.from(changedThreadIds).map(String),
+    );
+    try {
+      const { data: pendingThreads } = await admin
+        .from("email_threads")
+        .select("id")
+        .eq("mailbox_id", mailboxId)
+        .is("analysis_json", null)
+        .order("latest_message_at", { ascending: false })
+        .limit(THREAD_ANALYSIS_RETRY_LIMIT);
+      for (const row of pendingThreads || []) {
+        if (row?.id) threadsNeedingAnalysis.add(String(row.id));
+      }
+    } catch (analysisQueueError) {
+      console.error(
+        "[email-inbox] Failed to enqueue unanalyzed threads for backfill",
+        extractMailboxErrorMessage(analysisQueueError),
+      );
+    }
+    runThreadAnalysisInBackground(
+      Array.from(threadsNeedingAnalysis),
+      mailbox.owner_user_id,
+    );
 
     await syncMailboxThreadReadStates({
       mailboxId,

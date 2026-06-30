@@ -158,6 +158,10 @@ import { hasRichTextContent, richTextToPlainText } from "@/lib/rich-text";
 import { useUserPreferences, useUserProfile } from "@/lib/supabase/hooks";
 import { useEmailRealtime } from "@/hooks/use-email-realtime";
 import {
+  applyEmailThreadRealtimeChange,
+  type EmailThreadRealtimeChange,
+} from "@/lib/email-inbox/apply-realtime-patch";
+import {
   DEFAULT_EMAIL_REPLY_SETTINGS,
   EMAIL_REPLY_CONCISENESS_OPTIONS,
   EMAIL_REPLY_PERSONALITY_OPTIONS,
@@ -2476,6 +2480,100 @@ export function EmailInboxView({
     });
   };
 
+  // Fetch a single thread and merge it into the inbox list. Used as the
+  // realtime fallback for INSERTs (and UPDATEs to threads not yet in the list),
+  // where the email_threads row alone lacks participants/task count needed to
+  // render the row. Returns whether the item was newly added.
+  const hydrateThreadIntoInbox = async (
+    threadId: string,
+    options?: { allowBrowserNotifications?: boolean },
+  ): Promise<boolean> => {
+    const response = await fetch(`/api/email/threads/${threadId}`, {
+      credentials: "include",
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.id) {
+      throw new Error(payload?.error || "Failed to hydrate thread");
+    }
+
+    // The detail endpoint returns a superset of InboxItem; drop the detail-only
+    // fields that aren't part of the list item shape.
+    const { linkedTasks: _linkedTasks, activeReplyDraft: _activeReplyDraft, ...item } =
+      payload as InboxItem & {
+        linkedTasks?: unknown;
+        activeReplyDraft?: unknown;
+      };
+
+    let wasAdded = false;
+    setInboxItems((current) => {
+      const existingIndex = current.findIndex((entry) => entry.id === item.id);
+      let next: InboxItem[];
+      if (existingIndex === -1) {
+        wasAdded = true;
+        next = [...current, item as InboxItem];
+      } else {
+        next = [...current];
+        next[existingIndex] = { ...next[existingIndex], ...(item as InboxItem) };
+      }
+      inboxSnapshotRef.current = next;
+      setQuarantineCount(
+        next.filter((entry) => entry.status === "quarantine").length,
+      );
+      return next;
+    });
+
+    if (
+      wasAdded &&
+      options?.allowBrowserNotifications &&
+      (item as InboxItem).isUnread &&
+      (item as InboxItem).origin !== "outbound"
+    ) {
+      dispatchBrowserNotification(item as InboxItem);
+    }
+
+    return wasAdded;
+  };
+
+  // Patch local inbox state from a single Realtime change instead of refetching
+  // the whole inbox. UPDATEs to a known thread patch that row in place; INSERTs
+  // (and UPDATEs to unknown threads) hydrate the single thread; a too-incomplete
+  // payload falls back to a full refresh. The low-frequency poll below remains
+  // as a safety net so any missed patch self-heals.
+  const handleRealtimeChange = (change: EmailThreadRealtimeChange) => {
+    const result = applyEmailThreadRealtimeChange({
+      items: inboxSnapshotRef.current,
+      change,
+    });
+
+    if (result.changed) {
+      inboxSnapshotRef.current = result.items;
+      setInboxItems(result.items);
+      setQuarantineCount(
+        result.items.filter((item) => item.status === "quarantine").length,
+      );
+    }
+
+    if (result.hydrateThreadId) {
+      void hydrateThreadIntoInbox(result.hydrateThreadId, {
+        allowBrowserNotifications: true,
+      }).catch(() => {
+        // Targeted hydrate failed — reconcile the whole inbox as a last resort.
+        void refreshInboxStateRef.current?.({
+          allowBrowserNotifications: true,
+          skipMailboxes: true,
+        });
+      });
+      return;
+    }
+
+    if (result.needsFullRefresh) {
+      void refreshInboxStateRef.current?.({
+        allowBrowserNotifications: true,
+        skipMailboxes: true,
+      });
+    }
+  };
+
   const refreshReplyDraftState = async () => {
     const response = await fetch("/api/email/reply-drafts", {
       credentials: "include",
@@ -2579,12 +2677,7 @@ export function EmailInboxView({
   const { connected: isRealtimeConnected } = useEmailRealtime({
     userId: currentUserId,
     enabled: isEmailInboxView(view),
-    onChange: () => {
-      void refreshInboxStateRef.current?.({
-        allowBrowserNotifications: true,
-        skipMailboxes: true,
-      });
-    },
+    onChange: handleRealtimeChange,
   });
 
   useEffect(() => {
@@ -3447,6 +3540,58 @@ export function EmailInboxView({
 
   const handleProjectAssign = async (threadId: string, projectId: string) => {
     if (!threadId) return;
+
+    // Optimistic: reflect the assignment in local state immediately so the row
+    // updates without waiting on the round-trip. Snapshot prior state to revert
+    // on failure.
+    const previousItems = inboxSnapshotRef.current;
+    const previousSelectedThread = selectedThread;
+    const optimisticItems = previousItems.map((item) => {
+      if (item.id !== threadId) {
+        return item;
+      }
+      const nextProjectIds = [
+        projectId,
+        ...(item.projectIds || []).filter((id) => id && id !== projectId),
+      ];
+      const nextItem: InboxItem = {
+        ...item,
+        projectId,
+        projectIds: nextProjectIds,
+        needsProject: false,
+        status: item.status === "needs_project" ? "active" : item.status,
+      };
+      return nextItem;
+    });
+    const changedOptimistically = optimisticItems !== previousItems;
+
+    if (changedOptimistically) {
+      inboxSnapshotRef.current = optimisticItems;
+      setInboxItems(optimisticItems);
+    }
+    if (
+      previousSelectedThread &&
+      previousSelectedThread.id === threadId
+    ) {
+      setSelectedThread((current: any | null) =>
+        current && current.id === threadId
+          ? {
+              ...current,
+              projectId,
+              projectIds: [
+                projectId,
+                ...((current.projectIds as string[] | undefined) || []).filter(
+                  (id: string) => id && id !== projectId,
+                ),
+              ],
+              needsProject: false,
+              status:
+                current.status === "needs_project" ? "active" : current.status,
+            }
+          : current,
+      );
+    }
+
     setBusyState("project");
     setAssigningProjectThreadId(threadId);
     try {
@@ -3460,12 +3605,23 @@ export function EmailInboxView({
       if (!response.ok) {
         throw new Error(payload.error || "Failed to assign project");
       }
-      await refreshInboxState({ skipMailboxes: true });
-      if (selectedThreadId === threadId) {
+      if (selectedThreadId === threadId && payload?.id) {
         setSelectedThread(payload);
       }
+      // Reconcile in the background without blocking the UI on the round-trip.
+      void refreshInboxState({ skipMailboxes: true }).catch(() => {
+        // Keep the optimistic state if the reconcile fetch fails.
+      });
       updateStatus("Project assigned.");
     } catch (error) {
+      // Revert the optimistic assignment.
+      if (changedOptimistically) {
+        inboxSnapshotRef.current = previousItems;
+        setInboxItems(previousItems);
+      }
+      if (previousSelectedThread && previousSelectedThread.id === threadId) {
+        setSelectedThread(previousSelectedThread);
+      }
       updateStatus(
         error instanceof Error ? error.message : "Failed to assign project",
       );
