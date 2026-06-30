@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { createClient } from "@/lib/supabase/client";
-
-const REALTIME_REFRESH_DEBOUNCE_MS = 700;
+import type { EmailThreadRealtimeChange } from "@/lib/email-inbox/apply-realtime-patch";
 
 type UseEmailRealtimeOptions = {
   /**
@@ -19,10 +18,11 @@ type UseEmailRealtimeOptions = {
    */
   enabled: boolean;
   /**
-   * Called (debounced) whenever an INSERT/UPDATE/DELETE lands on
-   * public.email_threads for this user. Should refetch the inbox state.
+   * Called once per INSERT/UPDATE/DELETE on public.email_threads for this user,
+   * with the change payload (REPLICA IDENTITY FULL gives us the full row). The
+   * consumer decides whether to patch the changed row in place or refetch.
    */
-  onChange: () => void;
+  onChange: (change: EmailThreadRealtimeChange) => void;
 };
 
 /**
@@ -55,22 +55,9 @@ export function useEmailRealtime({
       return;
     }
 
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let isActive = true;
 
     const supabase = createClient();
-
-    const scheduleRefresh = () => {
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-      }
-      debounceTimer = setTimeout(() => {
-        debounceTimer = null;
-        if (isActive) {
-          onChangeRef.current();
-        }
-      }, REALTIME_REFRESH_DEBOUNCE_MS);
-    };
 
     const channel = supabase
       .channel(`email-threads-${userId}`)
@@ -82,8 +69,24 @@ export function useEmailRealtime({
           table: "email_threads",
           filter: `owner_user_id=eq.${userId}`,
         },
-        () => {
-          scheduleRefresh();
+        (payload) => {
+          if (!isActive) {
+            return;
+          }
+          // Surface the per-event payload so the consumer can patch the single
+          // changed row in place (REPLICA IDENTITY FULL carries the full row),
+          // falling back to a targeted hydrate or full refetch as needed.
+          onChangeRef.current({
+            eventType: payload.eventType as EmailThreadRealtimeChange["eventType"],
+            new:
+              payload.new && Object.keys(payload.new).length > 0
+                ? (payload.new as Record<string, unknown>)
+                : null,
+            old:
+              payload.old && Object.keys(payload.old).length > 0
+                ? (payload.old as Record<string, unknown>)
+                : null,
+          });
         },
       )
       .subscribe((status) => {
@@ -106,9 +109,6 @@ export function useEmailRealtime({
     return () => {
       isActive = false;
       setConnected(false);
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-      }
       void supabase.removeChannel(channel);
     };
   }, [userId, enabled]);
