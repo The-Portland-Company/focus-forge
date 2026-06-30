@@ -22,6 +22,7 @@ function makeItem(overrides: Partial<InboxItem> = {}): InboxItem {
     needsProject: false,
     alwaysDelete: false,
     derivedTaskCount: 3,
+    messageCount: 5,
     participants: [{ displayName: "Sam", emailAddress: "sam@x.com" } as any],
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -69,6 +70,9 @@ test("UPDATE patches scalar fields in place and preserves participants/taskCount
   assert.equal(result.items[0].subject, "Hello (edited)");
   // Other-table fields preserved from the existing item.
   assert.equal(result.items[0].derivedTaskCount, 3);
+  // messageCount is cross-table-derived and not on the realtime row, so the
+  // patch must not clobber it — the existing count survives the merge.
+  assert.equal(result.items[0].messageCount, 5);
   assert.equal(result.items[0].participants?.length, 1);
   // Did not mutate input.
   assert.equal(items[0].isUnread, true);
@@ -172,4 +176,5 @@ test("mapEmailThreadRowToInboxPatch maps snake_case to InboxItem fields", () => 
   // Fields from other tables are not produced by the mapper.
   assert.equal((patch as Record<string, unknown>).participants, undefined);
   assert.equal((patch as Record<string, unknown>).derivedTaskCount, undefined);
+  assert.equal((patch as Record<string, unknown>).messageCount, undefined);
 });

@@ -22,6 +22,7 @@ function makeItem(overrides: Partial<InboxItem>): InboxItem {
     needsProject: false,
     alwaysDelete: false,
     derivedTaskCount: 0,
+    messageCount: 1,
     origin: "inbound",
     isUnread: true,
     createdAt: "",

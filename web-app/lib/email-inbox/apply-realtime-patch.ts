@@ -73,9 +73,14 @@ function mergeProjectIds(
 /**
  * Maps an `email_threads` row (snake_case, from a Realtime payload) onto the
  * subset of `InboxItem` fields that live directly on that row. Fields sourced
- * from other tables (participants, derivedTaskCount, conversation, and the
- * multi-project projectIds join) are intentionally omitted — callers must
- * preserve those from the existing item or hydrate them separately.
+ * from other tables (participants, derivedTaskCount, messageCount, conversation,
+ * and the multi-project projectIds join) are intentionally omitted — callers
+ * must preserve those from the existing item or hydrate them separately.
+ *
+ * NOTE: `messageCount` is deliberately NOT included here. It is derived from
+ * email_messages, not present on the email_threads realtime row. Omitting it
+ * means the consumer's `{ ...existing, ...patch }` merge preserves the prior
+ * count rather than clobbering it with undefined/0.
  */
 export function mapEmailThreadRowToInboxPatch(
   row: Record<string, unknown>,
