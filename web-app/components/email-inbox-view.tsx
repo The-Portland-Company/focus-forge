@@ -6,7 +6,6 @@ import {
   type ChangeEvent,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
   useMemo,
@@ -31,7 +30,6 @@ import {
   ExternalLink,
   FileText,
   FolderSearch,
-  GripVertical,
   ImageIcon,
   Loader2,
   Mail,
@@ -1112,6 +1110,40 @@ function getInboxItemReceivedTime(item: InboxItem) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+// Client-side date-range filter over already-loaded items. `from`/`to` are
+// "YYYY-MM-DD" strings (from <input type="date">); `from` is inclusive at the
+// start of that day, `to` inclusive through the end of that day. Empty bounds
+// are ignored. Matching is done against the item's received timestamp.
+export function filterInboxItemsByDateRange(params: {
+  items: InboxItem[];
+  from: string;
+  to: string;
+}) {
+  const { items, from, to } = params;
+  const fromMs = from ? Date.parse(`${from}T00:00:00`) : Number.NaN;
+  const toMs = to ? Date.parse(`${to}T23:59:59.999`) : Number.NaN;
+  const hasFrom = !Number.isNaN(fromMs);
+  const hasTo = !Number.isNaN(toMs);
+
+  if (!hasFrom && !hasTo) {
+    return items;
+  }
+
+  return items.filter((item) => {
+    const received = getInboxItemReceivedTime(item);
+    if (received === 0) {
+      return false;
+    }
+    if (hasFrom && received < fromMs) {
+      return false;
+    }
+    if (hasTo && received > toMs) {
+      return false;
+    }
+    return true;
+  });
+}
+
 function getInboxItemSenderSortValue(item: InboxItem) {
   const sender = getPrimarySenderParticipant(item.participants);
 
@@ -1416,6 +1448,10 @@ export function EmailInboxView({
     string | null
   >(null);
   const [isFilterBarCollapsed, setIsFilterBarCollapsed] = useState(true);
+  // Client-side date-range filter (YYYY-MM-DD strings from <input type="date">).
+  // Applied near-instantly over the already-loaded items in the filter pipeline.
+  const [searchDateFrom, setSearchDateFrom] = useState("");
+  const [searchDateTo, setSearchDateTo] = useState("");
   const [showSpamInInbox, setShowSpamInInbox] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [perPage, setPerPage] = useState<number>(EMAIL_INBOX_DEFAULT_PER_PAGE);
@@ -1606,9 +1642,18 @@ export function EmailInboxView({
       }),
     [data.projects, spamGatedInboxItems, inboxSearchQuery, mailboxes],
   );
+  const dateFilteredInboxItems = useMemo(
+    () =>
+      filterInboxItemsByDateRange({
+        items: searchedInboxItems,
+        from: searchDateFrom,
+        to: searchDateTo,
+      }),
+    [searchedInboxItems, searchDateFrom, searchDateTo],
+  );
   const visibleInboxItems = useMemo(
-    () => sortInboxItemsForView(searchedInboxItems, sortBy),
-    [searchedInboxItems, sortBy],
+    () => sortInboxItemsForView(dateFilteredInboxItems, sortBy),
+    [dateFilteredInboxItems, sortBy],
   );
   const pageCount = useMemo(
     () => getEmailInboxPageCount(visibleInboxItems.length, perPage),
@@ -1746,8 +1791,16 @@ export function EmailInboxView({
     if (selectedMailboxId !== "all") count += 1;
     if (sortBy !== "received_desc") count += 1;
     if (inboxFilterTab !== "all") count += 1;
+    if (searchDateFrom || searchDateTo) count += 1;
     return count;
-  }, [inboxSearchQuery, selectedMailboxId, sortBy, inboxFilterTab]);
+  }, [
+    inboxSearchQuery,
+    selectedMailboxId,
+    sortBy,
+    inboxFilterTab,
+    searchDateFrom,
+    searchDateTo,
+  ]);
   const hasActiveFilters = activeFilterCount > 0;
   const splitLayoutStyle = {
     "--email-detail-width": `${detailPanelWidth}px`,
@@ -1890,6 +1943,8 @@ export function EmailInboxView({
     sortBy,
     perPage,
     view,
+    searchDateFrom,
+    searchDateTo,
   ]);
 
   // Keep the active page in range as items are removed (triage, refetch).
@@ -1922,72 +1977,11 @@ export function EmailInboxView({
     return true;
   };
 
-  const updateDetailPanelWidth = (nextWidth: number) => {
-    const containerWidth = splitContainerRef.current?.clientWidth ?? 1120;
-
-    hasUserResizedPanelRef.current = true;
-    setDetailPanelWidth(clampEmailDetailPanelWidth(nextWidth, containerWidth));
-  };
-
-  // Persist the manually-resized pixel width as a per-user setting on the
-  // profile so it is restored across logout and navigation.
-  const persistDetailPanelWidth = (width: number) => {
-    const containerWidth = splitContainerRef.current?.clientWidth ?? 1120;
-    const clamped = clampEmailDetailPanelWidth(width, containerWidth);
-
-    if (!updateProfile) {
-      return;
-    }
-
-    void updateProfile({ email_panel_width_px: clamped });
-  };
-
   const setInboxIntroDismissed = (dismissed: boolean) => {
     if (!updateProfile) {
       return;
     }
     void updateProfile({ email_inbox_intro_dismissed: dismissed });
-  };
-
-  const handleDetailPanelResizeStart = (
-    event: ReactPointerEvent<HTMLButtonElement>,
-  ) => {
-    if (!splitContainerRef.current) {
-      return;
-    }
-
-    event.preventDefault();
-
-    const handle = event.currentTarget;
-    const pointerId = event.pointerId;
-    handle.setPointerCapture(pointerId);
-
-    let latestWidth = detailPanelWidth;
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      const containerBounds =
-        splitContainerRef.current?.getBoundingClientRect();
-
-      if (!containerBounds) {
-        return;
-      }
-
-      latestWidth = containerBounds.right - moveEvent.clientX;
-      updateDetailPanelWidth(latestWidth);
-    };
-
-    const handlePointerUp = () => {
-      document.body.classList.remove("cursor-col-resize");
-      if (handle.hasPointerCapture(pointerId)) {
-        handle.releasePointerCapture(pointerId);
-      }
-      window.removeEventListener("pointermove", handlePointerMove);
-      persistDetailPanelWidth(latestWidth);
-    };
-
-    document.body.classList.add("cursor-col-resize");
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp, { once: true });
   };
 
   const handleOpenThreadWindow = () => {
@@ -2086,14 +2080,9 @@ export function EmailInboxView({
     // Manual selection resumes normal auto-select behavior after a delete.
     suppressInboxAutoSelectRef.current = false;
     setSelectedThreadId(item.id);
-    // On desktop (split layout) the thread populates the right-side detail
-    // pane. On mobile there is no side pane, so open the dedicated full-screen
-    // thread modal instead.
-    if (isDesktopSplitLayout) {
-      setIsThreadModalOpen(false);
-    } else {
-      setIsThreadModalOpen(true);
-    }
+    // Threads always open in the dedicated full-screen modal on every layout
+    // (the inline reading pane has been removed).
+    setIsThreadModalOpen(true);
 
     if (!item.isUnread) {
       return;
@@ -2145,29 +2134,58 @@ export function EmailInboxView({
     applyDraftToComposer(draft);
   };
 
+  // Threads the user just removed (delete/always-delete) are suppressed from
+  // reappearing for a short window. Without this, a concurrent realtime UPDATE
+  // (e.g. the async AI backfill writing a visible status) or a stale inbox
+  // reconcile read — landing in the gap before the server commits the removal —
+  // resurrects the row, producing the "disappears, reappears, disappears"
+  // flicker the user reported on delete.
+  const recentlyRemovedThreadIdsRef = useRef<Map<string, number>>(new Map());
+  const markThreadRecentlyRemoved = (threadId: string) => {
+    recentlyRemovedThreadIdsRef.current.set(threadId, Date.now() + 12_000);
+  };
+  const clearThreadRecentlyRemoved = (threadId: string) => {
+    recentlyRemovedThreadIdsRef.current.delete(threadId);
+  };
+  const isThreadRecentlyRemoved = (threadId: string) => {
+    const expiry = recentlyRemovedThreadIdsRef.current.get(threadId);
+    if (expiry === undefined) return false;
+    if (Date.now() > expiry) {
+      recentlyRemovedThreadIdsRef.current.delete(threadId);
+      return false;
+    }
+    return true;
+  };
+
   const applyInboxSnapshot = (params: {
     nextMailboxes: Mailbox[];
     nextItems: InboxItem[];
     allowBrowserNotifications?: boolean;
   }) => {
+    // Drop any just-removed threads a slow server read might still return, so a
+    // reconcile can't resurrect a row the user already deleted.
+    const nextItems = params.nextItems.filter(
+      (item) => !isThreadRecentlyRemoved(item.id),
+    );
+
     if (
       params.allowBrowserNotifications &&
       browserNotificationPermission === "granted"
     ) {
       listNewInboxItemsForNotification({
         previousItems: inboxSnapshotRef.current,
-        nextItems: params.nextItems,
+        nextItems,
       }).forEach((item) => {
         dispatchBrowserNotification(item);
       });
     }
 
-    inboxSnapshotRef.current = params.nextItems;
+    inboxSnapshotRef.current = nextItems;
     mailboxesRef.current = params.nextMailboxes;
     setMailboxes(params.nextMailboxes);
-    setInboxItems(params.nextItems);
+    setInboxItems(nextItems);
     setQuarantineCount(
-      params.nextItems.filter((item) => item.status === "quarantine").length,
+      nextItems.filter((item) => item.status === "quarantine").length,
     );
   };
 
@@ -2306,9 +2324,7 @@ export function EmailInboxView({
     if (!threadParam) return;
     suppressInboxAutoSelectRef.current = false;
     setSelectedThreadId(threadParam);
-    if (!isDesktopSplitLayout) {
-      setIsThreadModalOpen(true);
-    }
+    setIsThreadModalOpen(true);
     // Run once on mount only; later selection drives the URL (effect below).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -2549,6 +2565,16 @@ export function EmailInboxView({
   // payload falls back to a full refresh. The low-frequency poll below remains
   // as a safety net so any missed patch self-heals.
   const handleRealtimeChange = (change: EmailThreadRealtimeChange) => {
+    // Ignore events for a thread the user just deleted — a late UPDATE (e.g. AI
+    // backfill writing a visible status) must not resurrect it into the list.
+    const changedThreadId =
+      (typeof change.new?.id === "string" && change.new.id) ||
+      (typeof change.old?.id === "string" && change.old.id) ||
+      null;
+    if (changedThreadId && isThreadRecentlyRemoved(changedThreadId)) {
+      return;
+    }
+
     const result = applyEmailThreadRealtimeChange({
       items: inboxSnapshotRef.current,
       change,
@@ -3063,6 +3089,8 @@ export function EmailInboxView({
 
     // 2. INSTANT removal — apply the optimistic "deleted" state right away so
     //    the email disappears from the list immediately (no lingering spinner).
+    //    Suppress it from realtime/reconcile resurrection during the commit gap.
+    markThreadRecentlyRemoved(threadId);
     const beforeItems = inboxSnapshotRef.current;
     const optimisticItems = applyOptimisticThreadActionState(
       beforeItems,
@@ -3113,7 +3141,9 @@ export function EmailInboxView({
 
       // 5. Failure → keep the email visible (don't silently lose it): restore
       //    the row into the list and flip the tray entry to a "failed" state
-      //    with retry / report-bug affordances.
+      //    with retry / report-bug affordances. Clear the suppression first so
+      //    the reconcile/restore can actually bring the row back.
+      clearThreadRecentlyRemoved(threadId);
       if (targetItem) {
         setInboxItems((current) => {
           if (current.some((item) => item.id === threadId)) {
@@ -4558,6 +4588,29 @@ export function EmailInboxView({
               )}
             </button>
           </Tooltip>
+          <Tooltip content="Search" className="w-auto" side="bottom">
+            <button
+              type="button"
+              onClick={() => {
+                if (isFilterBarCollapsed) {
+                  setIsFilterBarCollapsed(false);
+                  focusInboxSearchInput();
+                } else {
+                  setIsFilterBarCollapsed(true);
+                }
+              }}
+              className={cn(
+                "inline-flex h-9 w-9 items-center justify-center rounded-lg border bg-zinc-900 text-zinc-200 transition-colors hover:text-white",
+                isFilterBarCollapsed
+                  ? "border-zinc-700 hover:border-zinc-600"
+                  : "border-[rgb(var(--theme-primary-rgb))]/45 text-white",
+              )}
+              aria-expanded={!isFilterBarCollapsed}
+              aria-label="Search inbox"
+            >
+              <Search className="h-4 w-4" />
+            </button>
+          </Tooltip>
           <Tooltip
             content={
               isFilterBarCollapsed
@@ -4862,7 +4915,7 @@ export function EmailInboxView({
 
       <div
         ref={splitContainerRef}
-        className={getEmailInboxSplitClassName()}
+        className="min-w-0"
         style={splitLayoutStyle}
       >
         <div className="min-w-0 space-y-3">
@@ -4890,7 +4943,8 @@ export function EmailInboxView({
               </div>
             ) : null}
             <div className="mb-3">
-              {isFilterBarCollapsed && inboxSearchQuery.trim() ? (
+              {isFilterBarCollapsed &&
+              (inboxSearchQuery.trim() || searchDateFrom || searchDateTo) ? (
                 <div className="mb-2 flex items-center gap-2">
                   <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
                     {visibleInboxItems.length} match
@@ -4910,7 +4964,9 @@ export function EmailInboxView({
                 <div className="overflow-hidden">
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
                     <div className="mb-3 flex items-center justify-end gap-2">
-                      {inboxSearchQuery.trim() ? (
+                      {inboxSearchQuery.trim() ||
+                      searchDateFrom ||
+                      searchDateTo ? (
                         <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
                           {visibleInboxItems.length} match
                           {visibleInboxItems.length === 1 ? "" : "es"}
@@ -5139,6 +5195,50 @@ export function EmailInboxView({
                         </SelectContent>
                       </Select>
                     </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                    <div className="relative">
+                      <FloatingFieldLabel label="From date" />
+                      <input
+                        type="date"
+                        value={searchDateFrom}
+                        max={searchDateTo || undefined}
+                        onChange={(event) =>
+                          setSearchDateFrom(event.target.value)
+                        }
+                        className="h-11 w-full rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 text-sm text-white focus:outline-none focus:ring-1 ring-theme [color-scheme:dark]"
+                        aria-label="Filter from date"
+                      />
+                    </div>
+                    <div className="relative">
+                      <FloatingFieldLabel label="To date" />
+                      <input
+                        type="date"
+                        value={searchDateTo}
+                        min={searchDateFrom || undefined}
+                        onChange={(event) =>
+                          setSearchDateTo(event.target.value)
+                        }
+                        className="h-11 w-full rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 text-sm text-white focus:outline-none focus:ring-1 ring-theme [color-scheme:dark]"
+                        aria-label="Filter to date"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInboxSearchQuery("");
+                        setSearchDateFrom("");
+                        setSearchDateTo("");
+                        setSelectedMailboxId("all");
+                        setInboxFilterTab("all");
+                        setSortBy("received_desc");
+                      }}
+                      disabled={!hasActiveFilters}
+                      className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-xl border border-zinc-800 bg-zinc-900/80 px-4 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <X className="h-4 w-4" />
+                      Clear
+                    </button>
                   </div>
                   {!isQuarantineView ? (
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -5439,7 +5539,9 @@ export function EmailInboxView({
                       ? "No sent email matches your current filters."
                     : isTrashView
                       ? "Trash is empty."
-                      : inboxSearchQuery.trim()
+                      : inboxSearchQuery.trim() ||
+                          searchDateFrom ||
+                          searchDateTo
                         ? "No email matches your current search."
                         : "No inbox work yet."
                 }
@@ -5516,666 +5618,6 @@ export function EmailInboxView({
           </div>
         </div>
 
-        {isDesktopSplitLayout ? (
-        <div className="relative hidden xl:flex items-stretch justify-center">
-          <div className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-zinc-800" />
-          <button
-            type="button"
-            onPointerDown={handleDetailPanelResizeStart}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowLeft") {
-                event.preventDefault();
-                updateDetailPanelWidth(detailPanelWidth + 24);
-                persistDetailPanelWidth(detailPanelWidth + 24);
-              } else if (event.key === "ArrowRight") {
-                event.preventDefault();
-                updateDetailPanelWidth(detailPanelWidth - 24);
-                persistDetailPanelWidth(detailPanelWidth - 24);
-              }
-            }}
-            className="group relative z-10 my-16 inline-flex w-3 cursor-col-resize items-center justify-center rounded-full bg-transparent text-zinc-500 outline-none transition-colors hover:text-zinc-200 focus-visible:text-zinc-200"
-            aria-label="Resize thread details panel"
-            title="Drag to resize thread details panel"
-            role="separator"
-            aria-orientation="vertical"
-          >
-            {/* Always-visible grip: a slim vertical pill that brightens on
-                hover/focus, giving the drag bumper a clear affordance on the
-                left edge of the detail panel. */}
-            <span className="absolute inset-y-0 left-1/2 w-1.5 -translate-x-1/2 rounded-full bg-zinc-700/70 transition-colors group-hover:bg-zinc-600 group-focus-visible:bg-zinc-600" />
-            <GripVertical className="relative z-10 h-5 w-5 drop-shadow" />
-          </button>
-        </div>
-        ) : null}
-
-        <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-          {loadingThread ? (
-            <div className="flex min-h-[420px] items-center justify-center text-zinc-500">
-              <Loader2 className="h-5 w-5 animate-spin" />
-            </div>
-          ) : selectedThread ? (
-            <div className="min-w-0 space-y-4">
-              <div className="border-b border-zinc-800 pb-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
-                    <div
-                      className={getEmailReadStateBadgeClassName(
-                        selectedThread.isUnread,
-                      )}
-                    >
-                      {getEmailReadStateLabel(selectedThread.isUnread)}
-                    </div>
-                    {shouldShowStatusBadge(selectedThread) &&
-                    getInboxReviewBadgeLabel(selectedThread) ? (
-                      <div className="rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-rose-300">
-                        {getInboxReviewBadgeLabel(selectedThread)}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
-                    {isQuarantineView ? (
-                      <>
-                        <Tooltip
-                          content="Mark Not Spam"
-                          className="w-auto"
-                          side="top"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => void handleMarkThreadNotSpam()}
-                            disabled={
-                              Boolean(busyState) || Boolean(queuedAction)
-                            }
-                            className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 transition-colors hover:border-emerald-400/60 hover:bg-emerald-500/15 disabled:opacity-50"
-                            aria-label="Mark not spam"
-                            title="Mark not spam"
-                          >
-                            {busyState === "spam_exception" ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Check className="h-4 w-4" />
-                            )}
-                            <span>Not Spam</span>
-                          </button>
-                        </Tooltip>
-                        {renderThreadActionButton("approve", {
-                          label: "Approve",
-                          icon: getThreadActionButtonIcon("approve"),
-                        })}
-                      </>
-                    ) : null}
-                    <Tooltip content="Mark read" className="w-auto" side="top">
-                      <button
-                        type="button"
-                        onClick={() => void handleThreadAction("mark_read")}
-                        disabled={
-                          Boolean(busyState) || !selectedThread.isUnread
-                        }
-                        title={
-                          selectedThread.isUnread
-                            ? "Mark thread as read"
-                            : "Thread already read"
-                        }
-                        aria-label={
-                          selectedThread.isUnread
-                            ? "Mark thread as read"
-                            : "Thread already read"
-                        }
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        {busyState === "mark_read" ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <MailCheck className="h-4 w-4" />
-                        )}
-                      </button>
-                    </Tooltip>
-                  </div>
-                </div>
-                <div className="mt-4 min-w-0 space-y-3">
-                  <div className="flex min-w-0 items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      {selectedThread.actionTitle?.trim() ? (
-                        <>
-                          <div className="inline-flex min-w-0 items-center gap-2 text-sm font-semibold text-white">
-                            <Tooltip
-                              content="AI-generated title"
-                              className="w-auto shrink-0"
-                              side="bottom"
-                            >
-                              <span className="inline-flex">
-                                <Sparkles className="h-3.5 w-3.5 shrink-0 text-[rgb(var(--theme-primary-rgb))]" />
-                              </span>
-                            </Tooltip>
-                            <span className="truncate">
-                              {stripAiGreeting(selectedThread.actionTitle)}
-                            </span>
-                          </div>
-                          <div className="mt-1 truncate text-xs text-zinc-500">
-                            {formatEmailSubject(selectedThread.subject)}
-                          </div>
-                        </>
-                      ) : (
-                        <div className="inline-flex min-w-0 items-center gap-2 text-sm font-semibold text-white">
-                          <span className="truncate">
-                            {formatEmailSubject(selectedThread.subject)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                      {isTrashView ? null : (
-                        <>
-                          {renderThreadActionButton("quarantine", {
-                            icon: getThreadActionButtonIcon("quarantine"),
-                          })}
-                          {renderThreadActionButton("archive", {
-                            icon: getThreadActionButtonIcon("archive"),
-                          })}
-                          {renderThreadActionButton("spam", {
-                            icon: getThreadActionButtonIcon("spam"),
-                          })}
-                          {renderThreadActionButton("delete", {
-                            icon: getThreadActionButtonIcon("delete"),
-                            destructive: true,
-                          })}
-                        </>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEmailHtmlRenderMode((current) =>
-                            current === "preserve" ? "simplified" : "preserve",
-                          )
-                        }
-                        className="inline-flex shrink-0 items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs sm:text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
-                      >
-                        {getEmailHtmlRenderModeToggleLabel(emailHtmlRenderMode)}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
-                    {/* AI title now renders once as the headline above; the
-                        former duplicate AI-summary line was removed. */}
-                    {selectedThreadPrimaryEntry?.contentHtml ||
-                    selectedThreadPrimaryEntry?.content ? (
-                      <EmailSignatureContent
-                        html={selectedThreadPrimaryEntry?.contentHtml}
-                        text={selectedThreadPrimaryEntry?.content}
-                        contentKind={
-                          selectedThreadPrimaryEntry?.type === "internal_note"
-                            ? "rich_text"
-                            : "email"
-                        }
-                        hideSignatures={hideEmailSignatures}
-                        renderMode={emailHtmlRenderMode}
-                        contentClassName="break-words text-sm leading-6 text-zinc-200"
-                        signatureClassName="break-words text-sm leading-6 text-zinc-200 opacity-90"
-                      />
-                    ) : (
-                      <div className="break-words text-sm text-zinc-400">
-                        {selectedThread.summaryText ||
-                          selectedThread.previewText ||
-                          "No message body available yet."}
-                      </div>
-                    )}
-                    <EmailThreadAttachments
-                      attachments={selectedThreadPrimaryAttachments}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
-                <div ref={projectPickerRef} className="relative pt-2">
-                  <FloatingFieldLabel label="Project" />
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                    {/* When a project is selected and the user isn't actively
-                        typing, show it as a colored-dot chip occupying the field
-                        (inline, left of the cursor) with an × to clear. */}
-                    {selectedProject &&
-                    !isEditingProjectField &&
-                    busyState !== "project" ? (
-                      <div className="absolute inset-y-0 left-10 right-10 flex items-center">
-                        <span className="inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-950/80 px-2.5 py-1 text-xs text-zinc-200">
-                          <span
-                            className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: selectedProject.color }}
-                          />
-                          <span className="truncate">
-                            {selectedProject.name}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleProjectAssign(
-                                selectedThreadId || "",
-                                "",
-                              );
-                            }}
-                            aria-label="Clear project"
-                            title="Clear project"
-                            className="inline-flex shrink-0 items-center text-zinc-500 transition-colors hover:text-zinc-200"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </span>
-                      </div>
-                    ) : null}
-                    <input
-                      ref={projectSearchInputRef}
-                      type="text"
-                      value={projectSearchQuery}
-                      onFocus={() => {
-                        setIsEditingProjectField(true);
-                        setIsProjectPickerOpen(true);
-                      }}
-                      onBlur={() => {
-                        if (!projectSearchQuery.trim()) {
-                          setIsEditingProjectField(false);
-                        }
-                      }}
-                      onChange={(event) => {
-                        setProjectSearchQuery(event.target.value);
-                        setIsEditingProjectField(true);
-                        setIsProjectPickerOpen(true);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          setIsEditingProjectField(false);
-                          closeProjectPicker();
-                          return;
-                        }
-
-                        if (
-                          event.key === "Enter" &&
-                          filteredInboxProjects.length > 0
-                        ) {
-                          event.preventDefault();
-                          setIsEditingProjectField(false);
-                          handleProjectPickerSelect(
-                            filteredInboxProjects[0].id,
-                          );
-                        }
-                      }}
-                      placeholder={
-                        selectedProject && !isEditingProjectField
-                          ? ""
-                          : "Add project..."
-                      }
-                      disabled={busyState === "project" || isCreatingProject}
-                      className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2.5 pl-10 pr-10 text-sm text-white transition-colors placeholder:text-zinc-500 focus:outline-none focus:ring-2 ring-theme disabled:cursor-not-allowed disabled:opacity-50"
-                    />
-                    {busyState === "project" ? (
-                      <div className="pointer-events-none absolute inset-y-0 left-10 right-10 flex items-center gap-2 text-sm text-zinc-300">
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-zinc-400" />
-                        <span className="truncate">Saving…</span>
-                      </div>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setIsProjectPickerOpen((current) => !current)
-                      }
-                      className="absolute inset-y-0 right-3 inline-flex items-center text-zinc-500 transition-colors hover:text-zinc-300"
-                      aria-label="Toggle project search"
-                    >
-                      {busyState === "project" || isCreatingProject ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <ChevronDown
-                          className={`h-4 w-4 transition-transform ${
-                            isProjectPickerOpen ? "rotate-180" : ""
-                          }`}
-                        />
-                      )}
-                    </button>
-                  </div>
-                  {isProjectPickerOpen ? (
-                    <div className="absolute top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
-                      <div className="border-b border-zinc-700/80 bg-zinc-900/80 px-3 py-2">
-                        <div className="text-xs sm:text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
-                          Current Project
-                        </div>
-                        <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-950/80 px-3 py-1 text-xs text-zinc-300">
-                          {busyState === "project" ? (
-                            <>
-                              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-zinc-400" />
-                              <span className="truncate">Saving…</span>
-                            </>
-                          ) : selectedProject ? (
-                            <>
-                              <div
-                                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                                style={{
-                                  backgroundColor: selectedProject.color,
-                                }}
-                              />
-                              <span className="truncate">
-                                {selectedProject.name}
-                              </span>
-                            </>
-                          ) : (
-                            <span className="truncate">No Project</span>
-                          )}
-                        </div>
-                      </div>
-                      {filteredInboxProjects.length > 0 ? (
-                        filteredInboxProjects.map((project) => {
-                          const isSelected = project.id === selectedProjectId;
-                          return (
-                            <button
-                              key={project.id}
-                              type="button"
-                              onClick={() =>
-                                handleProjectPickerSelect(project.id)
-                              }
-                              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                                isSelected
-                                  ? "bg-[rgb(var(--theme-primary-rgb))]/15 text-white"
-                                  : "text-zinc-300 hover:bg-zinc-700 hover:text-white"
-                              }`}
-                            >
-                              <div
-                                className="h-3 w-3 flex-shrink-0 rounded-full"
-                                style={{ backgroundColor: project.color }}
-                              />
-                              <span className="flex-1 truncate">
-                                {project.name}
-                              </span>
-                              {isSelected ? (
-                                <Check className="h-4 w-4 text-[rgb(var(--theme-primary-rgb))]" />
-                              ) : null}
-                            </button>
-                          );
-                        })
-                      ) : (
-                        <div className="px-3 py-2 text-sm text-zinc-500">
-                          No matching projects
-                        </div>
-                      )}
-                      {projectSearchQuery.trim() ? (
-                        <button
-                          type="button"
-                          onClick={() => void handleCreateProject()}
-                          disabled={isCreatingProject}
-                          className="flex w-full items-center gap-2 border-t border-zinc-700 px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-700 hover:text-white disabled:opacity-50"
-                        >
-                          {isCreatingProject ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Plus className="h-4 w-4" />
-                          )}
-                          <span className="truncate">
-                            Add New Project &quot;{projectSearchQuery.trim()}
-                            &quot;
-                          </span>
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={handleGenerateTasks}
-                    disabled={busyState === "tasks"}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
-                  >
-                    <FolderSearch className="h-4 w-4" />
-                    Generate Tasks
-                  </button>
-                </div>
-              </div>
-
-              {/* Standalone "Delete Email" button removed: Delete now lives in
-                  the title action row via renderThreadActionButton("delete"),
-                  which carries the same confirm-delete flow. */}
-
-              {queuedAction && isQueuedActionNoticeVisible ? (
-                <div className="flex items-center gap-3 rounded-xl border border-[rgb(var(--theme-primary-rgb))]/30 bg-[rgb(var(--theme-primary-rgb))]/10 px-3 py-2 text-sm text-zinc-200">
-                  <span>
-                    {getQueuedThreadActionMessage(
-                      queuedAction,
-                      queuedAction === "delete"
-                        ? deleteUndoSeconds
-                        : DEFAULT_THREAD_ACTION_QUEUE_SECONDS,
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleUndoQueuedAction}
-                    className="rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:border-zinc-600"
-                  >
-                    Undo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDismissQueuedAction}
-                    className="rounded-md border border-zinc-700/80 bg-transparent px-2.5 py-1 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              ) : null}
-
-              {selectedThread.linkedTasks?.length > 0 ? (
-                <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                  <div className="mb-2 text-xs uppercase tracking-wide text-zinc-500">
-                    Linked Tasks
-                  </div>
-                  <div className="space-y-2">
-                    {selectedThread.linkedTasks.map((task: any) => {
-                      const override = completedLinkedTaskOverrides[task.id];
-                      const isCompleted =
-                        override !== undefined
-                          ? override
-                          : Boolean(task.completed);
-                      return (
-                        <div
-                          key={task.id}
-                          className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-300"
-                        >
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void handleToggleLinkedTaskCompleted(
-                                task.id,
-                                !isCompleted,
-                              )
-                            }
-                            aria-label={
-                              isCompleted
-                                ? "Mark task as incomplete"
-                                : "Mark task as complete"
-                            }
-                            title={
-                              isCompleted
-                                ? "Mark task as incomplete"
-                                : "Mark task as complete"
-                            }
-                            className={cn(
-                              "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors",
-                              isCompleted
-                                ? "text-[rgb(var(--theme-primary-rgb))] hover:text-white"
-                                : "text-zinc-500 hover:text-zinc-300",
-                            )}
-                          >
-                            {isCompleted ? (
-                              <CheckSquare className="h-4 w-4" />
-                            ) : (
-                              <Square className="h-4 w-4" />
-                            )}
-                          </button>
-                          <span
-                            className={cn(
-                              "min-w-0 flex-1 break-words",
-                              isCompleted && "text-zinc-500 line-through",
-                            )}
-                          >
-                            {task.name}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                <div className="mb-2 text-xs uppercase tracking-wide text-zinc-500">
-                  Conversation
-                </div>
-                {selectedThreadConversationEntries.length > 1 &&
-                !showOlderConversation ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowOlderConversation(true)}
-                    className="mx-auto mb-2 flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/70 px-3 py-1 text-xs text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200"
-                    aria-label="Show earlier messages"
-                    title="Show earlier messages"
-                  >
-                    <ChevronUp className="h-3.5 w-3.5" />
-                    {selectedThreadConversationEntries.length - 1} earlier
-                    {selectedThreadConversationEntries.length - 1 === 1
-                      ? " message"
-                      : " messages"}
-                  </button>
-                ) : null}
-                <div className="space-y-2">
-                  {(showOlderConversation
-                    ? selectedThreadConversationEntries
-                    : selectedThreadConversationEntries.slice(-1)
-                  ).map((entry: any) => {
-                    const entryAuthorEmail =
-                      entry.authorEmail?.toLowerCase().trim() || null;
-                    const currentUserEmail =
-                      currentUser?.email?.toLowerCase().trim() || null;
-                    const isCurrentUserEntry = Boolean(
-                      currentUserEmail &&
-                      entryAuthorEmail &&
-                      entryAuthorEmail === currentUserEmail,
-                    );
-
-                    return (
-                      <div
-                        key={entry.id}
-                        className={cn(
-                          "rounded-2xl border p-3",
-                          isCurrentUserEntry
-                            ? "border-zinc-800/80 bg-zinc-900/35"
-                            : "border-zinc-800 bg-zinc-900/60",
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "flex items-start gap-3",
-                            isCurrentUserEntry && "justify-end",
-                          )}
-                        >
-                          <div
-                            className={cn(
-                              "min-w-0 flex-1",
-                              isCurrentUserEntry && "text-right",
-                            )}
-                          >
-                            <div
-                              className={getConversationEntryHeaderClassName(
-                                isCurrentUserEntry,
-                              )}
-                            >
-                              {isCurrentUserEntry ? (
-                                <>
-                                  <div className="shrink-0 pt-0.5 text-xs text-zinc-500">
-                                    {new Date(entry.createdAt).toLocaleString()}
-                                  </div>
-                                  <div className="min-w-0 max-w-[65%]">
-                                    <div className="truncate text-sm font-medium text-zinc-100">
-                                      {getEmailActorName(
-                                        entry.authorName,
-                                        entry.authorEmail,
-                                      )}
-                                    </div>
-                                    {entry.authorEmail &&
-                                    entry.authorEmail !== entry.authorName ? (
-                                      <div className="truncate text-xs text-zinc-500">
-                                        {entry.authorEmail}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                  <EmailActorAvatar
-                                    name={entry.authorName}
-                                    email={entry.authorEmail}
-                                  />
-                                </>
-                              ) : (
-                                <>
-                                  <EmailActorAvatar
-                                    name={entry.authorName}
-                                    email={entry.authorEmail}
-                                  />
-                                  <div className="min-w-0 flex-1">
-                                    <div className="truncate text-sm font-medium text-zinc-100">
-                                      {getEmailActorName(
-                                        entry.authorName,
-                                        entry.authorEmail,
-                                      )}
-                                    </div>
-                                    {entry.authorEmail &&
-                                    entry.authorEmail !== entry.authorName ? (
-                                      <div className="truncate text-xs text-zinc-500">
-                                        {entry.authorEmail}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                  <div className="shrink-0 pt-0.5 text-xs text-zinc-500">
-                                    {new Date(entry.createdAt).toLocaleString()}
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                            <div className="mt-3">
-                              <EmailSignatureContent
-                                html={entry.contentHtml}
-                                text={entry.content}
-                                contentKind={
-                                  entry.type === "internal_note"
-                                    ? "rich_text"
-                                    : "email"
-                                }
-                                hideSignatures={hideEmailSignatures}
-                                renderMode={emailHtmlRenderMode}
-                                contentClassName={cn(
-                                  "break-words text-sm leading-6 text-zinc-300",
-                                  isCurrentUserEntry && "text-right",
-                                )}
-                                signatureClassName={cn(
-                                  "break-words text-sm leading-6 text-zinc-300 opacity-90",
-                                  isCurrentUserEntry && "text-right",
-                                )}
-                              />
-                            </div>
-                            <EmailThreadAttachments
-                              attachments={getDisplayableThreadAttachments(
-                                entry,
-                              )}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex min-h-[420px] items-center justify-center text-sm text-zinc-500">
-              Select an email thread to inspect it.
-            </div>
-          )}
-        </div>
       </div>
 
       {statusMessage ? (

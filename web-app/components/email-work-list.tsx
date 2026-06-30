@@ -193,10 +193,16 @@ export function getInboxItemTimestampSource(
     | "updatedAt"
   >,
 ) {
+  // Must match the inbox sort precedence (getInboxItemReceivedTime:
+  // latestInboundAt || latestMessageAt || createdAt). When the day-group
+  // separators are keyed off a different field than the list is sorted by, a
+  // thread created today whose latest inbound message is older sorts among the
+  // old rows but still gets a "Today" label — producing duplicate "Today"
+  // dividers. Keep this in lockstep with the sort key.
   return (
-    item.createdAt ||
     item.latestInboundAt ||
     item.latestMessageAt ||
+    item.createdAt ||
     item.latestOutboundAt ||
     item.updatedAt
   );
