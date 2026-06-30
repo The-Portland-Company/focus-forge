@@ -138,16 +138,20 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
     try {
       const supabase = createClient()
       
-      // Get counts from database
-      const [projects, tasks, sections, comments, tags] = await Promise.all([
-        supabase.from('projects').select('id', { count: 'exact' }),
-        supabase.from('tasks').select('id, completed', { count: 'exact' }),
-        supabase.from('sections').select('id', { count: 'exact' }),
-        supabase.from('comments').select('id', { count: 'exact' }),
-        supabase.from('tags').select('id', { count: 'exact' })
+      // Get counts from database. Use head:true so PostgREST returns ONLY the
+      // count in the Content-Range header and zero row payload — previously
+      // these pulled every id (and every task row) just to compute totals,
+      // which was real per-load egress for users with many tasks.
+      const [projects, tasks, completed, sections, comments, tags] = await Promise.all([
+        supabase.from('projects').select('id', { count: 'exact', head: true }),
+        supabase.from('tasks').select('id', { count: 'exact', head: true }),
+        supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('completed', true),
+        supabase.from('sections').select('id', { count: 'exact', head: true }),
+        supabase.from('comments').select('id', { count: 'exact', head: true }),
+        supabase.from('tags').select('id', { count: 'exact', head: true })
       ])
 
-      const completedTasks = tasks.data?.filter(t => t.completed).length || 0
+      const completedTasks = completed.count || 0
       const activeTasks = (tasks.count || 0) - completedTasks
 
       setSyncStats({

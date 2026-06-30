@@ -95,10 +95,63 @@ export class SupabaseAdapter implements DatabaseAdapter {
   private supabase: any;
   private userId: string;
 
+  // Instance-scoped memoization. A single loadDatabase() call invokes
+  // getOrganizations() + getProjects() + getTasks() (which itself calls
+  // getProjects() again), each of which independently re-queried
+  // user_organizations / user_projects. One adapter == one consistent load, so
+  // we cache these membership reads and the no-arg getProjects() result on the
+  // instance. This collapses ~3x user_organizations + ~2x user_projects reads
+  // per load down to one each.
+  private _orgMembershipsPromise: Promise<
+    Array<{ organization_id: string; is_owner: boolean | null }>
+  > | null = null;
+  private _userProjectIdsPromise: Promise<string[]> | null = null;
+  private _projectsPromise: Promise<any[]> | null = null;
+
   constructor(supabase: any, userId: string) {
     this.supabase = supabase;
     this.userId = userId;
     console.log("🔧 SupabaseAdapter initialized with userId:", userId);
+  }
+
+  private getOrgMemberships() {
+    if (!this._orgMembershipsPromise) {
+      this._orgMembershipsPromise = (async () => {
+        const { data, error } = await this.supabase
+          .from("user_organizations")
+          .select("organization_id,is_owner")
+          .eq("user_id", this.userId);
+        if (error) {
+          // Don't cache failures.
+          this._orgMembershipsPromise = null;
+          throw error;
+        }
+        return (data || []) as Array<{
+          organization_id: string;
+          is_owner: boolean | null;
+        }>;
+      })();
+    }
+    return this._orgMembershipsPromise;
+  }
+
+  private getUserProjectIds() {
+    if (!this._userProjectIdsPromise) {
+      this._userProjectIdsPromise = (async () => {
+        const { data, error } = await this.supabase
+          .from("user_projects")
+          .select("project_id")
+          .eq("user_id", this.userId);
+        if (error) {
+          this._userProjectIdsPromise = null;
+          throw error;
+        }
+        return ((data || []) as Array<{ project_id: string | null }>)
+          .map((row) => row.project_id)
+          .filter(Boolean) as string[];
+      })();
+    }
+    return this._userProjectIdsPromise;
   }
 
   async getDatabase(): Promise<Database> {
@@ -121,11 +174,24 @@ export class SupabaseAdapter implements DatabaseAdapter {
       targetUserId,
     );
 
-    // Get organizations the user belongs to
-    const { data: userOrgs, error: userOrgsError } = await supabase
-      .from("user_organizations")
-      .select("organization_id")
-      .eq("user_id", targetUserId);
+    // Get organizations the user belongs to. Reuse the instance-cached
+    // membership read when fetching for the adapter's own user.
+    let userOrgs: Array<{ organization_id: string }> | null = null;
+    let userOrgsError: any = null;
+    if (targetUserId === this.userId) {
+      try {
+        userOrgs = await this.getOrgMemberships();
+      } catch (error) {
+        userOrgsError = error;
+      }
+    } else {
+      const result = await supabase
+        .from("user_organizations")
+        .select("organization_id")
+        .eq("user_id", targetUserId);
+      userOrgs = result.data;
+      userOrgsError = result.error;
+    }
 
     console.log("📊 User organizations query result:", {
       userOrgs,
@@ -546,38 +612,36 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async getProjects(organizationId?: string) {
+    // Memoize the (common) no-arg call for the lifetime of this adapter
+    // instance so getTasks()'s repeated getProjects() calls don't refetch.
+    if (!organizationId) {
+      if (!this._projectsPromise) {
+        this._projectsPromise = this._getProjects().catch((error) => {
+          this._projectsPromise = null;
+          throw error;
+        });
+      }
+      return this._projectsPromise;
+    }
+    return this._getProjects(organizationId);
+  }
+
+  private async _getProjects(organizationId?: string) {
     const supabase = this.supabase;
-    const { data: orgMembershipsRaw, error: orgMembershipsError } =
-      await supabase
-        .from("user_organizations")
-        .select("organization_id,is_owner")
-        .eq("user_id", this.userId);
-
-    if (orgMembershipsError) {
-      console.error(
-        "Error fetching user organizations for projects:",
-        orgMembershipsError,
-      );
+    let orgMembershipsRaw: Array<{
+      organization_id: string;
+      is_owner: boolean | null;
+    }>;
+    let explicitProjectIds: string[];
+    try {
+      [orgMembershipsRaw, explicitProjectIds] = await Promise.all([
+        this.getOrgMemberships(),
+        this.getUserProjectIds(),
+      ]);
+    } catch (error) {
+      console.error("Error fetching membership scope for projects:", error);
       return [];
     }
-
-    const { data: userProjectMemberships, error: userProjectMembershipsError } =
-      await supabase
-        .from("user_projects")
-        .select("project_id")
-        .eq("user_id", this.userId);
-
-    if (userProjectMembershipsError) {
-      console.error(
-        "Error fetching user project memberships for projects:",
-        userProjectMembershipsError,
-      );
-      return [];
-    }
-
-    const explicitProjectIds = (userProjectMemberships || [])
-      .map((row: { project_id: string | null }) => row.project_id)
-      .filter(Boolean) as string[];
 
     let explicitProjects: ProjectScopeRow[] = [];
     if (explicitProjectIds.length > 0) {
