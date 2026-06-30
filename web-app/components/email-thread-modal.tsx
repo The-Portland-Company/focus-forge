@@ -2064,7 +2064,13 @@ export function EmailThreadModal({
                     );
                     const hiddenOlderCount =
                       orderedConversationEntries.length - 1;
-                    // Centered bumper to reveal older (past) messages: shown
+                    // The hidden messages are whatever isn't the first shown
+                    // entry. With newest-first order the first entry is the
+                    // newest, so the rest are "older"; with oldest-first the
+                    // first entry is the oldest, so the rest are "newer".
+                    const hiddenDirectionLabel =
+                      conversationOrder === "oldest_first" ? "newer" : "older";
+                    // Centered bumper to reveal the collapsed messages: shown
                     // between the first message and the rest when collapsed.
                     if (
                       entryIndex === 1 &&
@@ -2083,8 +2089,8 @@ export function EmailThreadModal({
                           >
                             <ChevronDown className="h-3.5 w-3.5" />
                             <span>
-                              Show {hiddenOlderCount} older message
-                              {hiddenOlderCount === 1 ? "" : "s"}
+                              Show {hiddenOlderCount} {hiddenDirectionLabel}{" "}
+                              message{hiddenOlderCount === 1 ? "" : "s"}
                             </span>
                           </button>
                         </div>
