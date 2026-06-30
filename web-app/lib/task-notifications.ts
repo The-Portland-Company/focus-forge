@@ -474,6 +474,49 @@ export function getTaskCommentRecipients(options: {
   return recipients;
 }
 
+// Resolve who (if anyone) should receive a "task created" email. Only the
+// assignee is notified, and never the actor who created/assigned the task.
+export function getTaskCreatedRecipientId(options: {
+  assignedTo?: string | null;
+  actorUserId: string;
+}): string | null {
+  if (!options.assignedTo) return null;
+  if (options.assignedTo === options.actorUserId) return null;
+  return options.assignedTo;
+}
+
+type CompletionRecipientRole = "creator" | "assignee";
+
+export type CompletionRecipient = {
+  userId: string;
+  role: CompletionRecipientRole;
+};
+
+// Resolve who should receive a "task completed" email. The creator is notified
+// only if someone else completed the task; the assignee is also notified when
+// distinct from both the actor and the creator. The actor is never notified.
+export function getTaskCompletedRecipients(options: {
+  createdBy?: string | null;
+  assignedTo?: string | null;
+  actorUserId: string;
+}): CompletionRecipient[] {
+  const recipients: CompletionRecipient[] = [];
+
+  if (options.createdBy && options.createdBy !== options.actorUserId) {
+    recipients.push({ userId: options.createdBy, role: "creator" });
+  }
+
+  if (
+    options.assignedTo &&
+    options.assignedTo !== options.actorUserId &&
+    options.assignedTo !== options.createdBy
+  ) {
+    recipients.push({ userId: options.assignedTo, role: "assignee" });
+  }
+
+  return recipients;
+}
+
 export function computeAddedMembershipUserIds(options: {
   existingUserIds: string[];
   memberIds?: string[] | null;
@@ -691,7 +734,8 @@ export async function sendTaskCommentNotifications(options: {
 }
 
 // A newly created task only notifies the person it is assigned to. If the task
-// has no assignee, no "task created" email is sent at all.
+// has no assignee, no "task created" email is sent at all. The creator is never
+// emailed for assigning a task to themselves.
 export async function sendTaskCreatedNotification(options: {
   taskId: string;
   actorUserId: string;
@@ -701,17 +745,22 @@ export async function sendTaskCreatedNotification(options: {
       options.taskId,
     );
 
-    // Only notify when the task is assigned to someone — and only that assignee.
-    if (!task.assigned_to) {
+    // Only notify when the task is assigned to someone — and only that assignee
+    // — and never the actor who created/assigned the task (no self-notify).
+    const recipientId = getTaskCreatedRecipientId({
+      assignedTo: task.assigned_to,
+      actorUserId: options.actorUserId,
+    });
+    if (!recipientId) {
       return;
     }
 
     const [assigneeProfiles, actorProfiles] = await Promise.all([
-      fetchProfilesByIds([task.assigned_to]),
+      fetchProfilesByIds([recipientId]),
       fetchProfilesByIds([options.actorUserId]),
     ]);
 
-    const assignee = assigneeProfiles.get(task.assigned_to);
+    const assignee = assigneeProfiles.get(recipientId);
     if (!assignee?.email) {
       return;
     }
@@ -746,7 +795,9 @@ export async function sendTaskCreatedNotification(options: {
   }
 }
 
-// A completed task only notifies the person who created it.
+// A completed task notifies the task's creator and/or assignee, but never the
+// person who performed the completion (no self-notification), and never the same
+// person twice when the creator is also the assignee.
 export async function sendTaskCompletedNotification(options: {
   taskId: string;
   actorUserId: string;
@@ -756,42 +807,58 @@ export async function sendTaskCompletedNotification(options: {
       options.taskId,
     );
 
-    // Only notify the task's creator.
-    if (!task.created_by) {
+    // Determine eligible recipients: the creator (if someone else completed it)
+    // and the assignee (if set, distinct from the actor and the creator).
+    const recipientSpecs = getTaskCompletedRecipients({
+      createdBy: task.created_by,
+      assignedTo: task.assigned_to,
+      actorUserId: options.actorUserId,
+    });
+
+    if (!recipientSpecs.length) {
       return;
     }
 
-    const [creatorProfiles, actorProfiles] = await Promise.all([
-      fetchProfilesByIds([task.created_by]),
+    const [recipientProfiles, actorProfiles] = await Promise.all([
+      fetchProfilesByIds(recipientSpecs.map((spec) => spec.userId)),
       fetchProfilesByIds([options.actorUserId]),
     ]);
-
-    const creator = creatorProfiles.get(task.created_by);
-    if (!creator?.email) {
-      return;
-    }
 
     const actorName = getProfileDisplayName(
       actorProfiles.get(options.actorUserId),
     );
+    const taskUrl = getTaskLink(task.project_id);
+    const details = [
+      { label: "Task", value: task.name },
+      { label: "Project", value: project?.name || null },
+      { label: "Organization", value: organization?.name || null },
+      { label: "Completed by", value: actorName },
+    ];
 
-    await sendNotification({
-      kind: "task_completed",
-      entityId: task.id,
-      recipient: creator,
-      subject: `Task Completed: ${task.name}`,
-      greeting: `Hi ${getProfileDisplayName(creator)},`,
-      intro: `${actorName} marked the task "${task.name}" as completed in Focus: Forge.`,
-      details: [
-        { label: "Task", value: task.name },
-        { label: "Project", value: project?.name || null },
-        { label: "Organization", value: organization?.name || null },
-        { label: "Completed by", value: actorName },
-      ],
-      excerpt: getRichTextPreview(task.description || "", 240) || null,
-      actionUrl: getTaskLink(task.project_id),
-      actionLabel: "Open Task",
-    });
+    await Promise.allSettled(
+      recipientSpecs.map(async (spec) => {
+        const recipient = recipientProfiles.get(spec.userId);
+        if (!recipient?.email) return;
+
+        const intro =
+          spec.role === "assignee"
+            ? `${actorName} marked the task "${task.name}", which is assigned to you, as completed in Focus: Forge.`
+            : `${actorName} marked the task "${task.name}" as completed in Focus: Forge.`;
+
+        await sendNotification({
+          kind: "task_completed",
+          entityId: task.id,
+          recipient,
+          subject: `Task Completed: ${task.name}`,
+          greeting: `Hi ${getProfileDisplayName(recipient)},`,
+          intro,
+          details,
+          excerpt: getRichTextPreview(task.description || "", 240) || null,
+          actionUrl: taskUrl,
+          actionLabel: "Open Task",
+        });
+      }),
+    );
   } catch (error) {
     console.error("Failed to send task completed notification", {
       taskId: options.taskId,

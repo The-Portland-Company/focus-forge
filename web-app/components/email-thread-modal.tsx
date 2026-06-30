@@ -38,6 +38,7 @@ import {
   Sparkles,
   Square,
   Trash2,
+  Wand2,
   X,
 } from "lucide-react";
 import { EmailThreadAttachments } from "@/components/email-thread-attachments";
@@ -330,16 +331,25 @@ export function EmailThreadModal({
   const pendingQueuedActionRef = useRef<ThreadAction | null>(null);
   const { profile, updateProfile } = useUserProfile();
   const { preferences } = useUserPreferences();
-  // Per-user Conversation ordering. Persisted on the profiles row; falls back
-  // to the classic "oldest first" default before the profile loads.
-  const conversationOrder: EmailConversationOrder = profile
+  // Per-user Conversation ordering. Persisted on the profiles row, but driven
+  // by local state so the toggle reorders messages INSTANTLY on click (without
+  // waiting on the Supabase round-trip, which previously made the button feel
+  // broken). The profile value seeds + re-syncs the local state.
+  const profileConversationOrder: EmailConversationOrder = profile
     ? normalizeEmailConversationOrder(profile.email_conversation_order)
     : DEFAULT_EMAIL_CONVERSATION_ORDER;
+  const [conversationOrder, setConversationOrder] =
+    useState<EmailConversationOrder>(profileConversationOrder);
+  useEffect(() => {
+    setConversationOrder(profileConversationOrder);
+  }, [profileConversationOrder]);
   const handleToggleConversationOrder = () => {
-    if (!updateProfile) return;
     const next: EmailConversationOrder =
       conversationOrder === "oldest_first" ? "newest_first" : "oldest_first";
-    void updateProfile({ email_conversation_order: next });
+    // Apply immediately for instant reordering, then persist to the profile so
+    // the choice survives reload and applies to all threads.
+    setConversationOrder(next);
+    void updateProfile?.({ email_conversation_order: next });
   };
   const deleteUndoSeconds = clampEmailDeleteUndoSeconds(
     profile?.email_delete_undo_seconds,
@@ -1162,8 +1172,8 @@ export function EmailThreadModal({
     const isBusy = busyState === action;
     const label = options.label ?? getThreadActionLabel(action);
     const iconButtonClassName = options.destructive
-      ? "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-900/50 bg-red-950/40 text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
-      : "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50";
+      ? "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-900/50 bg-red-950/40 text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
+      : "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50";
 
     if (isPendingConfirm) {
       return (
@@ -1373,6 +1383,55 @@ export function EmailThreadModal({
                   </button>
                 </Tooltip>
               ) : null}
+              {/* AI Style Override toggle (icon-only, label in tooltip). Lives
+                  in this toolbar; toggles the reply-style override panel in the
+                  composer footer. */}
+              {thread && !loadingThread ? (
+                <Tooltip
+                  content="AI Style Override"
+                  className="w-auto"
+                  side="bottom"
+                  align="end"
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setReplyStyleOverrideEnabled((current) => !current)
+                    }
+                    aria-label="AI Style Override"
+                    aria-pressed={replyStyleOverrideEnabled}
+                    className={cn(
+                      "inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-colors",
+                      replyStyleOverrideEnabled
+                        ? "border-theme-primary bg-zinc-800 text-white"
+                        : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:text-white",
+                    )}
+                  >
+                    <Wand2 className="h-4 w-4" />
+                  </button>
+                </Tooltip>
+              ) : null}
+              {/* Destructive / triage cluster relocated into this toolbar
+                  (Quarantine / Archive / Spam / Delete), top-right. */}
+              {thread && !loadingThread ? (
+                <div className="inline-flex items-center gap-1">
+                  {renderThreadActionButton("quarantine", {
+                    icon: <ShieldAlert className="h-4 w-4" />,
+                  })}
+                  {renderThreadActionButton("archive", {
+                    icon: <Archive className="h-4 w-4" />,
+                  })}
+                  {renderThreadActionButton("spam", {
+                    icon: <Ban className="h-4 w-4" />,
+                    destructive: true,
+                  })}
+                  {renderThreadActionButton("delete", {
+                    icon: <Trash2 className="h-4 w-4" />,
+                    label: "Delete email",
+                    destructive: true,
+                  })}
+                </div>
+              ) : null}
               {/* Combined docking control: collapses to the active mode's icon
                   and slides left on hover to reveal all three options. */}
               <div
@@ -1553,13 +1612,13 @@ export function EmailThreadModal({
                         {/* Project selector pinned to the top-right of the
                             AI Summary header, with the Generate Tasks AI icon
                             floating to its right. */}
-                        <div className="flex w-full items-start gap-2 sm:w-auto">
+                        <div className="flex w-full items-center gap-2 sm:w-auto">
                         <div
                           ref={projectPickerRef}
                           className="relative w-full sm:w-[240px]"
                         >
-                          <div className="relative flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 pl-9 pr-10 py-1 transition-colors focus-within:ring-2 ring-theme">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                          <div className="relative flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 pl-3 pr-10 py-1 transition-colors focus-within:ring-2 ring-theme">
+                            <Search className="pointer-events-none h-4 w-4 shrink-0 text-zinc-500" />
                             {/* Selected project chips render INSIDE the field,
                                 left of the typing cursor. */}
                             {associatedProjects.map((project) => (
@@ -1923,24 +1982,6 @@ export function EmailThreadModal({
                       ) : null}
                     </div>
                   </div>
-
-                  <div className="flex shrink-0 flex-wrap items-start justify-end gap-2 xl:max-w-[240px]">
-                    {renderThreadActionButton("quarantine", {
-                      icon: <ShieldAlert className="h-4 w-4" />,
-                    })}
-                    {renderThreadActionButton("archive", {
-                      icon: <Archive className="h-4 w-4" />,
-                    })}
-                    {renderThreadActionButton("spam", {
-                      icon: <Ban className="h-4 w-4" />,
-                      destructive: true,
-                    })}
-                    {renderThreadActionButton("delete", {
-                      icon: <Trash2 className="h-4 w-4" />,
-                      label: "Delete email",
-                      destructive: true,
-                    })}
-                  </div>
                 </div>
               </div>
 
@@ -2158,58 +2199,17 @@ export function EmailThreadModal({
           {thread && !loadingThread ? (
             <div className="shrink-0 border-t border-zinc-800 bg-zinc-950 px-6 py-4">
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                <div className="mb-3 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setReplyStyleOverrideEnabled((current) => !current)
-                    }
-                    className={cn(
-                      "inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-medium transition-colors",
-                      replyStyleOverrideEnabled
-                        ? "border-theme-primary bg-zinc-800 text-white"
-                        : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:text-white",
-                    )}
-                  >
-                    AI Style Override
-                  </button>
-                  <Tooltip content="Generate AI reply" className="w-auto">
-                    <button
-                      type="button"
-                      onClick={() => void handleGenerateAiReply()}
-                      disabled={Boolean(busyState) || !threadId}
-                      title="Generate AI reply"
-                      aria-label="Generate AI reply"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      {busyState === "reply_ai" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Bot className="h-4 w-4" />
-                      )}
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="Separate window" className="w-auto">
-                    <button
-                      type="button"
-                      onClick={handleOpenThreadWindow}
-                      disabled={!threadId}
-                      title="Open thread in separate window"
-                      aria-label="Open thread in separate window"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </button>
-                  </Tooltip>
-                  {selectedReplyDraftId ? (
+                {/* The AI Style Override toggle now lives in the top toolbar;
+                    Generate AI reply sits inside the compose body; the pop-out
+                    button moved next to Reply Mode. Only the draft indicator
+                    remains here. */}
+                {selectedReplyDraftId ? (
+                  <div className="mb-3 flex items-center justify-end gap-2">
                     <div className="rounded-full border border-zinc-700 px-2 py-1 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
                       Draft active
                     </div>
-                  ) : null}
-                  {/* Mark-read lives in the top-right header; the destructive
-                      cluster (Quarantine/Archive/Spam/Delete) lives in the
-                      title row. */}
-                </div>
+                  </div>
+                ) : null}
                 {replyStyleOverrideEnabled ? (
                   <div className="mb-3 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
                     <div className="mb-3 text-xs uppercase tracking-wide text-zinc-500">
@@ -2321,23 +2321,62 @@ export function EmailThreadModal({
                       </button>
                     </div>
                   ) : null}
-                  <RichTextEditor
-                    value={replyContent}
-                    onChange={(value) => {
-                      setReplyContent(value);
-                      if (replyError) setReplyError(null);
-                    }}
-                    minHeightClassName="min-h-[120px]"
-                    placeholder={
-                      replyMode === "internal_note"
-                        ? "Write an internal note for linked Forge tasks…"
-                        : "Reply to all participants…"
-                    }
-                    disabled={
-                      busyState === "reply" || busyState === "reply_schedule"
-                    }
-                  />
+                  {/* Generate AI reply now lives INSIDE the compose body,
+                      pinned to the top-right corner of the editor. */}
+                  <div className="relative">
+                    <Tooltip
+                      content="Generate AI reply"
+                      className="w-auto"
+                      side="bottom"
+                      align="end"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => void handleGenerateAiReply()}
+                        disabled={Boolean(busyState) || !threadId}
+                        title="Generate AI reply"
+                        aria-label="Generate AI reply"
+                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900/90 text-zinc-300 shadow transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        {busyState === "reply_ai" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Bot className="h-4 w-4" />
+                        )}
+                      </button>
+                    </Tooltip>
+                    <RichTextEditor
+                      value={replyContent}
+                      onChange={(value) => {
+                        setReplyContent(value);
+                        if (replyError) setReplyError(null);
+                      }}
+                      minHeightClassName="min-h-[120px]"
+                      placeholder={
+                        replyMode === "internal_note"
+                          ? "Write an internal note for linked Forge tasks…"
+                          : "Reply to all participants…"
+                      }
+                      disabled={
+                        busyState === "reply" || busyState === "reply_schedule"
+                      }
+                    />
+                  </div>
                   <div className="flex flex-wrap items-center justify-end gap-2">
+                    {/* Pop-out / separate window control, bottom-left of the
+                        Reply Mode row. */}
+                    <Tooltip content="Separate window" className="w-auto">
+                      <button
+                        type="button"
+                        onClick={handleOpenThreadWindow}
+                        disabled={!threadId}
+                        title="Open thread in separate window"
+                        aria-label="Open thread in separate window"
+                        className="mt-2 mr-auto inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
                     <div className="relative pt-2">
                       <FloatingFieldLabel label="Reply Mode" />
                       <Select

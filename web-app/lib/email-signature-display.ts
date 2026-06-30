@@ -316,14 +316,22 @@ function findVisibleBoundaryIndex(
   const minimumSourceIndex = Math.floor(contentLength * 0.15);
   let boundary: { sourceIndex: number; rewindToBlock: boolean } | null = null;
 
-  for (let index = lines.length - 1; index >= minimumLineIndex; index -= 1) {
+  // Scan every line except the very first (so the newest author content is
+  // never fully hidden). High-confidence quoted-reply clusters collapse
+  // REGARDLESS of the line/source thresholds — otherwise a short new reply
+  // sitting atop a long quoted history pushes the "On … wrote:" attribution
+  // below the 25%-of-lines guard and the prior messages stay expanded. The
+  // softer signature/sign-off heuristics keep the conservative thresholds so
+  // we never eat real body content.
+  for (let index = lines.length - 1; index >= 1; index -= 1) {
     const line = lines[index];
-    if (line.sourceIndex < minimumSourceIndex) {
-      continue;
-    }
 
     if (isQuotedReplyLine(line) && hasQuotedReplyCluster(lines, index)) {
       boundary = { sourceIndex: line.sourceIndex, rewindToBlock: hasHtml };
+      continue;
+    }
+
+    if (index < minimumLineIndex || line.sourceIndex < minimumSourceIndex) {
       continue;
     }
 
