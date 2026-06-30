@@ -2268,6 +2268,36 @@ export function EmailInboxView({
     }
   }, [selectedThreadId, view, visibleInboxItems]);
 
+  // Deep-link support: on first mount, open the thread named in the URL
+  // (?thread=<id>) so a shared link lands directly on that email.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const threadParam = new URLSearchParams(window.location.search).get(
+      "thread",
+    );
+    if (!threadParam) return;
+    suppressInboxAutoSelectRef.current = false;
+    setSelectedThreadId(threadParam);
+    if (!isDesktopSplitLayout) {
+      setIsThreadModalOpen(true);
+    }
+    // Run once on mount only; later selection drives the URL (effect below).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the URL in sync with the open thread so it can be referenced/shared.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isEmailInboxView(view)) return;
+    const url = new URL(window.location.href);
+    if (selectedThreadId) {
+      url.searchParams.set("thread", selectedThreadId);
+    } else {
+      url.searchParams.delete("thread");
+    }
+    window.history.replaceState(window.history.state, "", url.toString());
+  }, [selectedThreadId, view]);
+
   useEffect(() => {
     if (!selectedThreadId || !isEmailInboxView(view)) return;
     let cancelled = false;
