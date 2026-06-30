@@ -1537,7 +1537,10 @@ export function EmailInboxView({
   const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
   const mailboxesRef = useRef<Mailbox[]>(data.mailboxes);
   const refreshInboxStateRef = useRef<
-    | ((options?: { allowBrowserNotifications?: boolean }) => Promise<void>)
+    | ((options?: {
+        allowBrowserNotifications?: boolean;
+        skipMailboxes?: boolean;
+      }) => Promise<void>)
     | null
   >(null);
   const [profileForm, setProfileForm] = useState({
@@ -2119,7 +2122,7 @@ export function EmailInboxView({
             ? error.message
             : "Failed to mark thread as read",
         );
-        void refreshInboxStateRef.current?.();
+        void refreshInboxStateRef.current?.({ skipMailboxes: true });
       });
   };
 
@@ -2421,7 +2424,32 @@ export function EmailInboxView({
 
   const refreshInboxState = async (options?: {
     allowBrowserNotifications?: boolean;
+    // Mailboxes change rarely, so high-frequency callers (realtime, polling,
+    // post-action refreshes) pass skipMailboxes:true to fetch only the inbox and
+    // reuse the already-loaded mailbox list — avoiding a redundant
+    // /api/email/mailboxes request on every refresh. Initial load and
+    // mailbox-changing actions leave this false to refresh both.
+    skipMailboxes?: boolean;
   }) => {
+    if (options?.skipMailboxes) {
+      const inboxResponse = await fetch("/api/email/inbox", {
+        credentials: "include",
+      });
+      const inboxPayload = await inboxResponse.json();
+
+      if (!inboxResponse.ok) {
+        throw new Error(inboxPayload.error || "Failed to load inbox");
+      }
+
+      applyInboxSnapshot({
+        // Reuse the current mailbox list; we did not refetch it.
+        nextMailboxes: mailboxesRef.current,
+        nextItems: Array.isArray(inboxPayload) ? inboxPayload : [],
+        allowBrowserNotifications: options?.allowBrowserNotifications,
+      });
+      return;
+    }
+
     const [mailboxesResponse, inboxResponse] = await Promise.all([
       fetch("/api/email/mailboxes", {
         credentials: "include",
@@ -2465,7 +2493,7 @@ export function EmailInboxView({
     mailboxId: string;
     threadId?: string | null;
   }) => {
-    await refreshInboxState();
+    await refreshInboxState({ skipMailboxes: true });
     await onRefresh?.();
 
     if (typeof window !== "undefined") {
@@ -2479,7 +2507,7 @@ export function EmailInboxView({
   };
 
   const handleOutboundComposerScheduled = async () => {
-    await refreshInboxState();
+    await refreshInboxState({ skipMailboxes: true });
     await onRefresh?.();
     updateStatus("Email scheduled.");
   };
@@ -2554,6 +2582,7 @@ export function EmailInboxView({
     onChange: () => {
       void refreshInboxStateRef.current?.({
         allowBrowserNotifications: true,
+        skipMailboxes: true,
       });
     },
   });
@@ -2567,6 +2596,7 @@ export function EmailInboxView({
         if (result.syncedMailboxCount > 0 || result.changedThreadCount > 0) {
           await refreshInboxStateRef.current?.({
             allowBrowserNotifications: true,
+            skipMailboxes: true,
           });
         }
       } catch {
@@ -2824,7 +2854,7 @@ export function EmailInboxView({
       }
 
       setIsEmptyTrashConfirmVisible(false);
-      void refreshInboxState().catch(() => {
+      void refreshInboxState({ skipMailboxes: true }).catch(() => {
         // Keep the optimistic purge visible when the follow-up refresh fails.
       });
       updateStatus(
@@ -2970,7 +3000,7 @@ export function EmailInboxView({
         removePendingDeletion(pendingId);
       }, EMAIL_ROW_REMOVAL_ANIMATION_MS + 600);
 
-      void refreshInboxState().catch(() => {
+      void refreshInboxState({ skipMailboxes: true }).catch(() => {
         // Keep the optimistic removal instead of blocking on a slow refresh.
       });
 
@@ -2993,7 +3023,7 @@ export function EmailInboxView({
         });
       }
       // Reconcile ordering/state from the server (the thread still exists).
-      void refreshInboxState().catch(() => {});
+      void refreshInboxState({ skipMailboxes: true }).catch(() => {});
 
       setPendingDeletions((current) =>
         current.map((entry) =>
@@ -3116,7 +3146,7 @@ export function EmailInboxView({
         );
       }
 
-      void refreshInboxState().catch(() => {
+      void refreshInboxState({ skipMailboxes: true }).catch(() => {
         // Keep the optimistic state instead of blocking the UI on a slow refresh.
       });
 
@@ -3274,7 +3304,7 @@ export function EmailInboxView({
       setIsRuleEditorOpen(true);
 
       await Promise.allSettled([
-        refreshInboxState(),
+        refreshInboxState({ skipMailboxes: true }),
         Promise.resolve(onRefresh?.()),
       ]);
 
@@ -3430,7 +3460,7 @@ export function EmailInboxView({
       if (!response.ok) {
         throw new Error(payload.error || "Failed to assign project");
       }
-      await refreshInboxState();
+      await refreshInboxState({ skipMailboxes: true });
       if (selectedThreadId === threadId) {
         setSelectedThread(payload);
       }
@@ -3572,7 +3602,7 @@ export function EmailInboxView({
       if (!response.ok) {
         throw new Error(payload.error || "Failed to generate tasks");
       }
-      await refreshInboxState();
+      await refreshInboxState({ skipMailboxes: true });
       updateStatus(
         `Generated ${payload.length || 0} task${payload.length === 1 ? "" : "s"}.`,
       );
@@ -3798,7 +3828,7 @@ export function EmailInboxView({
         throw new Error(payload.error || "Failed to send reply");
       }
       resetComposerAfterSend();
-      await refreshInboxState();
+      await refreshInboxState({ skipMailboxes: true });
       await refreshReplyDraftState();
       await refreshSelectedThreadDetail(selectedThreadId);
       updateStatus(

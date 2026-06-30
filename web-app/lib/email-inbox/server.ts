@@ -1912,11 +1912,28 @@ export async function listInboxItemsForUser(
     return [];
   }
 
+  // Explicit column list: only the fields mapThreadToInboxItem actually reads
+  // for the list view. This trims wire/egress vs `select("*")`. NOTE: the two
+  // heavy JSON columns (analysis_json, task_suggestions_json) ARE consumed by
+  // the mapper (matchedRuleIds + taskSuggestions), so they must stay. Any
+  // email_threads column NOT in this list is intentionally not fetched for the
+  // list view. Keep this in sync with mapThreadToInboxItem.
+  const LIST_THREAD_COLUMNS =
+    "id,mailbox_id,project_id,owner_user_id,summary_profile_id,status," +
+    "classification,resolution_state,action_title,subject,normalized_subject," +
+    "summary_text,preview_text,action_confidence,action_reason," +
+    "latest_message_at,latest_inbound_at,latest_outbound_at,origin,is_unread," +
+    "is_starred,work_due_date,work_due_time,needs_project,always_delete," +
+    "analysis_json,task_suggestions_json,created_at,updated_at";
+
   let query = admin
     .from("email_threads")
-    .select("*")
+    .select(LIST_THREAD_COLUMNS)
     .in("mailbox_id", mailboxIds)
-    .order("latest_message_at", { ascending: false });
+    .order("latest_message_at", { ascending: false })
+    // Cap the result set: the UI paginates client-side at 50/page, so 200 keeps
+    // several pages of the most-recent threads without dragging full history.
+    .limit(200);
 
   if (options.status) {
     query = query.eq("status", options.status);
