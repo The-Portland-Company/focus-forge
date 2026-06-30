@@ -98,6 +98,7 @@ function makeInboxItem(
     needsProject: false,
     alwaysDelete: false,
     derivedTaskCount: 0,
+    messageCount: 1,
     participants: [
       {
         id: "participant-1",

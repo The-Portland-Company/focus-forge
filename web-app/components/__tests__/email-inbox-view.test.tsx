@@ -575,6 +575,7 @@ test("filterInboxItemsBySearchQuery supports structured state and has filters", 
       isUnread: true,
       projectId: "project-1",
       derivedTaskCount: 2,
+      messageCount: 1,
       conversation: [
         {
           attachments: [{ id: "att-1" }],
@@ -590,6 +591,7 @@ test("filterInboxItemsBySearchQuery supports structured state and has filters", 
       isUnread: false,
       projectId: null,
       derivedTaskCount: 0,
+      messageCount: 1,
       conversation: [],
     },
   ] as any;

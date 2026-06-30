@@ -17,6 +17,7 @@ import {
   Loader2,
   Mail,
   MessageSquare,
+  MessagesSquare,
   Plus,
   Search,
   Skull,
@@ -1506,6 +1507,29 @@ export function EmailWorkList({
                   {item.derivedTaskCount} linked task
                   {item.derivedTaskCount === 1 ? "" : "s"}
                 </button>
+                {/* Conversation length: number of email messages in this
+                    thread. Always >= 1 (server defaults to 1). */}
+                {(() => {
+                  const messageCount = item.messageCount ?? 1;
+                  const tooltipContent = `${messageCount} message${
+                    messageCount === 1 ? "" : "s"
+                  } in this thread`;
+                  return (
+                    <Tooltip
+                      content={tooltipContent}
+                      className="w-auto"
+                      side="top"
+                    >
+                      <span
+                        aria-label={tooltipContent}
+                        className="inline-flex cursor-help items-center gap-1 break-words rounded-md px-1 py-0.5 text-zinc-500"
+                      >
+                        <MessagesSquare className="h-3.5 w-3.5" />
+                        {messageCount}
+                      </span>
+                    </Tooltip>
+                  );
+                })()}
                 {item.actionConfidence ? (
                   <span className="inline-flex items-center gap-1 break-words">
                     <Sparkles className="h-3.5 w-3.5" />

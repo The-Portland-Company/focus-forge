@@ -23,6 +23,7 @@ const spamItem = {
   needsProject: false,
   alwaysDelete: false,
   derivedTaskCount: 0,
+  messageCount: 1,
   createdAt: "2026-04-03T00:00:00.000Z",
   updatedAt: "2026-04-03T00:00:00.000Z",
 } as any;

@@ -1068,6 +1068,7 @@ function mapThreadToInboxItem(params: {
   participants: InboxParticipant[];
   taskCount: number;
   projectIds?: string[];
+  messageCount?: number;
 }): InboxItem {
   // Full project association list: the primary project_id first (for back-compat
   // and as the default task target), then any additional links from the
@@ -1114,6 +1115,10 @@ function mapThreadToInboxItem(params: {
     needsProject: Boolean(params.row.needs_project),
     alwaysDelete: Boolean(params.row.always_delete),
     derivedTaskCount: params.taskCount,
+    // Conversation length. Defaults to 1 — a thread always has at least its own
+    // message, so the UI never shows 0.
+    messageCount:
+      params.messageCount && params.messageCount > 0 ? params.messageCount : 1,
     matchedRuleIds: Array.isArray(params.row.analysis_json?.matchedRuleIds)
       ? params.row.analysis_json.matchedRuleIds
           .map((value: unknown) => String(value || "").trim())
@@ -1975,18 +1980,38 @@ export async function listInboxItemsForUser(
   }
 
   const threadIds = threads.map((thread: any) => thread.id);
-  const [participantRows, { data: taskLinks }, { data: projectLinks }] =
-    await Promise.all([
-      fetchParticipantRowsForThreads(admin, threadIds),
-      admin
-        .from("email_thread_tasks")
-        .select("thread_id,task_id")
-        .in("thread_id", threadIds),
-      admin
-        .from("email_thread_projects")
-        .select("thread_id,project_id")
-        .in("thread_id", threadIds),
-    ]);
+  const [
+    participantRows,
+    { data: taskLinks },
+    { data: projectLinks },
+    { data: messageRows },
+  ] = await Promise.all([
+    fetchParticipantRowsForThreads(admin, threadIds),
+    admin
+      .from("email_thread_tasks")
+      .select("thread_id,task_id")
+      .in("thread_id", threadIds),
+    admin
+      .from("email_thread_projects")
+      .select("thread_id,project_id")
+      .in("thread_id", threadIds),
+    // Per-thread message counts (conversation length) for the list badge. One
+    // grouped read over the capped thread set (<=200 threads), counted in JS —
+    // cheaper than one query per thread.
+    admin
+      .from("email_messages")
+      .select("thread_id")
+      .in("thread_id", threadIds),
+  ]);
+
+  const messageCountByThread = ((messageRows || []) as any[]).reduce(
+    (map: Map<string, number>, row: any) => {
+      const key = String(row.thread_id);
+      map.set(key, (map.get(key) || 0) + 1);
+      return map;
+    },
+    new Map<string, number>(),
+  );
 
   const projectIdsByThread = ((projectLinks || []) as any[]).reduce(
     (map: Map<string, string[]>, row: any) => {
@@ -2026,6 +2051,7 @@ export async function listInboxItemsForUser(
         participants: participantsByThread.get(String(row.id)) || [],
         taskCount: taskCounts.get(String(row.id)) || 0,
         projectIds: projectIdsByThread.get(String(row.id)) || [],
+        messageCount: messageCountByThread.get(String(row.id)) ?? 1,
       }),
     ),
   );
@@ -2175,6 +2201,7 @@ export async function listSenderHistoryForUser(
         participants: participantsByThread.get(String(row.id)) || [],
         taskCount: 0,
         projectIds: projectIdsByThread.get(String(row.id)) || [],
+        messageCount: (messagesByThread.get(String(row.id)) || []).length || 1,
       });
 
       const conversation = (messagesByThread.get(String(row.id)) || [])
@@ -3277,6 +3304,7 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
     projectIds: ((projectLinkRows || []) as any[]).map((row) =>
       String(row.project_id),
     ),
+    messageCount: (messageRows || []).length || 1,
   });
 
   const conversation: ConversationEntry[] = (messageRows || [])

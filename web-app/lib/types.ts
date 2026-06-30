@@ -428,6 +428,10 @@ export interface InboxItem {
   needsProject: boolean;
   alwaysDelete: boolean;
   derivedTaskCount: number;
+  /** Number of email messages in the thread (conversation length). Always >= 1
+   *  — a thread has at least its own message, so we never display 0. Derived
+   *  from email_messages, not stored on the email_threads row. */
+  messageCount: number;
   matchedRuleIds?: string[];
   participants?: InboxParticipant[];
   conversation?: ConversationEntry[];
