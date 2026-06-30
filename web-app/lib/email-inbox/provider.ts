@@ -637,6 +637,57 @@ export async function fetchMailboxMessageByProviderMessageId(
   });
 }
 
+/**
+ * Batched variant of fetchMailboxMessageByProviderMessageId: fetches many
+ * messages over a SINGLE IMAP connection (one connect/login/SELECT) instead of
+ * one connection per message. Returns a map keyed by provider message id (UID
+ * string). Non-numeric / invalid ids are skipped. Used by the attachment
+ * metadata backfill so opening a thread with N attachment-bearing messages does
+ * not trigger N sequential IMAP handshakes.
+ */
+export async function fetchMailboxMessagesByProviderMessageIds(
+  mailbox: MailboxTransportRow,
+  providerMessageIds: string[],
+): Promise<Map<string, NormalizedMailboxMessage>> {
+  const result = new Map<string, NormalizedMailboxMessage>();
+  const uids = Array.from(
+    new Set(
+      providerMessageIds
+        .map((id) => Number(id))
+        .filter((uid) => Number.isFinite(uid) && uid > 0),
+    ),
+  );
+  if (uids.length === 0) {
+    return result;
+  }
+
+  await withImapClient(mailbox, async (client) => {
+    for await (const message of client.fetch(
+      uids,
+      {
+        uid: true,
+        source: true,
+        flags: true,
+        internalDate: true,
+      },
+      { uid: true },
+    )) {
+      if (!message.source) {
+        continue;
+      }
+      const normalized = await normalizeParsedMailboxMessage({
+        uid: message.uid,
+        source: message.source,
+        flags: message.flags || null,
+        internalDate: message.internalDate || null,
+      });
+      result.set(String(message.uid), normalized);
+    }
+  });
+
+  return result;
+}
+
 export async function fetchMailboxAttachmentByProviderMessageId(
   mailbox: MailboxTransportRow,
   providerMessageId: string,

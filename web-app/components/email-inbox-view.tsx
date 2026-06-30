@@ -19,6 +19,7 @@ import {
   Ban,
   Bot,
   Check,
+  CheckCircle2,
   CheckSquare,
   CircleHelp,
   ChevronDown,
@@ -1340,6 +1341,7 @@ export function EmailInboxView({
   const isSentView = view === "email-sent";
   const isTrashView = view === "email-trash";
   const isQuarantineView = view === "email-quarantine";
+  const isDefaultInboxView = !isSentView && !isTrashView && !isQuarantineView;
   const [selectedMailboxId, setSelectedMailboxId] = useState<string>("all");
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [selectedThread, setSelectedThread] = useState<any | null>(null);
@@ -1938,6 +1940,13 @@ export function EmailInboxView({
     }
 
     void updateProfile({ email_panel_width_px: clamped });
+  };
+
+  const setInboxIntroDismissed = (dismissed: boolean) => {
+    if (!updateProfile) {
+      return;
+    }
+    void updateProfile({ email_inbox_intro_dismissed: dismissed });
   };
 
   const handleDetailPanelResizeStart = (
@@ -4336,15 +4345,33 @@ export function EmailInboxView({
                   : "Email Inbox"}
             </h1>
           </div>
-          <p className="mt-1 whitespace-nowrap text-sm text-zinc-500">
-            {isQuarantineView
-              ? "Review suspected spam and decide what Fluid should do next."
-              : isSentView
-                ? "Review outbound threads and keep follow-ups organized."
-              : isTrashView
-                ? "Review deleted threads and permanently empty the selected trash mailbox."
-                : "Email threads are pre-processed and rendered as work items."}
-          </p>
+          {isDefaultInboxView ? (
+            profile?.email_inbox_intro_dismissed ? null : (
+              <div className="mt-1.5 inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-sm text-emerald-300">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                <span className="whitespace-nowrap">
+                  Email threads are pre-processed and rendered as work items.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setInboxIntroDismissed(true)}
+                  aria-label="Dismiss"
+                  title="Dismiss"
+                  className="-mr-0.5 ml-0.5 rounded-md p-0.5 text-emerald-400/70 transition hover:bg-emerald-500/20 hover:text-emerald-200"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )
+          ) : (
+            <p className="mt-1 whitespace-nowrap text-sm text-zinc-500">
+              {isQuarantineView
+                ? "Review suspected spam and decide what Fluid should do next."
+                : isSentView
+                  ? "Review outbound threads and keep follow-ups organized."
+                  : "Review deleted threads and permanently empty the selected trash mailbox."}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
           {visibleInboxItems.length > 0 ? (

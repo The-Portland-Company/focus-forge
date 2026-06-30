@@ -48,7 +48,7 @@ import {
   applyMailboxThreadAction,
   emptyMailboxTrash,
   fetchMailboxAttachmentByProviderMessageId,
-  fetchMailboxMessageByProviderMessageId,
+  fetchMailboxMessagesByProviderMessageIds,
   fetchMailboxFolderUids,
   fetchMailboxMessageReadStates,
   fetchMailboxMessages,
@@ -145,50 +145,74 @@ function messageLikelyHasAttachments(row: any) {
   return contentType.includes("multipart/mixed");
 }
 
-async function hydrateMessageAttachmentMetadata(
+// Strong refs to in-flight attachment-metadata backfills, so an un-awaited
+// promise on the persistent Railway Node server isn't GC'd before it settles.
+const pendingAttachmentBackfills = new Set<Promise<void>>();
+
+/**
+ * Returns the subset of message rows that still need their attachment metadata
+ * fetched from the provider (likely has attachments per headers, but nothing
+ * stored in metadata_json.attachments yet, and addressable by provider id).
+ */
+function messageRowsNeedingAttachmentBackfill(messageRows: any[]): any[] {
+  return (messageRows || []).filter(
+    (row) =>
+      row?.provider_message_id &&
+      !hasStoredMessageAttachments(row) &&
+      messageLikelyHasAttachments(row),
+  );
+}
+
+/**
+ * Backfill attachment metadata for the given messages OUT of the read hot path.
+ *
+ * Previously this ran synchronously inside getThreadDetailForUser, opening a
+ * FRESH IMAP connection (TCP + TLS + LOGIN + SELECT) and downloading the full
+ * raw MIME source PER MESSAGE, sequentially, on every thread open — the dominant
+ * "opening an email is slow" cost. Now it (a) runs in the background so the
+ * conversation renders immediately, and (b) fetches every pending message over a
+ * SINGLE IMAP connection. Once persisted, the realtime/next-open path serves the
+ * stored metadata with no IMAP at all. Failure-isolated: errors are logged and
+ * leave the cheap (no-attachments-chip) view in place for a later retry.
+ */
+function backfillMessageAttachmentMetadataInBackground(
   mailbox: MailboxTransportRow,
   messageRows: any[],
-) {
-  const admin = getAdminClient();
-  const hydratedRows = [...messageRows];
-
-  for (let index = 0; index < hydratedRows.length; index += 1) {
-    const row = hydratedRows[index];
-    if (
-      !row?.provider_message_id ||
-      hasStoredMessageAttachments(row) ||
-      !messageLikelyHasAttachments(row)
-    ) {
-      continue;
-    }
-
-    const refreshedMessage = await fetchMailboxMessageByProviderMessageId(
-      mailbox,
-      String(row.provider_message_id),
-    );
-
-    if (!refreshedMessage) {
-      continue;
-    }
-
-    const nextMetadata = {
-      ...(row.metadata_json || {}),
-      attachments: refreshedMessage.attachments,
-    };
-
-    const { data: updatedRow } = await admin
-      .from("email_messages")
-      .update({ metadata_json: nextMetadata })
-      .eq("id", row.id)
-      .select("*")
-      .single();
-
-    hydratedRows[index] = updatedRow
-      ? { ...updatedRow }
-      : { ...row, metadata_json: nextMetadata };
+): void {
+  const pending = messageRowsNeedingAttachmentBackfill(messageRows);
+  if (pending.length === 0) {
+    return;
   }
 
-  return hydratedRows;
+  const task = (async () => {
+    try {
+      const admin = getAdminClient();
+      const fetched = await fetchMailboxMessagesByProviderMessageIds(
+        mailbox,
+        pending.map((row) => String(row.provider_message_id)),
+      );
+
+      for (const row of pending) {
+        const refreshed = fetched.get(String(row.provider_message_id));
+        if (!refreshed) {
+          continue;
+        }
+        const nextMetadata = {
+          ...(row.metadata_json || {}),
+          attachments: refreshed.attachments,
+        };
+        await admin
+          .from("email_messages")
+          .update({ metadata_json: nextMetadata })
+          .eq("id", row.id);
+      }
+    } catch (error) {
+      console.error("Attachment metadata backfill failed", error);
+    }
+  })();
+
+  pendingAttachmentBackfills.add(task);
+  void task.finally(() => pendingAttachmentBackfills.delete(task));
 }
 
 // Request-scoped memoization. A single email API request fans out into many
@@ -3211,10 +3235,13 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
     getActiveReplyDraftForThread(threadId),
   ]);
 
-  const messageRows = await hydrateMessageAttachmentMetadata(
-    mailbox,
-    ((rawMessageRows || []) as any[]).map((row: any) => ({ ...row })),
-  );
+  const messageRows = ((rawMessageRows || []) as any[]).map((row: any) => ({
+    ...row,
+  }));
+  // Backfill any missing attachment metadata OUT of the read path (single IMAP
+  // connection, fire-and-forget). The conversation renders immediately from
+  // stored data; attachment chips appear on the next open once persisted.
+  backfillMessageAttachmentMetadataInBackground(mailbox, messageRows);
 
   const participants =
     (
