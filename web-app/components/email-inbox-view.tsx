@@ -64,6 +64,10 @@ import {
   shouldShowStatusBadge,
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
+import {
+  EmailDeleteTray,
+  type PendingDeletion,
+} from "@/components/email-delete-tray";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
 import AiRulesTabs from "@/components/ai-rules-tabs";
 import { type EmailComposerInitialDraft } from "@/components/email-outbound-composer-modal";
@@ -1440,6 +1444,14 @@ export function EmailInboxView({
     () => new Set(),
   );
   const [removingThreadIds, setRemovingThreadIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  // Deletion tray: emails are removed from the list instantly on delete, and
+  // their in-flight (and failed) status lives here until the server confirms.
+  const [pendingDeletions, setPendingDeletions] = useState<PendingDeletion[]>(
+    [],
+  );
+  const [reportingDeletionIds, setReportingDeletionIds] = useState<Set<string>>(
     () => new Set(),
   );
   // When the user deletes the currently-open thread we close the detail panel
@@ -2834,6 +2846,56 @@ export function EmailInboxView({
   // while the request is in flight, 3) on success slide the row off to the
   // right (remaining rows shift up) before dropping it from state, 4) on
   // failure revert the optimistic state and surface the error.
+  const removePendingDeletion = (pendingId: string) => {
+    setPendingDeletions((current) =>
+      current.filter((entry) => entry.id !== pendingId),
+    );
+  };
+
+  const handleDismissPendingDeletion = (pendingId: string) => {
+    removePendingDeletion(pendingId);
+  };
+
+  const handleReportDeletionBug = async (entry: PendingDeletion) => {
+    setReportingDeletionIds((current) => {
+      const next = new Set(current);
+      next.add(entry.id);
+      return next;
+    });
+    try {
+      const response = await fetch("/api/email/report-bug", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          error: entry.error || "Email delete failed",
+          threadId: entry.threadId,
+          action: entry.action,
+          context: `Email deletion failed for "${entry.subject}" from ${entry.sender}`,
+          userAgent:
+            typeof navigator !== "undefined" ? navigator.userAgent : "",
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || "Failed to send bug report");
+      }
+      updateStatus("Bug report sent to the developer.");
+    } catch (error) {
+      updateStatus(
+        error instanceof Error
+          ? `Couldn't send bug report: ${error.message}`
+          : "Couldn't send bug report.",
+      );
+    } finally {
+      setReportingDeletionIds((current) => {
+        const next = new Set(current);
+        next.delete(entry.id);
+        return next;
+      });
+    }
+  };
+
   const handleDeleteThreadWithAnimation = async (
     action: ThreadAction,
     threadId: string,
@@ -2842,6 +2904,21 @@ export function EmailInboxView({
     const previousSelectedThreadId = selectedThreadId;
     const previousSelectedThread = selectedThread;
     const wasThreadModalOpen = isThreadModalOpen;
+
+    // Capture the row's identity for the deletion tray BEFORE it leaves the
+    // list (sender + subject), so the tray can describe what's being deleted.
+    const targetItem = inboxSnapshotRef.current.find(
+      (item) => item.id === threadId,
+    );
+    const sender = targetItem
+      ? formatParticipantName(
+          getPrimarySenderParticipant(targetItem.participants),
+        )
+      : "Unknown sender";
+    const subject = targetItem
+      ? formatEmailSubject(targetItem.subject) || "(no subject)"
+      : "(no subject)";
+    const pendingId = `${threadId}:${action}`;
 
     // 1. Immediately collapse the reading/detail panel for this thread and
     //    keep it closed (suppress the auto-select-first effect).
@@ -2852,12 +2929,27 @@ export function EmailInboxView({
       setIsThreadModalOpen(false);
     }
 
-    // 2. Optimistic "deleting" row state: strike-through + "Deleting…" spinner.
-    setDeletingThreadIds((current) => {
-      const next = new Set(current);
-      next.add(threadId);
-      return next;
-    });
+    // 2. INSTANT removal — apply the optimistic "deleted" state right away so
+    //    the email disappears from the list immediately (no lingering spinner).
+    const beforeItems = inboxSnapshotRef.current;
+    const optimisticItems = applyOptimisticThreadActionState(
+      beforeItems,
+      threadId,
+      action,
+    );
+    if (optimisticItems !== beforeItems) {
+      inboxSnapshotRef.current = optimisticItems;
+      setInboxItems(optimisticItems);
+      setQuarantineCount(
+        optimisticItems.filter((item) => item.status === "quarantine").length,
+      );
+    }
+
+    // 3. Track the in-flight delete in the bottom-left deletion tray.
+    setPendingDeletions((current) => [
+      ...current.filter((entry) => entry.id !== pendingId),
+      { id: pendingId, threadId, action, sender, subject, status: "deleting" },
+    ]);
     setBusyState(action);
 
     try {
@@ -2872,56 +2964,44 @@ export function EmailInboxView({
         throw new Error(payload.error || "Failed to apply thread action");
       }
 
-      // 3. Success → hand the row to the slide-off animation, then drop it.
-      setDeletingThreadIds((current) => {
-        const next = new Set(current);
-        next.delete(threadId);
-        return next;
-      });
-      setRemovingThreadIds((current) => {
-        const next = new Set(current);
-        next.add(threadId);
-        return next;
-      });
-
+      // 4. Success → let the tray entry linger briefly so the user sees it
+      //    complete, then fade it out. The tray hides itself once empty.
       window.setTimeout(() => {
-        const currentItems = inboxSnapshotRef.current;
-        const optimisticItems = applyOptimisticThreadActionState(
-          currentItems,
-          threadId,
-          action,
-        );
-        if (optimisticItems !== currentItems) {
-          inboxSnapshotRef.current = optimisticItems;
-          setInboxItems(optimisticItems);
-          setQuarantineCount(
-            optimisticItems.filter((item) => item.status === "quarantine")
-              .length,
-          );
-        }
-        setRemovingThreadIds((current) => {
-          const next = new Set(current);
-          next.delete(threadId);
-          return next;
-        });
-        void refreshInboxState().catch(() => {
-          // Keep the optimistic removal instead of blocking on a slow refresh.
-        });
-      }, EMAIL_ROW_REMOVAL_ANIMATION_MS);
+        removePendingDeletion(pendingId);
+      }, EMAIL_ROW_REMOVAL_ANIMATION_MS + 600);
+
+      void refreshInboxState().catch(() => {
+        // Keep the optimistic removal instead of blocking on a slow refresh.
+      });
 
       updateStatus(`Applied ${action.replace(/_/g, " ")}.`);
     } catch (error) {
-      // 4. Failure → revert optimistic state and restore the detail panel.
-      setDeletingThreadIds((current) => {
-        const next = new Set(current);
-        next.delete(threadId);
-        return next;
-      });
-      setRemovingThreadIds((current) => {
-        const next = new Set(current);
-        next.delete(threadId);
-        return next;
-      });
+      const message =
+        error instanceof Error ? error.message : "Failed to apply action";
+
+      // 5. Failure → keep the email visible (don't silently lose it): restore
+      //    the row into the list and flip the tray entry to a "failed" state
+      //    with retry / report-bug affordances.
+      if (targetItem) {
+        setInboxItems((current) => {
+          if (current.some((item) => item.id === threadId)) {
+            return current;
+          }
+          const restored = [...current, targetItem];
+          inboxSnapshotRef.current = restored;
+          return restored;
+        });
+      }
+      // Reconcile ordering/state from the server (the thread still exists).
+      void refreshInboxState().catch(() => {});
+
+      setPendingDeletions((current) =>
+        current.map((entry) =>
+          entry.id === pendingId
+            ? { ...entry, status: "failed", error: message }
+            : entry,
+        ),
+      );
 
       if (
         shouldUpdateSelectedThread &&
@@ -2934,12 +3014,19 @@ export function EmailInboxView({
         setIsThreadModalOpen(wasThreadModalOpen);
       }
 
-      updateStatus(
-        error instanceof Error ? error.message : "Failed to apply action",
-      );
+      updateStatus(message);
     } finally {
       setBusyState(null);
     }
+  };
+
+  const handleRetryPendingDeletion = (entry: PendingDeletion) => {
+    removePendingDeletion(entry.id);
+    void handleDeleteThreadWithAnimation(
+      entry.action as ThreadAction,
+      entry.threadId,
+      false,
+    );
   };
 
   const handleThreadAction = async (
@@ -4023,6 +4110,13 @@ export function EmailInboxView({
 
   return (
     <div className="min-w-0 space-y-6">
+      <EmailDeleteTray
+        items={pendingDeletions}
+        onRetry={handleRetryPendingDeletion}
+        onReportBug={handleReportDeletionBug}
+        onDismiss={handleDismissPendingDeletion}
+        reportingIds={reportingDeletionIds}
+      />
       <div className="flex flex-nowrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
