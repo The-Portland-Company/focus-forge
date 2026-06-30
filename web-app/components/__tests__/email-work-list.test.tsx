@@ -212,6 +212,41 @@ test("getPrimarySenderParticipant returns the from participant", () => {
   );
 });
 
+test("getPrimarySenderParticipant prefers the correspondent over the mailbox owner", () => {
+  const participants = [
+    {
+      id: "from-ricky",
+      emailAddress: "rickyklontz@gmail.com",
+      displayName: "Ricky Klontz",
+      participantRole: "from",
+    },
+    {
+      id: "from-owner",
+      emailAddress: "spencerhill@theportlandcompany.com",
+      displayName: "Spencer Hill",
+      participantRole: "from",
+    },
+  ];
+
+  // Even though the owner sent the most recent message (last in the array),
+  // the row should surface the correspondent.
+  assert.equal(
+    getPrimarySenderParticipant(participants as any, [
+      "spencerhill@theportlandcompany.com",
+    ])?.emailAddress,
+    "rickyklontz@gmail.com",
+  );
+
+  // Owner-only thread falls back to showing the owner.
+  assert.equal(
+    getPrimarySenderParticipant(
+      [participants[1]] as any,
+      ["spencerhill@theportlandcompany.com"],
+    )?.emailAddress,
+    "spencerhill@theportlandcompany.com",
+  );
+});
+
 test("formatParticipantName prefers display names and falls back to email", () => {
   assert.equal(
     formatParticipantName({

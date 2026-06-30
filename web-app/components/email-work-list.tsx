@@ -267,12 +267,15 @@ export function formatParticipantValue(participant: InboxParticipant) {
 
 export function getPrimarySenderParticipant(
   participants: InboxParticipant[] | undefined,
+  // Mailbox owner address(es) to de-prioritize — the inbox row should show the
+  // correspondent, not the viewing mailbox, even when the owner sent last.
+  excludeEmails?: (string | null | undefined)[],
 ) {
   // Prefer the most recent "from" sender that actually carries data (email,
   // then name) and parse any raw "Name <email>" header strings — so the inbox
   // never shows "Unknown sender" when identifying info exists. Falls back to the
   // first "from" entry via the shared selector.
-  return selectPrimarySender(participants);
+  return selectPrimarySender(participants, { excludeEmails });
 }
 
 export function formatParticipantName(participant: InboxParticipant | null) {
@@ -1003,7 +1006,10 @@ export function EmailWorkList({
         );
         const isProjectPickerOpen = activeProjectPickerThreadId === item.id;
         const isAssigningProject = assigningProjectThreadId === item.id;
-        const sender = getPrimarySenderParticipant(item.participants);
+        const sender = getPrimarySenderParticipant(item.participants, [
+          item.mailboxEmailAddress,
+          mailbox?.emailAddress,
+        ]);
         const senderName = formatParticipantName(sender);
         const recipientChips = getRecipientChips(item.participants);
         const rawSummaryText = item.summaryText

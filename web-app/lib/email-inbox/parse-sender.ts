@@ -140,14 +140,33 @@ function participantScore(participant: InboxParticipant): number {
  */
 export function selectPrimarySender(
   participants: InboxParticipant[] | undefined | null,
+  // Addresses belonging to the viewing mailbox (the owner). A thread row should
+  // surface the CORRESPONDENT, not the mailbox owner — so even if the owner
+  // sent the most recent message, we display the other party. The owner is used
+  // only as a last resort (a thread with no other sender).
+  options?: { excludeEmails?: (string | null | undefined)[] },
 ): InboxParticipant | null {
-  const fromParticipants = (participants || [])
+  const allFrom = (participants || [])
     .filter((participant) => participant.participantRole === "from")
     .map(normalizeParticipant);
 
-  if (fromParticipants.length === 0) {
+  if (allFrom.length === 0) {
     return null;
   }
+
+  const excluded = new Set(
+    (options?.excludeEmails || [])
+      .map((email) => (email || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const nonOwnerFrom = excluded.size
+    ? allFrom.filter(
+        (participant) =>
+          !excluded.has((participant.emailAddress || "").trim().toLowerCase()),
+      )
+    : allFrom;
+  // Prefer non-owner senders; fall back to all (owner-only threads).
+  const fromParticipants = nonOwnerFrom.length ? nonOwnerFrom : allFrom;
 
   let best = fromParticipants[0];
   let bestScore = participantScore(best);
