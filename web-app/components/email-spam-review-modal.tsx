@@ -462,7 +462,9 @@ export function EmailSpamReviewModal({
                     "from",
                   );
                   const senderName = formatParticipantName(
-                    getPrimarySenderParticipant(thread.participants),
+                    getPrimarySenderParticipant(thread.participants, [
+                      thread.mailboxEmailAddress,
+                    ]),
                   );
                   const isBusy = busyThreadId === thread.id;
                   const isConfirming = confirmingThreadId === thread.id;

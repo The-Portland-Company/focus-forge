@@ -1145,7 +1145,9 @@ export function filterInboxItemsByDateRange(params: {
 }
 
 function getInboxItemSenderSortValue(item: InboxItem) {
-  const sender = getPrimarySenderParticipant(item.participants);
+  const sender = getPrimarySenderParticipant(item.participants, [
+    item.mailboxEmailAddress,
+  ]);
 
   if (!sender) {
     return "\uffff";
@@ -3151,7 +3153,9 @@ export function EmailInboxView({
     );
     const sender = targetItem
       ? formatParticipantName(
-          getPrimarySenderParticipant(targetItem.participants),
+          getPrimarySenderParticipant(targetItem.participants, [
+            targetItem.mailboxEmailAddress,
+          ]),
         )
       : "Unknown sender";
     const subject = targetItem
