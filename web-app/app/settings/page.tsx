@@ -115,6 +115,9 @@ export default function SettingsPage() {
   const [dockBadgeEnabled, setDockBadgeEnabled] = useState<boolean | null>(
     null,
   );
+  const [emailInboxIntroDismissed, setEmailInboxIntroDismissed] = useState<
+    boolean | null
+  >(null);
   const [estimatorChain, setEstimatorChain] = useState<string[]>(
     defaultChainIds(),
   );
@@ -632,6 +635,8 @@ export default function SettingsPage() {
         "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
       const userAnimations = profile.animations_enabled !== false;
       const userDockBadge = (profile as any).dock_badge_enabled !== false;
+      const userInboxIntroDismissed =
+        (profile as any).email_inbox_intro_dismissed === true;
       const userTheme = readStoredThemePreference(
         profile.theme_preset,
         profile.id,
@@ -651,6 +656,7 @@ export default function SettingsPage() {
       setProfileColor(userColor);
       setAnimationsEnabled(userAnimations);
       setDockBadgeEnabled(userDockBadge);
+      setEmailInboxIntroDismissed(userInboxIntroDismissed);
       const chains = (profile as any).ai_model_chains || {};
       setEstimatorChain(normalizeChainIds(chains.estimator));
       setAssistantChain(normalizeChainIds(chains.assistant));
@@ -676,6 +682,7 @@ export default function SettingsPage() {
     priorityColor?: string;
     animationsEnabled?: boolean;
     dockBadgeEnabled?: boolean;
+    emailInboxIntroDismissed?: boolean;
     emailDeleteUndoSeconds?: number;
     dailyCapacityMinutes?: number;
     emailPanelDefaultWidthPct?: number;
@@ -715,6 +722,10 @@ export default function SettingsPage() {
         }
         if (updates.dockBadgeEnabled !== undefined) {
           profileUpdates.dock_badge_enabled = updates.dockBadgeEnabled;
+        }
+        if (updates.emailInboxIntroDismissed !== undefined) {
+          profileUpdates.email_inbox_intro_dismissed =
+            updates.emailInboxIntroDismissed;
         }
         if (updates.emailDeleteUndoSeconds !== undefined) {
           profileUpdates.email_delete_undo_seconds =
@@ -1543,6 +1554,31 @@ export default function SettingsPage() {
                     <p className="text-white">Show Dock badge</p>
                     <p className="text-sm text-zinc-400">
                       Show unread/badge count on the app icon
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Email inbox intro banner */}
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <h3 className="text-lg font-medium mb-4">Email inbox</h3>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!(emailInboxIntroDismissed ?? false)}
+                    onChange={async (e) => {
+                      const show = e.target.checked;
+                      setEmailInboxIntroDismissed(!show);
+                      await handleAutoSave({
+                        emailInboxIntroDismissed: !show,
+                      });
+                    }}
+                    className="w-5 h-5 rounded border-zinc-600 bg-zinc-800 text-theme-primary focus:ring-2 focus:ring-theme-primary focus:ring-offset-0 focus:ring-offset-zinc-900"
+                  />
+                  <div>
+                    <p className="text-white">Show inbox intro banner</p>
+                    <p className="text-sm text-zinc-400">
+                      Show the green banner at the top of the Email Inbox
                     </p>
                   </div>
                 </label>

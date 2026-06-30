@@ -349,6 +349,7 @@ export type Database = {
           dock_badge_enabled: boolean | null
           email: string
           email_conversation_order: string | null
+          email_inbox_intro_dismissed: boolean | null
           email_panel_default_width_pct: number | null
           email_panel_width_px: number | null
           first_name: string | null
@@ -381,6 +382,7 @@ export type Database = {
           dock_badge_enabled?: boolean | null
           email: string
           email_conversation_order?: string | null
+          email_inbox_intro_dismissed?: boolean | null
           email_panel_default_width_pct?: number | null
           email_panel_width_px?: number | null
           first_name?: string | null
@@ -413,6 +415,7 @@ export type Database = {
           dock_badge_enabled?: boolean | null
           email?: string
           email_conversation_order?: string | null
+          email_inbox_intro_dismissed?: boolean | null
           email_panel_default_width_pct?: number | null
           email_panel_width_px?: number | null
           first_name?: string | null
