@@ -407,14 +407,6 @@ export function EmailThreadModal({
         ? thread.actionTitle.trim()
         : ""),
   );
-  // AI-generated headline title (separate from the original subject). Greeting
-  // stripped for display only.
-  const aiActionTitle =
-    thread &&
-    shouldShowSecondaryActionTitle(thread.actionTitle, thread.subject) &&
-    thread.actionTitle?.trim()
-      ? stripAiGreeting(thread.actionTitle.trim())
-      : "";
 
   const conversationEntryIds = useMemo(
     () => conversationEntries.map((entry) => entry.id),
@@ -1316,10 +1308,26 @@ export function EmailThreadModal({
           </DialogDescription>
 
           <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-6 py-3">
-            <div className="min-w-0 truncate text-sm font-medium text-zinc-300">
-              {thread?.subject
-                ? formatEmailSubject(thread.subject)
-                : "Email thread"}
+            <div className="flex min-w-0 flex-col">
+              {aiSummaryText ? (
+                <div className="min-w-0 truncate text-sm font-medium text-zinc-200">
+                  <span className="text-zinc-500">Summary: </span>
+                  {aiSummaryText}
+                </div>
+              ) : null}
+              <div
+                className={cn(
+                  "min-w-0 truncate",
+                  aiSummaryText
+                    ? "text-xs text-zinc-500"
+                    : "text-sm font-medium text-zinc-300",
+                )}
+              >
+                <span className="text-zinc-600">Subject: </span>
+                {thread?.subject
+                  ? formatEmailSubject(thread.subject)
+                  : "Email thread"}
+              </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {thread && !loadingThread ? (
@@ -1497,7 +1505,7 @@ export function EmailThreadModal({
                         Subject line carries an "Active" status badge and an AI
                         icon for quick visual scanning. */}
                     <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                      <div className="flex items-start gap-3">
+                      <div className="flex items-center gap-3">
                         <EmailActorAvatar
                           name={primaryThreadEntry?.authorName}
                           email={primaryThreadEntry?.authorEmail}
@@ -1532,37 +1540,9 @@ export function EmailThreadModal({
                               </span>
                             ) : null}
                           </div>
-                          {/* Title: AI-generated headline (with AI icon +
-                              tooltip) when present, with the original subject
-                              shown muted underneath. No duplicate rendering. */}
-                          <div className="mt-2">
-                            <div className="flex min-w-0 items-center gap-2">
-                              {aiActionTitle ? (
-                                <Tooltip
-                                  content="AI-generated title"
-                                  className="w-auto"
-                                  side="bottom"
-                                  align="start"
-                                >
-                                  <Bot
-                                    className="h-4 w-4 shrink-0 text-[rgb(var(--theme-primary-rgb))]"
-                                    aria-label="AI-generated title"
-                                  />
-                                </Tooltip>
-                              ) : null}
-                              <span className="min-w-0 truncate text-sm font-semibold text-white">
-                                {aiActionTitle ||
-                                  (thread.subject
-                                    ? formatEmailSubject(thread.subject)
-                                    : "Email thread")}
-                              </span>
-                            </div>
-                            {aiActionTitle && thread.subject ? (
-                              <div className="mt-1 truncate text-xs text-zinc-500">
-                                {formatEmailSubject(thread.subject)}
-                              </div>
-                            ) : null}
-                          </div>
+                          {/* Subject/title intentionally omitted here — it now
+                              lives in the top header row (Summary/Subject). The
+                              From card shows only the sender on a single row. */}
                         </div>
                       </div>
                     </div>
