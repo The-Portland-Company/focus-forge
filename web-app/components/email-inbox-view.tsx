@@ -1977,7 +1977,13 @@ export function EmailInboxView({
     return true;
   };
 
+  // Local optimistic override so the badge hides the instant the user clicks X,
+  // even if the shared profile store is slow/stale to reflect the write (the
+  // `profiles` table isn't in the realtime publication, so it won't push back).
+  const [introBadgeLocallyDismissed, setIntroBadgeLocallyDismissed] =
+    useState(false);
   const setInboxIntroDismissed = (dismissed: boolean) => {
+    setIntroBadgeLocallyDismissed(dismissed);
     if (!updateProfile) {
       return;
     }
@@ -4376,10 +4382,11 @@ export function EmailInboxView({
             </h1>
           </div>
           {isDefaultInboxView ? (
-            profile?.email_inbox_intro_dismissed ? null : (
-              <div className="mt-1.5 inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-sm text-emerald-300">
+            profile?.email_inbox_intro_dismissed ||
+            introBadgeLocallyDismissed ? null : (
+              <div className="mt-1.5 inline-flex max-w-full items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-sm text-emerald-300">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-                <span className="whitespace-nowrap">
+                <span className="min-w-0 truncate">
                   Email threads are pre-processed and rendered as work items.
                 </span>
                 <button
@@ -4387,7 +4394,7 @@ export function EmailInboxView({
                   onClick={() => setInboxIntroDismissed(true)}
                   aria-label="Dismiss"
                   title="Dismiss"
-                  className="-mr-0.5 ml-0.5 rounded-md p-0.5 text-emerald-400/70 transition hover:bg-emerald-500/20 hover:text-emerald-200"
+                  className="-mr-0.5 ml-0.5 shrink-0 rounded-md p-0.5 text-emerald-400/70 transition hover:bg-emerald-500/20 hover:text-emerald-200"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
