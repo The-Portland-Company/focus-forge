@@ -47,3 +47,27 @@ test("scrollAndPulseSpamReviewThreadCard recenters the left thread card and repl
 test("scrollAndPulseSpamReviewThreadCard is a no-op without a target", () => {
   assert.equal(scrollAndPulseSpamReviewThreadCard(null), false);
 });
+
+test("scrollAndPulseSpamReviewThreadCard scrolls the not-spam success banner target rule card", () => {
+  // The clickable "Marked as not spam" banner reuses this helper against the
+  // freshly created rule's card (keyed by thread id) so the user lands on it.
+  let scrolled = false;
+  let animated = false;
+
+  const didAnimate = scrollAndPulseSpamReviewThreadCard({
+    scrollIntoView() {
+      scrolled = true;
+    },
+    getAnimations() {
+      return [];
+    },
+    animate() {
+      animated = true;
+      return null;
+    },
+  });
+
+  assert.equal(didAnimate, true);
+  assert.equal(scrolled, true);
+  assert.equal(animated, true);
+});

@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import {
   type ChangeEvent,
   type CSSProperties,
@@ -1371,6 +1372,7 @@ export function EmailInboxView({
   freshlyUpdatedInboxIds,
   onEditTask,
 }: EmailInboxViewProps) {
+  const router = useRouter();
   const isInboxView = view === "email-inbox";
   const isSentView = view === "email-sent";
   const isTrashView = view === "email-trash";
@@ -5579,6 +5581,9 @@ export function EmailInboxView({
                 items={pagedInboxItems}
                 mailboxes={mailboxes}
                 projects={data.projects}
+                emailRules={data.emailRules}
+                onEditRules={() => router.push("/email-rules")}
+                onEditAiProfile={() => router.push("/email-ai-lab")}
                 selectedId={selectedThreadId}
                 freshlyUpdatedIds={freshlyUpdatedInboxIds}
                 deletingIds={deletingThreadIds}
