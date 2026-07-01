@@ -20,6 +20,7 @@ import {
   MessagesSquare,
   Plus,
   Search,
+  ShieldBan,
   Skull,
   Sparkles,
   SquareCheckBig,
@@ -48,12 +49,14 @@ import {
 } from "@/components/ui/dialog";
 import type {
   ConversationEntry,
+  EmailRule,
   InboxItem,
   InboxParticipant,
   Mailbox,
   Project,
 } from "@/lib/types";
 import type { ThreadAction } from "@/lib/email-inbox/thread-actions";
+import { EmailSpamExplainabilityModal } from "@/components/email-spam-explainability-modal";
 import { cn } from "@/lib/utils";
 
 type LinkedTaskSummary = {
@@ -65,6 +68,18 @@ type EmailWorkListProps = {
   items: InboxItem[];
   mailboxes: Mailbox[];
   projects: Project[];
+  /** User + system email rules, used by the spam-explainability modal to
+   *  resolve a thread's matchedRuleIds into human-readable rule names. Optional
+   *  — when absent the modal falls back to showing raw rule ids. */
+  emailRules?: EmailRule[];
+  /** Opens the Rules panel (AI & Rules view). Wired by the parent so the
+   *  explainability modal can deep-link the user to where spam rules are
+   *  edited. Optional — when absent the modal shows the path as guidance only. */
+  onEditRules?: () => void;
+  /** Opens Email AI Lab (the AI instruction-profile editor). Wired by the
+   *  parent so the explainability modal can deep-link the user to the main
+   *  editable "training doc". Optional. */
+  onEditAiProfile?: () => void;
   selectedId?: string | null;
   freshlyUpdatedIds?: Set<string>; // ids new/changed via background refetch (green flash)
   /** Thread ids whose delete request is in flight: row shows a strike-through
@@ -755,6 +770,9 @@ export function EmailWorkList({
   items,
   mailboxes,
   projects,
+  emailRules,
+  onEditRules,
+  onEditAiProfile,
   selectedId,
   freshlyUpdatedIds,
   deletingIds,
@@ -787,6 +805,9 @@ export function EmailWorkList({
   const [spamActionThreadId, setSpamActionThreadId] = useState<string | null>(
     null,
   );
+  // Thread whose spam-confidence explainability modal is open (set by clicking
+  // the confidence indicator on a row). null when the modal is closed.
+  const [explainItem, setExplainItem] = useState<InboxItem | null>(null);
   // Task C: rendered hover popover showing a mini preview of the actual email
   // message — real HTML (images, formatting, links) reused from the same safe
   // renderer used in the thread modal. The inbox payload only carries
@@ -1537,9 +1558,43 @@ export function EmailWorkList({
                   );
                 })()}
                 {item.actionConfidence ? (
-                  <span className="inline-flex items-center gap-1 break-words">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    {Math.round(item.actionConfidence * 100)}% confidence
+                  <span className="inline-flex items-center gap-0.5">
+                    {/* Spam-confidence indicator: shows just the rounded percent
+                        (the "confidence" word was removed). Hovering reveals the
+                        native tooltip "{pct}% Chance this is spam"; clicking opens
+                        the explainability modal describing how the score was
+                        derived (rules → AI classifier → training sources). */}
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setExplainItem(item);
+                      }}
+                      className="inline-flex cursor-pointer items-center gap-1 break-words rounded-md px-1 py-0.5 transition-colors hover:bg-zinc-800/70 hover:text-white"
+                      aria-label={`${Math.round(
+                        item.actionConfidence * 100,
+                      )}% Chance this is spam. Show how this was determined.`}
+                      title={`${Math.round(
+                        item.actionConfidence * 100,
+                      )}% Chance this is spam`}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {Math.round(item.actionConfidence * 100)}%
+                    </button>
+                    {item.status !== "quarantine" ? (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void onThreadAction?.(item, "quarantine");
+                        }}
+                        className="inline-flex items-center justify-center rounded-md px-1 py-0.5 text-zinc-400 transition-colors hover:bg-rose-500/10 hover:text-rose-300"
+                        aria-label="Quarantine"
+                        title="Quarantine"
+                      >
+                        <ShieldBan className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
                   </span>
                 ) : null}
                 {verificationCode ? (
@@ -1882,6 +1937,28 @@ export function EmailWorkList({
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <EmailSpamExplainabilityModal
+        item={explainItem}
+        rules={emailRules}
+        onClose={() => setExplainItem(null)}
+        onEditRules={
+          onEditRules
+            ? () => {
+                setExplainItem(null);
+                onEditRules();
+              }
+            : undefined
+        }
+        onEditAiProfile={
+          onEditAiProfile
+            ? () => {
+                setExplainItem(null);
+                onEditAiProfile();
+              }
+            : undefined
+        }
+      />
 
       {lightboxThread
         ? (() => {

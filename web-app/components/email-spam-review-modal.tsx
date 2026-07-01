@@ -7,6 +7,7 @@ import {
   Loader2,
   Mail,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Tag,
 } from "lucide-react";
@@ -56,6 +57,16 @@ type EmailSpamReviewModalProps = {
 };
 
 type SpamReviewTab = "created" | "existing";
+
+// The clickable "marked as not spam" banner can point at either a freshly
+// created allow-rule card (from a thread) or an existing rule row we just
+// disabled in the Existing Rules tab.
+type SpamReviewSuccessAlert = {
+  message: string;
+  target:
+    | { kind: "createdRule"; threadId: string }
+    | { kind: "rule"; ruleId: string };
+};
 
 async function parseResponse<T>(response: Response, fallbackError: string) {
   const payload = await response.json().catch(() => null);
@@ -164,11 +175,17 @@ export function EmailSpamReviewModal({
     string | null
   >(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  // Clickable "marked as not spam" confirmation. Persists (unlike the transient
+  // status footer) so the user can click through to the affected rule.
+  const [successAlert, setSuccessAlert] =
+    useState<SpamReviewSuccessAlert | null>(null);
+  const [busyRuleId, setBusyRuleId] = useState<string | null>(null);
   const wasOpenRef = useRef(false);
   const previousMailboxFilterIdRef = useRef<string | null | undefined>(
     mailboxFilterId,
   );
   const threadCardRefs = useRef(new Map<string, HTMLDivElement>());
+  const createdRuleCardRefs = useRef(new Map<string, HTMLDivElement>());
 
   useEffect(() => {
     const filterChanged =
@@ -176,7 +193,9 @@ export function EmailSpamReviewModal({
 
     if (!open) {
       setStatusMessage(null);
+      setSuccessAlert(null);
       setBusyThreadId(null);
+      setBusyRuleId(null);
       setConfirmingThreadId(null);
       setExpandedCreatedRuleThreadId(null);
       setExpandedExistingRuleId(null);
@@ -214,6 +233,8 @@ export function EmailSpamReviewModal({
       setExpandedCreatedRuleThreadId(null);
       setExpandedExistingRuleId(null);
       setStatusMessage(null);
+      setSuccessAlert(null);
+      setBusyRuleId(null);
       setActiveTab("created");
     }
 
@@ -238,6 +259,8 @@ export function EmailSpamReviewModal({
   );
 
   const updateStatus = (message: string) => {
+    // A fresh transient status supersedes any lingering "not spam" banner.
+    setSuccessAlert(null);
     setStatusMessage(message);
     window.setTimeout(() => setStatusMessage(null), 2400);
   };
@@ -248,7 +271,38 @@ export function EmailSpamReviewModal({
     );
   };
 
-  const handleCreateRule = async (thread: InboxItem) => {
+  const focusCreatedRuleCard = (threadId: string) => {
+    scrollAndPulseSpamReviewThreadCard(
+      createdRuleCardRefs.current.get(threadId) ?? null,
+    );
+  };
+
+  // The Existing Rules tab renders the shared EmailRulesPanel, so its rows live
+  // outside this component's ref map — locate the affected row by data attribute.
+  const focusRuleRow = (ruleId: string) => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const row = document.querySelector(
+      `[data-email-rule-row="${ruleId}"]`,
+    ) as unknown as Parameters<
+      typeof scrollAndPulseSpamReviewThreadCard
+    >[0] | null;
+
+    scrollAndPulseSpamReviewThreadCard(row);
+  };
+
+  // Creates (or re-activates) the never-spam allow rule for a thread via the
+  // existing spam-exception endpoint — the same backend the "not_spam" action
+  // maps to. `announce: "alert"` surfaces the clickable success banner used by
+  // the quick "Not Spam" buttons; the default transient status is used when the
+  // rule is created as a side effect of the Categorize control.
+  const handleCreateRule = async (
+    thread: InboxItem,
+    options?: { announce?: "status" | "alert" },
+  ): Promise<EmailSpamExceptionResult | null> => {
+    const announce = options?.announce ?? "status";
     setBusyThreadId(thread.id);
 
     try {
@@ -275,11 +329,23 @@ export function EmailSpamReviewModal({
       setActiveTab("created");
       setExpandedCreatedRuleThreadId(thread.id);
       await onRefresh?.();
-      updateStatus("Spam exception saved.");
+      if (announce === "alert") {
+        // Persistent, clickable banner that jumps to the new rule's card.
+        setStatusMessage(null);
+        setSuccessAlert({
+          message:
+            "Marked as not spam — created an allow rule so this won't be flagged again.",
+          target: { kind: "createdRule", threadId: thread.id },
+        });
+      } else {
+        updateStatus("Spam exception saved.");
+      }
+      return payload;
     } catch (error) {
       updateStatus(
         error instanceof Error ? error.message : "Failed to create rule",
       );
+      return null;
     } finally {
       setBusyThreadId(null);
     }
@@ -392,6 +458,38 @@ export function EmailSpamReviewModal({
       await handleCreateRule(thread);
     } else {
       await onRefresh?.();
+    }
+  };
+
+  // Existing Rules tab: an over-aggressive spam/quarantine/delete rule is
+  // disabled (is_active=false) via the standard rule PUT endpoint so matching
+  // mail stops being treated as spam. Surfaces the same clickable banner, which
+  // jumps back to the now-disabled rule's row.
+  const handleMarkRuleNotSpam = async (rule: EmailRule) => {
+    setBusyRuleId(rule.id);
+
+    try {
+      const response = await fetch(`/api/email/rules/${rule.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ isActive: false }),
+      });
+      await parseResponse<EmailRule>(response, "Failed to update rule");
+
+      await onRefresh?.();
+      setStatusMessage(null);
+      setSuccessAlert({
+        message:
+          "Marked as not spam — disabled this rule so matching mail won't be sent to spam.",
+        target: { kind: "rule", ruleId: rule.id },
+      });
+    } catch (error) {
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to update rule",
+      );
+    } finally {
+      setBusyRuleId(null);
     }
   };
 
@@ -603,6 +701,29 @@ export function EmailSpamReviewModal({
                         ) : null}
                       </div>
 
+                      {keepSpam ? (
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() =>
+                              void handleCreateRule(thread, {
+                                announce: "alert",
+                              })
+                            }
+                            aria-label={`Mark ${senderName} as not spam and create an allow rule`}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-200 transition-colors hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isBusy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="h-3.5 w-3.5" />
+                            )}
+                            Not Spam
+                          </button>
+                        </div>
+                      ) : null}
+
                       {isConfirming && createdRule ? (
                         <div className="mt-4 rounded-xl border border-zinc-700 bg-zinc-950/80 p-3">
                           <div className="text-sm text-zinc-300">
@@ -764,29 +885,51 @@ export function EmailSpamReviewModal({
                                       );
 
                                     return (
-                                      <button
-                                        type="button"
+                                      <div
                                         key={`${group.rule.id}-${thread.id}`}
-                                        onClick={() =>
-                                          focusThreadCard(thread.id)
-                                        }
-                                        className="w-full rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 text-left transition-colors hover:border-amber-400/35 hover:bg-amber-500/10 focus-visible:border-amber-400/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30"
-                                        aria-label={`Jump to ${thread.actionTitle}`}
+                                        className="flex items-start justify-between gap-2 rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 transition-colors hover:border-amber-400/35 hover:bg-amber-500/10"
                                       >
-                                        <div className="text-sm font-medium text-white">
-                                          {formatEmailSubject(thread.subject)}
-                                        </div>
-                                        {showSecondaryActionTitle ? (
-                                          <div className="mt-1 text-sm text-zinc-400">
-                                            {thread.actionTitle}
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            focusThreadCard(thread.id)
+                                          }
+                                          className="min-w-0 flex-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30"
+                                          aria-label={`Jump to ${thread.actionTitle}`}
+                                        >
+                                          <div className="text-sm font-medium text-white">
+                                            {formatEmailSubject(thread.subject)}
                                           </div>
-                                        ) : null}
-                                        {fromLine ? (
-                                          <div className="mt-1 text-xs text-zinc-500">
-                                            {fromLine}
-                                          </div>
-                                        ) : null}
-                                      </button>
+                                          {showSecondaryActionTitle ? (
+                                            <div className="mt-1 text-sm text-zinc-400">
+                                              {thread.actionTitle}
+                                            </div>
+                                          ) : null}
+                                          {fromLine ? (
+                                            <div className="mt-1 text-xs text-zinc-500">
+                                              {fromLine}
+                                            </div>
+                                          ) : null}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={busyThreadId === thread.id}
+                                          onClick={() =>
+                                            void handleCreateRule(thread, {
+                                              announce: "alert",
+                                            })
+                                          }
+                                          aria-label={`Mark ${formatEmailSubject(thread.subject)} as not spam and create an allow rule`}
+                                          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-medium text-emerald-200 transition-colors hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                          {busyThreadId === thread.id ? (
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                          ) : (
+                                            <ShieldCheck className="h-3.5 w-3.5" />
+                                          )}
+                                          Not Spam
+                                        </button>
+                                      </div>
                                     );
                                   })}
                                 </div>
@@ -816,22 +959,44 @@ export function EmailSpamReviewModal({
                               );
 
                             return (
-                              <button
-                                type="button"
+                              <div
                                 key={`unmatched-${thread.id}`}
-                                onClick={() => focusThreadCard(thread.id)}
-                                className="w-full rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 text-left transition-colors hover:border-amber-400/35 hover:bg-amber-500/10 focus-visible:border-amber-400/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30"
-                                aria-label={`Jump to ${thread.actionTitle}`}
+                                className="flex items-start justify-between gap-2 rounded-xl border border-zinc-800 bg-zinc-950/70 p-3 transition-colors hover:border-amber-400/35 hover:bg-amber-500/10"
                               >
-                                <div className="text-sm font-medium text-white">
-                                  {formatEmailSubject(thread.subject)}
-                                </div>
-                                {showSecondaryActionTitle ? (
-                                  <div className="mt-1 text-sm text-zinc-400">
-                                    {thread.actionTitle}
+                                <button
+                                  type="button"
+                                  onClick={() => focusThreadCard(thread.id)}
+                                  className="min-w-0 flex-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30"
+                                  aria-label={`Jump to ${thread.actionTitle}`}
+                                >
+                                  <div className="text-sm font-medium text-white">
+                                    {formatEmailSubject(thread.subject)}
                                   </div>
-                                ) : null}
-                              </button>
+                                  {showSecondaryActionTitle ? (
+                                    <div className="mt-1 text-sm text-zinc-400">
+                                      {thread.actionTitle}
+                                    </div>
+                                  ) : null}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busyThreadId === thread.id}
+                                  onClick={() =>
+                                    void handleCreateRule(thread, {
+                                      announce: "alert",
+                                    })
+                                  }
+                                  aria-label={`Mark ${formatEmailSubject(thread.subject)} as not spam and create an allow rule`}
+                                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-medium text-emerald-200 transition-colors hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {busyThreadId === thread.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <ShieldCheck className="h-3.5 w-3.5" />
+                                  )}
+                                  Not Spam
+                                </button>
+                              </div>
                             );
                           })}
                         </div>
@@ -865,6 +1030,19 @@ export function EmailSpamReviewModal({
                           return (
                             <div
                               key={`${entry.threadId}-${entry.rule.id}`}
+                              ref={(node) => {
+                                if (node) {
+                                  createdRuleCardRefs.current.set(
+                                    entry.threadId,
+                                    node,
+                                  );
+                                  return;
+                                }
+
+                                createdRuleCardRefs.current.delete(
+                                  entry.threadId,
+                                );
+                              }}
                               className={cn(
                                 "rounded-2xl border px-4 py-4",
                                 isCurrent
@@ -932,15 +1110,54 @@ export function EmailSpamReviewModal({
                   compact
                   showHeader={false}
                   className="min-w-0"
+                  onMarkRuleNotSpam={(rule) => void handleMarkRuleNotSpam(rule)}
+                  markingRuleNotSpamId={busyRuleId}
                 />
               )}
             </div>
           </div>
         </div>
 
-        {statusMessage ? (
-          <div className="border-t border-zinc-800 px-6 py-3 text-sm text-zinc-400">
-            {statusMessage}
+        {successAlert || statusMessage ? (
+          <div className="border-t border-zinc-800 px-6 py-3" aria-live="polite">
+            {successAlert ? (
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const { target } = successAlert;
+                    if (target.kind === "createdRule") {
+                      focusCreatedRuleCard(target.threadId);
+                    } else {
+                      // Make sure the rule's tab is mounted before scrolling.
+                      setActiveTab("existing");
+                      window.requestAnimationFrame(() =>
+                        focusRuleRow(target.ruleId),
+                      );
+                    }
+                    setSuccessAlert(null);
+                  }}
+                  aria-label={`${successAlert.message} Jump to the affected rule.`}
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-left text-sm text-emerald-100 transition-colors hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40"
+                >
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-300" />
+                  <span className="min-w-0">
+                    {successAlert.message}{" "}
+                    <span className="font-medium underline">View rule</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSuccessAlert(null)}
+                  aria-label="Dismiss notification"
+                  className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/40"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : (
+              <div className="text-sm text-zinc-400">{statusMessage}</div>
+            )}
           </div>
         ) : null}
       </DialogContent>
