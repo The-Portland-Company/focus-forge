@@ -844,35 +844,77 @@ async function withImapClient<T>(
   }
 }
 
-async function resolveTrashMailboxPath(client: ImapFlow) {
+// Resolve a destination mailbox path by its IMAP \Special-Use attribute first
+// (the reliable, provider-agnostic signal — e.g. Gmail exposes [Gmail]/Trash as
+// \Trash, [Gmail]/Spam as \Junk, [Gmail]/All Mail as \All), then fall back to a
+// set of well-known folder names/paths. Returns null when nothing matches.
+type ListedMailboxLike = { path: string; name: string; specialUse?: string };
+type MailboxLister = {
+  list: () => Promise<ListedMailboxLike[]>;
+};
+
+export async function resolveSpecialMailboxPath(
+  client: MailboxLister,
+  specialUse: string,
+  candidateNames: Iterable<string>,
+) {
   const listedMailboxes = await client.list().catch(() => []);
 
   for (const mailbox of listedMailboxes) {
-    if (mailbox.specialUse === "\\Trash") {
+    if (mailbox.specialUse === specialUse) {
       return mailbox.path;
     }
   }
 
-  const candidateNames = new Set([
+  const candidates = new Set(
+    Array.from(candidateNames, (name) => name.trim().toLowerCase()),
+  );
+
+  for (const mailbox of listedMailboxes) {
+    const normalizedPath = mailbox.path.trim().toLowerCase();
+    const normalizedName = mailbox.name.trim().toLowerCase();
+    if (candidates.has(normalizedPath) || candidates.has(normalizedName)) {
+      return mailbox.path;
+    }
+  }
+
+  return null;
+}
+
+function resolveTrashMailboxPath(client: ImapFlow) {
+  return resolveSpecialMailboxPath(client, "\\Trash", [
     "trash",
     "deleted items",
     "deleted messages",
     "deleted",
     "[gmail]/trash",
   ]);
+}
 
-  for (const mailbox of listedMailboxes) {
-    const normalizedPath = mailbox.path.trim().toLowerCase();
-    const normalizedName = mailbox.name.trim().toLowerCase();
-    if (
-      candidateNames.has(normalizedPath) ||
-      candidateNames.has(normalizedName)
-    ) {
-      return mailbox.path;
-    }
-  }
+function resolveJunkMailboxPath(client: ImapFlow) {
+  return resolveSpecialMailboxPath(client, "\\Junk", [
+    "junk",
+    "junk email",
+    "spam",
+    "bulk mail",
+    "[gmail]/spam",
+  ]);
+}
 
-  return null;
+// The folder an "archive" should move a message into. Providers with a dedicated
+// Archive folder (\Archive special-use) use it; Gmail has none — archiving there
+// means removing the \Inbox label, which over IMAP is a move into [Gmail]/All
+// Mail (\All). Returns null when neither exists (caller then no-ops the move).
+function resolveArchiveMailboxPath(client: ImapFlow) {
+  return resolveSpecialMailboxPath(client, "\\Archive", ["archive"]).then(
+    (archivePath) =>
+      archivePath ??
+      resolveSpecialMailboxPath(client, "\\All", [
+        "all mail",
+        "[gmail]/all mail",
+        "archive",
+      ]),
+  );
 }
 
 export async function applyMailboxThreadAction(params: {
@@ -901,22 +943,31 @@ export async function applyMailboxThreadAction(params: {
     }
 
     if (params.action === "archive") {
-      await client.messageMove(uidRange, "Archive", { uid: true });
-      return;
-    }
-
-    if (params.action === "spam") {
-      try {
-        await client.messageMove(uidRange, "Junk", { uid: true });
-      } catch {
-        await client.messageMove(uidRange, "Spam", { uid: true });
+      // Resolve the real archive destination by special-use. On Gmail this is
+      // [Gmail]/All Mail (moving there removes the \Inbox label = archive). If
+      // no archive/all folder exists, there is nothing to move to — leave the
+      // message where it is rather than throwing.
+      const archivePath = await resolveArchiveMailboxPath(client);
+      if (archivePath && archivePath !== (params.mailbox.sync_folder || "INBOX")) {
+        await client.messageMove(uidRange, archivePath, { uid: true });
       }
       return;
     }
 
-    try {
-      await client.messageMove(uidRange, "Trash", { uid: true });
-    } catch {
+    if (params.action === "spam") {
+      const junkPath = await resolveJunkMailboxPath(client);
+      if (junkPath) {
+        await client.messageMove(uidRange, junkPath, { uid: true });
+      }
+      return;
+    }
+
+    // delete → move to the Trash special-use folder; only if the account has no
+    // trash folder do we hard-delete (\Deleted + expunge).
+    const trashPath = await resolveTrashMailboxPath(client);
+    if (trashPath && trashPath !== (params.mailbox.sync_folder || "INBOX")) {
+      await client.messageMove(uidRange, trashPath, { uid: true });
+    } else {
       await client.messageDelete(uidRange, { uid: true });
     }
   });
