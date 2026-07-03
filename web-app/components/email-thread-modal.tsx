@@ -32,6 +32,7 @@ import {
   PanelBottom,
   PanelRight,
   Pencil,
+  Reply,
   Search,
   SendHorizontal,
   ShieldAlert,
@@ -318,6 +319,19 @@ export function EmailThreadModal({
   // Whether older (past) conversation messages beyond the first are revealed.
   // Collapsed by default when there are several so the newest read stays tight.
   const [showOlderMessages, setShowOlderMessages] = useState(false);
+  // Whether the reply composer is revealed. Hidden by default behind a
+  // full-width "Reply" button at the bottom of the conversation; opening it
+  // shows the editor, and a successful send / dismiss collapses it back.
+  const [isComposerOpen, setIsComposerOpen] = useState(false);
+  // Optimistically-rendered outbound entries. When the user hits Send, the
+  // composed message appears in the Conversation section immediately with a
+  // gentle "breathing" pulse (animate-breathe) until the server confirms the
+  // send — at which point it's dropped and replaced by the reloaded real
+  // entry. On failure it's removed and the content is restored to the editor.
+  const [optimisticEntries, setOptimisticEntries] = useState<
+    Array<ConversationEntry & { pending: boolean }>
+  >([]);
+  const optimisticIdRef = useRef(0);
   // Per-thread collapse memory: which conversation messages are expanded.
   // Restored from (and persisted to) localStorage keyed by thread id.
   const [threadExpandState, setThreadExpandState] = useState<ThreadExpandState>(
@@ -422,6 +436,56 @@ export function EmailThreadModal({
         : conversationEntries,
     [conversationEntries, conversationOrder],
   );
+  // Optimistic (in-flight) sent messages rendered inside the Conversation
+  // section. Always expanded and pulsing (animate-breathe) until confirmed.
+  const optimisticEntriesBlock =
+    optimisticEntries.length > 0
+      ? optimisticEntries.map((entry) => (
+          <div
+            key={entry.id}
+            className="animate-breathe rounded-2xl border border-theme-primary/40 bg-zinc-900/60"
+          >
+            <div className="flex w-full items-start gap-3 p-3 text-left">
+              <EmailActorAvatar
+                name={entry.authorName}
+                email={entry.authorEmail}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-zinc-100">
+                      {getEmailActorName(entry.authorName, entry.authorEmail)}
+                    </div>
+                    {entry.authorEmail &&
+                    entry.authorEmail !== entry.authorName ? (
+                      <div className="truncate text-xs text-zinc-500">
+                        {entry.authorEmail}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-500">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Sending…</span>
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <EmailSignatureContent
+                    html={entry.contentHtml}
+                    text={entry.content}
+                    contentKind={
+                      entry.type === "internal_note" ? "rich_text" : "email"
+                    }
+                    hideSignatures={hideEmailSignatures}
+                    renderMode={emailHtmlRenderMode}
+                    contentClassName="break-words text-sm leading-6 text-zinc-300"
+                    signatureClassName="break-words text-sm leading-6 text-zinc-300 opacity-90"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ))
+      : null;
   const allConversationExpanded = areAllThreadMessagesExpanded(
     threadExpandState,
     conversationEntryIds,
@@ -579,6 +643,8 @@ export function EmailThreadModal({
       setReplyMode("reply_all");
       setIsProjectPickerOpen(false);
       setProjectSearchQuery("");
+      setIsComposerOpen(false);
+      setOptimisticEntries([]);
       return;
     }
 
@@ -593,11 +659,16 @@ export function EmailThreadModal({
           if (payload.activeReplyDraft) {
             setSelectedReplyDraftId(payload.activeReplyDraft.id);
             setReplyMode(payload.activeReplyDraft.replyMode);
-            setReplyContent(
+            const draftContent =
               payload.activeReplyDraft.contentHtml ||
-                payload.activeReplyDraft.contentText ||
-                "",
-            );
+              payload.activeReplyDraft.contentText ||
+              "";
+            setReplyContent(draftContent);
+            // Reveal the composer when a draft already has content so the
+            // in-progress reply isn't hidden behind the collapsed button.
+            if (draftContent.replace(/<[^>]*>/g, "").trim().length > 0) {
+              setIsComposerOpen(true);
+            }
             setScheduledReplyAt(
               payload.activeReplyDraft.scheduledFor
                 ? new Date(payload.activeReplyDraft.scheduledFor)
@@ -643,6 +714,8 @@ export function EmailThreadModal({
     setTaskCompletionOverrides({});
     setShowOlderMessages(false);
     setSummaryPanelTab("summary");
+    setIsComposerOpen(false);
+    setOptimisticEntries([]);
   }, [threadId]);
 
   useEffect(() => {
@@ -910,22 +983,33 @@ export function EmailThreadModal({
     }
   };
 
-  const ensureComposerDraft = async () => {
+  const ensureComposerDraft = async (overrides?: {
+    content?: string;
+    mode?: "reply_all" | "internal_note";
+    draftId?: string | null;
+  }) => {
     if (!threadId) {
       throw new Error("Choose a thread before saving a draft.");
     }
 
+    // Values may be passed explicitly so the optimistic send path can persist
+    // a snapshot even after the live composer state has already been cleared.
+    const content = overrides?.content ?? replyContent;
+    const mode = overrides?.mode ?? replyMode;
+    const draftId =
+      overrides?.draftId !== undefined ? overrides.draftId : selectedReplyDraftId;
+
     const payload = {
       source: "manual",
-      replyMode,
+      replyMode: mode,
       subject: "",
-      contentText: replyContent,
-      contentHtml: replyContent,
+      contentText: content,
+      contentHtml: content,
     };
 
-    if (selectedReplyDraftId) {
+    if (draftId) {
       const response = await fetch(
-        `/api/email/reply-drafts/${selectedReplyDraftId}`,
+        `/api/email/reply-drafts/${draftId}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -956,32 +1040,79 @@ export function EmailThreadModal({
   const handleReply = async () => {
     if (!threadId || !hasReplyText) return;
 
-    setBusyState("reply");
+    // Snapshot the composed content so a failed send can restore the editor
+    // exactly as it was (body, mode, draft, schedule).
+    const snapshot = {
+      content: replyContent,
+      mode: replyMode,
+      draftId: selectedReplyDraftId,
+      scheduledAt: scheduledReplyAt,
+    };
+
+    // Build the optimistic entry that "breathes" in the Conversation section
+    // until the server confirms the send.
+    const optimisticId = `optimistic-${threadId}-${optimisticIdRef.current++}`;
+    const optimisticEntry: ConversationEntry & { pending: boolean } = {
+      id: optimisticId,
+      type: snapshot.mode === "internal_note" ? "internal_note" : "email",
+      direction: snapshot.mode === "internal_note" ? "internal" : "outbound",
+      authorName: thread?.mailboxName ?? null,
+      authorEmail: thread?.mailboxEmailAddress ?? null,
+      subject: thread?.subject ?? null,
+      content: snapshot.content,
+      contentHtml: snapshot.content,
+      createdAt: new Date().toISOString(),
+      pending: true,
+    };
+
+    // Optimistically show the sent message and return the composer to its
+    // collapsed button state. No spinner/loading state — the breathing entry
+    // is the feedback.
+    setOptimisticEntries((current) => [...current, optimisticEntry]);
     setReplyError(null);
+    setReplyContent("");
+    setSelectedReplyDraftId(null);
+    setScheduledReplyAt("");
+    setIsComposerOpen(false);
 
     try {
-      const draft = await ensureComposerDraft();
+      const draft = await ensureComposerDraft({
+        content: snapshot.content,
+        mode: snapshot.mode,
+        draftId: snapshot.draftId,
+      });
       const response = await fetch(`/api/email/reply-drafts/${draft.id}/send`, {
         method: "POST",
         credentials: "include",
       });
 
       await parseApiResponse(response, "Failed to send reply");
-      setReplyContent("");
-      setSelectedReplyDraftId(null);
-      setScheduledReplyAt("");
       await refreshParent();
       await reloadThread(threadId);
+      // Real reloaded entry now covers this message — drop the optimistic one.
+      setOptimisticEntries((current) =>
+        current.filter((entry) => entry.id !== optimisticId),
+      );
       updateStatus(
-        replyMode === "internal_note" ? "Internal note saved." : "Reply sent.",
+        snapshot.mode === "internal_note"
+          ? "Internal note saved."
+          : "Reply sent.",
       );
     } catch (error) {
+      // Remove the breathing entry and restore the composer exactly as it was
+      // so the user can retry without retyping.
+      setOptimisticEntries((current) =>
+        current.filter((entry) => entry.id !== optimisticId),
+      );
+      setReplyContent(snapshot.content);
+      setReplyMode(snapshot.mode);
+      setSelectedReplyDraftId(snapshot.draftId);
+      setScheduledReplyAt(snapshot.scheduledAt);
+      setIsComposerOpen(true);
       const message =
         error instanceof Error ? error.message : "Failed to send reply";
       setReplyError(message);
       updateStatus(message);
-    } finally {
-      setBusyState(null);
     }
   };
 
@@ -1048,6 +1179,7 @@ export function EmailThreadModal({
       setSelectedReplyDraftId(payload.id);
       setReplyMode(payload.replyMode);
       setReplyContent(payload.contentHtml || payload.contentText || "");
+      setIsComposerOpen(true);
       setScheduledReplyAt(
         payload.scheduledFor
           ? new Date(payload.scheduledFor).toISOString().slice(0, 16)
@@ -2058,6 +2190,9 @@ export function EmailThreadModal({
                   ) : null}
                 </div>
                 <div className="space-y-1.5">
+                  {conversationOrder === "newest_first"
+                    ? optimisticEntriesBlock
+                    : null}
                   {orderedConversationEntries.map((entry, entryIndex) => {
                     const isExpanded = isThreadMessageExpanded(
                       threadExpandState,
@@ -2170,6 +2305,9 @@ export function EmailThreadModal({
                       </div>
                     );
                   })}
+                  {conversationOrder === "oldest_first"
+                    ? optimisticEntriesBlock
+                    : null}
                 </div>
               </div>
             </div>
@@ -2185,7 +2323,37 @@ export function EmailThreadModal({
           </div>
           {thread && !loadingThread ? (
             <div className="shrink-0 border-t border-zinc-800 bg-zinc-950 px-6 py-4">
+              {!isComposerOpen ? (
+                // Compose is hidden by default behind this full-width button.
+                // Clicking it reveals the editor below; sending or dismissing
+                // collapses back to this button.
+                <button
+                  type="button"
+                  onClick={() => setIsComposerOpen(true)}
+                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-theme-gradient px-4 text-sm font-medium text-white shadow-lg transition-opacity hover:opacity-90"
+                >
+                  <Reply className="h-4 w-4" />
+                  <span>Reply</span>
+                </button>
+              ) : (
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="text-xs uppercase tracking-wide text-zinc-500">
+                    {replyMode === "internal_note" ? "Internal Note" : "Reply"}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsComposerOpen(false);
+                      setReplyError(null);
+                    }}
+                    aria-label="Dismiss composer"
+                    title="Dismiss composer"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
                 {/* The AI Style Override toggle now lives in the top toolbar;
                     Generate AI reply sits inside the compose body; the pop-out
                     button moved next to Reply Mode. Only the draft indicator
@@ -2429,6 +2597,7 @@ export function EmailThreadModal({
                   </div>
                 </div>
               </div>
+              )}
             </div>
           ) : null}
         </DialogPrimitive.Content>

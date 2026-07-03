@@ -244,20 +244,33 @@ export function formatEmailSubject(subject: string) {
   return subject.trim() || "Untitled email";
 }
 
-// Legacy AI action titles were stored with a "Review context: " prefix in front
-// of the subject. The prefix is no longer generated, but existing rows still
-// carry it, so strip it at render time so it never surfaces in the inbox UI.
-const LEGACY_ACTION_TITLE_PREFIXES = ["review context:"];
+// Legacy AI action titles were stored with a task-style prefix in front of the
+// subject (e.g. "Review context: " or "Reply and handle: "). Those prefixes are
+// no longer generated, but existing rows still carry them, so strip them at
+// render time so they never surface in the inbox UI. Add future retired
+// prefixes here as one-line entries — each is matched case-insensitively and
+// tolerates an optional ":"/"-" separator.
+const LEGACY_ACTION_TITLE_PREFIXES = ["review context", "reply and handle"];
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 export function normalizeInboxActionTitle(
   actionTitle: string | null | undefined,
 ) {
   const trimmed = actionTitle?.trim() ?? "";
-  const lower = trimmed.toLocaleLowerCase();
 
   for (const prefix of LEGACY_ACTION_TITLE_PREFIXES) {
-    if (lower.startsWith(prefix)) {
-      return trimmed.slice(prefix.length).trim();
+    // Require a boundary (end-of-string, whitespace, or a ":"/"-" separator)
+    // right after the prefix so words that merely start with it — e.g.
+    // "review contextual" — are left untouched, then consume the separator run.
+    const pattern = new RegExp(
+      `^${escapeRegExp(prefix)}(?=$|[\\s:–—-])[\\s:–—-]*`,
+      "i",
+    );
+    if (pattern.test(trimmed)) {
+      return trimmed.replace(pattern, "").trim();
     }
   }
 
@@ -276,8 +289,10 @@ export function shouldShowSecondaryActionTitle(
 
   const lowerActionTitle = normalizedActionTitle.toLocaleLowerCase();
 
+  // "reply and handle:" / "review context:" are stripped by
+  // normalizeInboxActionTitle above; these remaining task-style prefixes are
+  // still treated as noise and never shown as a secondary line.
   if (
-    lowerActionTitle.startsWith("reply and handle:") ||
     lowerActionTitle.startsWith("review and handle:") ||
     lowerActionTitle.startsWith("handle:")
   ) {

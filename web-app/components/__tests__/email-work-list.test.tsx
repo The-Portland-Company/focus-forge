@@ -26,6 +26,7 @@ import {
   getPrimarySenderParticipant,
   getEmailWorkItemClassName,
   getEmailWorkPreviewClassName,
+  normalizeInboxActionTitle,
   shouldShowAiSummary,
   shouldShowSecondaryActionTitle,
   shouldShowSpamIndicator,
@@ -47,8 +48,10 @@ test("shouldShowSecondaryActionTitle hides duplicate AI titles", () => {
     shouldShowSecondaryActionTitle("Security alert", " Security alert "),
     false,
   );
+  // The retired "Reply and handle:" prefix is stripped upstream, so a legacy
+  // title that reduces to the subject no longer surfaces as a secondary line.
   assert.equal(
-    shouldShowSecondaryActionTitle("Reply and handle: Re: Forge: Test", "Forge: Test"),
+    shouldShowSecondaryActionTitle("Reply and handle: Forge: Test", "Forge: Test"),
     false,
   );
   assert.equal(
@@ -58,6 +61,34 @@ test("shouldShowSecondaryActionTitle hides duplicate AI titles", () => {
     ),
     true,
   );
+});
+
+test("normalizeInboxActionTitle strips legacy task-style prefixes", () => {
+  // Retired prefixes are stripped, tolerating an optional ":"/"-" separator.
+  assert.equal(
+    normalizeInboxActionTitle("Reply and handle: Forge: Test"),
+    "Forge: Test",
+  );
+  assert.equal(
+    normalizeInboxActionTitle("reply and handle - Forge: Test"),
+    "Forge: Test",
+  );
+  assert.equal(
+    normalizeInboxActionTitle("Reply and handle Forge: Test"),
+    "Forge: Test",
+  );
+  assert.equal(
+    normalizeInboxActionTitle("Review context: Security alert"),
+    "Security alert",
+  );
+  // Bare subjects pass through untouched.
+  assert.equal(normalizeInboxActionTitle("Security alert"), "Security alert");
+  // Words that merely start with a prefix must not be stripped.
+  assert.equal(
+    normalizeInboxActionTitle("Review contextual analysis"),
+    "Review contextual analysis",
+  );
+  assert.equal(normalizeInboxActionTitle(null), "");
 });
 
 test("formatParticipantLine renders sender and cc labels with fallbacks", () => {

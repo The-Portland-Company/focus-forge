@@ -56,6 +56,13 @@ test("buildHeuristicAnalysis routes actionable email to a matching project", () 
   assert.equal(result.status, "active");
   assert.equal(result.projectId, "project-1");
   assert.equal(result.taskSuggestions.length > 0, true);
+  // The heuristic no longer prefixes actionable titles with "Reply and handle:";
+  // the action title is the bare subject.
+  assert.equal(result.classification, "actionable");
+  assert.equal(result.actionTitle, "Acme website proposal");
+  // The response summary is still derived from the actionable classification,
+  // not the retired prefix.
+  assert.equal(result.summary, "The sender needs a response about acme website proposal.");
 });
 
 test("formatAiGeneratedTaskName decorates review/respond task names", () => {
