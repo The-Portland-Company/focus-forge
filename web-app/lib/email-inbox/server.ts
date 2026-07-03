@@ -2539,6 +2539,11 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
   // Never runs against a never_spam override. Best-effort — never breaks sync.
   const spamThreshold = getSpamConfidenceThreshold();
   const spamFallbackMode = getSpamFallbackMode();
+  // Full enforcement of SPAM_FALLBACK_MODE=private: the external LLM classifier
+  // never runs. The k-NN verdict (below) decides the spam axis when confident;
+  // buildHeuristicAnalysis (local, no network) handles summary/routing/tasks for
+  // everything else. In 'llm' mode the OpenAI backstop runs as before.
+  const forceHeuristicAnalysis = spamFallbackMode === "private";
   let spamVerdict: SpamClassification | null = null;
   if (!preventSpamClassification) {
     try {
@@ -2606,6 +2611,7 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
     senderEmail: buildRuleContext(mailbox, latestMessage).senderEmail,
     mailboxEmail: mailbox.email_address,
     preventSpamClassification,
+    forceHeuristic: forceHeuristicAnalysis,
     profile,
     projectOptions: projectOptions.map((project) => ({
       id: project.id,
@@ -2717,6 +2723,10 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
               spamKnnConfident ? " (used)" : ` (fallback=${spamFallbackMode})`
             }`
           : ""
+      }${
+        forceHeuristicAnalysis
+          ? "; private mode → heuristic (no external LLM)"
+          : ""
       }`,
       aiOutput: aiResult as unknown as Record<string, unknown>,
       finalOutput: {
@@ -2733,8 +2743,10 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
               usedKnn: spamKnnConfident,
               threshold: spamThreshold,
               fallbackMode: spamFallbackMode,
+              forcedHeuristic: forceHeuristicAnalysis,
             }
           : null,
+        forcedHeuristic: forceHeuristicAnalysis,
       },
       overriddenByRule,
       overrideReason: overriddenByRule

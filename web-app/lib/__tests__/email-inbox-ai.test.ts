@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  analyzeThreadWithAI,
   buildHeuristicAnalysis,
   finalizeInboxSummary,
   formatAiGeneratedTaskName,
@@ -93,6 +94,42 @@ test("buildHeuristicAnalysis skips spam classification when prevented by rule", 
 
   assert.notEqual(result.classification, "spam");
   assert.notEqual(result.status, "quarantine");
+});
+
+test("analyzeThreadWithAI(forceHeuristic) returns local heuristics without an LLM call", async () => {
+  // SPAM_FALLBACK_MODE=private enforcement: even with a key present, forceHeuristic
+  // must short-circuit to buildHeuristicAnalysis (no external OpenAI request). A
+  // bogus key + unreachable fetch would fail loudly if the LLM path ran.
+  const priorKey = process.env.OPENAI_API_KEY;
+  const priorFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "sk-test-should-not-be-used";
+  globalThis.fetch = () => {
+    throw new Error("forceHeuristic must not make a network call");
+  };
+
+  try {
+    const input = {
+      subject: "Acme website proposal",
+      bodyText: "Please review the Acme website proposal and reply today.",
+      senderEmail: "client@acme.com",
+      mailboxEmail: "team@example.com",
+      forceHeuristic: true,
+      projectOptions: [
+        {
+          id: "project-1",
+          name: "Acme Website",
+          description: "Website redesign for Acme",
+        },
+      ],
+    };
+
+    const result = await analyzeThreadWithAI(input);
+    assert.deepEqual(result, buildHeuristicAnalysis(input));
+  } finally {
+    globalThis.fetch = priorFetch;
+    if (priorKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = priorKey;
+  }
 });
 
 test("normalizePreventedSpamResult falls back to the non-spam result", () => {
