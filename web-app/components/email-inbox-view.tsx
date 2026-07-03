@@ -5077,30 +5077,16 @@ export function EmailInboxView({
               >
                 <div className="overflow-hidden">
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
-                    <div className="mb-3 flex items-center justify-end gap-2">
-                      {inboxSearchQuery.trim() ||
-                      searchDateFrom ||
-                      searchDateTo ? (
+                    {inboxSearchQuery.trim() ||
+                    searchDateFrom ||
+                    searchDateTo ? (
+                      <div className="mb-3 flex items-center justify-end gap-2">
                         <div className="rounded-full border border-[rgb(var(--theme-primary-rgb))]/35 bg-[rgb(var(--theme-primary-rgb))]/10 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-[rgb(var(--theme-primary-rgb))]">
                           {visibleInboxItems.length} match
                           {visibleInboxItems.length === 1 ? "" : "es"}
                         </div>
-                      ) : null}
-                      <Tooltip
-                        content="Search help"
-                        className="w-auto"
-                        side="bottom"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setIsSearchHelpDialogOpen(true)}
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-300 transition-colors hover:text-white"
-                          aria-label="Open search help"
-                        >
-                          <CircleHelp className="h-4 w-4" />
-                        </button>
-                      </Tooltip>
-                    </div>
+                      </div>
+                    ) : null}
                     <div className="space-y-3">
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.8fr)_minmax(240px,0.9fr)]">
                     <div className="relative">
@@ -5444,6 +5430,20 @@ export function EmailInboxView({
                         )}
                       </div>
                       <div className="inline-flex items-center gap-2">
+                        <Tooltip
+                          content="Search help"
+                          className="w-auto"
+                          side="bottom"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setIsSearchHelpDialogOpen(true)}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950/70 text-zinc-400 transition-colors hover:text-white"
+                            aria-label="Open search help"
+                          >
+                            <CircleHelp className="h-4 w-4" />
+                          </button>
+                        </Tooltip>
                         <Tooltip
                           content="Run AI spam detection"
                           className="w-auto"
