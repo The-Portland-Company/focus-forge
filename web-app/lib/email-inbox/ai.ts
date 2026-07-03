@@ -17,6 +17,9 @@ export type EmailThreadAIInput = {
   senderName?: string | null;
   mailboxEmail: string;
   preventSpamClassification?: boolean;
+  // When true, skip the external LLM entirely and return buildHeuristicAnalysis.
+  // Used to enforce SPAM_FALLBACK_MODE=private (no email content leaves the app).
+  forceHeuristic?: boolean;
   profile?: SummaryProfile | null;
   projectOptions: Array<{
     id: string;
@@ -864,7 +867,9 @@ export async function analyzeThreadWithAI(
   input: EmailThreadAIInput,
 ): Promise<EmailThreadAIOutput> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  // forceHeuristic (SPAM_FALLBACK_MODE=private) or a missing key means no
+  // external LLM call — return the local heuristic analysis directly.
+  if (input.forceHeuristic || !apiKey) {
     return buildHeuristicAnalysis(input);
   }
 

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Code2, Brain, BookOpen, History } from "lucide-react";
+import { Code2, Brain, BookOpen, History, ShieldAlert } from "lucide-react";
 import type { Database, Mailbox } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { EmailRulesPanel } from "./email-rules-panel";
+import { SpamTrainingPanel } from "./spam-training-panel";
 import AiMemoryTab from "./ai-memory-tab";
 import AiPlaybookTab from "./ai-playbook-tab";
 import AiDecisionHistoryTab from "./ai-decision-history-tab";
@@ -16,10 +17,11 @@ type AiRulesTabsProps = {
   onRefresh: () => Promise<void> | void;
 };
 
-type TabKey = "code" | "memory" | "playbook" | "history";
+type TabKey = "code" | "spam" | "memory" | "playbook" | "history";
 
 const TABS: { key: TabKey; label: string; icon: typeof Code2 }[] = [
   { key: "code", label: "Code Rules", icon: Code2 },
+  { key: "spam", label: "Spam Training", icon: ShieldAlert },
   { key: "memory", label: "AI Memory", icon: Brain },
   { key: "playbook", label: "Playbook", icon: BookOpen },
   { key: "history", label: "Decision History", icon: History },
@@ -77,6 +79,13 @@ export default function AiRulesTabs({
               onRefresh={onRefresh}
             />
           </div>
+        )}
+        {active === "spam" && (
+          <SpamTrainingPanel
+            inboxItems={data.inboxItems}
+            mailboxes={mailboxes}
+            onRefresh={onRefresh}
+          />
         )}
         {active === "memory" && <AiMemoryTab />}
         {active === "playbook" && <AiPlaybookTab />}

@@ -124,6 +124,11 @@ export default function SettingsPage() {
   const [assistantChain, setAssistantChain] = useState<string[]>(
     defaultChainIds(),
   );
+  // Read-only spam-classifier runtime config, surfaced from GET /api/spam/stats.
+  const [spamConfig, setSpamConfig] = useState<{
+    confidenceThreshold: number;
+    fallbackMode: "llm" | "private";
+  } | null>(null);
   const [emailDeleteUndoSeconds, setEmailDeleteUndoSeconds] = useState<number>(
     DEFAULT_EMAIL_DELETE_UNDO_SECONDS,
   );
@@ -240,6 +245,28 @@ export default function SettingsPage() {
     fetchData();
     fetchCalendarToken();
     fetchPersonalAccessTokens();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/spam/stats", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload) => {
+        if (cancelled || !payload) return;
+        if (
+          typeof payload.confidenceThreshold === "number" &&
+          (payload.fallbackMode === "llm" || payload.fallbackMode === "private")
+        ) {
+          setSpamConfig({
+            confidenceThreshold: payload.confidenceThreshold,
+            fallbackMode: payload.fallbackMode,
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1608,6 +1635,36 @@ export default function SettingsPage() {
                   "Assistant",
                   "Models used by the AI assistant and planner.",
                 )}
+
+                {spamConfig ? (
+                  <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+                    <h3 className="text-sm font-medium text-zinc-200">
+                      Spam classifier
+                    </h3>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Read-only runtime config for the private k-NN spam
+                      classifier. Set via the SPAM_CONFIDENCE_THRESHOLD and
+                      SPAM_FALLBACK_MODE environment variables. Train it from the
+                      Email Inbox → AI Rules → Spam Training tab.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                      <span className="rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-zinc-300">
+                        Confidence threshold:{" "}
+                        <span className="font-medium text-white">
+                          {Math.round(spamConfig.confidenceThreshold * 100)}%
+                        </span>
+                      </span>
+                      <span className="rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-zinc-300">
+                        Fallback mode:{" "}
+                        <span className="font-medium text-white">
+                          {spamConfig.fallbackMode === "private"
+                            ? "Private (k-NN only)"
+                            : "LLM backstop"}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {/* Email Accounts */}
