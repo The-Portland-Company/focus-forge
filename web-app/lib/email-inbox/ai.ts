@@ -527,7 +527,10 @@ function buildFallbackInboxSummary(input: {
     return `This is an automated update about ${subject}.`;
   }
 
-  if (/reply and handle|respond|reply/i.test(input.actionTitle)) {
+  if (
+    input.classification === "actionable" ||
+    /respond|reply/i.test(input.actionTitle)
+  ) {
     return `The sender needs a response about ${subject}.`;
   }
 
@@ -738,9 +741,7 @@ export function buildHeuristicAnalysis(
   const responseRequired = /\?|reply|respond|please|need|can you/i.test(
     `${subject} ${bodyText}`,
   );
-  const actionTitle = responseRequired
-    ? `Reply and handle: ${subject}`.slice(0, 140)
-    : subject.slice(0, 140);
+  const actionTitle = subject.slice(0, 140);
 
   return {
     classification: responseRequired ? "actionable" : "reference",

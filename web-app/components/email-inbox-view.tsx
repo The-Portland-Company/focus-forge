@@ -150,6 +150,13 @@ import {
   type ThreadAction,
 } from "@/lib/email-inbox/thread-actions";
 import {
+  applyPendingRemovals,
+  clearPendingRemoval,
+  isPendingRemoval,
+  markPendingRemoval,
+  type PendingRemovals,
+} from "@/lib/email-inbox/pending-removals";
+import {
   formatReplyAttachmentSize,
   isInlineAttachmentEligible,
   type EmailReplyAttachment,
@@ -2219,38 +2226,38 @@ export function EmailInboxView({
     applyDraftToComposer(draft);
   };
 
-  // Threads the user just removed (delete/always-delete) are suppressed from
-  // reappearing for a short window. Without this, a concurrent realtime UPDATE
-  // (e.g. the async AI backfill writing a visible status) or a stale inbox
-  // reconcile read — landing in the gap before the server commits the removal —
-  // resurrects the row, producing the "disappears, reappears, disappears"
-  // flicker the user reported on delete.
-  const recentlyRemovedThreadIdsRef = useRef<Map<string, number>>(new Map());
-  const markThreadRecentlyRemoved = (threadId: string) => {
-    recentlyRemovedThreadIdsRef.current.set(threadId, Date.now() + 12_000);
+  // Threads the user just actioned (delete/archive/spam) are suppressed from
+  // reappearing until the server commits. Without this, a concurrent realtime
+  // UPDATE (e.g. the async AI backfill writing a visible status) or a stale
+  // inbox reconcile read — landing in the gap before the server finishes its
+  // slow provider-side move (IMAP/Graph) and writes the new status — resurrects
+  // the row, producing the "disappears, reappears, disappears" flicker the user
+  // reported on delete. The suppression is status-aware and confirm-on-commit
+  // (see lib/email-inbox/pending-removals): a pin persists across refetches
+  // until the server returns the thread at its terminal status, so it can't
+  // lapse mid-move the way the old fixed-duration tombstone did.
+  const pendingRemovalsRef = useRef<PendingRemovals>(new Map());
+  const markThreadRecentlyRemoved = (threadId: string, action: ThreadAction) => {
+    markPendingRemoval(pendingRemovalsRef.current, threadId, action, Date.now());
   };
   const clearThreadRecentlyRemoved = (threadId: string) => {
-    recentlyRemovedThreadIdsRef.current.delete(threadId);
+    clearPendingRemoval(pendingRemovalsRef.current, threadId);
   };
-  const isThreadRecentlyRemoved = (threadId: string) => {
-    const expiry = recentlyRemovedThreadIdsRef.current.get(threadId);
-    if (expiry === undefined) return false;
-    if (Date.now() > expiry) {
-      recentlyRemovedThreadIdsRef.current.delete(threadId);
-      return false;
-    }
-    return true;
-  };
+  const isThreadRecentlyRemoved = (threadId: string) =>
+    isPendingRemoval(pendingRemovalsRef.current, threadId, Date.now());
 
   const applyInboxSnapshot = (params: {
     nextMailboxes: Mailbox[];
     nextItems: InboxItem[];
     allowBrowserNotifications?: boolean;
   }) => {
-    // Drop any just-removed threads a slow server read might still return, so a
-    // reconcile can't resurrect a row the user already deleted.
-    const nextItems = params.nextItems.filter(
-      (item) => !isThreadRecentlyRemoved(item.id),
+    // Reconcile just-actioned threads against this fresh read: rows the server
+    // has now committed (or dropped) release their pin; rows still showing a
+    // pre-commit status stay filtered out so a reconcile can't resurrect them.
+    const nextItems = applyPendingRemovals(
+      pendingRemovalsRef.current,
+      params.nextItems,
+      Date.now(),
     );
 
     if (
@@ -3177,7 +3184,7 @@ export function EmailInboxView({
     // 2. INSTANT removal — apply the optimistic "deleted" state right away so
     //    the email disappears from the list immediately (no lingering spinner).
     //    Suppress it from realtime/reconcile resurrection during the commit gap.
-    markThreadRecentlyRemoved(threadId);
+    markThreadRecentlyRemoved(threadId, action);
     const beforeItems = inboxSnapshotRef.current;
     const optimisticItems = applyOptimisticThreadActionState(
       beforeItems,
@@ -3314,6 +3321,11 @@ export function EmailInboxView({
       setQuarantineCount(
         optimisticItems.filter((item) => item.status === "quarantine").length,
       );
+      // archive/spam do the same slow provider-side move as delete, so a
+      // pre-commit refetch could otherwise reset the row to "active" and flash
+      // it back into the inbox. Pin it (no-op for non-lagging actions) until the
+      // server confirms the terminal status.
+      markThreadRecentlyRemoved(threadId, action);
     }
 
     if (
@@ -3372,6 +3384,8 @@ export function EmailInboxView({
       updateStatus(`Applied ${action.replace(/_/g, " ")}.`);
     } catch (error) {
       if (changedOptimistically) {
+        // Drop the pin first so the reverted (active) row isn't re-suppressed.
+        clearThreadRecentlyRemoved(threadId);
         inboxSnapshotRef.current = previousItems;
         setInboxItems(previousItems);
         setQuarantineCount(
