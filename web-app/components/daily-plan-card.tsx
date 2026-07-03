@@ -16,6 +16,7 @@ import {
 import { SnoozePopover } from "@/components/snooze-popover";
 import { Tooltip } from "@/components/tooltip";
 import { DominoBadge } from "@/components/domino-badge";
+import { normalizeInboxActionTitle } from "@/components/email-work-list";
 import {
   Dialog,
   DialogContent,
@@ -321,7 +322,8 @@ export function DailyPlanCard({
         <div className="flex items-center gap-2">
           <Inbox className="h-4 w-4 text-sky-400" />
           <span className="text-base font-medium text-white">
-            {currentContext?.inboxItem?.actionTitle || "Triage email"}
+            {normalizeInboxActionTitle(currentContext?.inboxItem?.actionTitle) ||
+              "Triage email"}
           </span>
           {currentContext?.inboxItem?.subject ? (
             <span className="text-xs text-zinc-500">

@@ -737,7 +737,7 @@ export function buildHeuristicAnalysis(
   );
   const actionTitle = responseRequired
     ? `Reply and handle: ${subject}`.slice(0, 140)
-    : `Review context: ${subject}`.slice(0, 140);
+    : subject.slice(0, 140);
 
   return {
     classification: responseRequired ? "actionable" : "reference",
