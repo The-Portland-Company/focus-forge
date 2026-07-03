@@ -10,6 +10,14 @@ import {
   generateReplyDraftWithAI,
 } from "@/lib/email-inbox/ai";
 import {
+  classifySpam,
+  recordSpamLabel,
+  buildSpamInputText,
+  getSpamConfidenceThreshold,
+  getSpamFallbackMode,
+  type SpamClassification,
+} from "@/lib/spam/server";
+import {
   mergeEmailReplySettings,
   type EmailReplySettingsOverride,
 } from "@/lib/email-inbox/reply-settings";
@@ -2524,6 +2532,34 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
 
   const preventSpamClassification = appliedRules.actions.includes("never_spam");
 
+  // Private, trainable k-NN spam verdict (free, edge embeddings). Computed
+  // before the LLM/heuristic analysis so a CONFIDENT verdict can override the
+  // spam axis directly; a low-confidence verdict falls through to
+  // analyzeThreadWithAI (the LLM/heuristic backstop) per SPAM_FALLBACK_MODE.
+  // Never runs against a never_spam override. Best-effort — never breaks sync.
+  const spamThreshold = getSpamConfidenceThreshold();
+  const spamFallbackMode = getSpamFallbackMode();
+  let spamVerdict: SpamClassification | null = null;
+  if (!preventSpamClassification) {
+    try {
+      const spamInputText = buildSpamInputText(
+        { subject: thread.subject },
+        {
+          subject: latestMessage.subject,
+          body_text: latestMessage.body_text,
+          senderEmail: buildRuleContext(mailbox, latestMessage).senderEmail,
+        },
+      );
+      spamVerdict = await classifySpam(spamInputText, {
+        userId: mailbox.owner_user_id,
+        organizationId: mailbox.organization_id ?? undefined,
+        mailboxId: mailbox.id,
+      });
+    } catch (e) {
+      console.error("classifySpam (email) failed:", e);
+    }
+  }
+
   const profile = await chooseSummaryProfile(mailbox, mailbox.owner_user_id);
   const projectOptions = await getVisibleProjectsForUser(
     mailbox.owner_user_id,
@@ -2586,6 +2622,25 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
       aiResult,
       ruleActions,
     });
+
+  // A confident k-NN verdict overrides the LLM/heuristic spam axis (never against
+  // a never_spam override, already excluded above). Low-confidence verdicts leave
+  // the LLM/heuristic result untouched.
+  const spamKnnConfident =
+    !!spamVerdict &&
+    spamVerdict.label !== null &&
+    spamVerdict.exampleCount > 0 &&
+    spamVerdict.confidence >= spamThreshold;
+  if (spamKnnConfident && !preventSpamClassification) {
+    if (spamVerdict!.label === "spam") {
+      classification = "spam";
+      status = "quarantine";
+    } else if (spamVerdict!.label === "not_spam" && classification === "spam") {
+      classification = "actionable";
+      status = thread.project_id ? "active" : "needs_project";
+      needsProject = !thread.project_id;
+    }
+  }
 
   const projectId =
     thread.project_id ||
@@ -2654,6 +2709,14 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
       matchedRuleIds,
       promptContextSummary: `${selectedMemoryIds.length} memories, playbook ${
         selectedPlaybookId ? "v-active" : "none"
+      }${
+        spamVerdict
+          ? `; spam-knn ${spamVerdict.label ?? "none"} conf=${spamVerdict.confidence.toFixed(
+              2,
+            )} n=${spamVerdict.exampleCount}${
+              spamKnnConfident ? " (used)" : ` (fallback=${spamFallbackMode})`
+            }`
+          : ""
       }`,
       aiOutput: aiResult as unknown as Record<string, unknown>,
       finalOutput: {
@@ -2662,6 +2725,16 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
         needsProject,
         projectId,
         alwaysDelete,
+        spam: spamVerdict
+          ? {
+              label: spamVerdict.label,
+              confidence: spamVerdict.confidence,
+              exampleCount: spamVerdict.exampleCount,
+              usedKnn: spamKnnConfident,
+              threshold: spamThreshold,
+              fallbackMode: spamFallbackMode,
+            }
+          : null,
       },
       overriddenByRule,
       overrideReason: overriddenByRule
@@ -5294,6 +5367,38 @@ export async function applyThreadAction(params: {
     })
     .eq("id", params.threadId);
 
+  // Training-through-the-UI: a user marking a thread as spam is a labeled
+  // example. Feed the k-NN model (best-effort — must never break the action).
+  if (effectiveAction === "spam") {
+    try {
+      const latestMessage = await getLatestThreadMessage(params.threadId);
+      if (latestMessage) {
+        const mailboxScope = mailbox as unknown as {
+          owner_user_id: string;
+          organization_id: string | null;
+        };
+        const spamText = buildSpamInputText(
+          { subject: thread.subject },
+          {
+            subject: latestMessage.subject,
+            body_text: latestMessage.body_text,
+            senderEmail: buildRuleContext(mailbox, latestMessage).senderEmail,
+          },
+        );
+        await recordSpamLabel({
+          userId: mailboxScope.owner_user_id,
+          organizationId: mailboxScope.organization_id ?? undefined,
+          mailboxId: mailbox.id,
+          threadId: params.threadId,
+          text: spamText,
+          label: "spam",
+        });
+      }
+    } catch (e) {
+      console.error("recordSpamLabel (spam action) failed:", e);
+    }
+  }
+
   return { success: true };
 }
 
@@ -5445,6 +5550,32 @@ export async function createSpamExceptionRuleForThread(
     }
   } else {
     rule = await createRule(userId, payload);
+  }
+
+  // Training-through-the-UI: "Not spam" / allow-future-mail is a not_spam label.
+  // Record BEFORE reprocess so the k-NN corpus reflects the correction on rerun.
+  // Best-effort — must never break the exception-rule flow.
+  try {
+    const spamText = buildSpamInputText(
+      { subject: thread.subject },
+      {
+        subject: latestMessage.subject,
+        body_text: latestMessage.body_text,
+        senderEmail: ruleContext.senderEmail,
+      },
+    );
+    await recordSpamLabel({
+      userId,
+      organizationId:
+        (mailbox as unknown as { organization_id: string | null })
+          .organization_id ?? undefined,
+      mailboxId: mailbox.id,
+      threadId,
+      text: spamText,
+      label: "not_spam",
+    });
+  } catch (e) {
+    console.error("recordSpamLabel (not_spam action) failed:", e);
   }
 
   await reprocessThread(threadId, userId);
