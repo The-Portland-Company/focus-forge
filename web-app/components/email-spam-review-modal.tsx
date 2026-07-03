@@ -43,6 +43,7 @@ import {
   formatParticipantLine,
   formatParticipantName,
   getPrimarySenderParticipant,
+  normalizeInboxActionTitle,
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
 
@@ -619,7 +620,7 @@ export function EmailSpamReviewModal({
                           </div>
                           {showSecondaryActionTitle ? (
                             <div className="mt-1 text-sm text-zinc-400">
-                              {thread.actionTitle}
+                              {normalizeInboxActionTitle(thread.actionTitle)}
                             </div>
                           ) : null}
                           {fromLine ? (
@@ -895,14 +896,14 @@ export function EmailSpamReviewModal({
                                             focusThreadCard(thread.id)
                                           }
                                           className="min-w-0 flex-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30"
-                                          aria-label={`Jump to ${thread.actionTitle}`}
+                                          aria-label={`Jump to ${normalizeInboxActionTitle(thread.actionTitle)}`}
                                         >
                                           <div className="text-sm font-medium text-white">
                                             {formatEmailSubject(thread.subject)}
                                           </div>
                                           {showSecondaryActionTitle ? (
                                             <div className="mt-1 text-sm text-zinc-400">
-                                              {thread.actionTitle}
+                                              {normalizeInboxActionTitle(thread.actionTitle)}
                                             </div>
                                           ) : null}
                                           {fromLine ? (
@@ -967,14 +968,14 @@ export function EmailSpamReviewModal({
                                   type="button"
                                   onClick={() => focusThreadCard(thread.id)}
                                   className="min-w-0 flex-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30"
-                                  aria-label={`Jump to ${thread.actionTitle}`}
+                                  aria-label={`Jump to ${normalizeInboxActionTitle(thread.actionTitle)}`}
                                 >
                                   <div className="text-sm font-medium text-white">
                                     {formatEmailSubject(thread.subject)}
                                   </div>
                                   {showSecondaryActionTitle ? (
                                     <div className="mt-1 text-sm text-zinc-400">
-                                      {thread.actionTitle}
+                                      {normalizeInboxActionTitle(thread.actionTitle)}
                                     </div>
                                   ) : null}
                                 </button>

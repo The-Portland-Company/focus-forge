@@ -244,11 +244,31 @@ export function formatEmailSubject(subject: string) {
   return subject.trim() || "Untitled email";
 }
 
+// Legacy AI action titles were stored with a "Review context: " prefix in front
+// of the subject. The prefix is no longer generated, but existing rows still
+// carry it, so strip it at render time so it never surfaces in the inbox UI.
+const LEGACY_ACTION_TITLE_PREFIXES = ["review context:"];
+
+export function normalizeInboxActionTitle(
+  actionTitle: string | null | undefined,
+) {
+  const trimmed = actionTitle?.trim() ?? "";
+  const lower = trimmed.toLocaleLowerCase();
+
+  for (const prefix of LEGACY_ACTION_TITLE_PREFIXES) {
+    if (lower.startsWith(prefix)) {
+      return trimmed.slice(prefix.length).trim();
+    }
+  }
+
+  return trimmed;
+}
+
 export function shouldShowSecondaryActionTitle(
   actionTitle: string | null | undefined,
   subject: string,
 ) {
-  const normalizedActionTitle = actionTitle?.trim();
+  const normalizedActionTitle = normalizeInboxActionTitle(actionTitle);
 
   if (!normalizedActionTitle) {
     return false;
@@ -1041,9 +1061,12 @@ export function EmailWorkList({
         const previewText = item.previewText
           ? formatInboxPreviewText(item.previewText)
           : rawSummaryText || "No summary available yet.";
-        const hasAiTitle = Boolean(item.actionTitle?.trim());
+        const normalizedActionTitle = normalizeInboxActionTitle(
+          item.actionTitle,
+        );
+        const hasAiTitle = Boolean(normalizedActionTitle);
         const aiTitle = hasAiTitle
-          ? (item.actionTitle as string).trim()
+          ? normalizedActionTitle
           : formatEmailSubject(item.subject);
         const reviewState = getInboxReviewState(item);
         const reviewBadgeLabel = getInboxReviewBadgeLabel(item);

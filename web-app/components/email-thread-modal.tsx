@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   formatEmailSubject,
+  normalizeInboxActionTitle,
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
 import { FloatingFieldLabel } from "@/components/ui/floating-field-label";
@@ -403,8 +404,8 @@ export function EmailThreadModal({
     thread?.summaryText?.trim() ||
       (thread &&
       shouldShowSecondaryActionTitle(thread.actionTitle, thread.subject) &&
-      thread.actionTitle?.trim()
-        ? thread.actionTitle.trim()
+      normalizeInboxActionTitle(thread.actionTitle)
+        ? normalizeInboxActionTitle(thread.actionTitle)
         : ""),
   );
 
