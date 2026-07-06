@@ -71,6 +71,118 @@ function getMailboxPassword(mailbox: MailboxTransportRow) {
   return password;
 }
 
+// --- IMAP connection concurrency control -----------------------------------
+//
+// Providers cap simultaneous IMAP connections per account (Gmail: ~15). Forge
+// opens a fresh short-lived connection per operation, and several callers can
+// run at once — overlapping syncs (the sync lock is check-then-act, and web +
+// iOS + macOS all poll), plus per-thread attachment backfills fired on every
+// thread open. Unbounded, these bursts trip "Too many simultaneous
+// connections" and the mailbox stops syncing.
+//
+// Every connection is therefore acquired through a per-account semaphore, so
+// Forge never holds more than IMAP_MAX_CONCURRENCY_PER_ACCOUNT sockets open to
+// one account at a time; excess callers queue. Connections are always closed in
+// a finally, so a thrown operation can't leak a slot.
+const IMAP_MAX_CONCURRENCY_PER_ACCOUNT = 2;
+
+export class Semaphore {
+  private available: number;
+  private readonly waiters: Array<() => void> = [];
+  constructor(max: number) {
+    this.available = max;
+  }
+  async acquire(): Promise<void> {
+    if (this.available > 0) {
+      this.available -= 1;
+      return;
+    }
+    await new Promise<void>((resolve) => this.waiters.push(resolve));
+  }
+  release(): void {
+    const next = this.waiters.shift();
+    if (next) {
+      next();
+    } else {
+      this.available += 1;
+    }
+  }
+}
+
+const imapSemaphores = new Map<string, Semaphore>();
+
+function getImapSemaphore(mailbox: MailboxTransportRow): Semaphore {
+  const key = `${mailbox.login_username}@${mailbox.imap_host}:${mailbox.imap_port || 993}`;
+  let semaphore = imapSemaphores.get(key);
+  if (!semaphore) {
+    semaphore = new Semaphore(IMAP_MAX_CONCURRENCY_PER_ACCOUNT);
+    imapSemaphores.set(key, semaphore);
+  }
+  return semaphore;
+}
+
+function buildImapClient(mailbox: MailboxTransportRow): ImapFlow {
+  return new ImapFlow({
+    host: mailbox.imap_host,
+    port: Number(mailbox.imap_port || 993),
+    secure: Boolean(mailbox.imap_secure),
+    auth: {
+      user: mailbox.login_username,
+      pass: getMailboxPassword(mailbox),
+    },
+    logger: false,
+    // Bound every phase so a hung socket can't pin a semaphore slot forever.
+    greetingTimeout: 15_000,
+    connectionTimeout: 20_000,
+    socketTimeout: 60_000,
+  });
+}
+
+// Acquire a per-account connection slot and open a connected IMAP client. The
+// caller MUST invoke the returned `release()` in a finally to close the socket
+// and free the slot. Prefer withImapConnection() where the callback shape fits;
+// this lower-level form exists for sites that manage their own folder locks.
+async function acquireImapClient(
+  mailbox: MailboxTransportRow,
+): Promise<{ client: ImapFlow; release: () => Promise<void> }> {
+  const semaphore = getImapSemaphore(mailbox);
+  await semaphore.acquire();
+  const client = buildImapClient(mailbox);
+  try {
+    await client.connect();
+  } catch (error) {
+    semaphore.release();
+    throw error;
+  }
+  let released = false;
+  const release = async () => {
+    if (released) return;
+    released = true;
+    try {
+      await client.logout();
+    } catch {
+      // Best-effort close; never mask the caller's result or leak the slot.
+    }
+    semaphore.release();
+  };
+  return { client, release };
+}
+
+// Acquire a per-account connection slot, open a fresh IMAP client, run `fn`, and
+// always log out + release the slot. All IMAP access in this module funnels
+// through here so the per-account connection cap is honored.
+async function withImapConnection<T>(
+  mailbox: MailboxTransportRow,
+  fn: (client: ImapFlow) => Promise<T>,
+): Promise<T> {
+  const { client, release } = await acquireImapClient(mailbox);
+  try {
+    return await fn(client);
+  } finally {
+    await release();
+  }
+}
+
 function normalizeAddressList(values: any[] = []): NormalizedMailboxAddress[] {
   return values
     .map((value) => ({
@@ -243,19 +355,8 @@ export async function fetchMailboxMessages(
     syncCursor?: unknown;
   },
 ): Promise<FetchMailboxMessagesResult> {
-  const password = getMailboxPassword(mailbox);
   const previousCursor = normalizeMailboxSyncCursor(options?.syncCursor);
-  const client = new ImapFlow({
-    host: mailbox.imap_host,
-    port: Number(mailbox.imap_port || 993),
-    secure: Boolean(mailbox.imap_secure),
-    auth: {
-      user: mailbox.login_username,
-      pass: password,
-    },
-  });
-
-  await client.connect();
+  const { client, release } = await acquireImapClient(mailbox);
   const lock = await client.getMailboxLock(mailbox.sync_folder || "INBOX");
 
   try {
@@ -329,7 +430,7 @@ export async function fetchMailboxMessages(
     };
   } finally {
     lock.release();
-    await client.logout();
+    await release();
   }
 }
 
@@ -350,18 +451,7 @@ export async function fetchMailboxSentMessages(
   options?: { limit?: number },
 ): Promise<NormalizedMailboxMessage[]> {
   const limit = options?.limit && options.limit > 0 ? options.limit : 50;
-  const password = getMailboxPassword(mailbox);
-  const client = new ImapFlow({
-    host: mailbox.imap_host,
-    port: Number(mailbox.imap_port || 993),
-    secure: Boolean(mailbox.imap_secure),
-    auth: {
-      user: mailbox.login_username,
-      pass: password,
-    },
-  });
-
-  await client.connect();
+  const { client, release } = await acquireImapClient(mailbox);
 
   try {
     const folders = await client.list();
@@ -419,7 +509,7 @@ export async function fetchMailboxSentMessages(
       lock.release();
     }
   } finally {
-    await client.logout();
+    await release();
   }
 }
 
@@ -544,17 +634,7 @@ export type MailboxFolderInfo = {
 export async function listMailboxFolders(
   mailbox: MailboxTransportRow,
 ): Promise<MailboxFolderInfo[]> {
-  const client = new ImapFlow({
-    host: mailbox.imap_host,
-    port: Number(mailbox.imap_port || 993),
-    secure: Boolean(mailbox.imap_secure),
-    auth: {
-      user: mailbox.login_username,
-      pass: getMailboxPassword(mailbox),
-    },
-  });
-
-  await client.connect();
+  const { client, release } = await acquireImapClient(mailbox);
 
   try {
     const folders = await client.list({
@@ -597,7 +677,7 @@ export async function listMailboxFolders(
       return a.path.localeCompare(b.path, undefined, { sensitivity: "base" });
     });
   } finally {
-    await client.logout();
+    await release();
   }
 }
 
@@ -824,24 +904,14 @@ async function withImapClient<T>(
   mailbox: MailboxTransportRow,
   fn: (client: ImapFlow) => Promise<T>,
 ) {
-  const client = new ImapFlow({
-    host: mailbox.imap_host,
-    port: Number(mailbox.imap_port || 993),
-    secure: Boolean(mailbox.imap_secure),
-    auth: {
-      user: mailbox.login_username,
-      pass: getMailboxPassword(mailbox),
-    },
+  return withImapConnection(mailbox, async (client) => {
+    const lock = await client.getMailboxLock(mailbox.sync_folder || "INBOX");
+    try {
+      return await fn(client);
+    } finally {
+      lock.release();
+    }
   });
-
-  await client.connect();
-  const lock = await client.getMailboxLock(mailbox.sync_folder || "INBOX");
-  try {
-    return await fn(client);
-  } finally {
-    lock.release();
-    await client.logout();
-  }
 }
 
 // Resolve a destination mailbox path by its IMAP \Special-Use attribute first
@@ -974,17 +1044,7 @@ export async function applyMailboxThreadAction(params: {
 }
 
 export async function emptyMailboxTrash(mailbox: MailboxTransportRow) {
-  const client = new ImapFlow({
-    host: mailbox.imap_host,
-    port: Number(mailbox.imap_port || 993),
-    secure: Boolean(mailbox.imap_secure),
-    auth: {
-      user: mailbox.login_username,
-      pass: getMailboxPassword(mailbox),
-    },
-  });
-
-  await client.connect();
+  const { client, release } = await acquireImapClient(mailbox);
 
   try {
     const trashPath = await resolveTrashMailboxPath(client);
@@ -1008,6 +1068,6 @@ export async function emptyMailboxTrash(mailbox: MailboxTransportRow) {
       lock.release();
     }
   } finally {
-    await client.logout();
+    await release();
   }
 }

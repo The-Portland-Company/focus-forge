@@ -5,6 +5,7 @@ import {
   buildMailboxSyncCursor,
   normalizeMailboxSyncCursor,
   resolveSpecialMailboxPath,
+  Semaphore,
 } from "../email-inbox/provider";
 
 test("normalizeMailboxSyncCursor keeps only valid incremental cursor values", () => {
@@ -117,4 +118,37 @@ test("resolveSpecialMailboxPath falls back to folder names when special-use is a
     await resolveSpecialMailboxPath(client, "\\Trash", ["nonexistent"]),
     null,
   );
+});
+
+test("Semaphore never lets more than `max` holders run concurrently", async () => {
+  const sem = new Semaphore(2);
+  let active = 0;
+  let peak = 0;
+  const run = async () => {
+    await sem.acquire();
+    active += 1;
+    peak = Math.max(peak, active);
+    // yield the event loop so overlapping holders would be observable
+    await new Promise((r) => setTimeout(r, 5));
+    active -= 1;
+    sem.release();
+  };
+  await Promise.all(Array.from({ length: 10 }, run));
+  assert.equal(peak, 2, "at most 2 holders should ever be active at once");
+  assert.equal(active, 0, "all holders released");
+});
+
+test("Semaphore releases waiters in FIFO order", async () => {
+  const sem = new Semaphore(1);
+  const order: number[] = [];
+  await sem.acquire(); // hold the only slot
+  const waiters = [1, 2, 3].map((n) =>
+    sem.acquire().then(() => {
+      order.push(n);
+      sem.release();
+    }),
+  );
+  sem.release(); // let the queue drain
+  await Promise.all(waiters);
+  assert.deepEqual(order, [1, 2, 3]);
 });
