@@ -132,7 +132,22 @@ export async function classifySpam(
   const total = spamVote + hamVote
   const label: SpamLabel = spamVote >= hamVote ? "spam" : "not_spam"
   const winning = label === "spam" ? spamVote : hamVote
-  const confidence = total > 0 ? winning / total : 0
+  const rawConfidence = total > 0 ? winning / total : 0
+
+  // Corpus-adequacy gate. `rawConfidence` is the winning label's share of the
+  // neighbor vote — but that is trivially 1.0 when the corpus is single-class
+  // (e.g. only spam examples exist, so every email's nearest neighbor is spam).
+  // A k-NN cannot discriminate spam from ham until it has seen a meaningful
+  // number of BOTH classes, so we suppress confidence to 0 until the corpus is
+  // healthy. This keeps a thin/one-sided corpus from confidently auto-
+  // quarantining legitimate mail; the label is still returned as advisory.
+  const { spam: spamCorpus, ham: hamCorpus } = await getSpamCorpusCounts(
+    admin,
+    scope,
+  )
+  const corpusHealthy =
+    spamCorpus >= MIN_EXAMPLES_PER_CLASS && hamCorpus >= MIN_EXAMPLES_PER_CLASS
+  const confidence = corpusHealthy ? rawConfidence : 0
 
   return {
     label,
@@ -141,6 +156,42 @@ export async function classifySpam(
     neighbors,
     exampleCount: neighbors.length,
   }
+}
+
+/**
+ * Minimum labeled examples of EACH class the corpus must hold before a k-NN
+ * verdict is allowed any confidence. Below this the classifier is advisory only
+ * (confidence 0), so it never auto-quarantines on a degenerate/one-sided corpus.
+ */
+export const MIN_EXAMPLES_PER_CLASS = 5
+
+/** Count active spam/ham signatures in scope — used to gate confidence on a
+ *  two-class, non-trivial corpus. */
+async function getSpamCorpusCounts(
+  admin: ReturnType<typeof getAdminClient>,
+  scope: SpamScope,
+): Promise<{ spam: number; ham: number }> {
+  const countFor = async (label: SpamLabel) => {
+    let query = admin
+      .from("spam_signatures")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", scope.userId)
+      .eq("label", label)
+      .eq("status", "active")
+    if (scope.organizationId) {
+      query = query.eq("organization_id", scope.organizationId)
+    }
+    if (scope.mailboxId) {
+      query = query.eq("mailbox_id", scope.mailboxId)
+    }
+    const { count } = await query
+    return count ?? 0
+  }
+  const [spam, ham] = await Promise.all([
+    countFor("spam"),
+    countFor("not_spam"),
+  ])
+  return { spam, ham }
 }
 
 export interface RecordSpamLabelInput {
