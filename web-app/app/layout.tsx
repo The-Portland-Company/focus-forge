@@ -4,6 +4,7 @@ import { Inter } from "next/font/google"
 import { AuthProvider } from "@/contexts/AuthContext"
 import { ToastProvider } from "@/contexts/ToastContext"
 import { AiPlannerFloatingChatLazy } from "@/components/ai-planner-floating-chat-lazy"
+import { ChunkErrorReloader } from "@/components/chunk-error-reloader"
 import { DockBadgeSync } from "@/components/dock-badge-sync"
 import { EstimateReviewNudge } from "@/components/estimate-review-nudge"
 import { AgentIntroNudge } from "@/components/agent-intro-nudge"
@@ -48,6 +49,7 @@ export default function RootLayout({
       <body className={inter.className} suppressHydrationWarning>
         <AuthProvider>
           <ToastProvider>
+            <ChunkErrorReloader />
             {children}
             <DockBadgeSync />
             <Suspense fallback={null}>
