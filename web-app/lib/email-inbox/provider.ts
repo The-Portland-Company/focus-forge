@@ -168,6 +168,73 @@ async function acquireImapClient(
   return { client, release };
 }
 
+// Transient IMAP failures are almost always connection-level: the provider is
+// momentarily at its simultaneous-connection cap (Gmail: "Too many simultaneous
+// connections"), the socket was reset, or a connect/greeting phase timed out.
+// These are safe to retry — unlike auth or "no such message" errors, which are
+// deterministic and must surface immediately.
+function isTransientImapError(error: unknown): boolean {
+  const message = (
+    error instanceof Error ? error.message : String(error ?? "")
+  ).toLowerCase();
+  const code = (error as { code?: string } | null)?.code || "";
+  if (
+    code === "ECONNRESET" ||
+    code === "ECONNREFUSED" ||
+    code === "ETIMEDOUT" ||
+    code === "EPIPE" ||
+    code === "ESOCKETTIMEDOUT" ||
+    code === "EAI_AGAIN"
+  ) {
+    return true;
+  }
+  return (
+    message.includes("too many simultaneous") ||
+    message.includes("maximum number of connections") ||
+    message.includes("timeout") ||
+    message.includes("timed out") ||
+    message.includes("socket") ||
+    message.includes("connection closed") ||
+    message.includes("connection ended") ||
+    message.includes("econnreset") ||
+    message.includes("temporarily")
+  );
+}
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+// Retry a provider-side operation across transient connection failures. Each
+// attempt opens a fresh connection (via the caller's own withImapConnection),
+// so a retry both waits out a momentary connection-cap spike and gets a clean
+// socket. Non-transient errors (auth, invalid state) are re-thrown immediately.
+async function withImapRetry<T>(
+  label: string,
+  fn: () => Promise<T>,
+  attempts = 3,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts || !isTransientImapError(error)) {
+        throw error;
+      }
+      // 400ms, 1200ms backoff — long enough for a transient connection-cap
+      // spike or another caller's short-lived operation to clear.
+      const delayMs = 400 * attempt * attempt;
+      console.warn(
+        `[email] transient IMAP error on ${label} (attempt ${attempt}/${attempts}), retrying in ${delayMs}ms:`,
+        error instanceof Error ? error.message : error,
+      );
+      await sleep(delayMs);
+    }
+  }
+  throw lastError;
+}
+
 // Acquire a per-account connection slot, open a fresh IMAP client, run `fn`, and
 // always log out + release the slot. All IMAP access in this module funnels
 // through here so the per-account connection cap is honored.
@@ -1001,10 +1068,24 @@ export async function applyMailboxThreadAction(params: {
     .filter((value) => Number.isFinite(value) && value > 0);
 
   if (uids.length === 0) {
+    // No numeric provider UID to act on (e.g. a thread whose only messages are
+    // locally-composed outbound "sent:*" rows not yet echoed back by the
+    // server). There is nothing to push provider-side; log so a genuinely
+    // missing mapping is visible rather than silently swallowed.
+    console.warn(
+      `[email] applyMailboxThreadAction(${params.action}): no numeric provider UID among`,
+      params.providerMessageIds,
+      "— skipping provider-side flag change",
+    );
     return;
   }
 
-  await withImapClient(params.mailbox, async (client) => {
+  // Retry across transient connection failures so a momentary Gmail
+  // "too many simultaneous connections" spike doesn't silently drop the
+  // read/archive/etc. from ever reaching the provider. Each attempt opens a
+  // fresh connection via withImapClient.
+  await withImapRetry(`thread-action:${params.action}`, () =>
+    withImapClient(params.mailbox, async (client) => {
     const uidRange = uids.join(",");
 
     if (params.action === "mark_read") {
@@ -1040,7 +1121,8 @@ export async function applyMailboxThreadAction(params: {
     } else {
       await client.messageDelete(uidRange, { uid: true });
     }
-  });
+    }),
+  );
 }
 
 export async function emptyMailboxTrash(mailbox: MailboxTransportRow) {
