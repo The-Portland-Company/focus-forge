@@ -889,21 +889,42 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
     reply_to: message.replyTo || [],
   });
 
-  await admin
+  // Never move a thread's recency markers BACKWARD. Provider messages arrive
+  // out of order (backfills, re-syncs, batches not sorted by date), so writing
+  // this message's timestamp unconditionally would clobber a newer value and
+  // sink the thread in the latest_message_at-ordered inbox — leaving Forge's
+  // order/position out of sync with the provider. Only advance forward, and
+  // only refresh the newest-message fields (subject/preview/unread) when this
+  // message is actually the newest one we've seen for the thread.
+  const incomingTs =
+    message.receivedAt || message.sentAt || new Date().toISOString();
+  const { data: threadTimes } = await admin
     .from("email_threads")
-    .update({
-      subject: message.subject || "Untitled email",
-      normalized_subject: normalizeSubject(message.subject),
-      preview_text: extractPlainTextPreview(message.bodyText, 240),
-      is_unread: message.isUnread,
-      latest_message_at:
-        message.receivedAt || message.sentAt || new Date().toISOString(),
-      latest_inbound_at:
-        message.receivedAt || message.sentAt || new Date().toISOString(),
-      origin: thread.origin === "outbound" ? "mixed" : thread.origin || "inbound",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", threadId);
+    .select("latest_message_at,latest_inbound_at")
+    .eq("id", threadId)
+    .maybeSingle();
+
+  const maxTs = (a: string | null | undefined, b: string) =>
+    a && new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+  const isNewest =
+    !threadTimes?.latest_message_at ||
+    new Date(incomingTs).getTime() >=
+      new Date(threadTimes.latest_message_at).getTime();
+
+  const threadUpdate: Record<string, unknown> = {
+    latest_message_at: maxTs(threadTimes?.latest_message_at, incomingTs),
+    latest_inbound_at: maxTs(threadTimes?.latest_inbound_at, incomingTs),
+    origin: thread.origin === "outbound" ? "mixed" : thread.origin || "inbound",
+    updated_at: new Date().toISOString(),
+  };
+  if (isNewest) {
+    threadUpdate.subject = message.subject || "Untitled email";
+    threadUpdate.normalized_subject = normalizeSubject(message.subject);
+    threadUpdate.preview_text = extractPlainTextPreview(message.bodyText, 240);
+    threadUpdate.is_unread = message.isUnread;
+  }
+
+  await admin.from("email_threads").update(threadUpdate).eq("id", threadId);
 
   return { threadId, messageId: inserted.id as string, inserted: true };
 }
