@@ -195,9 +195,10 @@ export function getRelativeDayLabel(
   return null;
 }
 
-/** Resolves the timestamp an inbox row is keyed on, preferring the most
- *  meaningful "when did this happen" source. Shared by the row timestamp and
- *  the day-group section separators so both bucket on the same instant. */
+/** Resolves the timestamp an inbox row DISPLAYS as its "date received". Prefers
+ *  the true inbound/message instant so the row shows when the mail actually
+ *  arrived. NOTE: this is intentionally NOT the same as the day-group bucket
+ *  key — see getInboxItemDayBucketInstant. */
 export function getInboxItemTimestampSource(
   item: Pick<
     InboxItem,
@@ -208,12 +209,6 @@ export function getInboxItemTimestampSource(
     | "updatedAt"
   >,
 ) {
-  // Must match the inbox sort precedence (getInboxItemReceivedTime:
-  // latestInboundAt || latestMessageAt || createdAt). When the day-group
-  // separators are keyed off a different field than the list is sorted by, a
-  // thread created today whose latest inbound message is older sorts among the
-  // old rows but still gets a "Today" label — producing duplicate "Today"
-  // dividers. Keep this in lockstep with the sort key.
   return (
     item.latestInboundAt ||
     item.latestMessageAt ||
@@ -221,6 +216,40 @@ export function getInboxItemTimestampSource(
     item.latestOutboundAt ||
     item.updatedAt
   );
+}
+
+/** The instant the day-group separators bucket on. This MUST equal the instant
+ *  the list is SORTED by (email-inbox-view getInboxItemActivityTime =
+ *  MAX(latestMessageAt, latestOutboundAt, latestInboundAt, createdAt)),
+ *  otherwise the separators duplicate: a thread that sorts into "today" by its
+ *  latest activity but whose latest *inbound* mail is older would get no
+ *  "Today" label, breaking the contiguous run of today rows and emitting a
+ *  second "Today" divider below it. Keying the separator off the same activity
+ *  max keeps every day bucket contiguous → exactly one divider per day.
+ *  (updatedAt is deliberately excluded so marking a thread read — which bumps
+ *  only updatedAt — doesn't hoist it into today.) */
+export function getInboxItemDayBucketInstant(
+  item: Pick<
+    InboxItem,
+    "createdAt" | "latestInboundAt" | "latestMessageAt" | "latestOutboundAt"
+  >,
+): string | null {
+  let best: string | null = null;
+  let bestMs = Number.NEGATIVE_INFINITY;
+  for (const candidate of [
+    item.latestMessageAt,
+    item.latestOutboundAt,
+    item.latestInboundAt,
+    item.createdAt,
+  ]) {
+    if (!candidate) continue;
+    const ms = Date.parse(candidate);
+    if (!Number.isNaN(ms) && ms > bestMs) {
+      bestMs = ms;
+      best = candidate;
+    }
+  }
+  return best;
 }
 
 /** Full-width day-group separator: a centered uppercase label flanked by hair
@@ -1034,12 +1063,12 @@ export function EmailWorkList({
         // before the first row whose relative day differs from the row above.
         // Inbox rows are ordered newest-first, so each bucket is contiguous.
         const relativeDay = getRelativeDayLabel(
-          getInboxItemTimestampSource(item),
+          getInboxItemDayBucketInstant(item),
         );
         const previousRelativeDay =
           itemIndex > 0
             ? getRelativeDayLabel(
-                getInboxItemTimestampSource(items[itemIndex - 1]),
+                getInboxItemDayBucketInstant(items[itemIndex - 1]),
               )
             : null;
         const showDaySeparator =
