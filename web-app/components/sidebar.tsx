@@ -1787,14 +1787,15 @@ export function Sidebar({
             {/* Email Inbox: a Link for navigation + a chevron to toggle the
                 accordion of sub-items (Inbox, Quarantine, Trash, Sent, Rules,
                 AI Lab). State persisted in localStorage as "emailInboxExpanded". */}
-            {/* The Link fills the row (pr-1 so its count badge sits flush at the
-                right, next to the chevron) and the chevron toggle hugs the far
-                edge (pr-2 on the row) — aligned with the org-row chevrons — so
-                the badge no longer floats mid-row with a gap before the ">". */}
-            <div className="flex items-center pr-2">
+            {/* Accordion-toggle chevron sits at the FAR RIGHT edge (aligned with
+                every org-row chevron); the count badge sits just left of it at
+                the same right margin as the other top-level badges. A tiny
+                right-edge chevron overlaps into the row padding so it does not
+                shove the badge inward. */}
+            <div className="relative flex items-center">
               <Link
                 href="/email-inbox"
-                className={`flex-1 min-w-0 flex items-center justify-between gap-3 pl-1.5 pr-1 py-1 rounded-lg text-sm transition-colors ${
+                className={`w-full flex items-center justify-between gap-3 pl-1.5 pr-5 py-1 rounded-lg text-sm transition-colors ${
                   currentView.startsWith("email-")
                     ? "text-white"
                     : "text-zinc-400 hover:text-white"
@@ -1823,7 +1824,7 @@ export function Sidebar({
               </Link>
               <button
                 onClick={() => setEmailInboxExpanded((v) => !v)}
-                className="ml-0.5 p-0.5 rounded hover:bg-zinc-800 transition-colors group flex-shrink-0"
+                className="absolute right-0 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-zinc-800 transition-colors group"
                 aria-label={emailInboxExpanded ? "Collapse Email Inbox" : "Expand Email Inbox"}
                 aria-expanded={emailInboxExpanded}
               >
