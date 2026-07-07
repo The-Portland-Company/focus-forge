@@ -159,12 +159,27 @@ export function buildParticipantSummary(participants: InboxParticipant[]) {
   return parts.join(" · ");
 }
 
+// Most-recent activity (inbound OR outbound) so replied-to threads bubble to the
+// top like Gmail rather than sinking when no new inbound mail arrives.
+export function inboxItemActivityTime(item: InboxItem) {
+  let max = 0;
+  for (const candidate of [
+    item.latestMessageAt,
+    item.latestOutboundAt,
+    item.latestInboundAt,
+    item.createdAt,
+  ]) {
+    if (!candidate) continue;
+    const parsed = new Date(candidate).getTime();
+    if (!Number.isNaN(parsed) && parsed > max) max = parsed;
+  }
+  return max;
+}
+
 export function sortInboxItems(items: InboxItem[]) {
-  return [...items].sort((a, b) => {
-    const aTime = new Date(a.latestMessageAt || a.createdAt).getTime();
-    const bTime = new Date(b.latestMessageAt || b.createdAt).getTime();
-    return bTime - aTime;
-  });
+  return [...items].sort(
+    (a, b) => inboxItemActivityTime(b) - inboxItemActivityTime(a),
+  );
 }
 
 export function shouldShowInboxItemInToday(item: InboxItem) {

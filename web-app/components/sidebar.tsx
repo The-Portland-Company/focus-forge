@@ -1787,10 +1787,14 @@ export function Sidebar({
             {/* Email Inbox: a Link for navigation + a chevron to toggle the
                 accordion of sub-items (Inbox, Quarantine, Trash, Sent, Rules,
                 AI Lab). State persisted in localStorage as "emailInboxExpanded". */}
-            <div className="flex items-center gap-1">
+            {/* The Link fills the row (pr-1 so its count badge sits flush at the
+                right, next to the chevron) and the chevron toggle hugs the far
+                edge (pr-2 on the row) — aligned with the org-row chevrons — so
+                the badge no longer floats mid-row with a gap before the ">". */}
+            <div className="flex items-center pr-2">
               <Link
                 href="/email-inbox"
-                className={`flex-1 flex items-center justify-between gap-3 pl-1.5 pr-3 py-1 rounded-lg text-sm transition-colors ${
+                className={`flex-1 min-w-0 flex items-center justify-between gap-3 pl-1.5 pr-1 py-1 rounded-lg text-sm transition-colors ${
                   currentView.startsWith("email-")
                     ? "text-white"
                     : "text-zinc-400 hover:text-white"
@@ -1819,7 +1823,7 @@ export function Sidebar({
               </Link>
               <button
                 onClick={() => setEmailInboxExpanded((v) => !v)}
-                className="p-1 rounded hover:bg-zinc-800 transition-colors group flex-shrink-0"
+                className="ml-0.5 p-0.5 rounded hover:bg-zinc-800 transition-colors group flex-shrink-0"
                 aria-label={emailInboxExpanded ? "Collapse Email Inbox" : "Expand Email Inbox"}
                 aria-expanded={emailInboxExpanded}
               >
