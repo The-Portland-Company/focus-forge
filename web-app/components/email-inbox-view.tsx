@@ -1118,6 +1118,26 @@ function getInboxItemReceivedTime(item: InboxItem) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+// Most-recent ACTIVITY on the thread — inbound OR outbound. Sorting by this (vs
+// inbound-only) makes a thread you just replied to bubble to the top like
+// Gmail, instead of sinking because no new inbound mail arrived. latestMessageAt
+// is the server's max but can lag an outbound reply, so we take the max of all
+// signals defensively.
+function getInboxItemActivityTime(item: InboxItem) {
+  let max = 0;
+  for (const candidate of [
+    item.latestMessageAt,
+    item.latestOutboundAt,
+    item.latestInboundAt,
+    item.createdAt,
+  ]) {
+    if (!candidate) continue;
+    const parsed = Date.parse(candidate);
+    if (!Number.isNaN(parsed) && parsed > max) max = parsed;
+  }
+  return max;
+}
+
 // Client-side date-range filter over already-loaded items. `from`/`to` are
 // "YYYY-MM-DD" strings (from <input type="date">); `from` is inclusive at the
 // start of that day, `to` inclusive through the end of that day. Empty bounds
@@ -1177,7 +1197,7 @@ function compareInboxItemsByReceived(
   direction: "asc" | "desc" = "desc",
 ) {
   const difference =
-    getInboxItemReceivedTime(left) - getInboxItemReceivedTime(right);
+    getInboxItemActivityTime(left) - getInboxItemActivityTime(right);
 
   if (difference !== 0) {
     return direction === "asc" ? difference : -difference;
