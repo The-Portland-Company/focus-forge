@@ -24,7 +24,6 @@ import {
   Skull,
   Sparkles,
   SquareCheckBig,
-  Text,
   Trash2,
   Wand2,
 } from "lucide-react";
@@ -1083,6 +1082,15 @@ export function EmailWorkList({
         const aiTitle = hasAiTitle
           ? normalizedActionTitle
           : formatEmailSubject(item.subject);
+        // The primary row title is the REAL email subject, so the inbox mirrors
+        // the mailbox (Gmail/Apple Mail) instead of an AI-rewritten action
+        // title. The AI action title, when it adds something beyond the
+        // subject, is shown as a muted secondary line.
+        const subjectTitle = formatEmailSubject(item.subject) || "(no subject)";
+        const showSecondaryAiTitle = shouldShowSecondaryActionTitle(
+          item.actionTitle,
+          item.subject,
+        );
         const reviewState = getInboxReviewState(item);
         const reviewBadgeLabel = getInboxReviewBadgeLabel(item);
         const canMoveToQuarantine =
@@ -1207,7 +1215,28 @@ export function EmailWorkList({
                       </Tooltip>
                     )
                   ) : null}
-                  <div className="min-w-0">
+                  <div
+                    className="min-w-0"
+                    onMouseEnter={(event) => {
+                      const rect =
+                        event.currentTarget.getBoundingClientRect();
+                      // Clamp horizontally so a wide card near the right edge
+                      // shifts left instead of overflowing the viewport.
+                      const cardWidth = Math.min(512, window.innerWidth - 24);
+                      const left = Math.max(
+                        12,
+                        Math.min(rect.left, window.innerWidth - cardWidth - 12),
+                      );
+                      setHoverPreview({
+                        threadId: item.id,
+                        fallbackText: previewText,
+                        top: rect.bottom + 8,
+                        left,
+                      });
+                      ensureThreadBody(item.id);
+                    }}
+                    onMouseLeave={() => setHoverPreview(null)}
+                  >
                     <div
                       className={cn(
                         "flex min-w-0 items-center gap-1.5 leading-5 break-words",
@@ -1216,46 +1245,14 @@ export function EmailWorkList({
                           : "font-medium text-zinc-400",
                       )}
                     >
-                      <Tooltip
-                        content={`Original Subject: ${
-                          item.subject?.trim() || "(no subject)"
-                        }`}
-                        className="w-auto"
-                        side="right"
-                      >
-                        <span className="inline-flex shrink-0 cursor-help items-center">
-                          <Text className="h-3.5 w-3.5 text-zinc-400" />
-                        </span>
-                      </Tooltip>
-                      <Sparkles className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-                      <span
-                        className="min-w-0 break-words"
-                        onMouseEnter={(event) => {
-                          const rect =
-                            event.currentTarget.getBoundingClientRect();
-                          // Clamp horizontally so a wide card near the right
-                          // edge shifts left instead of overflowing the viewport.
-                          const cardWidth = Math.min(512, window.innerWidth - 24);
-                          const left = Math.max(
-                            12,
-                            Math.min(
-                              rect.left,
-                              window.innerWidth - cardWidth - 12,
-                            ),
-                          );
-                          setHoverPreview({
-                            threadId: item.id,
-                            fallbackText: previewText,
-                            top: rect.bottom + 8,
-                            left,
-                          });
-                          ensureThreadBody(item.id);
-                        }}
-                        onMouseLeave={() => setHoverPreview(null)}
-                      >
-                        {aiTitle}
-                      </span>
+                      <span className="min-w-0 break-words">{subjectTitle}</span>
                     </div>
+                    {showSecondaryAiTitle ? (
+                      <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs sm:text-[11px] text-zinc-500">
+                        <Sparkles className="h-3 w-3 shrink-0 text-zinc-400" />
+                        <span className="min-w-0 truncate">{aiTitle}</span>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>

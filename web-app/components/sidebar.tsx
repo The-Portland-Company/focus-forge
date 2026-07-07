@@ -131,13 +131,14 @@ const FOLDERS_TTL_MS = 2 * 60 * 1000; // ~2 min
  *  Hidden when there are no items. Used on Email Inbox sub-items. */
 function UnreadReadBadge({ unread, total }: { unread: number; total: number }) {
   if (!total) return null;
-  const read = Math.max(0, total - unread);
+  // "unread / total" (e.g. 17/30) — unread out of the folder's total, not
+  // unread/read, so the denominator matches the row count the user sees.
   return (
     <span className="text-xs sm:text-[10px] tabular-nums">
       <span className={unread > 0 ? "text-[rgb(var(--theme-primary-rgb))] font-semibold" : "text-zinc-600"}>
         {unread}
       </span>
-      <span className="text-zinc-600">/{read}</span>
+      <span className="text-zinc-600">/{total}</span>
     </span>
   );
 }
@@ -1799,10 +1800,19 @@ export function Sidebar({
                   <Mail className="w-4 h-4" />
                   Email Inbox
                 </span>
-                {inboxItemsCount.unread > 0 ? (
-                  <Tooltip content="Unread emails" className="">
-                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[10px] uppercase tracking-wide text-zinc-400">
-                      {inboxItemsCount.unread}
+                {inboxItemsCount.total > 0 ? (
+                  <Tooltip content="Unread / total emails" className="">
+                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[10px] tabular-nums text-zinc-400">
+                      <span
+                        className={
+                          inboxItemsCount.unread > 0
+                            ? "text-[rgb(var(--theme-primary-rgb))] font-semibold"
+                            : ""
+                        }
+                      >
+                        {inboxItemsCount.unread}
+                      </span>
+                      <span>/{inboxItemsCount.total}</span>
                     </span>
                   </Tooltip>
                 ) : null}
