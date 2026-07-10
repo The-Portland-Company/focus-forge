@@ -21,6 +21,7 @@ import {
   Check,
   CheckCircle2,
   CheckSquare,
+  Contact,
   CircleHelp,
   ChevronDown,
   ChevronLeft,
@@ -69,11 +70,13 @@ import {
   type PendingDeletion,
 } from "@/components/email-delete-tray";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
+import { EmailContactsView } from "@/components/email-contacts-view";
 import AiRulesTabs from "@/components/ai-rules-tabs";
 import { type EmailComposerInitialDraft } from "@/components/email-outbound-composer-modal";
 import { EmailSignatureContent } from "@/components/email-signature-content";
 import { EmailThreadAttachments } from "@/components/email-thread-attachments";
 import { Tooltip } from "@/components/tooltip";
+import { useToast } from "@/contexts/ToastContext";
 import {
   Dialog,
   DialogContent,
@@ -1400,6 +1403,8 @@ export function EmailInboxView({
   onEditTask,
 }: EmailInboxViewProps) {
   const router = useRouter();
+  const { showSuccess: showContactsSuccess, showError: showContactsError } =
+    useToast();
   const isInboxView = view === "email-inbox";
   const isSentView = view === "email-sent";
   const isTrashView = view === "email-trash";
@@ -1480,6 +1485,57 @@ export function EmailInboxView({
     useState<EmailRule | null>(null);
   const [inboxFilterTab, setInboxFilterTab] =
     useState<EmailInboxFilterTab>("all");
+  const [showContactsView, setShowContactsView] = useState(false);
+
+  // Returning from the Google contacts OAuth flow lands back on the inbox URL
+  // with `?google=connected`. Finish the import, surface the result, open the
+  // Contacts view, and scrub the query param so a refresh doesn't re-run it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("google") !== "connected") return;
+    setShowContactsView(true);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/email/contacts/google/import`, {
+          method: "POST",
+        });
+        if (!response.ok) throw new Error(`Request failed (${response.status})`);
+        const payload = (await response.json()) as {
+          result?: {
+            imported?: number;
+            updated?: number;
+            skipped?: number;
+            total?: number;
+          };
+        };
+        if (cancelled) return;
+        const result = payload.result ?? {};
+        showContactsSuccess(
+          "Google contacts imported",
+          `${result.imported ?? 0} added, ${result.updated ?? 0} updated, ${result.skipped ?? 0} skipped.`,
+        );
+      } catch (error) {
+        console.error("Failed to import Google contacts", error);
+        if (!cancelled) {
+          showContactsError(
+            "Google import failed",
+            "Please try connecting again.",
+          );
+        }
+      }
+    })();
+    params.delete("google");
+    const nextQuery = params.toString();
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`;
+    window.history.replaceState(null, "", nextUrl);
+    return () => {
+      cancelled = true;
+    };
+    // Run once on mount; intentionally not re-running on toast identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [inboxSearchQuery, setInboxSearchQuery] = useState("");
   const [isSearchHelpDialogOpen, setIsSearchHelpDialogOpen] = useState(false);
   const [copiedSearchHelpValue, setCopiedSearchHelpValue] = useState<
@@ -4454,6 +4510,22 @@ export function EmailInboxView({
     );
   }
 
+  if (showContactsView) {
+    return (
+      <div className="min-w-0 space-y-4">
+        <button
+          type="button"
+          onClick={() => setShowContactsView(false)}
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Back to inbox
+        </button>
+        <EmailContactsView />
+      </div>
+    );
+  }
+
   return (
     <div className="min-w-0 space-y-6">
       <EmailDeleteTray
@@ -4776,6 +4848,16 @@ export function EmailInboxView({
                   {activeFilterCount}
                 </span>
               ) : null}
+            </button>
+          </Tooltip>
+          <Tooltip content="Contacts" className="w-auto" side="bottom">
+            <button
+              type="button"
+              onClick={() => setShowContactsView(true)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+              aria-label="Contacts"
+            >
+              <Contact className="h-4 w-4" />
             </button>
           </Tooltip>
           {!isTrashView && !isQuarantineView ? (
