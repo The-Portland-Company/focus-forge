@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Input } from "@/components/ui/input";
+import { X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export type RecipientAutocompleteInputProps = {
   value: string;
@@ -21,6 +22,7 @@ type SuggestResponse = {
 };
 
 const SEPARATORS = [",", ";", "\n"];
+const SEPARATOR_REGEX = /[\n,;]+/;
 
 function lastSeparatorIndex(text: string): number {
   let idx = -1;
@@ -31,14 +33,22 @@ function lastSeparatorIndex(text: string): number {
   return idx;
 }
 
-function getCurrentToken(text: string): string {
-  const idx = lastSeparatorIndex(text);
-  return text.slice(idx + 1);
-}
-
 function formatRecipient(s: ContactSuggestion): string {
   const name = s.name?.trim();
   return name ? `${name} <${s.email}>` : s.email;
+}
+
+// A committed recipient carries the raw token (so onChange round-trips
+// losslessly) plus a friendly label to show inside the chip.
+type Chip = { raw: string; label: string };
+
+function chipLabel(raw: string): string {
+  const angle = raw.match(/^(.*)<([^>]+)>\s*$/);
+  if (angle) {
+    const name = angle[1].trim();
+    return name || angle[2].trim();
+  }
+  return raw.trim();
 }
 
 export function RecipientAutocompleteInput({
@@ -56,6 +66,28 @@ export function RecipientAutocompleteInput({
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = React.useRef<AbortController | null>(null);
   const requestSeq = React.useRef(0);
+
+  // Split value into committed chips (everything before the last separator)
+  // and the trailing, still-editable token (shown in the text input).
+  const { chips, inputValue } = React.useMemo(() => {
+    const sepIdx = lastSeparatorIndex(value);
+    const prefix = value.slice(0, sepIdx + 1);
+    const trailing = value.slice(sepIdx + 1);
+    const committed = prefix
+      .split(SEPARATOR_REGEX)
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0)
+      .map<Chip>((raw) => ({ raw, label: chipLabel(raw) }));
+    return { chips: committed, inputValue: trailing.replace(/^\s+/, "") };
+  }, [value]);
+
+  // Rebuild the single comma-joined string the consumer expects, e.g.
+  // `Alice <alice@x.com>, Bob <bob@y.com>, halfTyped`.
+  const buildValue = React.useCallback(
+    (chipRaws: string[], trailing: string) =>
+      chipRaws.length > 0 ? `${chipRaws.join(", ")}, ${trailing}` : trailing,
+    []
+  );
 
   const runFetch = React.useCallback((token: string) => {
     const trimmed = token.trim();
@@ -94,29 +126,47 @@ export function RecipientAutocompleteInput({
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const next = e.target.value;
-    onChange(next);
+    const nextToken = e.target.value;
+    onChange(buildValue(chips.map((c) => c.raw), nextToken));
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    const token = getCurrentToken(next);
-    debounceRef.current = setTimeout(() => runFetch(token), 200);
+    debounceRef.current = setTimeout(() => runFetch(nextToken), 200);
   };
 
   const selectSuggestion = React.useCallback(
     (s: ContactSuggestion) => {
-      const idx = lastSeparatorIndex(value);
-      const prefix = value.slice(0, idx + 1);
-      const next = `${prefix}${formatRecipient(s)}, `;
-      onChange(next);
+      // Commit the suggestion as a chip; the trailing input becomes empty.
+      onChange(buildValue([...chips.map((c) => c.raw), formatRecipient(s)], ""));
       setOpen(false);
       setSuggestions([]);
       requestSeq.current++;
       inputRef.current?.focus();
     },
-    [value, onChange]
+    [chips, onChange, buildValue]
+  );
+
+  const removeChip = React.useCallback(
+    (index: number) => {
+      const nextRaws = chips.map((c) => c.raw).filter((_, i) => i !== index);
+      onChange(buildValue(nextRaws, inputValue));
+      inputRef.current?.focus();
+    },
+    [chips, inputValue, onChange, buildValue]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Backspace on an empty token removes the last committed chip.
+    if (
+      e.key === "Backspace" &&
+      inputValue.length === 0 &&
+      chips.length > 0 &&
+      !open
+    ) {
+      e.preventDefault();
+      removeChip(chips.length - 1);
+      return;
+    }
+
     if (!open || suggestions.length === 0) {
       if (e.key === "Escape") setOpen(false);
       return;
@@ -162,18 +212,45 @@ export function RecipientAutocompleteInput({
 
   return (
     <div ref={containerRef} className="relative">
-      <Input
-        ref={inputRef}
-        value={value}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        onFocus={() => {
-          if (suggestions.length > 0) setOpen(true);
-        }}
-        placeholder={placeholder}
-        className={className}
-        autoComplete="off"
-      />
+      <div
+        className={cn(
+          "flex min-h-11 sm:min-h-10 w-full flex-wrap items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800/50 px-2 py-1.5 text-base text-white ring-offset-zinc-950 focus-within:outline-none focus-within:ring-2 ring-theme focus-within:ring-offset-2 md:text-sm transition-all",
+          className
+        )}
+        onClick={() => inputRef.current?.focus()}
+      >
+        {chips.map((chip, i) => (
+          <span
+            key={`${chip.raw}-${i}`}
+            className="inline-flex max-w-full items-center gap-1 rounded-md bg-zinc-700/70 px-2 py-0.5 text-xs font-medium text-zinc-100"
+          >
+            <span className="truncate">{chip.label}</span>
+            <button
+              type="button"
+              aria-label={`Remove ${chip.label}`}
+              className="shrink-0 rounded-sm text-zinc-400 hover:text-white focus:outline-none focus-visible:ring-1 ring-theme"
+              onClick={(e) => {
+                e.stopPropagation();
+                removeChip(i);
+              }}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        <input
+          ref={inputRef}
+          value={inputValue}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onFocus={() => {
+            if (suggestions.length > 0) setOpen(true);
+          }}
+          placeholder={chips.length === 0 ? placeholder : undefined}
+          autoComplete="off"
+          className="min-w-[8rem] flex-1 border-0 bg-transparent p-0.5 text-base text-white placeholder:text-zinc-400 focus:outline-none focus:ring-0 md:text-sm"
+        />
+      </div>
       {open && suggestions.length > 0 && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-lg">
           {suggestions.map((s, i) => (

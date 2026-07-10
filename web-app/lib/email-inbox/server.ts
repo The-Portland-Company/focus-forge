@@ -25,7 +25,10 @@ import {
   applyEmailRules,
   type EmailRuleContext,
 } from "@/lib/email-inbox/rules";
-import { resolveRuleDrivenThreadState } from "@/lib/email-inbox/reprocess";
+import {
+  resolveRuleDrivenThreadState,
+  isContentSpamExemptSender,
+} from "@/lib/email-inbox/reprocess";
 import {
   normalizeParticipant,
   parseAddressString,
@@ -90,6 +93,7 @@ import type {
   SummaryProfile,
 } from "@/lib/types";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { getContactAddressesForUser } from "./contacts";
 import { getLocalDateString } from "@/lib/date-utils";
 import { retrieveRelevantAIMemory } from "@/lib/ai-memory/retrieval";
 import { getLatestActivePlaybook } from "@/lib/ai-memory/playbook";
@@ -1735,6 +1739,25 @@ export async function suggestRecipients(params: {
     ingestAddressList(row.bcc_json);
   }
 
+  // Merge in saved contacts (personal + org-shared) so the address book is suggestable
+  // even for people the user has not emailed yet. Existing correspondents keep their
+  // frequency-based ranking; contacts only seen here get a base count of 1.
+  try {
+    const contactAddresses = await getContactAddressesForUser(params.userId);
+    for (const address of contactAddresses) {
+      const email = address.email.trim().toLowerCase();
+      if (!email) continue;
+      const existing = aggregates.get(email);
+      if (existing) {
+        if (!existing.name && address.name) existing.name = address.name;
+      } else {
+        aggregates.set(email, { email, name: address.name || null, count: 1 });
+      }
+    }
+  } catch {
+    // Non-fatal: fall back to message/draft-derived suggestions only.
+  }
+
   const trimmedQuery = (params.query || "").trim().toLowerCase();
   let results = Array.from(aggregates.values());
 
@@ -2553,6 +2576,17 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
 
   const preventSpamClassification = appliedRules.actions.includes("never_spam");
 
+  // Sender-domain exemption: mail from these domains is never marked spam as a
+  // result of its own content (k-NN model or LLM/heuristic spam axis). Explicit
+  // user rules (subject/body/etc.) can still route it to spam — see
+  // resolveRuleDrivenThreadState, which is intentionally NOT gated on this.
+  const senderDomainSpamExempt = isContentSpamExemptSender(
+    buildRuleContext(mailbox, latestMessage).senderEmail,
+  );
+  // Effective suppression for the automatic content classifier only.
+  const suppressContentSpam =
+    preventSpamClassification || senderDomainSpamExempt;
+
   // Private, trainable k-NN spam verdict (free, edge embeddings). Computed
   // before the LLM/heuristic analysis so a CONFIDENT verdict can override the
   // spam axis directly; a low-confidence verdict falls through to
@@ -2566,7 +2600,7 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
   // everything else. In 'llm' mode the OpenAI backstop runs as before.
   const forceHeuristicAnalysis = spamFallbackMode === "private";
   let spamVerdict: SpamClassification | null = null;
-  if (!preventSpamClassification) {
+  if (!suppressContentSpam) {
     try {
       const spamInputText = buildSpamInputText(
         { subject: thread.subject },
@@ -2631,7 +2665,7 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
     bodyText: latestMessage.body_text || "",
     senderEmail: buildRuleContext(mailbox, latestMessage).senderEmail,
     mailboxEmail: mailbox.email_address,
-    preventSpamClassification,
+    preventSpamClassification: suppressContentSpam,
     forceHeuristic: forceHeuristicAnalysis,
     profile,
     projectOptions: projectOptions.map((project) => ({
@@ -2658,7 +2692,7 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
     spamVerdict.label !== null &&
     spamVerdict.exampleCount > 0 &&
     spamVerdict.confidence >= spamThreshold;
-  if (spamKnnConfident && !preventSpamClassification) {
+  if (spamKnnConfident && !suppressContentSpam) {
     if (spamVerdict!.label === "spam") {
       classification = "spam";
       status = "quarantine";
