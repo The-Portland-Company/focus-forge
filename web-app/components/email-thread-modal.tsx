@@ -641,7 +641,14 @@ export function EmailThreadModal({
     event.preventDefault();
     const handle = event.currentTarget;
     const pointerId = event.pointerId;
-    handle.setPointerCapture(pointerId);
+    // Pointer capture keeps events targeted at the handle, but must never abort
+    // the drag setup if it throws (e.g. no active pointer) — the window
+    // listeners below drive the drag regardless.
+    try {
+      handle.setPointerCapture(pointerId);
+    } catch {
+      // ignore — not fatal to the drag
+    }
     document.body.classList.add("cursor-grabbing");
 
     const startX = event.clientX;
@@ -660,8 +667,12 @@ export function EmailThreadModal({
     const handlePointerUp = (upEvent: PointerEvent) => {
       document.body.classList.remove("cursor-grabbing");
       window.removeEventListener("pointermove", handlePointerMove);
-      if (handle.hasPointerCapture(pointerId)) {
-        handle.releasePointerCapture(pointerId);
+      try {
+        if (handle.hasPointerCapture(pointerId)) {
+          handle.releasePointerCapture(pointerId);
+        }
+      } catch {
+        // ignore
       }
       setDragDock(null);
       const edge = dockEdgeForPointer(upEvent.clientX, upEvent.clientY);
@@ -787,10 +798,10 @@ export function EmailThreadModal({
               <div
                 key={edge}
                 className={cn(
-                  "absolute transition-colors duration-150",
+                  "absolute transition-all duration-150",
                   position,
                   dragDock.edge === edge
-                    ? "border-sky-400 bg-sky-500/25"
+                    ? "border-sky-300 bg-sky-500/50 shadow-[0_0_60px_20px_rgba(56,189,248,0.55)]"
                     : "border-transparent bg-transparent",
                 )}
               />
