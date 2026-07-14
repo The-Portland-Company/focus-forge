@@ -2602,14 +2602,42 @@ export function EmailInboxView({
     window.setTimeout(() => setStatusMessage(null), 2400);
   };
 
+  // Persistent intro hint ("Email threads are pre-processed …") rendered as a
+  // fixed, bottom-center floating pill (out of document flow so it never causes
+  // header layout shift), dismissable and remembered per-user.
+  const introBadgeVisible =
+    isDefaultInboxView &&
+    !profile?.email_inbox_intro_dismissed &&
+    !introBadgeLocallyDismissed;
+  const introBadge = introBadgeVisible ? (
+    <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 inline-flex max-w-[92vw] items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-sm text-emerald-300 shadow-lg backdrop-blur">
+      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+      <span className="min-w-0 truncate">
+        Email threads are pre-processed and rendered as work items.
+      </span>
+      <button
+        type="button"
+        onClick={() => setInboxIntroDismissed(true)}
+        aria-label="Dismiss"
+        title="Dismiss"
+        className="-mr-1 ml-0.5 shrink-0 rounded-md p-0.5 text-emerald-400/70 transition hover:bg-emerald-500/20 hover:text-emerald-200"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  ) : null;
+
   // Transient status ("Synced N messages …") rendered as a fixed, bottom-center
   // floating pill so it never participates in document flow (no layout shift).
-  // Sits above the global bottom-right ToastContainer's row without overlapping.
+  // Raised above the intro badge when both are visible so they don't overlap.
   const statusToast = statusMessage ? (
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full border border-zinc-700/70 bg-zinc-900/95 px-4 py-2 text-sm text-zinc-200 shadow-lg backdrop-blur"
+      className={cn(
+        "pointer-events-none fixed left-1/2 z-[61] -translate-x-1/2 rounded-full border border-zinc-700/70 bg-zinc-900/95 px-4 py-2 text-sm text-zinc-200 shadow-lg backdrop-blur",
+        introBadgeVisible ? "bottom-20" : "bottom-6",
+      )}
     >
       {statusMessage}
     </div>
@@ -4601,26 +4629,10 @@ export function EmailInboxView({
                   : "Email Inbox"}
             </h1>
           </div>
-          {isDefaultInboxView ? (
-            profile?.email_inbox_intro_dismissed ||
-            introBadgeLocallyDismissed ? null : (
-              <div className="mt-1.5 inline-flex max-w-full items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-sm text-emerald-300">
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-                <span className="min-w-0 truncate">
-                  Email threads are pre-processed and rendered as work items.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setInboxIntroDismissed(true)}
-                  aria-label="Dismiss"
-                  title="Dismiss"
-                  className="-mr-0.5 ml-0.5 shrink-0 rounded-md p-0.5 text-emerald-400/70 transition hover:bg-emerald-500/20 hover:text-emerald-200"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            )
-          ) : (
+          {/* The default-inbox intro hint is rendered as a floating
+              bottom-center pill (see introBadge) instead of here, to avoid
+              header layout shift and reserved empty space. */}
+          {isDefaultInboxView ? null : (
             <p className="mt-1 whitespace-nowrap text-sm text-zinc-500">
               {isQuarantineView
                 ? "Review suspected spam and decide what Fluid should do next."
@@ -5860,6 +5872,7 @@ export function EmailInboxView({
 
       </div>
 
+      {introBadge}
       {statusToast}
 
       <Dialog
