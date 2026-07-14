@@ -282,6 +282,8 @@ const EMAIL_INBOX_PER_PAGE_STORAGE_KEY =
   "focus-forge.email-inbox.per-page";
 export const EMAIL_INBOX_PER_PAGE_OPTIONS = [25, 50, 100] as const;
 export const EMAIL_INBOX_DEFAULT_PER_PAGE = 50;
+export const EMAIL_INBOX_MIN_PER_PAGE = 1;
+export const EMAIL_INBOX_MAX_PER_PAGE = 500;
 
 export function normalizeEmailInboxPerPage(value: unknown): number {
   const parsed =
@@ -289,6 +291,22 @@ export function normalizeEmailInboxPerPage(value: unknown): number {
   return (EMAIL_INBOX_PER_PAGE_OPTIONS as readonly number[]).includes(parsed)
     ? parsed
     : EMAIL_INBOX_DEFAULT_PER_PAGE;
+}
+
+// Clamp an arbitrary user-entered per-page value into a sane range. Unlike
+// normalizeEmailInboxPerPage (which snaps to preset options), this accepts any
+// integer so the per-page input field can hold custom values. Falls back to the
+// default for NaN/empty input.
+export function clampEmailInboxPerPage(value: unknown): number {
+  const parsed =
+    typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed)) {
+    return EMAIL_INBOX_DEFAULT_PER_PAGE;
+  }
+  return Math.min(
+    Math.max(Math.trunc(parsed), EMAIL_INBOX_MIN_PER_PAGE),
+    EMAIL_INBOX_MAX_PER_PAGE,
+  );
 }
 
 export function getEmailInboxPageCount(
@@ -1549,6 +1567,11 @@ export function EmailInboxView({
   const [showSpamInInbox, setShowSpamInInbox] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [perPage, setPerPage] = useState<number>(EMAIL_INBOX_DEFAULT_PER_PAGE);
+  // Raw text backing the per-page input so the user can clear/retype freely; the
+  // committed numeric value lives in `perPage`.
+  const [perPageInput, setPerPageInput] = useState<string>(
+    String(EMAIL_INBOX_DEFAULT_PER_PAGE),
+  );
   const [pageJumpInput, setPageJumpInput] = useState("");
   const [alwaysShowSummary, setAlwaysShowSummary] = useState(false);
   const [alwaysShowExcerpt, setAlwaysShowExcerpt] = useState(false);
@@ -2079,7 +2102,7 @@ export function EmailInboxView({
       EMAIL_INBOX_PER_PAGE_STORAGE_KEY,
     );
     if (stored) {
-      setPerPage(normalizeEmailInboxPerPage(stored));
+      setPerPage(clampEmailInboxPerPage(stored));
     }
   }, []);
 
@@ -2092,6 +2115,12 @@ export function EmailInboxView({
       EMAIL_INBOX_PER_PAGE_STORAGE_KEY,
       String(perPage),
     );
+  }, [perPage]);
+
+  // Keep the per-page input text in sync with the committed value (e.g. after
+  // loading from storage or a clamp correction).
+  useEffect(() => {
+    setPerPageInput(String(perPage));
   }, [perPage]);
 
   // Reset to the first page whenever the filtered/searched/sorted set changes
@@ -4703,30 +4732,32 @@ export function EmailInboxView({
                 </button>
               </Tooltip>
               <span className="mx-0.5 h-4 w-px bg-zinc-700" aria-hidden />
-              <Select
-                value={String(perPage)}
-                onValueChange={(value) =>
-                  setPerPage(normalizeEmailInboxPerPage(value))
-                }
-              >
-                <SelectTrigger
-                  className="h-7 w-auto gap-1 border-zinc-700 bg-zinc-950/70 px-2 py-0 text-sm tabular-nums text-zinc-200 focus:ring-1"
+              <div className="flex items-center gap-1.5 text-sm text-zinc-400">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={EMAIL_INBOX_MIN_PER_PAGE}
+                  max={EMAIL_INBOX_MAX_PER_PAGE}
+                  value={perPageInput}
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    setPerPageInput(raw);
+                    if (raw.trim() === "") {
+                      return;
+                    }
+                    const next = clampEmailInboxPerPage(raw);
+                    setPerPage(next);
+                  }}
+                  onBlur={() => {
+                    const next = clampEmailInboxPerPage(perPageInput);
+                    setPerPage(next);
+                    setPerPageInput(String(next));
+                  }}
+                  className="h-7 w-[6ch] rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-0 text-center text-sm tabular-nums text-zinc-200 focus:outline-none focus:ring-1 focus:ring-zinc-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   aria-label="Emails per page"
-                >
-                  <SelectValue>{perPage}/page</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {EMAIL_INBOX_PER_PAGE_OPTIONS.map((option) => (
-                    <SelectItem
-                      key={option}
-                      value={String(option)}
-                      className="tabular-nums"
-                    >
-                      {option}/page
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                />
+                <span className="whitespace-nowrap">Per Page</span>
+              </div>
             </div>
           ) : null}
           {isTrashView ? (
@@ -4827,29 +4858,6 @@ export function EmailInboxView({
               )}
             </button>
           </Tooltip>
-          <Tooltip content="Search" className="w-auto" side="bottom">
-            <button
-              type="button"
-              onClick={() => {
-                if (isFilterBarCollapsed) {
-                  setIsFilterBarCollapsed(false);
-                  focusInboxSearchInput();
-                } else {
-                  setIsFilterBarCollapsed(true);
-                }
-              }}
-              className={cn(
-                "inline-flex h-9 w-9 items-center justify-center rounded-lg border bg-zinc-900 text-zinc-200 transition-colors hover:text-white",
-                isFilterBarCollapsed
-                  ? "border-zinc-700 hover:border-zinc-600"
-                  : "border-[rgb(var(--theme-primary-rgb))]/45 text-white",
-              )}
-              aria-expanded={!isFilterBarCollapsed}
-              aria-label="Search inbox"
-            >
-              <Search className="h-4 w-4" />
-            </button>
-          </Tooltip>
           <Tooltip
             content={
               isFilterBarCollapsed
@@ -4861,12 +4869,23 @@ export function EmailInboxView({
           >
             <button
               type="button"
-              onClick={() => setIsFilterBarCollapsed((current) => !current)}
+              onClick={() => {
+                if (isFilterBarCollapsed) {
+                  setIsFilterBarCollapsed(false);
+                  focusInboxSearchInput();
+                } else {
+                  setIsFilterBarCollapsed(true);
+                }
+              }}
               className={cn(
-                "relative inline-flex h-9 w-9 items-center justify-center rounded-lg border bg-zinc-900 text-sm text-zinc-200 transition-colors hover:text-white",
+                "relative inline-flex h-9 w-9 items-center justify-center border text-sm text-zinc-200 transition-colors hover:text-white",
                 isFilterBarCollapsed
-                  ? "border-zinc-700 hover:border-zinc-600"
-                  : "border-[rgb(var(--theme-primary-rgb))]/45 text-white",
+                  ? "rounded-lg border-zinc-700 bg-zinc-900 hover:border-zinc-600"
+                  : // Expanded: render as a tab connected to the filter-bar
+                    // panel below. Share the panel's border/background, round
+                    // only the top corners, and drop the bottom border so the
+                    // button and panel read as one connected surface.
+                    "-mb-px rounded-t-lg rounded-b-none border-zinc-800 border-b-transparent bg-zinc-950/60 text-white",
               )}
               aria-expanded={!isFilterBarCollapsed}
               aria-label={
