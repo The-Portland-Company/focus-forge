@@ -185,6 +185,19 @@ export function applyEmailThreadRealtimeChange(params: {
 
   if (existingIndex === -1) {
     // New to our list (INSERT, or an UPDATE for a thread we don't have yet).
+    // GUARD: never hydrate a soft-deleted thread back into local state. When a
+    // user deletes a thread we optimistically drop it from `items`; a later
+    // realtime UPDATE for that (now absent) thread — the delete commit itself,
+    // or an async AI backfill writing to the deleted row — would otherwise be
+    // treated as "new to our list" and resurrected via a single-thread hydrate,
+    // producing the reported "deleted email reappears" bug once the client-side
+    // pending-removal pin has cleared/expired. A thread the server has marked
+    // deleted has no place in the inbox, so drop the event entirely. (A genuine
+    // restore-from-trash flips status back to a live value, which is not
+    // "deleted" and so still hydrates normally.)
+    if (readString(row.status) === "deleted") {
+      return noop;
+    }
     // participants / task count / conversation aren't on the threads row, so a
     // half-populated row would render broken — hydrate the single thread.
     return {

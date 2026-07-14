@@ -93,6 +93,7 @@ import type {
   SummaryProfile,
 } from "@/lib/types";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { logEmailAction } from "@/lib/email-inbox/action-log";
 import { getContactAddressesForUser } from "./contacts";
 import { getLocalDateString } from "@/lib/date-utils";
 import { retrieveRelevantAIMemory } from "@/lib/ai-memory/retrieval";
@@ -5408,20 +5409,51 @@ export async function applyThreadAction(params: {
   };
 
   if (effectiveAction === "mark_read") {
+    const startedAt = Date.now();
+    void logEmailAction({
+      userId: params.userId,
+      threadId: params.threadId,
+      mailboxId: String(thread.mailbox_id),
+      action: params.action,
+      phase: "server_start",
+    });
     await applyMailboxThreadAction({
       mailbox,
       providerMessageIds,
       action: "mark_read",
     });
-    await admin
+    const { error: markReadError } = await admin
       .from("email_threads")
       .update({
         is_unread: false,
         updated_at: new Date().toISOString(),
       })
       .eq("id", params.threadId);
+    void logEmailAction({
+      userId: params.userId,
+      threadId: params.threadId,
+      mailboxId: String(thread.mailbox_id),
+      action: params.action,
+      phase: markReadError ? "error" : "server_done",
+      detail: {
+        durationMs: Date.now() - startedAt,
+        resultingStatus: thread.status,
+        error: markReadError?.message ?? null,
+      },
+    });
     return { success: true };
   }
+
+  const terminalStatus = statusUpdates[effectiveAction];
+  const startedAt = Date.now();
+  void logEmailAction({
+    userId: params.userId,
+    threadId: params.threadId,
+    mailboxId: String(thread.mailbox_id),
+    action: params.action,
+    phase: "server_start",
+    detail: { targetStatus: terminalStatus, fromStatus: thread.status },
+  });
 
   await applyMailboxThreadAction({
     mailbox,
@@ -5429,15 +5461,71 @@ export async function applyThreadAction(params: {
     action: effectiveAction as "archive" | "spam" | "delete",
   });
 
-  await admin
+  const { error: statusUpdateError } = await admin
     .from("email_threads")
     .update({
-      status: statusUpdates[effectiveAction],
+      status: terminalStatus,
       always_delete: false,
       is_unread: false,
       updated_at: new Date().toISOString(),
     })
     .eq("id", params.threadId);
+
+  void logEmailAction({
+    userId: params.userId,
+    threadId: params.threadId,
+    mailboxId: String(thread.mailbox_id),
+    action: params.action,
+    phase: statusUpdateError ? "error" : "server_done",
+    detail: {
+      durationMs: Date.now() - startedAt,
+      resultingStatus: terminalStatus,
+      providerMessageCount: providerMessageIds.length,
+      error: statusUpdateError?.message ?? null,
+    },
+  });
+
+  // Deleting an email should not leave its auto-generated tasks lingering in
+  // Today/projects as orphaned noise. When a thread is deleted, soft-delete the
+  // tasks that were generated from it by AI or rules (recoverable via /trash).
+  // User-converted tasks (generated_by = "user") are intentional and preserved.
+  // Best-effort: never fail the delete action if task cleanup errors.
+  if (effectiveAction === "delete") {
+    try {
+      const { data: links, error: linksError } = await admin
+        .from("email_thread_tasks")
+        .select("task_id,generated_by")
+        .eq("thread_id", params.threadId);
+      if (linksError) throw linksError;
+
+      const orphanTaskIds = (links || [])
+        .filter(
+          (link: any) =>
+            link.generated_by === "ai" || link.generated_by === "rule",
+        )
+        .map((link: any) => link.task_id)
+        .filter(Boolean);
+
+      if (orphanTaskIds.length > 0) {
+        const adapter = new SupabaseAdapter(admin, params.userId);
+        for (const taskId of orphanTaskIds) {
+          try {
+            await adapter.deleteTask(String(taskId));
+          } catch (taskError) {
+            console.error(
+              `Failed to soft-delete orphaned email task ${taskId} for thread ${params.threadId}:`,
+              taskError,
+            );
+          }
+        }
+      }
+    } catch (cleanupError) {
+      console.error(
+        `Orphaned email-task cleanup failed for thread ${params.threadId}:`,
+        cleanupError,
+      );
+    }
+  }
 
   // Training-through-the-UI: a user marking a thread as spam is a labeled
   // example. Feed the k-NN model (best-effort — must never break the action).
