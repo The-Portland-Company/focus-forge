@@ -1544,8 +1544,10 @@ export function EmailThreadModal({
     const isQueued = queuedAction === action;
     const isBusy = busyState === action;
     const label = options.label ?? getThreadActionLabel(action);
+    // Uniform border/background across every top-toolbar action; destructive
+    // actions keep a red icon tint as the only differentiator (no odd border).
     const iconButtonClassName = options.destructive
-      ? "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-900/50 bg-red-950/40 text-red-200 transition-colors hover:border-red-800 hover:text-white disabled:opacity-50"
+      ? "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-red-300 transition-colors hover:border-zinc-600 hover:text-red-200 disabled:opacity-50"
       : "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50";
 
     if (isPendingConfirm) {
