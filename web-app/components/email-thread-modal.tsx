@@ -786,26 +786,51 @@ export function EmailThreadModal({
   const dragOverlay =
     dragDock && typeof document !== "undefined"
       ? createPortal(
-          <div className="pointer-events-none fixed inset-0 z-[60]">
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 2147483000,
+              pointerEvents: "none",
+            }}
+          >
             {(
               [
-                ["left", "left-0 top-0 h-full w-[18vw] border-r-2"],
-                ["right", "right-0 top-0 h-full w-[18vw] border-l-2"],
-                ["top", "left-0 top-0 h-[18vh] w-full border-b-2"],
-                ["bottom", "left-0 bottom-0 h-[18vh] w-full border-t-2"],
+                ["left", { left: 0, top: 0, height: "100%", width: "18vw" }],
+                ["right", { right: 0, top: 0, height: "100%", width: "18vw" }],
+                ["top", { left: 0, top: 0, width: "100%", height: "18vh" }],
+                [
+                  "bottom",
+                  { left: 0, bottom: 0, width: "100%", height: "18vh" },
+                ],
               ] as const
-            ).map(([edge, position]) => (
-              <div
-                key={edge}
-                className={cn(
-                  "absolute transition-all duration-150",
-                  position,
-                  dragDock.edge === edge
-                    ? "border-sky-300 bg-sky-500/50 shadow-[0_0_60px_20px_rgba(56,189,248,0.55)]"
-                    : "border-transparent bg-transparent",
-                )}
-              />
-            ))}
+            ).map(([edge, position]) => {
+              const active = dragDock.edge === edge;
+              return (
+                <div
+                  key={edge}
+                  style={{
+                    position: "absolute",
+                    ...position,
+                    transition: "background 120ms, box-shadow 120ms",
+                    background: active
+                      ? "linear-gradient(" +
+                        (edge === "left"
+                          ? "90deg"
+                          : edge === "right"
+                            ? "270deg"
+                            : edge === "top"
+                              ? "180deg"
+                              : "0deg") +
+                        ", rgba(56,189,248,0.55), rgba(56,189,248,0))"
+                      : "transparent",
+                    boxShadow: active
+                      ? "inset 0 0 60px 10px rgba(56,189,248,0.5)"
+                      : "none",
+                  }}
+                />
+              );
+            })}
           </div>,
           document.body,
         )
