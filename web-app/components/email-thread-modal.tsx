@@ -626,7 +626,10 @@ export function EmailThreadModal({
       distanceTop,
       distanceBottom,
     );
-    if (nearest > Math.min(w, h) * 0.25) {
+    // "center" is only a small box around the middle of the viewport; anywhere
+    // else picks the nearest edge, so the dock target (and its highlight) is
+    // active across most of the drag instead of only in a thin band near edges.
+    if (Math.abs(x - w / 2) < w * 0.16 && Math.abs(y - h / 2) < h * 0.16) {
       return "center";
     }
     if (nearest === distanceLeft) return "left";
@@ -806,6 +809,14 @@ export function EmailThreadModal({
               ] as const
             ).map(([edge, position]) => {
               const active = dragDock.edge === edge;
+              const dir =
+                edge === "left"
+                  ? "90deg"
+                  : edge === "right"
+                    ? "270deg"
+                    : edge === "top"
+                      ? "180deg"
+                      : "0deg";
               return (
                 <div
                   key={edge}
@@ -813,19 +824,13 @@ export function EmailThreadModal({
                     position: "absolute",
                     ...position,
                     transition: "background 120ms, box-shadow 120ms",
+                    // All four zones show a faint tint while dragging so the
+                    // drop targets are discoverable; the active one glows.
                     background: active
-                      ? "linear-gradient(" +
-                        (edge === "left"
-                          ? "90deg"
-                          : edge === "right"
-                            ? "270deg"
-                            : edge === "top"
-                              ? "180deg"
-                              : "0deg") +
-                        ", rgba(56,189,248,0.55), rgba(56,189,248,0))"
-                      : "transparent",
+                      ? `linear-gradient(${dir}, rgba(56,189,248,0.6), rgba(56,189,248,0))`
+                      : `linear-gradient(${dir}, rgba(56,189,248,0.12), rgba(56,189,248,0))`,
                     boxShadow: active
-                      ? "inset 0 0 60px 10px rgba(56,189,248,0.5)"
+                      ? "inset 0 0 70px 12px rgba(56,189,248,0.55)"
                       : "none",
                   }}
                 />
