@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
-  ChevronDown,
-  ChevronRight,
   Download,
+  File as FileIcon,
   FileText,
   Film,
   ImageIcon,
   Loader2,
   Music,
-  Paperclip,
+  Presentation,
+  Sheet,
   X,
 } from "lucide-react";
 import { formatReplyAttachmentSize } from "@/lib/email-reply";
@@ -27,8 +28,6 @@ type ThreadAttachment = NonNullable<ConversationEntry["attachments"]>[number];
 
 type EmailThreadAttachmentsProps = {
   attachments: ThreadAttachment[];
-  /** Open the section expanded by default. Defaults to collapsed. */
-  defaultOpen?: boolean;
 };
 
 function getAttachmentKind(attachment: {
@@ -38,8 +37,13 @@ function getAttachmentKind(attachment: {
   return classifyAttachmentKind(attachment);
 }
 
-function AttachmentKindIcon({ kind }: { kind: AttachmentKind }) {
-  const className = "h-6 w-6 text-zinc-400";
+function AttachmentKindIcon({
+  kind,
+  className = "h-6 w-6 text-zinc-400",
+}: {
+  kind: AttachmentKind;
+  className?: string;
+}) {
   switch (kind) {
     case "image":
       return <ImageIcon className={className} />;
@@ -47,8 +51,16 @@ function AttachmentKindIcon({ kind }: { kind: AttachmentKind }) {
       return <Film className={className} />;
     case "audio":
       return <Music className={className} />;
-    default:
+    case "xlsx":
+      return <Sheet className={className} />;
+    case "pptx":
+      return <Presentation className={className} />;
+    case "pdf":
+    case "docx":
+    case "text":
       return <FileText className={className} />;
+    default:
+      return <FileIcon className={className} />;
   }
 }
 
@@ -204,15 +216,166 @@ function AttachmentFullscreenPreview({
   );
 }
 
+/**
+ * Floating hover preview rendered in a portal so it can never be clipped by the
+ * message body's overflow or push the layout around. It is only mounted while a
+ * chip is hovered, so the (potentially heavy) `AttachmentDocPreview` for office
+ * docs / PDFs is lazily rendered on demand and torn down on mouse leave.
+ */
+function AttachmentHoverPreview({
+  attachment,
+  kind,
+  isImage,
+  anchorRect,
+}: {
+  attachment: ThreadAttachment;
+  kind: AttachmentKind;
+  isImage: boolean;
+  anchorRect: DOMRect;
+}) {
+  const WIDTH = 360;
+  const HEIGHT = 260;
+  const GAP = 8;
+
+  // Prefer showing the popover above the chip; flip below when there isn't room.
+  const spaceAbove = anchorRect.top;
+  const showBelow = spaceAbove < HEIGHT + GAP + 8;
+  const top = showBelow
+    ? anchorRect.bottom + GAP
+    : anchorRect.top - HEIGHT - GAP;
+
+  // Keep the popover within the viewport horizontally.
+  let left = anchorRect.left;
+  const maxLeft =
+    (typeof window !== "undefined" ? window.innerWidth : WIDTH) - WIDTH - 8;
+  if (left > maxLeft) left = Math.max(8, maxLeft);
+  if (left < 8) left = 8;
+
+  const url = attachment.url || "";
+  const canInlinePreview = isInlineDocKind(kind) && Boolean(url);
+  const showImage = isImage && Boolean(url);
+
+  const body = (
+    <div
+      className="pointer-events-none fixed z-[130] overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl shadow-black/60"
+      style={{ top, left, width: WIDTH }}
+    >
+      {showImage ? (
+        <div
+          className="flex items-center justify-center bg-zinc-950"
+          style={{ height: HEIGHT }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={url}
+            alt={attachment.filename || "Attachment preview"}
+            className="max-h-full max-w-full object-contain"
+            loading="lazy"
+          />
+        </div>
+      ) : canInlinePreview ? (
+        <div style={{ height: HEIGHT }}>
+          <AttachmentDocPreview
+            url={url}
+            filename={attachment.filename}
+            contentType={attachment.contentType}
+            kind={kind}
+            className="h-full w-full overflow-hidden bg-zinc-950"
+          />
+        </div>
+      ) : (
+        <div
+          className="flex flex-col items-center justify-center gap-2 p-6 text-center"
+          style={{ height: HEIGHT }}
+        >
+          <AttachmentKindIcon kind={kind} className="h-10 w-10 text-zinc-400" />
+          <div className="max-w-full truncate text-sm font-medium text-zinc-200">
+            {attachment.filename || "Unnamed attachment"}
+          </div>
+          <div className="text-xs text-zinc-500">
+            {attachment.contentType || "Attachment"}
+          </div>
+        </div>
+      )}
+      <div className="flex items-center gap-2 border-t border-zinc-800 px-3 py-2">
+        <div className="min-w-0 flex-1 truncate text-xs font-medium text-zinc-300">
+          {attachment.filename || "Unnamed attachment"}
+        </div>
+        {attachment.size > 0 ? (
+          <div className="shrink-0 text-[11px] text-zinc-500">
+            {formatReplyAttachmentSize(attachment.size)}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(body, document.body);
+}
+
+/**
+ * A single compact attachment chip: a small type icon + short filename. Click
+ * opens the existing fullscreen preview; hover lazily mounts a floating preview.
+ */
+function AttachmentChip({
+  attachment,
+  kind,
+  isImage,
+  onOpen,
+}: {
+  attachment: ThreadAttachment;
+  kind: AttachmentKind;
+  isImage: boolean;
+  onOpen: () => void;
+}) {
+  const chipRef = useRef<HTMLButtonElement | null>(null);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+
+  const openHover = useCallback(() => {
+    if (chipRef.current) {
+      setAnchorRect(chipRef.current.getBoundingClientRect());
+    }
+  }, []);
+  const closeHover = useCallback(() => setAnchorRect(null), []);
+
+  return (
+    <>
+      <button
+        ref={chipRef}
+        type="button"
+        onClick={onOpen}
+        onMouseEnter={openHover}
+        onMouseLeave={closeHover}
+        onFocus={openHover}
+        onBlur={closeHover}
+        title={attachment.filename || "Attachment"}
+        className="inline-flex max-w-[220px] items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-2 py-1 text-xs text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
+      >
+        <AttachmentKindIcon kind={kind} className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+        <span className="truncate">
+          {attachment.filename || "Attachment"}
+        </span>
+      </button>
+      {anchorRect ? (
+        <AttachmentHoverPreview
+          attachment={attachment}
+          kind={kind}
+          isImage={isImage}
+          anchorRect={anchorRect}
+        />
+      ) : null}
+    </>
+  );
+}
+
 export function EmailThreadAttachments({
   attachments,
-  defaultOpen = false,
 }: EmailThreadAttachmentsProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
   const [activeAttachment, setActiveAttachment] =
     useState<ThreadAttachment | null>(null);
 
-  const cards = useMemo(
+  const chips = useMemo(
     () =>
       attachments.map((attachment) => ({
         attachment,
@@ -228,63 +391,16 @@ export function EmailThreadAttachments({
 
   return (
     <>
-      <div className="mt-2 border-t border-zinc-800 pt-3">
-        <button
-          type="button"
-          onClick={() => setIsOpen((current) => !current)}
-          aria-expanded={isOpen}
-          className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400 transition-colors hover:text-zinc-200"
-        >
-          {isOpen ? (
-            <ChevronDown className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
-          )}
-          <Paperclip className="h-3.5 w-3.5" />
-          <span>
-            Attachments ({attachments.length})
-          </span>
-        </button>
-
-        {isOpen ? (
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {cards.map(({ attachment, kind, isImage }) => (
-              <button
-                key={`${attachment.filename || "attachment"}-${attachment.attachmentIndex ?? 0}`}
-                type="button"
-                onClick={() => setActiveAttachment(attachment)}
-                className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/70 text-left transition-colors hover:border-zinc-700"
-              >
-                <div className="relative flex aspect-[4/3] w-full items-center justify-center bg-zinc-950">
-                  {isImage && attachment.url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={attachment.url}
-                      alt={attachment.filename || "Attachment preview"}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <AttachmentKindIcon kind={kind} />
-                  )}
-                </div>
-                <div className="flex items-center gap-3 px-3 py-2 text-sm text-zinc-300">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-zinc-200">
-                      {attachment.filename || "Unnamed attachment"}
-                    </div>
-                    <div className="truncate text-xs text-zinc-500">
-                      {attachment.contentType || "Attachment"}
-                      {attachment.size > 0
-                        ? ` · ${formatReplyAttachmentSize(attachment.size)}`
-                        : ""}
-                    </div>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        ) : null}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {chips.map(({ attachment, kind, isImage }) => (
+          <AttachmentChip
+            key={`${attachment.filename || "attachment"}-${attachment.attachmentIndex ?? 0}`}
+            attachment={attachment}
+            kind={kind}
+            isImage={isImage}
+            onOpen={() => setActiveAttachment(attachment)}
+          />
+        ))}
       </div>
 
       {activeAttachment ? (
