@@ -125,8 +125,8 @@ test("buildInboxBrowserNotificationContent uses inbox sender metadata", () => {
       }),
     ),
     {
-      title: "Client Mailbox",
-      body: "Casey Smith: Proposal feedback",
+      title: "From: Casey Smith",
+      body: "Summary: Proposal feedback",
     },
   );
 });

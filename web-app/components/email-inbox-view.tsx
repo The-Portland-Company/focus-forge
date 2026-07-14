@@ -2602,6 +2602,19 @@ export function EmailInboxView({
     window.setTimeout(() => setStatusMessage(null), 2400);
   };
 
+  // Transient status ("Synced N messages …") rendered as a fixed, bottom-center
+  // floating pill so it never participates in document flow (no layout shift).
+  // Sits above the global bottom-right ToastContainer's row without overlapping.
+  const statusToast = statusMessage ? (
+    <div
+      role="status"
+      aria-live="polite"
+      className="pointer-events-none fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full border border-zinc-700/70 bg-zinc-900/95 px-4 py-2 text-sm text-zinc-200 shadow-lg backdrop-blur"
+    >
+      {statusMessage}
+    </div>
+  ) : null;
+
   const applyInboxItemUpdate = (nextItem: InboxItem) => {
     setInboxItems((current) => {
       const updated = mergeInboxItem(current, nextItem);
@@ -4513,9 +4526,7 @@ export function EmailInboxView({
             </div>
           </div>
         </div>
-        {statusMessage ? (
-          <div className="text-sm text-zinc-400">{statusMessage}</div>
-        ) : null}
+        {statusToast}
       </div>
     );
   }
@@ -5849,9 +5860,7 @@ export function EmailInboxView({
 
       </div>
 
-      {statusMessage ? (
-        <div className="text-sm text-zinc-400">{statusMessage}</div>
-      ) : null}
+      {statusToast}
 
       <Dialog
         open={isSearchHelpDialogOpen}

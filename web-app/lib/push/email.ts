@@ -67,18 +67,27 @@ export function getInboxNotificationSender(
 export function buildInboxBrowserNotificationContent(
   item: Pick<
     InboxItem,
-    "mailboxName" | "mailboxEmailAddress" | "participants" | "subject"
+    | "mailboxName"
+    | "mailboxEmailAddress"
+    | "participants"
+    | "subject"
+    | "summaryText"
+    | "previewText"
   >,
 ) {
   const sender = getInboxNotificationSender(item.participants);
+  const senderLabel =
+    sender.senderName?.trim() || sender.senderEmail?.trim() || "Someone";
+  const summary =
+    item.summaryText?.trim() ||
+    item.previewText?.trim() ||
+    item.subject?.trim() ||
+    "New email";
 
-  return buildEmailPushNotificationContent({
-    mailboxName: item.mailboxName,
-    mailboxEmailAddress: item.mailboxEmailAddress,
-    senderName: sender.senderName,
-    senderEmail: sender.senderEmail,
-    subject: item.subject,
-  });
+  return {
+    title: `From: ${senderLabel}`,
+    body: `Summary: ${summary}`,
+  };
 }
 
 export function listNewInboxItemsForNotification(params: {
@@ -98,6 +107,25 @@ export function listNewInboxItemsForNotification(params: {
         alwaysDelete: item.alwaysDelete,
       })
     ) {
+      return false;
+    }
+
+    // Only notify for genuinely-new inbound mail that actually lands in the
+    // visible inbox. Without these guards the browser path (unlike the realtime
+    // hydrate path, which already checks isUnread + origin) fired for: mail the
+    // user has already read, threads whose latest activity is the user's own
+    // outbound reply, and threads sitting in non-inbox folders (archived /
+    // resolved) that never appear in the default view — the "notification for an
+    // email I don't see" false positives.
+    if (item.isUnread === false) {
+      return false;
+    }
+
+    if (item.origin === "outbound") {
+      return false;
+    }
+
+    if (item.status === "archived" || item.status === "resolved") {
       return false;
     }
 
