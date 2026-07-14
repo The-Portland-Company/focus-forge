@@ -30,6 +30,7 @@ import {
   MailCheck,
   MailPlus,
   Maximize2,
+  MoreHorizontal,
   Move,
   PanelBottom,
   PanelLeft,
@@ -1753,6 +1754,27 @@ export function EmailThreadModal({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {/* Slide-out toolbar: every thread action collapses behind this
+                  trigger and reveals on hover (or keyboard focus-within) with a
+                  smooth slide. Only the Close (X) and drag handle stay visible
+                  at all times, to the right of this group. */}
+              <div className="group/toolbar flex items-center">
+                <Tooltip
+                  content="Thread actions"
+                  className="w-auto"
+                  side="bottom"
+                  align="end"
+                >
+                  <button
+                    type="button"
+                    aria-label="Show thread actions"
+                    aria-expanded={false}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white group-hover/toolbar:border-zinc-600 group-hover/toolbar:text-white group-focus-within/toolbar:border-zinc-600 group-focus-within/toolbar:text-white"
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </button>
+                </Tooltip>
+                <div className="flex max-w-0 items-center gap-1 overflow-hidden opacity-0 transition-all duration-300 ease-out group-hover/toolbar:ml-1 group-hover/toolbar:max-w-[720px] group-hover/toolbar:opacity-100 group-focus-within/toolbar:ml-1 group-focus-within/toolbar:max-w-[720px] group-focus-within/toolbar:opacity-100">
               {thread && !loadingThread ? (
                 <Tooltip
                   content="Refresh thread"
@@ -1932,6 +1954,8 @@ export function EmailThreadModal({
                   );
                 })}
               </div>
+                </div>
+              </div>
               {/* Drag handle: grab and drop near a viewport edge to dock the
                   pane there (left/right/top/bottom), or drop near the center to
                   float it as a centered modal. The choice is saved as default. */}
@@ -1950,12 +1974,19 @@ export function EmailThreadModal({
                   <Move className="h-4 w-4" />
                 </button>
               </Tooltip>
-              <DialogPrimitive.Close
-                aria-label="Close"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+              <Tooltip
+                content="Close"
+                className="w-auto"
+                side="bottom"
+                align="end"
               >
-                <X className="h-4 w-4" />
-              </DialogPrimitive.Close>
+                <DialogPrimitive.Close
+                  aria-label="Close"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </DialogPrimitive.Close>
+              </Tooltip>
             </div>
           </div>
 
@@ -2023,14 +2054,14 @@ export function EmailThreadModal({
                           ref={projectPickerRef}
                           className="relative w-full sm:w-[240px]"
                         >
-                          <div className="relative flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 pl-3 pr-10 py-1 transition-colors focus-within:ring-2 ring-theme">
+                          <div className="relative flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 py-1 pl-3 pr-9 transition-colors focus-within:ring-2 ring-theme">
                             <Search className="pointer-events-none h-4 w-4 shrink-0 text-zinc-500" />
                             {/* Selected project chips render INSIDE the field,
                                 left of the typing cursor. */}
                             {associatedProjects.map((project) => (
                               <span
                                 key={project.id}
-                                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-zinc-700/80 bg-zinc-900/70 py-0.5 pl-2 pr-1 text-xs text-zinc-200"
+                                className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-zinc-700/80 bg-zinc-900/70 py-0.5 pl-2 pr-1 text-xs text-zinc-200"
                               >
                                 <span
                                   className="h-2 w-2 shrink-0 rounded-full"
@@ -2082,7 +2113,7 @@ export function EmailThreadModal({
                                   : "Add project..."
                               }
                               disabled={busyState === "project"}
-                              className="h-7 min-w-[80px] flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-zinc-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                              className="h-6 min-w-[2rem] flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-zinc-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                             />
                             <button
                               type="button"
@@ -2358,44 +2389,71 @@ export function EmailThreadModal({
                     the unified card, borderless so it reads as one with the
                     conversation list below it. */}
                 <div className="relative mb-3 text-sm text-zinc-300">
-                  <Tooltip
-                    content={getEmailHtmlRenderModeToggleLabel(
-                      emailHtmlRenderMode,
-                    )}
-                    className="w-auto"
-                    side="bottom"
-                    align="end"
-                  >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEmailHtmlRenderMode((current) =>
-                          current === "preserve" ? "simplified" : "preserve",
-                        )
-                      }
-                      aria-label={getEmailHtmlRenderModeToggleLabel(
-                        emailHtmlRenderMode,
-                      )}
-                      title={getEmailHtmlRenderModeToggleLabel(
-                        emailHtmlRenderMode,
-                      )}
-                      className={cn(
-                        "absolute right-0 top-0 inline-flex h-8 w-8 items-center justify-center rounded-full border bg-zinc-900/80 transition-colors",
-                        emailHtmlRenderMode === "simplified"
-                          ? "border-theme-primary text-white"
-                          : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
-                      )}
-                    >
-                      {emailHtmlRenderMode === "simplified" ? (
-                        <Sparkles className="h-4 w-4" />
-                      ) : (
-                        <LayoutTemplate className="h-4 w-4" />
-                      )}
-                    </button>
-                  </Tooltip>
-                  <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
-                    <Mail className="h-3.5 w-3.5" />
-                    <span>Message</span>
+                  {/* Message title row: title on the left, compact controls
+                      (conversation sort + HTML render-mode toggle) right-aligned
+                      on the same line, sized to the title's line-height. */}
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                      <Mail className="h-3.5 w-3.5" />
+                      <span>Message</span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {conversationEntries.length > 1 ? (
+                        <Tooltip
+                          content={
+                            conversationOrder === "newest_first"
+                              ? "Newest First"
+                              : "Oldest First"
+                          }
+                          className="w-auto"
+                          side="bottom"
+                          align="end"
+                        >
+                          <button
+                            type="button"
+                            onClick={handleToggleConversationOrder}
+                            aria-label="Toggle conversation order"
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                          >
+                            <ArrowDownUp className="h-3.5 w-3.5" />
+                          </button>
+                        </Tooltip>
+                      ) : null}
+                      <Tooltip
+                        content={getEmailHtmlRenderModeToggleLabel(
+                          emailHtmlRenderMode,
+                        )}
+                        className="w-auto"
+                        side="bottom"
+                        align="end"
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEmailHtmlRenderMode((current) =>
+                              current === "preserve"
+                                ? "simplified"
+                                : "preserve",
+                            )
+                          }
+                          aria-label={getEmailHtmlRenderModeToggleLabel(
+                            emailHtmlRenderMode,
+                          )}
+                          className={cn(
+                            "inline-flex h-6 w-6 items-center justify-center rounded-md border bg-zinc-900/80 transition-colors",
+                            emailHtmlRenderMode === "simplified"
+                              ? "border-theme-primary text-white"
+                              : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
+                          )}
+                        >
+                          {emailHtmlRenderMode === "simplified" ? (
+                            <Sparkles className="h-3.5 w-3.5" />
+                          ) : (
+                            <LayoutTemplate className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </Tooltip>
+                    </div>
                   </div>
                   {primaryThreadEntry?.contentHtml ||
                   primaryThreadEntry?.content ? (
@@ -2463,31 +2521,6 @@ export function EmailThreadModal({
                     })}
                   </div>
                 ) : null}
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <div className="text-xs uppercase tracking-wide text-zinc-500">
-                    Conversation
-                  </div>
-                  {conversationEntries.length > 1 ? (
-                    <button
-                      type="button"
-                      onClick={handleToggleConversationOrder}
-                      className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2 text-xs sm:text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
-                      title={
-                        conversationOrder === "newest_first"
-                          ? "Showing newest first — switch to oldest first"
-                          : "Showing oldest first — switch to newest first"
-                      }
-                      aria-label="Toggle conversation order"
-                    >
-                      <ArrowDownUp className="h-3.5 w-3.5" />
-                      <span>
-                        {conversationOrder === "newest_first"
-                          ? "Newest First"
-                          : "Oldest First"}
-                      </span>
-                    </button>
-                  ) : null}
-                </div>
                 <div className="space-y-1.5">
                   {conversationOrder === "newest_first"
                     ? optimisticEntriesBlock
