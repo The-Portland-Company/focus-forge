@@ -69,26 +69,12 @@ AS $$
   WHERE created_at < now() - interval '7 days';
 $$;
 
--- Schedule a daily purge via pg_cron when the extension is available (Supabase).
--- Guarded so this migration still applies on databases without pg_cron; the
--- app-side fallback in lib/email-inbox/action-log.ts then keeps the table small.
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
-    CREATE EXTENSION IF NOT EXISTS pg_cron;
-    -- Replace any prior definition so re-running the migration is idempotent.
-    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'purge_email_action_log') THEN
-      PERFORM cron.unschedule('purge_email_action_log');
-    END IF;
-    PERFORM cron.schedule(
-      'purge_email_action_log',
-      '15 4 * * *', -- daily at 04:15 UTC
-      $cron$ SELECT public.purge_email_action_log(); $cron$
-    );
-  ELSE
-    RAISE NOTICE 'pg_cron unavailable; relying on app-side fallback purge.';
-  END IF;
-EXCEPTION WHEN OTHERS THEN
-  -- Never fail the migration on scheduling issues (permissions, schema, etc.).
-  RAISE NOTICE 'email_action_log purge scheduling skipped: %', SQLERRM;
-END $$;
+-- NOTE: pg_cron is NOT enabled on this project (confirmed 2026-07-14 — the
+-- `cron` schema does not exist). The 7-day purge therefore runs via the
+-- app-side throttled fallback in lib/email-inbox/action-log.ts, which calls
+-- public.purge_email_action_log() at most once per hour. If pg_cron is enabled
+-- later, schedule it manually:
+--   select cron.schedule('purge_email_action_log', '15 4 * * *',
+--                         $$ select public.purge_email_action_log(); $$);
+-- (Kept out of this migration so it applies as a single transaction on hosts
+-- without pg_cron — a cron.schedule() call there aborts the whole migration.)
