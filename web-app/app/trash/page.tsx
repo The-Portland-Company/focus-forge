@@ -12,6 +12,7 @@ import {
   History,
   ListTodo,
   RotateCcw,
+  Target,
   Trash2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,10 +23,11 @@ type TrashPayload = {
   organizations: TrashRow[];
   projects: TrashRow[];
   sections: TrashRow[];
+  goals: TrashRow[];
   tasks: TrashRow[];
 };
 
-type EntityType = "organization" | "project" | "section" | "task";
+type EntityType = "organization" | "project" | "section" | "goal" | "task";
 
 type TrashBatch = {
   batchId: string;
@@ -35,12 +37,19 @@ type TrashBatch = {
   totalItems: number;
 };
 
-const TYPE_ORDER: EntityType[] = ["organization", "project", "section", "task"];
+const TYPE_ORDER: EntityType[] = [
+  "organization",
+  "project",
+  "section",
+  "goal",
+  "task",
+];
 
 const TYPE_ICON: Record<EntityType, typeof Building2> = {
   organization: Building2,
   project: FolderKanban,
   section: ListTodo,
+  goal: Target,
   task: CheckSquare,
 };
 
@@ -59,6 +68,7 @@ function buildBatches(payload: TrashPayload): TrashBatch[] {
   add("organization", payload.organizations);
   add("project", payload.projects);
   add("section", payload.sections);
+  add("goal", payload.goals);
   add("task", payload.tasks);
 
   const batches: TrashBatch[] = [];
@@ -68,6 +78,7 @@ function buildBatches(payload: TrashPayload): TrashBatch[] {
       organization: 0,
       project: 0,
       section: 0,
+      goal: 0,
       task: 0,
     } as Record<EntityType, number>;
     let totalItems = 0;
@@ -106,6 +117,7 @@ function describeContents(batch: TrashBatch): string {
     organization: ["organization", "organizations"],
     project: ["project", "projects"],
     section: ["task list", "task lists"],
+    goal: ["goal", "goals"],
     task: ["task", "tasks"],
   };
   for (const type of TYPE_ORDER) {

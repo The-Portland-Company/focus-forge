@@ -220,6 +220,7 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
     recurringPattern: 'recurring_pattern',
     isRecurring: 'is_recurring',
     sectionId: 'section_id',
+    goalId: 'goal_id',
     lastTodoistSync: 'last_todoist_sync',
     todoistOrder: 'todoist_order',
     todoistLabels: 'todoist_labels',
@@ -254,6 +255,7 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
     'parent_id',
     'indent',
     'section_id',
+    'goal_id',
     'todoist_assignee_id',
     'todoist_assigner_id',
     'todoist_comment_count',
@@ -331,17 +333,97 @@ export const serializeMobileTask = <T extends Record<string, any>>(
   assigned_to_name: string | null
   created_by: string | null
   created_by_name: string | null
+  goal_id: string | null
 } => ({
   ...task,
   assigned_to: task?.assigned_to ?? task?.assignedTo ?? null,
   assigned_to_name: task?.assignedToName ?? null,
   created_by: task?.created_by ?? task?.createdBy ?? null,
   created_by_name: task?.createdByName ?? null,
+  goal_id: task?.goal_id ?? task?.goalId ?? null,
 })
 
 export const serializeMobileTasks = <T extends Record<string, any>>(
   tasks: T[],
 ) => tasks.map((task) => serializeMobileTask(task))
+
+export type MobileGoalSummary = {
+  id: string
+  section_id: string | null
+  project_id: string
+  name: string
+  description: string | null
+  completed: boolean
+  completed_at: string | null
+  order: number | null
+  task_count: number
+  completed_task_count: number
+}
+
+/**
+ * Compute live-task counts (total + completed) for a set of goal ids.
+ * Returns a Map keyed by goal id. Tasks with deleted_at set are excluded.
+ */
+export const getGoalTaskCounts = async (
+  serviceSupabase: ReturnType<typeof createServiceSupabase>,
+  goalIds: string[],
+): Promise<Map<string, { total: number; completed: number }>> => {
+  const counts = new Map<string, { total: number; completed: number }>()
+  const ids = [...new Set(goalIds.filter(Boolean))]
+  if (ids.length === 0) return counts
+
+  const { data: tasks } = await serviceSupabase
+    .from('tasks')
+    .select('goal_id,completed')
+    .in('goal_id', ids)
+    .is('deleted_at', null)
+
+  ;(tasks || []).forEach((task: any) => {
+    const key = task.goal_id
+    if (!key) return
+    const entry = counts.get(key) || { total: 0, completed: 0 }
+    entry.total += 1
+    if (task.completed) entry.completed += 1
+    counts.set(key, entry)
+  })
+
+  return counts
+}
+
+/**
+ * Fetch a single live (non-deleted) goal by id using the service client.
+ * Returns null when not found or soft-deleted.
+ */
+export const fetchLiveGoal = async (
+  serviceSupabase: ReturnType<typeof createServiceSupabase>,
+  goalId: string,
+): Promise<any | null> => {
+  const { data } = await serviceSupabase
+    .from('goals')
+    .select(
+      'id,section_id,project_id,name,description,completed,completed_at,order_index',
+    )
+    .eq('id', goalId)
+    .is('deleted_at', null)
+    .maybeSingle()
+  return data || null
+}
+
+export const serializeMobileGoal = (
+  goal: any,
+  count?: { total: number; completed: number },
+): MobileGoalSummary => ({
+  id: goal.id,
+  section_id: goal.section_id ?? null,
+  project_id: goal.project_id,
+  name: goal.name,
+  description: goal.description ?? null,
+  completed: goal.completed ?? false,
+  completed_at: goal.completed_at ?? null,
+  order: goal.order_index ?? null,
+  task_count: count?.total ?? 0,
+  completed_task_count: count?.completed ?? 0,
+})
 
 const getDateOnly = (value?: string | null) => {
   if (!value) return null
