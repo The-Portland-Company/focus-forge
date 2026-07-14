@@ -2493,17 +2493,18 @@ export function EmailThreadModal({
                 </div>
                 {/* Bottom-of-conversation refresh control + last-refreshed
                     timestamp. Mirrors the top-right refresh button. */}
-                <div className="mt-3 flex flex-col items-center gap-1.5 border-t border-zinc-800/70 pt-3">
+                <div className="mt-3 flex items-center justify-center gap-2 border-t border-zinc-800/70 pt-3">
                   <button
                     type="button"
                     onClick={() => void handleManualRefresh()}
                     disabled={isRefreshing}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    title={isRefreshing ? "Refreshing…" : "Refresh"}
+                    aria-label={isRefreshing ? "Refreshing…" : "Refresh"}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <RefreshCw
                       className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")}
                     />
-                    <span>{isRefreshing ? "Refreshing…" : "Refresh"}</span>
                   </button>
                   {lastRefreshedAt ? (
                     <span className="text-xs text-zinc-500">
