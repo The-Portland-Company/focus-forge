@@ -49,6 +49,41 @@ const securityHeaders = {
   "Content-Security-Policy": "frame-ancestors 'self'",
 };
 
+// The unified MFA gate page: handles both first-time TOTP enrollment and the
+// per-login OTP challenge, elevating the session to aal2. Reachable while aal1.
+const MFA_GATE_PATH = "/auth/mfa";
+
+// Global "logged out before" cutoff (unix seconds). Any access token issued
+// (`iat`) before this instant is treated as logged out — this is the only way
+// to immediately invalidate already-issued stateless JWTs (deleting server-side
+// sessions only stops refresh; a live access token keeps working until it
+// expires). Bump this to force-log-everyone-out again. Set 2026-07-14 when all
+// sessions were revoked ahead of the MFA rollout.
+const SESSION_MIN_IAT = 1784069036;
+
+// Read the aal + iat claims from a Supabase access token (JWT) without
+// verifying it — used only to route to the MFA gate and enforce the logout
+// cutoff; a tampered token is rejected by Supabase on the next real API call.
+function decodeAccessToken(accessToken: string | undefined): {
+  aal: string;
+  iat: number;
+} {
+  if (!accessToken) return { aal: "aal1", iat: 0 };
+  try {
+    const part = accessToken.split(".")[1];
+    if (!part) return { aal: "aal1", iat: 0 };
+    let b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    b64 += "=".repeat((4 - (b64.length % 4)) % 4);
+    const payload = JSON.parse(atob(b64));
+    return {
+      aal: typeof payload?.aal === "string" ? payload.aal : "aal1",
+      iat: typeof payload?.iat === "number" ? payload.iat : 0,
+    };
+  } catch {
+    return { aal: "aal1", iat: 0 };
+  }
+}
+
 const applySecurityHeaders = (response: NextResponse) => {
   Object.entries(securityHeaders).forEach(([key, value]) => {
     response.headers.set(key, value);
@@ -172,6 +207,42 @@ export async function middleware(request: NextRequest) {
     const loginUrl = new URL("/auth/login", request.url);
     loginUrl.searchParams.set("from", pathname);
     return applySecurityHeaders(NextResponse.redirect(loginUrl));
+  }
+
+  const { aal, iat } = decodeAccessToken(session.access_token);
+
+  // Hard logout cutoff: reject tokens issued before the global cutoff so a
+  // revoked/older session cannot keep using a still-valid access token.
+  if (iat && iat < SESSION_MIN_IAT) {
+    if (pathname.startsWith("/api/")) {
+      return applySecurityHeaders(
+        NextResponse.json({ error: "Session expired" }, { status: 401 }),
+      );
+    }
+    const loginUrl = new URL("/auth/login", request.url);
+    loginUrl.searchParams.set("from", pathname);
+    return applySecurityHeaders(NextResponse.redirect(loginUrl));
+  }
+
+  // MFA gate: any authenticated session below aal2 must complete TOTP MFA
+  // (first-time enrollment or the per-login OTP challenge) at the gate page
+  // before it can reach the app. The gate page itself, and the logout route,
+  // stay reachable while aal1 so the user can finish or bail out.
+  const isMfaExempt =
+    pathname.startsWith(MFA_GATE_PATH) ||
+    pathname.startsWith("/api/auth/mfa") ||
+    pathname.startsWith("/api/auth/logout");
+  if (aal !== "aal2" && !isMfaExempt) {
+    if (pathname.startsWith("/api/")) {
+      return applySecurityHeaders(
+        NextResponse.json({ error: "MFA required" }, { status: 403 }),
+      );
+    }
+    const mfaUrl = new URL(MFA_GATE_PATH, request.url);
+    if (pathname && pathname !== "/") {
+      mfaUrl.searchParams.set("from", pathname);
+    }
+    return applySecurityHeaders(NextResponse.redirect(mfaUrl));
   }
 
   // Add user ID to headers for API routes
