@@ -114,6 +114,7 @@ export interface Task {
   todoistCommentCount?: number;
   todoistUrl?: string;
   sectionId?: string;
+  goalId?: string;
   timeEstimate?: number; // Time estimate in minutes
   snoozedUntil?: string | null;
   startDate?: string;
@@ -176,6 +177,19 @@ export interface Section {
   todoistId?: string;
   todoistOrder?: number;
   todoistCollapsed?: boolean;
+}
+
+export interface Goal {
+  id: string;
+  sectionId?: string;
+  projectId: string;
+  name: string;
+  description?: string;
+  completed: boolean;
+  completedAt?: string;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Comment {

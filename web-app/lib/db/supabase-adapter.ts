@@ -382,10 +382,14 @@ export class SupabaseAdapter implements DatabaseAdapter {
     return this.softDeleteEntity("organization", id);
   }
 
+  async deleteGoal(id: string) {
+    return this.softDeleteEntity("goal", id);
+  }
+
   // --- Versioning: soft delete / restore / purge / trash / history ---
 
   async softDeleteEntity(
-    entityType: "organization" | "project" | "section" | "task",
+    entityType: "organization" | "project" | "section" | "goal" | "task",
     id: string,
   ): Promise<{ batchId: string }> {
     const supabase = this.supabase;
@@ -429,7 +433,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
   }
 
   async purgeEntity(
-    entityType: "organization" | "project" | "section" | "task",
+    entityType: "organization" | "project" | "section" | "goal" | "task",
     id: string,
   ) {
     const table = `${entityType === "organization" ? "organization" : entityType}s`;
@@ -441,8 +445,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
   async getTrash() {
     const supabase = this.supabase;
-    const [orgs, projects, sections, tasks] = await Promise.all(
-      ["organizations", "projects", "sections", "tasks"].map(
+    const [orgs, projects, sections, goals, tasks] = await Promise.all(
+      ["organizations", "projects", "sections", "goals", "tasks"].map(
         async (table) => {
           const { data, error } = await supabase
             .from(table)
@@ -459,6 +463,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       organizations: orgs,
       projects,
       sections,
+      goals,
       tasks,
     };
   }
@@ -1109,6 +1114,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "parent_id",
       "indent",
       "section_id",
+      "goal_id",
       "created_at",
       "updated_at",
       "todoist_assignee_id",
@@ -1148,6 +1154,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       recurringPattern: "recurring_pattern",
       isRecurring: "is_recurring",
       sectionId: "section_id",
+      goalId: "goal_id",
       lastTodoistSync: "last_todoist_sync",
       todoistOrder: "todoist_order",
       todoistLabels: "todoist_labels",
@@ -1269,6 +1276,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "parent_id",
       "indent",
       "section_id",
+      "goal_id",
       "created_at",
       "updated_at",
       "todoist_assignee_id",
@@ -1306,6 +1314,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       recurringPattern: "recurring_pattern",
       isRecurring: "is_recurring",
       sectionId: "section_id",
+      goalId: "goal_id",
       lastTodoistSync: "last_todoist_sync",
       todoistOrder: "todoist_order",
       todoistLabels: "todoist_labels",

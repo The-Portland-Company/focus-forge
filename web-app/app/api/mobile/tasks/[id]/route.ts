@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  createServiceSupabase,
+  fetchLiveGoal,
   getMobileAdapterForUser,
   mobileFailure,
   mobileSuccess,
@@ -82,9 +84,35 @@ export async function PATCH(
     const admin = getAdminClient();
     const { data: existingTask } = await admin
       .from("tasks")
-      .select("id,name,description,assigned_to")
+      .select("id,name,description,assigned_to,project_id")
       .eq("id", params.id)
       .maybeSingle();
+
+    // Goal association: when goal_id is set, it must reference a live goal in
+    // the same project as the task.
+    if (typeof payload.goal_id === "string" && payload.goal_id) {
+      const serviceSupabase = createServiceSupabase();
+      const goal = await fetchLiveGoal(serviceSupabase, payload.goal_id);
+      if (!goal) {
+        return NextResponse.json(
+          mobileFailure("validation_error", "goal_id must reference a live goal"),
+          { status: 400 },
+        );
+      }
+      const taskProject =
+        typeof payload.project_id === "string"
+          ? payload.project_id
+          : (existingTask?.project_id as string | undefined);
+      if (taskProject && taskProject !== goal.project_id) {
+        return NextResponse.json(
+          mobileFailure(
+            "validation_error",
+            "goal_id must belong to the same project as the task",
+          ),
+          { status: 400 },
+        );
+      }
+    }
 
     const adapter = await getMobileAdapterForUser(auth.user.id);
     const updated = await adapter.updateTask(params.id, {

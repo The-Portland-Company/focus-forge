@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  createServiceSupabase,
+  fetchLiveGoal,
   filterTasksByView,
   getMobileAdapterForUser,
   getVisibleMobileUserIds,
@@ -98,6 +100,63 @@ export async function POST(request: NextRequest) {
         mobileFailure("validation_error", "Task name is required"),
         { status: 400 },
       );
+    }
+
+    // Goal association: validate + inherit section/project from the goal.
+    const serviceSupabase = createServiceSupabase();
+    let goalId =
+      typeof payload.goal_id === "string" ? payload.goal_id : undefined;
+    const parentId =
+      typeof payload.parent_id === "string" ? payload.parent_id : undefined;
+
+    // A subtask with no explicit goal inherits its parent's goal_id.
+    if (!goalId && parentId) {
+      const { data: parent } = await serviceSupabase
+        .from("tasks")
+        .select("goal_id")
+        .eq("id", parentId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (parent?.goal_id) {
+        goalId = parent.goal_id as string;
+        payload.goal_id = goalId;
+      }
+    }
+
+    if (goalId) {
+      const goal = await fetchLiveGoal(serviceSupabase, goalId);
+      if (!goal) {
+        return NextResponse.json(
+          mobileFailure("validation_error", "goal_id must reference a live goal"),
+          { status: 400 },
+        );
+      }
+
+      let effectiveProject =
+        typeof payload.project_id === "string" ? payload.project_id : undefined;
+      if (!effectiveProject && typeof payload.section_id === "string") {
+        const { data: section } = await serviceSupabase
+          .from("sections")
+          .select("project_id")
+          .eq("id", payload.section_id)
+          .is("deleted_at", null)
+          .maybeSingle();
+        effectiveProject = (section?.project_id as string) || undefined;
+      }
+
+      if (effectiveProject && effectiveProject !== goal.project_id) {
+        return NextResponse.json(
+          mobileFailure(
+            "validation_error",
+            "goal_id must belong to the same project as the task",
+          ),
+          { status: 400 },
+        );
+      }
+
+      // Inherit project + section when the task named only a goal.
+      if (payload.project_id === undefined) payload.project_id = goal.project_id;
+      if (payload.section_id === undefined) payload.section_id = goal.section_id;
     }
 
     const adapter = await getMobileAdapterForUser(auth.user.id);
