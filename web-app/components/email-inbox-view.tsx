@@ -2845,7 +2845,17 @@ export function EmailInboxView({
       const lastSyncedAt = mailbox.lastSyncedAt
         ? new Date(mailbox.lastSyncedAt).getTime()
         : 0;
-      return now - lastSyncedAt >= mailbox.syncFrequencyMinutes * 60 * 1000;
+      // Cap the client-side due check at the same 60s floor the server enforces
+      // (see syncDueMailboxesForUser BACKGROUND_SYNC_FLOOR_MS). Otherwise this
+      // pre-filter refuses to POST /sync-due until the full syncFrequencyMinutes
+      // (default 5 min) has elapsed, which is the only thing that reconciles
+      // Gmail read/unread flag changes for existing messages — making
+      // "mark as read" in Gmail take up to ~5 min to reflect in the inbox.
+      const dueAfterMs = Math.min(
+        mailbox.syncFrequencyMinutes * 60 * 1000,
+        60 * 1000,
+      );
+      return now - lastSyncedAt >= dueAfterMs;
     });
 
     if (dueMailboxes.length === 0) {
@@ -5190,7 +5200,7 @@ export function EmailInboxView({
                       </div>
                     ) : null}
                     <div className="space-y-3">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.8fr)_minmax(240px,0.9fr)]">
+                  <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.8fr)_minmax(240px,0.9fr)]">
                     <div className="relative">
                       <FloatingFieldLabel label="Search inbox" />
                       <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />

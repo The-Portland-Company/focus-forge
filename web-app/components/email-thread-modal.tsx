@@ -29,9 +29,13 @@ import {
   MailCheck,
   MailPlus,
   Maximize2,
+  Move,
   PanelBottom,
+  PanelLeft,
   PanelRight,
+  PanelTop,
   Pencil,
+  RefreshCw,
   Reply,
   Search,
   SendHorizontal,
@@ -246,13 +250,20 @@ function stripAiGreeting(text: string | null | undefined): string {
 function EmailActorAvatar({
   name,
   email,
+  size = "md",
 }: {
   name?: string | null;
   email?: string | null;
+  size?: "sm" | "md";
 }) {
   return (
     <div
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-full font-semibold text-white",
+        size === "sm"
+          ? "h-5 w-5 text-[10px] leading-none"
+          : "h-10 w-10 text-sm shadow-[0_10px_30px_rgba(0,0,0,0.35)]",
+      )}
       style={{ background: getEmailActorGradient(name, email) }}
       aria-hidden="true"
     >
@@ -301,6 +312,16 @@ export function EmailThreadModal({
     useState(false);
   const [displayMode, setDisplayMode] =
     useState<EmailThreadDisplayMode>("centered");
+  // Manual refresh (top-right + bottom of conversation) state + the timestamp
+  // of the most recent successful load/refresh, shown before the user refreshes.
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  // Scroll container for the reading pane body. Used to instantly jump to the
+  // newest (bottom) message when the conversation is sorted oldest-first.
+  const scrollBodyRef = useRef<HTMLDivElement | null>(null);
+  // Tracks the thread whose default "last message expanded" seed was applied,
+  // so opening a thread expands only its newest message exactly once.
+  const seededExpandThreadRef = useRef<string | null>(null);
   // Which tab the AI Summary panel shows: the AI summary text or linked tasks.
   const [summaryPanelTab, setSummaryPanelTab] = useState<
     "summary" | "linked_tasks"
@@ -318,7 +339,11 @@ export function EmailThreadModal({
   >({});
   // Whether older (past) conversation messages beyond the first are revealed.
   // Collapsed by default when there are several so the newest read stays tight.
-  const [showOlderMessages, setShowOlderMessages] = useState(false);
+  // All conversation messages render (as collapsed previews) by default now —
+  // every message is shown, with only the newest one expanded (see the seed
+  // effect below). Kept as state so the older-messages bumper still works if
+  // ever re-collapsed, but it defaults to revealing every message.
+  const [showOlderMessages, setShowOlderMessages] = useState(true);
   // Whether the reply composer is revealed. Hidden by default behind a
   // full-width "Reply" button at the bottom of the conversation; opening it
   // shows the editor, and a successful send / dismiss collapses it back.
@@ -524,6 +549,39 @@ export function EmailThreadModal({
     );
   };
 
+  // Default view: collapse every conversation message EXCEPT the newest (last)
+  // one, which opens expanded. Applied once per thread after its conversation
+  // loads, and only when the user has no saved per-message expansions (so
+  // "Expand All" and explicit choices still win). Not persisted — it's a fresh
+  // default each open, not a stored user selection.
+  useEffect(() => {
+    if (!threadId) return;
+    if (seededExpandThreadRef.current === threadId) return;
+    if (conversationEntries.length === 0) return;
+    seededExpandThreadRef.current = threadId;
+    if (threadExpandState !== "all" && threadExpandState.size === 0) {
+      const newestId =
+        conversationEntries[conversationEntries.length - 1]?.id;
+      if (newestId) {
+        setThreadExpandState(new Set([newestId]));
+      }
+    }
+  }, [threadId, conversationEntries, threadExpandState]);
+
+  // When the conversation is sorted oldest-first (the default), open the pane
+  // already scrolled to the newest (bottom) message. Instant jump, no smooth
+  // scrolling animation.
+  useEffect(() => {
+    if (loadingThread || !thread) return;
+    if (conversationOrder !== "oldest_first") return;
+    const el = scrollBodyRef.current;
+    if (!el) return;
+    const raf = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [thread, loadingThread, conversationOrder]);
+
   // Restore the persisted default display mode (centered / docked-right /
   // docked-bottom) on mount.
   useEffect(() => {
@@ -535,6 +593,55 @@ export function EmailThreadModal({
   const handleSelectDisplayMode = (mode: EmailThreadDisplayMode) => {
     setDisplayMode(mode);
     saveEmailThreadDisplayMode(mode);
+  };
+
+  // Drag-to-undock: grab the top-right handle and drop the pointer near a
+  // viewport edge to dock to that side (left/right/top/bottom); drop near the
+  // center to float as a centered modal. The chosen dock is saved as the
+  // default via handleSelectDisplayMode so it persists.
+  const handleDragDockStart = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const pointerId = event.pointerId;
+    handle.setPointerCapture(pointerId);
+    document.body.classList.add("cursor-grabbing");
+
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      document.body.classList.remove("cursor-grabbing");
+      if (handle.hasPointerCapture(pointerId)) {
+        handle.releasePointerCapture(pointerId);
+      }
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const distanceLeft = upEvent.clientX;
+      const distanceRight = w - upEvent.clientX;
+      const distanceTop = upEvent.clientY;
+      const distanceBottom = h - upEvent.clientY;
+      const nearest = Math.min(
+        distanceLeft,
+        distanceRight,
+        distanceTop,
+        distanceBottom,
+      );
+      // Dropped well inside the viewport (far from every edge) → centered.
+      if (nearest > Math.min(w, h) * 0.25) {
+        handleSelectDisplayMode("centered");
+        return;
+      }
+      const mode: EmailThreadDisplayMode =
+        nearest === distanceLeft
+          ? "docked-left"
+          : nearest === distanceRight
+            ? "docked-right"
+            : nearest === distanceTop
+              ? "docked-top"
+              : "docked-bottom";
+      handleSelectDisplayMode(mode);
+    };
+
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
   };
 
   const isDocked = isDockedEmailThreadDisplayMode(displayMode);
@@ -656,6 +763,7 @@ export function EmailThreadModal({
       .then((payload) => {
         if (!cancelled) {
           setThread(payload);
+          setLastRefreshedAt(new Date());
           if (payload.activeReplyDraft) {
             setSelectedReplyDraftId(payload.activeReplyDraft.id);
             setReplyMode(payload.activeReplyDraft.replyMode);
@@ -712,10 +820,11 @@ export function EmailThreadModal({
     setPendingDeleteTaskId(null);
     setTaskBusyId(null);
     setTaskCompletionOverrides({});
-    setShowOlderMessages(false);
+    setShowOlderMessages(true);
     setSummaryPanelTab("summary");
     setIsComposerOpen(false);
     setOptimisticEntries([]);
+    seededExpandThreadRef.current = null;
   }, [threadId]);
 
   useEffect(() => {
@@ -777,12 +886,19 @@ export function EmailThreadModal({
     await onRefresh?.();
   };
 
-  const reloadThread = async (targetThreadId: string) => {
-    setLoadingThread(true);
+  const reloadThread = async (
+    targetThreadId: string,
+    options?: { silent?: boolean },
+  ) => {
+    const silent = options?.silent ?? false;
+    if (!silent) {
+      setLoadingThread(true);
+    }
 
     try {
       const payload = await fetchThreadDetail(targetThreadId);
       setThread(payload);
+      setLastRefreshedAt(new Date());
       if (payload.activeReplyDraft) {
         setSelectedReplyDraftId(payload.activeReplyDraft.id);
         setReplyMode(payload.activeReplyDraft.replyMode);
@@ -804,7 +920,22 @@ export function EmailThreadModal({
         error instanceof Error ? error.message : "Failed to load thread",
       );
     } finally {
-      setLoadingThread(false);
+      if (!silent) {
+        setLoadingThread(false);
+      }
+    }
+  };
+
+  // Manual refresh (top-right icon + bottom-of-conversation button). Uses the
+  // silent path so the body doesn't blank to a spinner; a small spinning icon
+  // signals progress instead.
+  const handleManualRefresh = async () => {
+    if (!threadId || isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await reloadThread(threadId, { silent: true });
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -1377,12 +1508,21 @@ export function EmailThreadModal({
           className={cn(
             "fixed z-50 flex flex-col overflow-hidden border-zinc-800 bg-zinc-950 text-white shadow-2xl outline-none duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
             displayMode === "docked-right" &&
-              // Full-screen sheet on small phones; docked side panel at sm+.
-              "inset-0 h-full w-full max-w-full border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:inset-y-0 sm:left-auto sm:right-0 sm:h-full sm:w-[max(480px,40vw)] sm:max-w-[96vw] sm:rounded-l-2xl",
+              // Full-screen sheet on small phones; docked side panel at sm+
+              // inset from the top/bottom/right edges so it floats with visible
+              // rounded corners.
+              "inset-0 h-full w-full max-w-full border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:inset-y-auto sm:top-3 sm:bottom-3 sm:left-auto sm:right-3 sm:h-auto sm:w-[max(480px,40vw)] sm:max-w-[96vw] sm:rounded-2xl sm:border",
+            displayMode === "docked-left" &&
+              // Mirror of docked-right: docked side panel on the LEFT at sm+.
+              "inset-0 h-full w-full max-w-full border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:inset-y-auto sm:top-3 sm:bottom-3 sm:right-auto sm:left-3 sm:h-auto sm:w-[max(480px,40vw)] sm:max-w-[96vw] sm:rounded-2xl sm:border",
             displayMode === "docked-bottom" &&
               // Near-full-screen sheet on small phones (a 50vh dock is too
-              // cramped to read a thread on a phone); short bottom dock at sm+.
-              "inset-x-0 bottom-0 top-0 h-full w-full border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom sm:top-auto sm:h-[50vh] sm:rounded-t-2xl",
+              // cramped to read a thread on a phone); short bottom dock at sm+
+              // inset from the bottom/left/right edges.
+              "inset-x-0 bottom-0 top-0 h-full w-full border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom sm:inset-x-3 sm:top-auto sm:bottom-3 sm:h-[50vh] sm:w-auto sm:rounded-2xl sm:border",
+            displayMode === "docked-top" &&
+              // Mirror of docked-bottom: short dock along the TOP at sm+.
+              "inset-x-0 top-0 bottom-0 h-full w-full border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top sm:inset-x-3 sm:bottom-auto sm:top-3 sm:h-[50vh] sm:w-auto sm:rounded-2xl sm:border",
             displayMode === "centered" &&
               // Full-screen sheet on small phones; centered card at sm+.
               "inset-0 h-full w-full max-w-full rounded-none border-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[92vh] sm:w-[min(96vw,52rem)] sm:max-w-none sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border",
@@ -1441,7 +1581,40 @@ export function EmailThreadModal({
           </DialogDescription>
 
           <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-6 py-3">
-            <div className="flex min-w-0 flex-col">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              {/* From details FIRST: small avatar aligned to the sender text's
+                  line-height, sender name + inline muted email, and the message
+                  date floated to the right of the row. */}
+              {primaryThreadEntry ? (
+                <div className="flex min-w-0 items-center gap-2">
+                  <EmailActorAvatar
+                    name={primaryThreadEntry.authorName}
+                    email={primaryThreadEntry.authorEmail}
+                    size="sm"
+                  />
+                  <span className="text-[10px] uppercase tracking-wide text-zinc-500">
+                    From
+                  </span>
+                  <span className="truncate text-sm font-medium text-zinc-100">
+                    {getEmailActorName(
+                      primaryThreadEntry.authorName,
+                      primaryThreadEntry.authorEmail,
+                    )}
+                  </span>
+                  {primaryThreadEntry.authorEmail &&
+                  primaryThreadEntry.authorEmail !==
+                    primaryThreadEntry.authorName ? (
+                    <span className="truncate text-xs text-zinc-500">
+                      {primaryThreadEntry.authorEmail}
+                    </span>
+                  ) : null}
+                  {primaryThreadEntry.createdAt ? (
+                    <span className="ml-auto shrink-0 pl-2 text-xs text-zinc-500">
+                      {formatEmailTimestamp(primaryThreadEntry.createdAt)}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               {aiSummaryText ? (
                 <div className="min-w-0 truncate text-sm font-medium text-zinc-200">
                   <span className="text-zinc-500">Summary: </span>
@@ -1463,6 +1636,29 @@ export function EmailThreadModal({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {thread && !loadingThread ? (
+                <Tooltip
+                  content="Refresh thread"
+                  className="w-auto"
+                  side="bottom"
+                  align="end"
+                >
+                  <button
+                    type="button"
+                    onClick={() => void handleManualRefresh()}
+                    disabled={isRefreshing}
+                    aria-label="Refresh thread"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <RefreshCw
+                      className={cn(
+                        "h-4 w-4",
+                        isRefreshing && "animate-spin",
+                      )}
+                    />
+                  </button>
+                </Tooltip>
+              ) : null}
               {thread && !loadingThread ? (
                 <Tooltip
                   content={
@@ -1587,7 +1783,11 @@ export function EmailThreadModal({
                       ? Maximize2
                       : option.value === "docked-right"
                         ? PanelRight
-                        : PanelBottom;
+                        : option.value === "docked-left"
+                          ? PanelLeft
+                          : option.value === "docked-top"
+                            ? PanelTop
+                            : PanelBottom;
 
                   return (
                     <Tooltip
@@ -1615,6 +1815,24 @@ export function EmailThreadModal({
                   );
                 })}
               </div>
+              {/* Drag handle: grab and drop near a viewport edge to dock the
+                  pane there (left/right/top/bottom), or drop near the center to
+                  float it as a centered modal. The choice is saved as default. */}
+              <Tooltip
+                content="Drag to dock (left / right / top / bottom)"
+                className="w-auto"
+                side="bottom"
+                align="end"
+              >
+                <button
+                  type="button"
+                  onPointerDown={handleDragDockStart}
+                  aria-label="Drag to dock the thread panel"
+                  className="inline-flex h-8 w-8 cursor-grab touch-none items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white active:cursor-grabbing"
+                >
+                  <Move className="h-4 w-4" />
+                </button>
+              </Tooltip>
               <DialogPrimitive.Close
                 aria-label="Close"
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
@@ -1624,61 +1842,19 @@ export function EmailThreadModal({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6">
+          <div ref={scrollBodyRef} className="flex-1 overflow-y-auto p-6">
           {loadingThread ? (
             <div className="flex min-h-[420px] items-center justify-center text-zinc-500">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
           ) : thread ? (
             <div className="space-y-5">
-              <div className="border-b border-zinc-800 pb-4">
+              {/* From details now live in the top header bar (above Summary
+                  and Subject). The body opens with the AI Summary / Linked
+                  Tasks panel, then the unified Message + Conversation card. */}
+              <div>
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0 flex-1 space-y-3">
-                    {/* Header: From (sender) row sits ABOVE the subject + date.
-                        Subject line carries an "Active" status badge and an AI
-                        icon for quick visual scanning. */}
-                    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                      <div className="flex items-center gap-3">
-                        <EmailActorAvatar
-                          name={primaryThreadEntry?.authorName}
-                          email={primaryThreadEntry?.authorEmail}
-                        />
-                        <div className="min-w-0 flex-1">
-                          {/* From line: actor (name + inline muted email) on the
-                              left, timestamp floated right. */}
-                          <div className="flex items-baseline justify-between gap-3">
-                            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                              <span className="text-xs uppercase tracking-wide text-zinc-500">
-                                From
-                              </span>
-                              <span className="truncate text-sm font-medium text-zinc-100">
-                                {getEmailActorName(
-                                  primaryThreadEntry?.authorName,
-                                  primaryThreadEntry?.authorEmail,
-                                )}
-                              </span>
-                              {primaryThreadEntry?.authorEmail &&
-                              primaryThreadEntry.authorEmail !==
-                                primaryThreadEntry.authorName ? (
-                                <span className="truncate text-xs text-zinc-500">
-                                  {primaryThreadEntry.authorEmail}
-                                </span>
-                              ) : null}
-                            </div>
-                            {primaryThreadEntry?.createdAt ? (
-                              <span className="shrink-0 text-xs text-zinc-500">
-                                {formatEmailTimestamp(
-                                  primaryThreadEntry.createdAt,
-                                )}
-                              </span>
-                            ) : null}
-                          </div>
-                          {/* Subject/title intentionally omitted here — it now
-                              lives in the top header row (Summary/Subject). The
-                              From card shows only the sender on a single row. */}
-                        </div>
-                      </div>
-                    </div>
                     <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
                       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                         <div
@@ -2026,74 +2202,6 @@ export function EmailThreadModal({
                         </div>
                       )}
                     </div>
-                    <div className="relative rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
-                      <Tooltip
-                        content={getEmailHtmlRenderModeToggleLabel(
-                          emailHtmlRenderMode,
-                        )}
-                        className="w-auto"
-                        side="bottom"
-                        align="end"
-                      >
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setEmailHtmlRenderMode((current) =>
-                              current === "preserve" ? "simplified" : "preserve",
-                            )
-                          }
-                          aria-label={getEmailHtmlRenderModeToggleLabel(
-                            emailHtmlRenderMode,
-                          )}
-                          title={getEmailHtmlRenderModeToggleLabel(
-                            emailHtmlRenderMode,
-                          )}
-                          className={cn(
-                            "absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full border bg-zinc-900/80 transition-colors",
-                            emailHtmlRenderMode === "simplified"
-                              ? "border-theme-primary text-white"
-                              : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
-                          )}
-                        >
-                          {emailHtmlRenderMode === "simplified" ? (
-                            <Sparkles className="h-4 w-4" />
-                          ) : (
-                            <LayoutTemplate className="h-4 w-4" />
-                          )}
-                        </button>
-                      </Tooltip>
-                      <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
-                        <Mail className="h-3.5 w-3.5" />
-                        <span>Message</span>
-                      </div>
-                      {primaryThreadEntry?.contentHtml ||
-                      primaryThreadEntry?.content ? (
-                        <EmailSignatureContent
-                          html={primaryThreadEntry?.contentHtml}
-                          text={primaryThreadEntry?.content}
-                          contentKind={
-                            primaryThreadEntry?.type === "internal_note"
-                              ? "rich_text"
-                              : "email"
-                          }
-                          hideSignatures={hideEmailSignatures}
-                          renderMode={emailHtmlRenderMode}
-                          contentClassName="break-words text-sm leading-6 text-zinc-200"
-                          signatureClassName="break-words text-sm leading-6 text-zinc-200 opacity-90"
-                        />
-                      ) : (
-                        <div className="break-words text-sm text-zinc-400">
-                          {thread.summaryText ||
-                            thread.previewText ||
-                            "No message body available yet."}
-                        </div>
-                      )}
-                      {primaryThreadAttachments.length > 0 ? (
-                        <EmailThreadAttachments
-                          attachments={primaryThreadAttachments}
-                        />
-                      ) : null}
-                    </div>
                   </div>
                 </div>
               </div>
@@ -2125,7 +2233,81 @@ export function EmailThreadModal({
                 </div>
               ) : null}
 
+              {/* Unified Message + Conversation card: the primary (opened)
+                  message and the conversation thread live in a single bordered
+                  container with no divider between them. */}
               <div className="relative rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 lg:pr-12">
+                {/* Primary message (the opened email body) — the top section of
+                    the unified card, borderless so it reads as one with the
+                    conversation list below it. */}
+                <div className="relative mb-3 text-sm text-zinc-300">
+                  <Tooltip
+                    content={getEmailHtmlRenderModeToggleLabel(
+                      emailHtmlRenderMode,
+                    )}
+                    className="w-auto"
+                    side="bottom"
+                    align="end"
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEmailHtmlRenderMode((current) =>
+                          current === "preserve" ? "simplified" : "preserve",
+                        )
+                      }
+                      aria-label={getEmailHtmlRenderModeToggleLabel(
+                        emailHtmlRenderMode,
+                      )}
+                      title={getEmailHtmlRenderModeToggleLabel(
+                        emailHtmlRenderMode,
+                      )}
+                      className={cn(
+                        "absolute right-0 top-0 inline-flex h-8 w-8 items-center justify-center rounded-full border bg-zinc-900/80 transition-colors",
+                        emailHtmlRenderMode === "simplified"
+                          ? "border-theme-primary text-white"
+                          : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
+                      )}
+                    >
+                      {emailHtmlRenderMode === "simplified" ? (
+                        <Sparkles className="h-4 w-4" />
+                      ) : (
+                        <LayoutTemplate className="h-4 w-4" />
+                      )}
+                    </button>
+                  </Tooltip>
+                  <div className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                    <Mail className="h-3.5 w-3.5" />
+                    <span>Message</span>
+                  </div>
+                  {primaryThreadEntry?.contentHtml ||
+                  primaryThreadEntry?.content ? (
+                    <EmailSignatureContent
+                      html={primaryThreadEntry?.contentHtml}
+                      text={primaryThreadEntry?.content}
+                      contentKind={
+                        primaryThreadEntry?.type === "internal_note"
+                          ? "rich_text"
+                          : "email"
+                      }
+                      hideSignatures={hideEmailSignatures}
+                      renderMode={emailHtmlRenderMode}
+                      contentClassName="break-words text-sm leading-6 text-zinc-200"
+                      signatureClassName="break-words text-sm leading-6 text-zinc-200 opacity-90"
+                    />
+                  ) : (
+                    <div className="break-words text-sm text-zinc-400">
+                      {thread.summaryText ||
+                        thread.previewText ||
+                        "No message body available yet."}
+                    </div>
+                  )}
+                  {primaryThreadAttachments.length > 0 ? (
+                    <EmailThreadAttachments
+                      attachments={primaryThreadAttachments}
+                    />
+                  ) : null}
+                </div>
                 {/* Vertical Timeline rail along the panel's right edge: subtle
                     relative-date markers ("Today", "X Days Ago", …) mapped to
                     each conversation message. Desktop-only so it never crowds
@@ -2308,6 +2490,26 @@ export function EmailThreadModal({
                   {conversationOrder === "oldest_first"
                     ? optimisticEntriesBlock
                     : null}
+                </div>
+                {/* Bottom-of-conversation refresh control + last-refreshed
+                    timestamp. Mirrors the top-right refresh button. */}
+                <div className="mt-3 flex flex-col items-center gap-1.5 border-t border-zinc-800/70 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => void handleManualRefresh()}
+                    disabled={isRefreshing}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")}
+                    />
+                    <span>{isRefreshing ? "Refreshing…" : "Refresh"}</span>
+                  </button>
+                  {lastRefreshedAt ? (
+                    <span className="text-xs text-zinc-500">
+                      Last refreshed: {lastRefreshedAt.toLocaleString()}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             </div>

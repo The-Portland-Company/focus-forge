@@ -1,4 +1,9 @@
-export type EmailThreadDisplayMode = "centered" | "docked-right" | "docked-bottom";
+export type EmailThreadDisplayMode =
+  | "centered"
+  | "docked-right"
+  | "docked-bottom"
+  | "docked-left"
+  | "docked-top";
 
 export const DEFAULT_EMAIL_THREAD_DISPLAY_MODE: EmailThreadDisplayMode =
   "centered";
@@ -17,10 +22,22 @@ export const EMAIL_THREAD_DISPLAY_MODE_OPTIONS: Array<{
       "Open threads in a centered dialog over the app with a dimmed backdrop.",
   },
   {
+    value: "docked-left",
+    label: "Docked Left",
+    description:
+      "Pin the thread to a full-height panel on the left so you can keep working.",
+  },
+  {
     value: "docked-right",
     label: "Docked Right",
     description:
       "Pin the thread to a full-height panel on the right so you can keep working.",
+  },
+  {
+    value: "docked-top",
+    label: "Docked Top",
+    description:
+      "Pin the thread to a full-width panel along the top so you can keep working.",
   },
   {
     value: "docked-bottom",
@@ -36,7 +53,9 @@ export function normalizeEmailThreadDisplayMode(
   if (
     value === "centered" ||
     value === "docked-right" ||
-    value === "docked-bottom"
+    value === "docked-bottom" ||
+    value === "docked-left" ||
+    value === "docked-top"
   ) {
     return value;
   }
@@ -45,7 +64,12 @@ export function normalizeEmailThreadDisplayMode(
 }
 
 export function isDockedEmailThreadDisplayMode(mode: EmailThreadDisplayMode) {
-  return mode === "docked-right" || mode === "docked-bottom";
+  return (
+    mode === "docked-right" ||
+    mode === "docked-bottom" ||
+    mode === "docked-left" ||
+    mode === "docked-top"
+  );
 }
 
 /** Read the persisted default display mode from localStorage (client only). */

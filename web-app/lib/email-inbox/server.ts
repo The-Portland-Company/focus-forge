@@ -3357,10 +3357,15 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       mailbox.owner_user_id,
     );
 
+    // Reconcile read/unread state across the recent message window on every
+    // sync (not just the just-fetched UIDs). The newly synced messages are the
+    // newest and therefore already within this window, and this ensures a
+    // Gmail "mark as read" on an existing/older thread is reconciled even when
+    // the same sync also ingested new mail.
+    void syncedProviderMessageIds;
     await syncMailboxThreadReadStates({
       mailboxId,
       mailbox: transportMailbox,
-      providerMessageIds: syncedProviderMessageIds,
     });
 
     const mirrorResult = await mirrorProviderFolderState({

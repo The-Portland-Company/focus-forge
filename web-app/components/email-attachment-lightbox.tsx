@@ -13,9 +13,12 @@ import {
   X,
 } from "lucide-react";
 import {
+  classifyAttachmentKind,
   formatAttachmentSize,
+  isInlineDocKind,
   type ThreadAttachment,
 } from "@/lib/email-inbox/attachments";
+import { AttachmentDocPreview } from "@/components/attachment-doc-preview";
 import { cn } from "@/lib/utils";
 
 type EmailAttachmentLightboxProps = {
@@ -268,7 +271,7 @@ export function EmailAttachmentLightbox({
             </button>
           ) : null}
 
-          <div className="flex max-h-full max-w-full flex-col items-center gap-4">
+          <div className="flex max-h-full w-full max-w-full flex-col items-center gap-4">
             {active.isImage ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -276,6 +279,19 @@ export function EmailAttachmentLightbox({
                 alt={active.filename || "Attachment"}
                 className="max-h-[78vh] max-w-full rounded-lg object-contain shadow-2xl"
               />
+            ) : isInlineDocKind(
+                classifyAttachmentKind({
+                  contentType: active.contentType,
+                  filename: active.filename,
+                }),
+              ) ? (
+              <div className="h-[78vh] w-full max-w-5xl">
+                <AttachmentDocPreview
+                  url={active.url}
+                  filename={active.filename}
+                  contentType={active.contentType}
+                />
+              </div>
             ) : (
               <div className="flex flex-col items-center gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 px-10 py-12 text-center">
                 <FileText className="h-16 w-16 text-zinc-500" />

@@ -37,6 +37,85 @@ export function isImageAttachment(contentType: string | null | undefined): boole
 }
 
 /**
+ * Coarse classification used to decide how an attachment is previewed. The
+ * office kinds (`docx`/`xlsx`/`pptx`) are rendered inline by
+ * `AttachmentDocPreview`; everything else falls back to native elements or a
+ * download prompt.
+ */
+export type AttachmentKind =
+  | "image"
+  | "video"
+  | "audio"
+  | "pdf"
+  | "docx"
+  | "xlsx"
+  | "pptx"
+  | "text"
+  | "other";
+
+export function classifyAttachmentKind(input: {
+  contentType?: string | null;
+  filename?: string | null;
+}): AttachmentKind {
+  const type = (input.contentType || "").toLowerCase();
+  const name = (input.filename || "").toLowerCase();
+  const ext = (match: string) => name.endsWith(match);
+
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("audio/")) return "audio";
+  if (type === "application/pdf" || ext(".pdf")) return "pdf";
+
+  // Word — OOXML only (mammoth cannot parse legacy binary .doc).
+  if (
+    type ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    ext(".docx")
+  ) {
+    return "docx";
+  }
+  // Excel — SheetJS handles modern .xlsx, legacy .xls, and .csv.
+  if (
+    type ===
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    type === "application/vnd.ms-excel" ||
+    ext(".xlsx") ||
+    ext(".xls") ||
+    ext(".csv")
+  ) {
+    return "xlsx";
+  }
+  // PowerPoint — OOXML only (legacy binary .ppt is not supported).
+  if (
+    type ===
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+    ext(".pptx")
+  ) {
+    return "pptx";
+  }
+
+  if (
+    type.startsWith("text/") ||
+    ext(".txt") ||
+    ext(".md") ||
+    ext(".log")
+  ) {
+    return "text";
+  }
+  return "other";
+}
+
+/** True when the given kind can be rendered inline by AttachmentDocPreview. */
+export function isInlineDocKind(kind: AttachmentKind): boolean {
+  return (
+    kind === "pdf" ||
+    kind === "docx" ||
+    kind === "xlsx" ||
+    kind === "pptx"
+  );
+}
+
+/**
  * Resolve the download URL for an attachment. The sync pipeline already stamps
  * a `url` onto stored attachments; fall back to building the canonical route
  * from the owning message id + index when it is missing.

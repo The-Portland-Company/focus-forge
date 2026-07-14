@@ -15,6 +15,12 @@ import {
 } from "lucide-react";
 import { formatReplyAttachmentSize } from "@/lib/email-reply";
 import { isPreviewableThreadAttachment } from "@/lib/email-thread-ui";
+import {
+  classifyAttachmentKind,
+  isInlineDocKind,
+  type AttachmentKind,
+} from "@/lib/email-inbox/attachments";
+import { AttachmentDocPreview } from "@/components/attachment-doc-preview";
 import type { ConversationEntry } from "@/lib/types";
 
 type ThreadAttachment = NonNullable<ConversationEntry["attachments"]>[number];
@@ -25,29 +31,11 @@ type EmailThreadAttachmentsProps = {
   defaultOpen?: boolean;
 };
 
-type AttachmentKind = "image" | "video" | "audio" | "pdf" | "text" | "other";
-
 function getAttachmentKind(attachment: {
   contentType?: string | null;
   filename?: string | null;
 }): AttachmentKind {
-  const type = (attachment.contentType || "").toLowerCase();
-  const name = (attachment.filename || "").toLowerCase();
-
-  if (type.startsWith("image/")) return "image";
-  if (type.startsWith("video/")) return "video";
-  if (type.startsWith("audio/")) return "audio";
-  if (type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
-  if (
-    type.startsWith("text/") ||
-    name.endsWith(".txt") ||
-    name.endsWith(".md") ||
-    name.endsWith(".csv") ||
-    name.endsWith(".log")
-  ) {
-    return "text";
-  }
-  return "other";
+  return classifyAttachmentKind(attachment);
 }
 
 function AttachmentKindIcon({ kind }: { kind: AttachmentKind }) {
@@ -171,12 +159,15 @@ function AttachmentFullscreenPreview({
           />
         ) : kind === "audio" ? (
           <audio src={url} controls className="w-full max-w-2xl" />
-        ) : kind === "pdf" ? (
-          <iframe
-            src={url}
-            title={attachment.filename || "PDF preview"}
-            className="h-full w-full rounded-lg border border-zinc-800 bg-white"
-          />
+        ) : kind === "pdf" || isInlineDocKind(kind) ? (
+          <div className="h-full w-full max-w-6xl">
+            <AttachmentDocPreview
+              url={url}
+              filename={attachment.filename}
+              contentType={attachment.contentType}
+              kind={kind}
+            />
+          </div>
         ) : kind === "text" ? (
           <div className="h-full w-full max-w-4xl overflow-auto rounded-lg border border-zinc-800 bg-zinc-950 p-4">
             {loadingText ? (
