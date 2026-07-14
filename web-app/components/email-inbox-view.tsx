@@ -2342,6 +2342,27 @@ export function EmailInboxView({
   // until the server returns the thread at its terminal status, so it can't
   // lapse mid-move the way the old fixed-duration tombstone did.
   const pendingRemovalsRef = useRef<PendingRemovals>(new Map());
+  // Best-effort client-side action-log beacon (debug timeline for the
+  // "deleted email reappears" race). Never awaited, never throws.
+  const beaconEmailAction = (payload: {
+    phase: "optimistic" | "realtime_event";
+    action: string;
+    threadId: string;
+    detail?: Record<string, unknown>;
+  }) => {
+    try {
+      void fetch("/api/email/action-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        keepalive: true,
+        body: JSON.stringify(payload),
+      }).catch(() => {});
+    } catch {
+      // ignore
+    }
+  };
+
   const markThreadRecentlyRemoved = (threadId: string, action: ThreadAction) => {
     markPendingRemoval(pendingRemovalsRef.current, threadId, action, Date.now());
   };
@@ -2770,6 +2791,18 @@ export function EmailInboxView({
     let wasAdded = false;
     setInboxItems((current) => {
       const existingIndex = current.findIndex((entry) => entry.id === item.id);
+      // Defense-in-depth against the "deleted email reappears" race: never add a
+      // soft-deleted thread that isn't already in local state. The realtime patch
+      // layer already refuses to request a hydrate for a deleted row, but a
+      // direct hydrate could still race a concurrent delete (fetch started while
+      // the thread was live, resolved after it was deleted). Patch it in place if
+      // we already track it (so Trash stays correct), but don't resurrect it.
+      if (
+        existingIndex === -1 &&
+        (item as InboxItem).status === "deleted"
+      ) {
+        return current;
+      }
       let next: InboxItem[];
       if (existingIndex === -1) {
         wasAdded = true;
@@ -2810,7 +2843,33 @@ export function EmailInboxView({
       (typeof change.old?.id === "string" && change.old.id) ||
       null;
     if (changedThreadId && isThreadRecentlyRemoved(changedThreadId)) {
+      beaconEmailAction({
+        phase: "realtime_event",
+        action: "suppressed_by_pending_removal",
+        threadId: changedThreadId,
+        detail: {
+          eventType: change.eventType,
+          newStatus:
+            (change.new?.status as string | undefined) ?? null,
+        },
+      });
       return;
+    }
+
+    // A realtime event whose row is already soft-deleted is exactly the
+    // resurrection vector we guard against — record it so the timeline shows
+    // when the server/AI backfill touched a deleted thread.
+    if (
+      changedThreadId &&
+      typeof change.new?.status === "string" &&
+      change.new.status === "deleted"
+    ) {
+      beaconEmailAction({
+        phase: "realtime_event",
+        action: "deleted_row_event",
+        threadId: changedThreadId,
+        detail: { eventType: change.eventType },
+      });
     }
 
     const result = applyEmailThreadRealtimeChange({
@@ -3341,6 +3400,7 @@ export function EmailInboxView({
     //    the email disappears from the list immediately (no lingering spinner).
     //    Suppress it from realtime/reconcile resurrection during the commit gap.
     markThreadRecentlyRemoved(threadId, action);
+    beaconEmailAction({ phase: "optimistic", action, threadId });
     const beforeItems = inboxSnapshotRef.current;
     const optimisticItems = applyOptimisticThreadActionState(
       beforeItems,

@@ -5,6 +5,7 @@ import {
   getThreadDetailForUser,
 } from "@/lib/email-inbox/server";
 import { writeAuditLog } from "@/lib/audit/log";
+import { logEmailAction } from "@/lib/email-inbox/action-log";
 
 export async function POST(
   request: NextRequest,
@@ -16,6 +17,12 @@ export async function POST(
   try {
     const body = await request.json();
     const params = await props.params;
+    void logEmailAction({
+      userId: auth.user.id,
+      threadId: params.id,
+      action: String(body.action ?? "unknown"),
+      phase: "requested",
+    });
     const result = await applyThreadAction({
       userId: auth.user.id,
       threadId: params.id,
@@ -65,6 +72,15 @@ export async function POST(
     }
     return NextResponse.json(result);
   } catch (error) {
+    void logEmailAction({
+      userId: auth.user.id,
+      threadId: (await props.params).id,
+      action: "unknown",
+      phase: "error",
+      detail: {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
     return NextResponse.json(
       {
         error:
