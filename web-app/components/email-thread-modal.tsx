@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Archive,
@@ -312,6 +313,14 @@ export function EmailThreadModal({
     useState(false);
   const [displayMode, setDisplayMode] =
     useState<EmailThreadDisplayMode>("centered");
+  // Live drag-to-dock state: pixel offset from the drag origin (so the panel
+  // follows the cursor) plus the edge the panel would dock to if released now
+  // (drives the edge highlight overlay). Null when not dragging.
+  const [dragDock, setDragDock] = useState<{
+    dx: number;
+    dy: number;
+    edge: "left" | "right" | "top" | "bottom" | "center";
+  } | null>(null);
   // Manual refresh (top-right + bottom of conversation) state + the timestamp
   // of the most recent successful load/refresh, shown before the user refreshes.
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -599,6 +608,33 @@ export function EmailThreadModal({
   // viewport edge to dock to that side (left/right/top/bottom); drop near the
   // center to float as a centered modal. The chosen dock is saved as the
   // default via handleSelectDisplayMode so it persists.
+  // Which edge the panel would dock to for a pointer at (x, y): the nearest
+  // viewport edge, or "center" when the pointer is far from every edge.
+  const dockEdgeForPointer = (
+    x: number,
+    y: number,
+  ): "left" | "right" | "top" | "bottom" | "center" => {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const distanceLeft = x;
+    const distanceRight = w - x;
+    const distanceTop = y;
+    const distanceBottom = h - y;
+    const nearest = Math.min(
+      distanceLeft,
+      distanceRight,
+      distanceTop,
+      distanceBottom,
+    );
+    if (nearest > Math.min(w, h) * 0.25) {
+      return "center";
+    }
+    if (nearest === distanceLeft) return "left";
+    if (nearest === distanceRight) return "right";
+    if (nearest === distanceTop) return "top";
+    return "bottom";
+  };
+
   const handleDragDockStart = (
     event: ReactPointerEvent<HTMLButtonElement>,
   ) => {
@@ -608,39 +644,33 @@ export function EmailThreadModal({
     handle.setPointerCapture(pointerId);
     document.body.classList.add("cursor-grabbing");
 
+    const startX = event.clientX;
+    const startY = event.clientY;
+    setDragDock({ dx: 0, dy: 0, edge: dockEdgeForPointer(startX, startY) });
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      // Follow the cursor and preview the dock target live.
+      setDragDock({
+        dx: moveEvent.clientX - startX,
+        dy: moveEvent.clientY - startY,
+        edge: dockEdgeForPointer(moveEvent.clientX, moveEvent.clientY),
+      });
+    };
+
     const handlePointerUp = (upEvent: PointerEvent) => {
       document.body.classList.remove("cursor-grabbing");
+      window.removeEventListener("pointermove", handlePointerMove);
       if (handle.hasPointerCapture(pointerId)) {
         handle.releasePointerCapture(pointerId);
       }
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      const distanceLeft = upEvent.clientX;
-      const distanceRight = w - upEvent.clientX;
-      const distanceTop = upEvent.clientY;
-      const distanceBottom = h - upEvent.clientY;
-      const nearest = Math.min(
-        distanceLeft,
-        distanceRight,
-        distanceTop,
-        distanceBottom,
-      );
-      // Dropped well inside the viewport (far from every edge) → centered.
-      if (nearest > Math.min(w, h) * 0.25) {
-        handleSelectDisplayMode("centered");
-        return;
-      }
+      setDragDock(null);
+      const edge = dockEdgeForPointer(upEvent.clientX, upEvent.clientY);
       const mode: EmailThreadDisplayMode =
-        nearest === distanceLeft
-          ? "docked-left"
-          : nearest === distanceRight
-            ? "docked-right"
-            : nearest === distanceTop
-              ? "docked-top"
-              : "docked-bottom";
+        edge === "center" ? "centered" : `docked-${edge}`;
       handleSelectDisplayMode(mode);
     };
 
+    window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp, { once: true });
   };
 
@@ -724,6 +754,51 @@ export function EmailThreadModal({
     isDockedRightResizable && dockedWidthPx
       ? { width: `${dockedWidthPx}px`, maxWidth: "96vw" }
       : undefined;
+
+  // While dragging, translate the panel to follow the cursor (composing with
+  // centered mode's -50%/-50% base transform) and kill transitions so it tracks
+  // 1:1. Inline transform overrides the Tailwind translate utilities.
+  const panelStyle = dragDock
+    ? {
+        ...dockedRightStyle,
+        transform:
+          displayMode === "centered"
+            ? `translate(calc(-50% + ${dragDock.dx}px), calc(-50% + ${dragDock.dy}px))`
+            : `translate(${dragDock.dx}px, ${dragDock.dy}px)`,
+        transition: "none",
+      }
+    : dockedRightStyle;
+
+  // Edge-highlight overlay shown while dragging the panel: the edge the panel
+  // would dock to lights up. Portaled to <body> so the panel's drag transform
+  // (which becomes a containing block) can't clip these fixed bars.
+  const dragOverlay =
+    dragDock && typeof document !== "undefined"
+      ? createPortal(
+          <div className="pointer-events-none fixed inset-0 z-[60]">
+            {(
+              [
+                ["left", "left-0 top-0 h-full w-[18vw] border-r-2"],
+                ["right", "right-0 top-0 h-full w-[18vw] border-l-2"],
+                ["top", "left-0 top-0 h-[18vh] w-full border-b-2"],
+                ["bottom", "left-0 bottom-0 h-[18vh] w-full border-t-2"],
+              ] as const
+            ).map(([edge, position]) => (
+              <div
+                key={edge}
+                className={cn(
+                  "absolute transition-colors duration-150",
+                  position,
+                  dragDock.edge === edge
+                    ? "border-sky-400 bg-sky-500/25"
+                    : "border-transparent bg-transparent",
+                )}
+              />
+            ))}
+          </div>,
+          document.body,
+        )
+      : null;
 
   useEffect(() => {
     setReplyStyleOverrides(
@@ -1496,9 +1571,10 @@ export function EmailThreadModal({
       <DialogPortal>
         {/* Docked modes never render the backdrop, so the app stays usable. */}
         {isDocked ? null : <DialogOverlay />}
+        {dragOverlay}
         <DialogPrimitive.Content
           ref={panelContentRef}
-          style={dockedRightStyle}
+          style={panelStyle}
           // When docked, don't steal focus back to the panel so the user can
           // keep typing in the app behind it.
           onOpenAutoFocus={isDocked ? (event) => event.preventDefault() : undefined}
