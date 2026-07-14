@@ -4878,14 +4878,10 @@ export function EmailInboxView({
                 }
               }}
               className={cn(
-                "relative inline-flex h-9 w-9 items-center justify-center border text-sm text-zinc-200 transition-colors hover:text-white",
+                "relative inline-flex h-9 w-9 items-center justify-center rounded-lg border bg-zinc-900 text-sm text-zinc-200 transition-colors hover:text-white",
                 isFilterBarCollapsed
-                  ? "rounded-lg border-zinc-700 bg-zinc-900 hover:border-zinc-600"
-                  : // Expanded: render as a tab connected to the filter-bar
-                    // panel below. Share the panel's border/background, round
-                    // only the top corners, and drop the bottom border so the
-                    // button and panel read as one connected surface.
-                    "-mb-px rounded-t-lg rounded-b-none border-zinc-800 border-b-transparent bg-zinc-950/60 text-white",
+                  ? "border-zinc-700 hover:border-zinc-600"
+                  : "border-[rgb(var(--theme-primary-rgb))]/45 text-white",
               )}
               aria-expanded={!isFilterBarCollapsed}
               aria-label={
@@ -5220,17 +5216,35 @@ export function EmailInboxView({
                   </div>
                 </div>
               ) : null}
+              {/* Connected tab: sits flush on the top-right edge of the filter
+                  panel so the expanded search/filters reads as one surface with
+                  its own tab. Rendered outside the animated (overflow-hidden)
+                  grid so it isn't clipped; the -mb-px overlap + matching bg hide
+                  the seam with the panel border below. */}
+              {!isFilterBarCollapsed ? (
+                <div className="mt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setIsFilterBarCollapsed(true)}
+                    className="relative z-10 -mb-px inline-flex items-center gap-1.5 rounded-t-lg border border-b-transparent border-zinc-800 bg-zinc-950/60 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:text-white"
+                    aria-label="Hide search and filters"
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                    Search &amp; filters
+                  </button>
+                </div>
+              ) : null}
               <div
                 className={cn(
-                  "grid transition-[grid-template-rows,opacity,margin] duration-300 ease-out",
+                  "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
                   isFilterBarCollapsed
-                    ? "mt-0 grid-rows-[0fr] opacity-0"
-                    : "mt-2 grid-rows-[1fr] opacity-100",
+                    ? "grid-rows-[0fr] opacity-0"
+                    : "grid-rows-[1fr] opacity-100",
                 )}
                 aria-hidden={isFilterBarCollapsed}
               >
                 <div className="overflow-hidden">
-                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
+                  <div className="rounded-2xl rounded-tr-none border border-zinc-800 bg-zinc-950/60 p-3">
                     {inboxSearchQuery.trim() ||
                     searchDateFrom ||
                     searchDateTo ? (
