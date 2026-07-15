@@ -41,6 +41,7 @@ When deploy or smoke fails:
 | `PGRST002`, schema cache stale, DB timeout, Supabase/PostgREST errors | **Infra / DB** | Fix Supabase/PostgREST (reload schema, migration, connectivity). **Do not** push app commits to “retry.” |
 | Build error, TypeScript error, missing module, Next compile failure | **App** | Fix code locally → **one** push. |
 | Health green but middleware still gates a public route / wrong behavior | **Deploy identity / config** | Compare health `build.git_commit` to the SHA you expected. Only then consider cache-bust or config fixes—not blind redeploys. |
+| Build OK, Railway healthcheck “service unavailable” for ~5m | **Boot blocked** | App never bound the port (side workers must not block `listen`). Fix startup; do not triple-retry blindly. |
 
 **Max one automatic/redeploy attempt after a real fix.** Do not thrash the pipeline.
 
