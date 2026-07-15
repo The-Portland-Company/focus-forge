@@ -6,6 +6,7 @@ on:
     paths:
       - "web-app/**"
       - ".github/workflows/railway-deploy.yml"
+      - "scripts/deploy-smoke.sh"
   workflow_dispatch: {}
 
 concurrency:
@@ -21,14 +22,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        if: steps.token.outputs.has_token == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: web-app/package-lock.json
-
       - name: Check Railway Token
         id: token
         shell: bash
@@ -40,6 +33,14 @@ jobs:
           fi
           echo "has_token=true" >> "${GITHUB_OUTPUT}"
 
+      - name: Setup Node
+        if: steps.token.outputs.has_token == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web-app/package-lock.json
+
       - name: Install Railway CLI
         if: steps.token.outputs.has_token == 'true'
         run: npm i -g @railway/cli@4.30.1
@@ -50,6 +51,38 @@ jobs:
         # keep it non-fatal so project tokens just skip it.
         run: railway link -p fbc264f9-bb98-4fbd-a7c6-ccbf3f728280 -e production -s app || echo "link skipped (project token)"
 
+      - name: Write build identity
+        if: steps.token.outputs.has_token == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # Tracked TS module — always included in railway up (not gitignored)
+          # node -e avoids YAML-heredoc indent issues; GITHUB_SHA / GITHUB_RUN_ID are set by Actions
+          node -e '
+            const fs = require("fs");
+            const commit = process.env.GITHUB_SHA || "unknown";
+            const builtAt = process.env.BUILT_AT || "";
+            const runId = process.env.GITHUB_RUN_ID || "";
+            const body = [
+              "/** CI rewrites this file before `railway up`. Defaults for local/dev. */",
+              "export const BUILD_INFO = {",
+              `  git_commit: ${JSON.stringify(commit)},`,
+              `  built_at: ${JSON.stringify(builtAt)},`,
+              `  run_id: ${JSON.stringify(runId)},`,
+              "} as const",
+              "",
+            ].join("\n");
+            fs.writeFileSync("web-app/lib/build-info.generated.ts", body);
+            fs.mkdirSync("web-app/public", { recursive: true });
+            fs.writeFileSync(
+              "web-app/public/build-info.json",
+              JSON.stringify({ git_commit: commit, built_at: builtAt, run_id: runId }) + "\n"
+            );
+            console.log(body);
+            console.log(fs.readFileSync("web-app/public/build-info.json", "utf8"));
+          '
+
       - name: Deploy (Retry)
         if: steps.token.outputs.has_token == 'true'
         shell: bash
@@ -57,8 +90,27 @@ jobs:
           set -euo pipefail
           mkdir -p logs
 
-          for attempt in 1 2 3; do
-            echo "railway up attempt ${attempt}/3"
+          is_transient() {
+            local log_file="$1"
+            # Transient CLI / network / Railway API — safe to retry once
+            if grep -qiE \
+              'connection reset|ECONNRESET|ETIMEDOUT|timed out|timeout|socket hang up|network|502 Bad Gateway|503 Service|429|rate limit|TLS|EOF|temporary failure|Could not connect|fetch failed|ENOTFOUND|EAI_AGAIN' \
+              "${log_file}"; then
+              # Do not treat as transient if the log clearly shows app/deploy failure
+              if grep -qiE \
+                'Healthcheck failed|healthcheck failed|container crashed|Build Failed|build failed|error Command failed|npm ERR|Next\.js build|Failed to compile|Type error|ELIFECYCLE' \
+                "${log_file}"; then
+                return 1
+              fi
+              return 0
+            fi
+            return 1
+          }
+
+          attempt=1
+          max_attempts=2
+          while [ "${attempt}" -le "${max_attempts}" ]; do
+            echo "railway up attempt ${attempt}/${max_attempts}"
             set +e
             railway up -c --path-as-root web-app --service app 2>&1 | tee "logs/railway-up-attempt-${attempt}.log"
             rc="${PIPESTATUS[0]}"
@@ -66,20 +118,37 @@ jobs:
 
             if [ "${rc}" -eq 0 ]; then
               echo "railway up succeeded"
-              break
+              exit 0
             fi
 
-            if [ "${attempt}" -eq 3 ]; then
-              echo "railway up failed after 3 attempts"
+            log_file="logs/railway-up-attempt-${attempt}.log"
+            if [ "${attempt}" -ge "${max_attempts}" ]; then
+              echo "railway up failed after ${max_attempts} attempt(s) (exit ${rc})"
+              echo "Do not re-push blindly — classify failure from logs (infra vs app)."
               exit "${rc}"
             fi
 
-            sleep 10
+            if is_transient "${log_file}"; then
+              echo "Transient CLI/network signal in logs; retrying in 15s…"
+              sleep 15
+              attempt=$((attempt + 1))
+            else
+              echo "Non-transient failure (healthcheck/build/app). Not retrying."
+              echo "Do not re-push blindly — classify failure from logs (infra vs app)."
+              exit "${rc}"
+            fi
           done
 
       - name: Railway Status
         if: steps.token.outputs.has_token == 'true'
         run: railway status --json > logs/railway-status.json
+
+      - name: Smoke production
+        if: steps.token.outputs.has_token == 'true'
+        env:
+          DEPLOY_SMOKE_URL: https://focusforge.theportlandcompany.com
+          EXPECTED_GIT_COMMIT: ${{ github.sha }}
+        run: bash scripts/deploy-smoke.sh
 
       - name: Upload Logs
         if: always()

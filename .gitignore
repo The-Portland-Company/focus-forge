@@ -17,6 +17,9 @@
 /out/
 web-app/.next/
 
+# CI-written deploy identity (also rewritten as tracked lib/build-info.generated.ts)
+web-app/public/build-info.json
+
 # production
 /build
 /dist/
