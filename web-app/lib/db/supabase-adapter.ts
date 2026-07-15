@@ -965,9 +965,6 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
       return {
         ...task,
-        tags: [],
-        reminders: [],
-        attachments: [],
         // Map snake_case to camelCase for frontend compatibility
         devnotesMeta: task.devnotes_meta,
         requiresHitl: task.requires_hitl ?? false,
