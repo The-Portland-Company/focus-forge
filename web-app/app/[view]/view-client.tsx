@@ -2781,6 +2781,30 @@ export default function ViewPage({
   };
 
   const handleAddGoal = async (goal: AddGoalPayload) => {
+    // Close the modal instantly and show the goal optimistically with a
+    // "saving" (breathing) state, then reconcile in place — no full reload.
+    setShowAddGoal(false);
+    setAddGoalSectionId(undefined);
+    setAddGoalOrder(0);
+
+    const tempId = `goal-temp-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+    const optimistic: Goal = {
+      id: tempId,
+      sectionId: goal.sectionId || undefined,
+      projectId: goal.projectId,
+      name: goal.name,
+      description: goal.description || undefined,
+      completed: false,
+      order: goal.order ?? 0,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      _saving: true,
+    };
+    setDatabase((prev: any) =>
+      prev ? { ...prev, goals: [...(prev.goals || []), optimistic] } : prev,
+    );
+
     try {
       const response = await fetch("/api/goals", {
         method: "POST",
@@ -2790,16 +2814,40 @@ export default function ViewPage({
       });
 
       if (response.ok) {
-        await fetchData();
-        setShowAddGoal(false);
-        setAddGoalSectionId(undefined);
-        setAddGoalOrder(0);
+        const created = await response.json();
+        const real = (created?.data ?? created) as Goal;
+        setDatabase((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                goals: (prev.goals || []).map((g: Goal) =>
+                  g.id === tempId ? { ...real, _saving: false } : g,
+                ),
+              }
+            : prev,
+        );
         return;
       }
 
-      const errorText = await response.text();
-      console.error("Error creating goal:", response.status, errorText);
+      // Failed: drop the optimistic goal.
+      setDatabase((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              goals: (prev.goals || []).filter((g: Goal) => g.id !== tempId),
+            }
+          : prev,
+      );
+      console.error("Error creating goal:", response.status);
     } catch (error) {
+      setDatabase((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              goals: (prev.goals || []).filter((g: Goal) => g.id !== tempId),
+            }
+          : prev,
+      );
       console.error("Error creating goal:", error);
     }
   };
