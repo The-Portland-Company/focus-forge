@@ -95,8 +95,9 @@ export default async function SharePage(props: {
     allow_public: boolean | null;
   } | null = null;
 
+  let admin: ReturnType<typeof getAdminClient>;
   try {
-    const admin = getAdminClient();
+    admin = getAdminClient();
     // Cap wait — hung PostgREST must not leave the public share route open forever.
     const query = admin
       .from("project_shares")
@@ -136,30 +137,52 @@ export default async function SharePage(props: {
   }
 
   // Load ONLY the single project tied to this token.
-  const { data: project } = await admin
-    .from("projects")
-    .select("id,name,goal,description")
-    .eq("id", share.project_id)
-    .is("deleted_at", null)
-    .maybeSingle();
+  let project: { id: string; name: string; goal: string | null; description: string | null } | null =
+    null;
+  let sections: Array<{ id: string; name: string; todoist_order: number | null }> | null = null;
+  let tasks: Array<{
+    id: string;
+    name: string;
+    completed: boolean | null;
+    section_id: string | null;
+  }> | null = null;
+
+  try {
+    const projectRes = await admin
+      .from("projects")
+      .select("id,name,goal,description")
+      .eq("id", share.project_id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    project = projectRes.data;
+    if (!project) {
+      return <Unavailable />;
+    }
+
+    const [sectionRes, taskRes] = await Promise.all([
+      admin
+        .from("sections")
+        .select("id,name,todoist_order")
+        .eq("project_id", project.id)
+        .is("deleted_at", null)
+        .order("todoist_order", { ascending: true }),
+      admin
+        .from("tasks")
+        .select("id,name,completed,section_id,todoist_order,parent_id")
+        .eq("project_id", project.id)
+        .is("deleted_at", null)
+        .order("todoist_order", { ascending: true }),
+    ]);
+    sections = sectionRes.data;
+    tasks = taskRes.data;
+  } catch (loadError) {
+    console.error("Share project load failed:", loadError);
+    return <Unavailable />;
+  }
 
   if (!project) {
     return <Unavailable />;
   }
-
-  const { data: sections } = await admin
-    .from("sections")
-    .select("id,name,todoist_order")
-    .eq("project_id", project.id)
-    .is("deleted_at", null)
-    .order("todoist_order", { ascending: true });
-
-  const { data: tasks } = await admin
-    .from("tasks")
-    .select("id,name,completed,section_id,todoist_order,parent_id")
-    .eq("project_id", project.id)
-    .is("deleted_at", null)
-    .order("todoist_order", { ascending: true });
 
   const allTasks = (tasks || []) as Array<{
     id: string;

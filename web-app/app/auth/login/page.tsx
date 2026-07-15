@@ -35,23 +35,56 @@ function LoginContent() {
     setLoading(true)
 
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      })
+      const controller = new AbortController()
+      const timeoutId = window.setTimeout(() => controller.abort(), 25_000)
 
-      const data = await response.json()
+      let response: Response
+      try {
+        response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+          signal: controller.signal,
+        })
+      } finally {
+        window.clearTimeout(timeoutId)
+      }
+
+      const raw = await response.text()
+      let data: { error?: string; success?: boolean } = {}
+      try {
+        data = raw ? (JSON.parse(raw) as { error?: string; success?: boolean }) : {}
+      } catch {
+        throw new Error(
+          raw?.trim()
+            ? `Login failed (${response.status}): ${raw.slice(0, 160)}`
+            : `Login failed (${response.status}): empty response from server`,
+        )
+      }
 
       if (!response.ok) {
-        throw new Error(data.error || 'Login failed')
+        const msg =
+          typeof data.error === 'string' && data.error.trim()
+            ? data.error
+            : `Login failed (${response.status})`
+        throw new Error(msg)
+      }
+
+      if (!data.success) {
+        throw new Error('Login failed: unexpected server response')
       }
 
       // Redirect to the original page or home
       const from = searchParams.get('from') || '/today'
       router.push(from)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError(
+          'Sign-in timed out. Database API may be recovering — wait a minute and try again.',
+        )
+      } else {
+        setError(err instanceof Error ? err.message : 'Login failed')
+      }
       setLoading(false)
     }
   }
