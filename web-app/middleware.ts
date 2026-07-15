@@ -26,6 +26,10 @@ const publicRoutes = [
   "/support",
   // Public marketing page for the Focus: Time macOS desktop app.
   "/desktop",
+  // Public read-only project share pages + their passcode-verify endpoint must
+  // render for logged-out visitors.
+  "/share",
+  "/api/share",
   "/docs/focus-time-agent",
   "/docs/focus-time-openapi",
   "/developer/api",

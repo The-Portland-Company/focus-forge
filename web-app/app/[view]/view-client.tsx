@@ -16,6 +16,7 @@ import {
   Trash2,
   Edit,
   Plus,
+  Share2,
   Bot,
   Target,
   FolderPlus,
@@ -235,6 +236,13 @@ const ProjectNotesModal = dynamic(
   () =>
     import("@/components/project-notes-modal").then(
       (mod) => mod.ProjectNotesModal,
+    ),
+  { ssr: false },
+);
+const ProjectShareModal = dynamic(
+  () =>
+    import("@/components/project-share-modal").then(
+      (mod) => mod.ProjectShareModal,
     ),
   { ssr: false },
 );
@@ -918,6 +926,7 @@ export default function ViewPage({
     emailAction: "none",
   });
   const [showProjectNotesModal, setShowProjectNotesModal] = useState(false);
+  const [showProjectShareModal, setShowProjectShareModal] = useState(false);
   const [showAutoSectionConfirm, setShowAutoSectionConfirm] = useState(false);
   const [autoSectioning, setAutoSectioning] = useState(false);
   const [selectedTodayEmailId, setSelectedTodayEmailId] = useState<
@@ -5276,64 +5285,81 @@ export default function ViewPage({
                 {organization?.name || "Organization"}
               </h1>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleOpenAddProject(orgId)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded bg-theme-gradient text-white text-sm font-medium hover:opacity-90 transition-opacity"
-                  title="New project"
-                >
-                  <Plus className="w-4 h-4" />
-                  New Project
-                </button>
-                <button
-                  onClick={() => toggleOrgColorMode(orgId)}
-                  className={`p-2 hover:bg-zinc-800 rounded transition-colors ${
-                    orgColorGradientMode[orgId]
-                      ? "text-white bg-zinc-800"
-                      : "text-zinc-400 hover:text-white"
-                  }`}
-                  title={
+                <Tooltip content="New project" side="bottom" align="end" className="inline-flex">
+                  <button
+                    onClick={() => handleOpenAddProject(orgId)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded bg-theme-gradient text-white text-sm font-medium hover:opacity-90 transition-opacity"
+                    aria-label="New project"
+                  >
+                    <Plus className="w-4 h-4" />
+                    New Project
+                  </button>
+                </Tooltip>
+                <Tooltip
+                  content={
                     orgColorGradientMode[orgId]
                       ? "Show project colors"
                       : "Show brand gradient for all projects"
                   }
+                  side="bottom"
+                  align="end"
+                  className="inline-flex"
                 >
-                  <Palette className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => handleOpenEditOrganization(orgId)}
-                  className="p-2 hover:bg-zinc-800 rounded transition-colors text-zinc-400 hover:text-white"
-                  title="Edit organization"
-                >
-                  <Edit className="w-5 h-5" />
-                </button>
+                  <button
+                    onClick={() => toggleOrgColorMode(orgId)}
+                    className={`p-2 hover:bg-zinc-800 rounded transition-colors ${
+                      orgColorGradientMode[orgId]
+                        ? "text-white bg-zinc-800"
+                        : "text-zinc-400 hover:text-white"
+                    }`}
+                    aria-label="Color mode"
+                  >
+                    <Palette className="w-5 h-5" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Edit organization" side="bottom" align="end" className="inline-flex">
+                  <button
+                    onClick={() => handleOpenEditOrganization(orgId)}
+                    className="p-2 hover:bg-zinc-800 rounded transition-colors text-zinc-400 hover:text-white"
+                    aria-label="Edit organization"
+                  >
+                    <Edit className="w-5 h-5" />
+                  </button>
+                </Tooltip>
                 {organization?.archived ? (
-                  <button
-                    onClick={() =>
-                      handleOrganizationUpdate(orgId, { archived: false })
-                    }
-                    className="p-2 hover:bg-zinc-800 rounded transition-colors text-zinc-400 hover:text-white"
-                    title="Restore organization"
-                  >
-                    <Archive className="w-5 h-5" />
-                  </button>
+                  <Tooltip content="Restore organization" side="bottom" align="end" className="inline-flex">
+                    <button
+                      onClick={() =>
+                        handleOrganizationUpdate(orgId, { archived: false })
+                      }
+                      className="p-2 hover:bg-zinc-800 rounded transition-colors text-zinc-400 hover:text-white"
+                      aria-label="Restore organization"
+                    >
+                      <Archive className="w-5 h-5" />
+                    </button>
+                  </Tooltip>
                 ) : (
-                  <button
-                    onClick={() =>
-                      handleOrganizationUpdate(orgId, { archived: true })
-                    }
-                    className="p-2 hover:bg-zinc-800 rounded transition-colors text-zinc-400 hover:text-white"
-                    title="Archive organization"
-                  >
-                    <Archive className="w-5 h-5" />
-                  </button>
+                  <Tooltip content="Archive organization" side="bottom" align="end" className="inline-flex">
+                    <button
+                      onClick={() =>
+                        handleOrganizationUpdate(orgId, { archived: true })
+                      }
+                      className="p-2 hover:bg-zinc-800 rounded transition-colors text-zinc-400 hover:text-white"
+                      aria-label="Archive organization"
+                    >
+                      <Archive className="w-5 h-5" />
+                    </button>
+                  </Tooltip>
                 )}
-                <button
-                  onClick={() => openDeleteConfirmation(orgId)}
-                  className="p-2 hover:bg-zinc-800 rounded transition-colors text-red-400 hover:text-red-300"
-                  title="Delete organization"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
+                <Tooltip content="Delete organization" side="bottom" align="end" className="inline-flex">
+                  <button
+                    onClick={() => openDeleteConfirmation(orgId)}
+                    className="p-2 hover:bg-zinc-800 rounded transition-colors text-red-400 hover:text-red-300"
+                    aria-label="Delete organization"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </Tooltip>
               </div>
             </div>
 
@@ -5937,26 +5963,54 @@ export default function ViewPage({
                   immediately), not the late-arriving `project` object, so the
                   buttons paint at 0ms. Handlers that truly need the loaded
                   project are disabled until it arrives. */}
-              <button
-                type="button"
-                disabled={!project}
-                onClick={() => setShowProjectNotesModal(true)}
-                className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                title="Project description and notes"
-                aria-label="Project description and notes"
+              <Tooltip
+                content="Project notes"
+                side="bottom"
+                align="end"
+                className="inline-flex"
               >
-                <FileText className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                disabled={!project}
-                onClick={() => handleOpenEditProject(projectId)}
-                className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                title="Project settings and DevNotes"
-                aria-label="Project settings and DevNotes"
+                <button
+                  type="button"
+                  disabled={!project}
+                  onClick={() => setShowProjectNotesModal(true)}
+                  className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Project description and notes"
+                >
+                  <FileText className="h-4 w-4" />
+                </button>
+              </Tooltip>
+              <Tooltip
+                content="Edit project"
+                side="bottom"
+                align="end"
+                className="inline-flex"
               >
-                <Edit className="h-4 w-4" />
-              </button>
+                <button
+                  type="button"
+                  disabled={!project}
+                  onClick={() => handleOpenEditProject(projectId)}
+                  className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Project settings and DevNotes"
+                >
+                  <Edit className="h-4 w-4" />
+                </button>
+              </Tooltip>
+              <Tooltip
+                content="Share project"
+                side="bottom"
+                align="end"
+                className="inline-flex"
+              >
+                <button
+                  type="button"
+                  disabled={!project}
+                  onClick={() => setShowProjectShareModal(true)}
+                  className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Share project"
+                >
+                  <Share2 className="h-4 w-4" />
+                </button>
+              </Tooltip>
               <ProjectAiExportControls projectId={projectId} />
               <Tooltip
                 content="Browse previous versions of this project's tasks and settings"
@@ -5979,15 +6033,22 @@ export default function ViewPage({
                   <History className="h-4 w-4" />
                 </button>
               </Tooltip>
-              <CreateMenuButton
-                onAddTask={() => openAddTask(projectId)}
-                onAddGoal={() => openAddGoal(projectId)}
-                onAddTaskList={() => openAddSection(projectId, undefined, 0)}
-                onAddSection={() => openAddSection(projectId, undefined, 0)}
-                buttonClassName="btn-theme-primary text-white rounded-lg p-2 flex items-center justify-center transition-all"
-                iconClassName="w-4 h-4"
+              <Tooltip
+                content="Create"
+                side="bottom"
                 align="end"
-              />
+                className="inline-flex"
+              >
+                <CreateMenuButton
+                  onAddTask={() => openAddTask(projectId)}
+                  onAddGoal={() => openAddGoal(projectId)}
+                  onAddTaskList={() => openAddSection(projectId, undefined, 0)}
+                  onAddSection={() => openAddSection(projectId, undefined, 0)}
+                  buttonClassName="btn-theme-primary text-white rounded-lg p-2 flex items-center justify-center transition-all"
+                  iconClassName="w-4 h-4"
+                  align="end"
+                />
+              </Tooltip>
             </div>
           </div>
 
@@ -6627,6 +6688,16 @@ export default function ViewPage({
               onSaveDescription={async (description) => {
                 await handleProjectUpdate(projectId, { description });
               }}
+            />
+          )}
+
+          {showProjectShareModal && (
+            <ProjectShareModal
+              isOpen
+              projectId={projectId}
+              projectName={project?.name || "Project"}
+              dateFormat={resolvedCurrentUser?.dateFormat}
+              onClose={() => setShowProjectShareModal(false)}
             />
           )}
 
