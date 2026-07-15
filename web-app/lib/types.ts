@@ -92,6 +92,8 @@ export interface Task {
   assignedTo?: string;
   assignedToName?: string;
   createdBy?: string; // User who created this task
+  agentName?: string | null; // AI agent that created this task (via API/agent)
+  agentModel?: string | null; // Model that produced it (e.g. "Claude Sonnet 4.5")
   tags: string[];
   tagBadges?: Tag[];
   completed: boolean;
@@ -190,6 +192,8 @@ export interface Goal {
   order: number;
   createdAt: string;
   updatedAt: string;
+  /** Transient UI flag: true while an optimistic goal is being persisted. */
+  _saving?: boolean;
 }
 
 export interface Comment {

@@ -79,24 +79,22 @@ export type EmailReplyAIOutput = {
 };
 
 export function formatAiGeneratedTaskName(name: string) {
-  let formatted = name.trim();
+  // Strip any emojis (including the legacy 🤖/👀/💬 decorations) and leftover
+  // whitespace so task titles are clean, plain text.
+  let formatted = name
+    .replace(
+      /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu,
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
 
   if (!formatted) {
-    return "🤖 Task.";
+    return "Task from email.";
   }
-
-  formatted = formatted.replace(/^🤖\s*/u, "");
-  formatted = formatted.replace(/👀\s*Review/g, "Review");
-  formatted = formatted.replace(/💬\s*Respond/gi, "Respond");
-  formatted = formatted.replace(/\bReview\b/g, "👀 Review");
-  formatted = formatted.replace(/\brespond\b/gi, "💬 Respond");
 
   if (!/[.!?]$/.test(formatted)) {
     formatted = `${formatted}.`;
-  }
-
-  if (!formatted.startsWith("🤖 ")) {
-    formatted = `🤖 ${formatted}`;
   }
 
   return formatted;

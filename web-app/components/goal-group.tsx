@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Circle, Target, Trash2 } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, Target, Trash2 } from "lucide-react";
 import { Goal } from "@/lib/types";
 
 /**
@@ -39,6 +39,7 @@ export function GoalGroupShell({
   const [isDragOver, setIsDragOver] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(goal.name);
+  const isSaving = goal._saving === true;
 
   const commitRename = () => {
     const trimmed = editValue.trim();
@@ -56,7 +57,7 @@ export function GoalGroupShell({
         isDragOver
           ? "border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))]/10"
           : "border-zinc-800 bg-zinc-950/40"
-      }`}
+      } ${isSaving ? "animate-breathe" : ""}`}
       onDragOver={(event) => {
         event.preventDefault();
         setIsDragOver(true);
@@ -120,11 +121,22 @@ export function GoalGroupShell({
             {goal.name}
           </button>
         )}
-        <span className="shrink-0 text-xs text-zinc-500">
-          {completedCount}/{totalCount}
-        </span>
+        {isSaving ? (
+          <span
+            className="flex shrink-0 items-center gap-1 text-xs text-[rgb(var(--theme-primary-rgb))]"
+            aria-live="polite"
+          >
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Saving…
+          </span>
+        ) : (
+          <span className="shrink-0 text-xs text-zinc-500">
+            {completedCount}/{totalCount}
+          </span>
+        )}
         <button
           type="button"
+          disabled={isSaving}
           onClick={() => {
             if (
               confirm(
@@ -134,7 +146,7 @@ export function GoalGroupShell({
               onDeleteGoal?.(goal.id);
             }
           }}
-          className="shrink-0 rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-300"
+          className="shrink-0 rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
           title="Delete goal"
           aria-label="Delete goal"
         >

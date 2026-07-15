@@ -68,6 +68,25 @@ async function fetchWithTimeout(
  */
 const VISION_MODEL = "claude-opus-4-8";
 
+/**
+ * Turn a raw model id (e.g. "claude-sonnet-4-5", "gpt-4.1", "grok-3") into a
+ * human label for task provenance ("Claude Sonnet 4.5", "GPT-4.1", "Grok 3").
+ */
+export function prettyModelLabel(model: string): string {
+  const m = model.toLowerCase();
+  if (m.startsWith("claude-")) {
+    const rest = model
+      .replace(/^claude-/i, "")
+      .replace(/-(\d+)-(\d+)$/, " $1.$2")
+      .replace(/-(\d+)$/, " $1")
+      .replace(/-/g, " ");
+    return `Claude ${rest.replace(/\b\w/g, (c) => c.toUpperCase())}`;
+  }
+  if (m.startsWith("gpt-")) return model.toUpperCase();
+  if (m.startsWith("grok-")) return `Grok ${model.replace(/^grok-/i, "")}`;
+  return model;
+}
+
 export type VisionDescribeResult = {
   /** URLs successfully ingested + described (persist these as references). */
   describedUrls: string[];
@@ -399,6 +418,10 @@ function makeOpenAICompatibleProvider(opts: {
       const deadline = deadlineInput ?? Date.now() + AGENT_DEADLINE_MS;
       const apiKey = opts.apiKey();
       if (!apiKey) throw new Error(`${opts.name}: not configured`);
+
+      // Stamp provenance so tasks this run creates record the acting model.
+      toolContext.agentName = toolContext.agentName ?? "Focus Forge Assistant";
+      toolContext.agentModel = prettyModelLabel(opts.model);
 
       const messages: any[] = [
         { role: "system", content: systemPrompt },

@@ -18,6 +18,7 @@ import {
 } from "@/lib/task-notifications";
 import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
+import { BARTOK_USER_ID } from "@/lib/agents/bartok";
 
 export async function GET(request: NextRequest) {
   try {
@@ -170,6 +171,12 @@ export async function POST(request: NextRequest) {
             devnotes_meta: normalizedTaskContent.devnotesMeta,
           }
         : {}),
+      // Tasks created programmatically default to the Bartok agent user unless
+      // the caller explicitly assigns them to someone else.
+      assigned_to:
+        payload.assigned_to !== undefined
+          ? payload.assigned_to
+          : BARTOK_USER_ID,
       created_at: payload.created_at || now,
       updated_at: now,
       completed: payload.completed ?? false,
