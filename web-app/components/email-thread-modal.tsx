@@ -52,6 +52,7 @@ import { EmailThreadAttachments } from "@/components/email-thread-attachments";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Tooltip } from "@/components/tooltip";
 import { EmailSignatureContent } from "@/components/email-signature-content";
+import { resolveAttachmentUrl } from "@/lib/email-inbox/attachments";
 import {
   Dialog,
   DialogDescription,
@@ -235,6 +236,30 @@ function getThreadEntryPreview(
   return flattened.length <= maxLength
     ? flattened
     : `${flattened.slice(0, maxLength).trimEnd()}…`;
+}
+
+/**
+ * Build a Content-ID -> download URL map from a message's attachments so the
+ * HTML sanitizer can rewrite inline `cid:` image sources (which browsers cannot
+ * resolve) to the stored attachment URL. Keyed by normalized cid (no "cid:"
+ * prefix, no angle brackets, lowercased).
+ */
+function buildEntryCidMap(
+  entry: Pick<ConversationEntry, "id" | "attachments">,
+): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const attachment of entry.attachments || []) {
+    if (!attachment.cid) continue;
+    const url = resolveAttachmentUrl(entry.id, attachment);
+    if (!url) continue;
+    const key = attachment.cid
+      .replace(/^cid:/i, "")
+      .replace(/^<|>$/g, "")
+      .trim()
+      .toLowerCase();
+    if (key) map[key] = url;
+  }
+  return map;
 }
 
 /**
@@ -512,6 +537,7 @@ export function EmailThreadModal({
                     }
                     hideSignatures={hideEmailSignatures}
                     renderMode={emailHtmlRenderMode}
+                    cidMap={buildEntryCidMap(entry)}
                     contentClassName="break-words text-sm leading-6 text-zinc-300"
                     signatureClassName="break-words text-sm leading-6 text-zinc-300 opacity-90"
                   />
@@ -2469,6 +2495,11 @@ export function EmailThreadModal({
                       }
                       hideSignatures={hideEmailSignatures}
                       renderMode={emailHtmlRenderMode}
+                      cidMap={
+                        primaryThreadEntry
+                          ? buildEntryCidMap(primaryThreadEntry)
+                          : undefined
+                      }
                       contentClassName="break-words text-sm leading-6 text-zinc-200"
                       signatureClassName="break-words text-sm leading-6 text-zinc-200 opacity-90"
                     />
@@ -2631,6 +2662,7 @@ export function EmailThreadModal({
                               }
                               hideSignatures={hideEmailSignatures}
                               renderMode={emailHtmlRenderMode}
+                              cidMap={buildEntryCidMap(entry)}
                               contentClassName="break-words text-sm leading-6 text-zinc-300"
                               signatureClassName="break-words text-sm leading-6 text-zinc-300 opacity-90"
                             />

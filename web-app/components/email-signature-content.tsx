@@ -17,6 +17,8 @@ type EmailSignatureContentProps = {
   contentClassName?: string;
   collapsedClassName?: string;
   signatureClassName?: string;
+  /** Content-ID -> download URL map for inline (cid:) images. */
+  cidMap?: Record<string, string>;
 };
 
 export function EmailSignatureContent({
@@ -28,6 +30,7 @@ export function EmailSignatureContent({
   contentClassName,
   collapsedClassName,
   signatureClassName,
+  cidMap,
 }: EmailSignatureContentProps) {
   const [isOpen, setIsOpen] = useState(false);
   const parts = useMemo(
@@ -46,7 +49,13 @@ export function EmailSignatureContent({
   ) => {
     if (contentHtml) {
       if (contentKind === "email" && renderMode === "preserve") {
-        return <EmailHtmlContent html={contentHtml} className={className} />;
+        return (
+          <EmailHtmlContent
+            html={contentHtml}
+            className={className}
+            cidMap={cidMap}
+          />
+        );
       }
 
       return <RichTextContent html={contentHtml} className={className} />;

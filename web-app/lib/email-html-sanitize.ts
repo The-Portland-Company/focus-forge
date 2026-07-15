@@ -185,10 +185,27 @@ function appendStyle(
     .join("; ");
 }
 
-export function sanitizeEmailHtml(value: string | null | undefined) {
+/**
+ * Normalize a Content-ID for lookup: strip a leading "cid:", surrounding angle
+ * brackets, and lowercase. Matches how message attachments store their `cid`.
+ */
+function normalizeCid(value: string): string {
+  return value
+    .replace(/^cid:/i, "")
+    .replace(/^<|>$/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+export function sanitizeEmailHtml(
+  value: string | null | undefined,
+  options?: { cidMap?: Record<string, string> },
+) {
   if (!value) {
     return "";
   }
+
+  const cidMap = options?.cidMap;
 
   DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
     if (data.attrName === "style") {
@@ -202,6 +219,20 @@ export function sanitizeEmailHtml(value: string | null | undefined) {
     const tagName = element.tagName?.toLowerCase();
 
     if (tagName === "img") {
+      // Inline images are embedded via `cid:` Content-IDs, which browsers
+      // cannot resolve — they render broken. Rewrite them to the stored
+      // attachment download URL, or drop the img if we have no mapping.
+      const src = element.getAttribute("src");
+      if (src && /^cid:/i.test(src)) {
+        const resolved = cidMap?.[normalizeCid(src)];
+        if (resolved) {
+          element.setAttribute("src", resolved);
+        } else {
+          element.remove();
+          return;
+        }
+      }
+
       const width = element.getAttribute("width");
       const height = element.getAttribute("height");
       let style = element.getAttribute("style");
