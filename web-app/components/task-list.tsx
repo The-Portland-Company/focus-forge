@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState, useEffect } from "react";
 import { Task, Project } from "@/lib/types";
+import { ProjectQuickPicker } from "@/components/project-quick-picker";
 import {
   Circle,
   CheckCircle2,
@@ -878,7 +879,22 @@ export function TaskList({
             const projectId = (task as any).project_id || task.projectId;
             if (!projectId) return null;
             const project = projects.find((p) => p.id === projectId);
-            return project ? (
+            if (!project) return null;
+            // Clickable badge → type-to-search picker to move the task to
+            // another project. Falls back to a static badge when no update
+            // handler is wired for this list.
+            return onTaskUpdate ? (
+              <ProjectQuickPicker
+                project={project}
+                projects={projects}
+                onSelect={(newProjectId) =>
+                  onTaskUpdate(task.id, {
+                    projectId: newProjectId,
+                    project_id: newProjectId,
+                  } as any)
+                }
+              />
+            ) : (
               <span className="relative group/projectleft flex flex-shrink-0 items-center justify-center w-4">
                 <span
                   className="w-4 h-4 rounded-full flex items-center justify-center text-[6px] font-bold text-white"
@@ -890,7 +906,7 @@ export function TaskList({
                   {project.name}
                 </span>
               </span>
-            ) : null;
+            );
           })()}
 
         <div

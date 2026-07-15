@@ -7,13 +7,16 @@ import { cn } from "@/lib/utils";
 interface EmailHtmlContentProps {
   html?: string | null;
   className?: string;
+  /** Content-ID -> download URL map for inline (cid:) images. */
+  cidMap?: Record<string, string>;
 }
 
 export function EmailHtmlContent({
   html,
   className,
+  cidMap,
 }: EmailHtmlContentProps) {
-  const safeHtml = sanitizeEmailHtml(html);
+  const safeHtml = sanitizeEmailHtml(html, { cidMap });
 
   if (!safeHtml) return null;
 

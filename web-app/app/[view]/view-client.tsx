@@ -268,6 +268,55 @@ const TodoistQuickSyncModal = dynamic(
 const getTaskAssignedTo = (task: Task) =>
   ((task as any).assigned_to as string | undefined) || task.assignedTo || null;
 
+/**
+ * Overlay an optimistic edit patch onto a task, normalizing the camelCase /
+ * snake_case pairs the quick-edit shortcuts touch (due date/time, project,
+ * section, assignee). Used both when applying the optimistic update and when
+ * re-applying still-pending edits over a fresh fetchData payload so a
+ * concurrent refetch cannot revert them.
+ */
+const overlayTaskPatch = (task: any, updates: Record<string, unknown>) => {
+  const has = (k: string) =>
+    Object.prototype.hasOwnProperty.call(updates, k);
+  const pick = (camel: string, snake: string, current: any) =>
+    has(camel) || has(snake)
+      ? ((updates as any)[camel] ?? (updates as any)[snake] ?? null)
+      : current;
+
+  const dueDate = pick("dueDate", "due_date", task.due_date ?? task.dueDate ?? null);
+  const dueTime = pick("dueTime", "due_time", task.due_time ?? task.dueTime ?? null);
+  const projectId = pick(
+    "projectId",
+    "project_id",
+    task.project_id ?? task.projectId ?? null,
+  );
+  const sectionId = pick(
+    "sectionId",
+    "section_id",
+    task.section_id ?? task.sectionId ?? null,
+  );
+  const assignedTo = pick(
+    "assignedTo",
+    "assigned_to",
+    task.assigned_to ?? task.assignedTo ?? null,
+  );
+
+  return {
+    ...task,
+    ...updates,
+    dueDate: dueDate ?? undefined,
+    due_date: dueDate,
+    dueTime: dueTime ?? undefined,
+    due_time: dueTime,
+    projectId: projectId ?? undefined,
+    project_id: projectId,
+    sectionId: sectionId ?? undefined,
+    section_id: sectionId,
+    assignedTo: assignedTo ?? undefined,
+    assigned_to: assignedTo,
+  };
+};
+
 const getTaskTagIds = (task: Task) => {
   const tagIds = new Set<string>();
   (task.tags || []).forEach((tagId) => tagIds.add(tagId));
@@ -582,6 +631,15 @@ export default function ViewPage({
   // Synchronous mirror of recentlySavedTaskIds so the background-refresh diff
   // can exclude self-edited rows without depending on render state.
   const recentlySavedTaskIdsRef = useRef<Set<string>>(new Set());
+  // Optimistic task edits (clear date, change project, reassign, …) that have
+  // not yet been confirmed by their own post-save refetch. A concurrent
+  // background/realtime fetchData that started before the edit can otherwise
+  // resolve afterwards and resurrect the old value, causing a flicker
+  // (disappear → reappear → disappear). We overlay these patches on every
+  // fetchData result until the edit's own refetch clears the entry.
+  const pendingTaskMutationsRef = useRef<Map<string, Record<string, unknown>>>(
+    new Map(),
+  );
   const [showTodoistSync, setShowTodoistSync] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
   const [addTaskDefaults, setAddTaskDefaults] = useState<{
@@ -1000,10 +1058,25 @@ export default function ViewPage({
           }
 
           setDatabase((previous) => {
-            const merged = mergeDatabasePayload(previous, data, {
+            const mergedRaw = mergeDatabasePayload(previous, data, {
               preserveInboxItems: !includeInboxItems,
               preserveEmailData: !includeEmailData,
             });
+
+            // Re-apply any still-pending optimistic task edits so a refetch
+            // that started before the edit can't resurrect the old value.
+            const pending = pendingTaskMutationsRef.current;
+            const merged =
+              pending.size > 0
+                ? {
+                    ...mergedRaw,
+                    tasks: mergedRaw.tasks.map((task: any) =>
+                      pending.has(task.id)
+                        ? overlayTaskPatch(task, pending.get(task.id)!)
+                        : task,
+                    ),
+                  }
+                : mergedRaw;
 
             // Diff only on a background refresh (previous data present). The
             // diff is cheap (id → updatedAt maps) and returns empty on first
@@ -3028,6 +3101,8 @@ export default function ViewPage({
         updated_at: now,
       };
 
+      pendingTaskMutationsRef.current.set(taskId, persistUpdates);
+
       setDatabase((prev) => {
         if (!prev) return prev;
         return {
@@ -3108,6 +3183,8 @@ export default function ViewPage({
           error instanceof Error ? error.message : "Unable to update task.",
         );
         await fetchData();
+      } finally {
+        pendingTaskMutationsRef.current.delete(taskId);
       }
     },
     [currentUserDisplayName, currentUserId, fetchData, showError, showInfo],
@@ -3949,34 +4026,16 @@ export default function ViewPage({
         taskId: string,
         updates: Partial<Task>,
       ) => {
+        // Track this edit as pending so a concurrent refetch can't revert it
+        // (fetchData re-overlays pending edits until we clear this below).
+        pendingTaskMutationsRef.current.set(taskId, updates as any);
         setDatabase((prev) => {
           if (!prev) return prev;
-          const updatesAny = updates as any;
           return {
             ...prev,
-            tasks: prev.tasks.map((task) => {
-              if (task.id !== taskId) return task;
-              const hasDueDate =
-                Object.prototype.hasOwnProperty.call(updatesAny, "due_date") ||
-                Object.prototype.hasOwnProperty.call(updatesAny, "dueDate");
-              const hasDueTime =
-                Object.prototype.hasOwnProperty.call(updatesAny, "due_time") ||
-                Object.prototype.hasOwnProperty.call(updatesAny, "dueTime");
-              const nextDueDate = hasDueDate
-                ? (updatesAny.due_date ?? updatesAny.dueDate ?? null)
-                : ((task as any).due_date ?? task.dueDate ?? null);
-              const nextDueTime = hasDueTime
-                ? (updatesAny.due_time ?? updatesAny.dueTime ?? null)
-                : ((task as any).due_time ?? task.dueTime ?? null);
-              return {
-                ...task,
-                ...updates,
-                dueDate: nextDueDate ?? undefined,
-                dueTime: nextDueTime ?? undefined,
-                due_date: nextDueDate,
-                due_time: nextDueTime,
-              } as any;
-            }),
+            tasks: prev.tasks.map((task) =>
+              task.id === taskId ? overlayTaskPatch(task, updates as any) : task,
+            ),
           };
         });
         try {
@@ -3986,15 +4045,17 @@ export default function ViewPage({
             credentials: "include",
             body: JSON.stringify(updates),
           });
-
-          if (response.ok) {
-            await fetchData();
-          } else {
-            await fetchData();
+          if (!response.ok) {
+            console.error("Failed to update task:", response.status);
           }
+          await fetchData();
         } catch (error) {
           console.error("Error updating task:", error);
           await fetchData();
+        } finally {
+          // Server state is now authoritative (the awaited fetchData reflects
+          // the committed value); stop overlaying this edit.
+          pendingTaskMutationsRef.current.delete(taskId);
         }
       };
 
