@@ -12,17 +12,19 @@ interface EditTaskModalProps {
   onDelete: (taskId: string) => void
   onDataRefresh?: () => void
   onTaskSelect?: (task: Task) => void
+  defaultGoalId?: string
 }
 
-export function EditTaskModal({ 
-  isOpen, 
-  onClose, 
-  task, 
-  data, 
-  onSave, 
-  onDelete, 
-  onDataRefresh, 
-  onTaskSelect 
+export function EditTaskModal({
+  isOpen,
+  onClose,
+  task,
+  data,
+  onSave,
+  onDelete,
+  onDataRefresh,
+  onTaskSelect,
+  defaultGoalId,
 }: EditTaskModalProps) {
   return (
     <TaskModal
@@ -34,6 +36,7 @@ export function EditTaskModal({
       onDelete={onDelete}
       onDataRefresh={onDataRefresh}
       onTaskSelect={onTaskSelect}
+      defaultGoalId={defaultGoalId}
     />
   )
 }

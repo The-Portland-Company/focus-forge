@@ -11,16 +11,18 @@ interface AddTaskModalProps {
   onDataRefresh?: () => void
   defaultProjectId?: string
   defaultSectionId?: string
+  defaultGoalId?: string
 }
 
-export function AddTaskModal({ 
-  isOpen, 
-  onClose, 
-  data, 
-  onAddTask, 
-  onDataRefresh, 
+export function AddTaskModal({
+  isOpen,
+  onClose,
+  data,
+  onAddTask,
+  onDataRefresh,
   defaultProjectId,
   defaultSectionId,
+  defaultGoalId,
 }: AddTaskModalProps) {
   return (
     <TaskModal
@@ -31,6 +33,7 @@ export function AddTaskModal({
       onDataRefresh={onDataRefresh}
       defaultProjectId={defaultProjectId}
       defaultSectionId={defaultSectionId}
+      defaultGoalId={defaultGoalId}
     />
   )
 }

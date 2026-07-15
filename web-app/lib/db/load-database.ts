@@ -86,6 +86,7 @@ export async function loadDatabaseForUser(
   let tasks: any[] = [];
   let tags: any[] = [];
   let sections: any[] = [];
+  let goals: any[] = [];
   let taskSections: any[] = [];
   let mailboxes: any[] = [];
   let inboxItems: any[] = [];
@@ -157,6 +158,38 @@ export async function loadDatabaseForUser(
     }
   } catch (error) {
     console.error("Error mapping sections:", error);
+  }
+
+  try {
+    const projectIds = projects.map((project: any) => project.id).filter(Boolean);
+    if (projectIds.length > 0) {
+      const { data: goalRows, error: goalsError } = await supabase
+        .from("goals")
+        .select("*")
+        .in("project_id", projectIds)
+        .is("deleted_at", null)
+        .order("order_index", { ascending: true })
+        .order("created_at", { ascending: true });
+
+      if (goalsError) {
+        console.error("Error fetching goals:", goalsError);
+      } else {
+        goals = (goalRows || []).map((row: any) => ({
+          id: row.id,
+          sectionId: row.section_id || undefined,
+          projectId: row.project_id,
+          name: row.name,
+          description: row.description || undefined,
+          completed: row.completed ?? false,
+          completedAt: row.completed_at || undefined,
+          order: row.order_index ?? 0,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }));
+      }
+    }
+  } catch (error) {
+    console.error("Error mapping goals:", error);
   }
 
   try {
@@ -400,6 +433,7 @@ export async function loadDatabaseForUser(
     sentCount,
     tags,
     sections,
+    goals,
     reminders: [],
     userSectionPreferences: [],
     settings: { showCompletedTasks: true },

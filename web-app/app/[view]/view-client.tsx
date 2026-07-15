@@ -52,9 +52,10 @@ import { TaskList } from "@/components/task-list";
 import { AiTaskRefinementModal } from "@/components/ai-task-refinement-modal";
 import { KanbanView } from "@/components/kanban-view";
 import { ColorPicker } from "@/components/color-picker";
-import { Database, Task, Project, Organization, Section } from "@/lib/types";
+import { Database, Task, Project, Organization, Section, Goal } from "@/lib/types";
 import { SectionView } from "@/components/section-view";
 import { AddSectionModal } from "@/components/add-section-modal";
+import { AddGoalModal, AddGoalPayload } from "@/components/add-goal-modal";
 import { AddSectionDivider } from "@/components/add-section-divider";
 import { EmailWorkList } from "@/components/email-work-list";
 import { Tooltip } from "@/components/tooltip";
@@ -685,6 +686,12 @@ export default function ViewPage({
   );
   const [sectionOrder, setSectionOrder] = useState(0);
   const [editingSection, setEditingSection] = useState<Section | null>(null);
+  const [showAddGoal, setShowAddGoal] = useState(false);
+  const [addGoalSectionId, setAddGoalSectionId] = useState<string | undefined>(
+    undefined,
+  );
+  const [addGoalProjectId, setAddGoalProjectId] = useState<string>("");
+  const [addGoalOrder, setAddGoalOrder] = useState(0);
   const [upcomingFilterType, setUpcomingFilterType] = useState<
     "dueDate" | "deadline"
   >("dueDate");
@@ -2569,8 +2576,10 @@ export default function ViewPage({
           ? ({
               ...task,
               sectionId,
+              goalId: null,
               updatedAt: movedAt,
               section_id: sectionId,
+              goal_id: null,
               updated_at: movedAt,
             } as any)
           : task,
@@ -2600,7 +2609,7 @@ export default function ViewPage({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ sectionId }),
+        body: JSON.stringify({ sectionId, goalId: null }),
       });
 
       if (!taskUpdateResponse.ok) {
@@ -2655,8 +2664,10 @@ export default function ViewPage({
             ? ({
                 ...candidate,
                 sectionId: null,
+                goalId: null,
                 updatedAt: movedAt,
                 section_id: null,
+                goal_id: null,
                 updated_at: movedAt,
               } as any)
             : candidate,
@@ -2672,7 +2683,7 @@ export default function ViewPage({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ sectionId: null }),
+        body: JSON.stringify({ sectionId: null, goalId: null }),
       });
 
       if (!taskUpdateResponse.ok) {
@@ -2724,6 +2735,167 @@ export default function ViewPage({
     setSectionParentId(parentId);
     setSectionOrder(order || 0);
     setShowAddSection(true);
+  };
+
+  const openAddGoal = (
+    projectId: string,
+    sectionId?: string,
+    order?: number,
+  ) => {
+    setAddGoalProjectId(projectId);
+    setAddGoalSectionId(sectionId);
+    setAddGoalOrder(order || 0);
+    setShowAddGoal(true);
+  };
+
+  const handleAddGoal = async (goal: AddGoalPayload) => {
+    try {
+      const response = await fetch("/api/goals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(goal),
+      });
+
+      if (response.ok) {
+        await fetchData();
+        setShowAddGoal(false);
+        setAddGoalSectionId(undefined);
+        setAddGoalOrder(0);
+        return;
+      }
+
+      const errorText = await response.text();
+      console.error("Error creating goal:", response.status, errorText);
+    } catch (error) {
+      console.error("Error creating goal:", error);
+    }
+  };
+
+  const handleTaskDropToGoal = async (
+    taskId: string,
+    goalId: string,
+    sectionId?: string,
+  ) => {
+    const movedAt = new Date().toISOString();
+    // Resolve the goal's own section so a cross-section drop pulls the task
+    // into the goal's section too.
+    const goal = database?.goals?.find((g) => g.id === goalId);
+    const goalSectionId =
+      (goal?.sectionId || (goal as any)?.section_id || sectionId) ?? null;
+
+    setDatabase((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        tasks: prev.tasks.map((task) =>
+          task.id === taskId
+            ? ({
+                ...task,
+                goalId,
+                sectionId: goalSectionId,
+                updatedAt: movedAt,
+                goal_id: goalId,
+                section_id: goalSectionId,
+                updated_at: movedAt,
+              } as any)
+            : task,
+        ),
+      };
+    });
+
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ goalId, sectionId: goalSectionId }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to move task to goal: ${errorText}`);
+      }
+
+      await fetchData();
+    } catch (error) {
+      console.error("Error moving task to goal:", error);
+      await fetchData();
+    }
+  };
+
+  const handleCompleteGoal = async (goalId: string, completed: boolean) => {
+    setDatabase((prev) => {
+      if (!prev || !prev.goals) return prev;
+      return {
+        ...prev,
+        goals: prev.goals.map((goal) =>
+          goal.id === goalId
+            ? { ...goal, completed, updatedAt: new Date().toISOString() }
+            : goal,
+        ),
+      };
+    });
+    try {
+      const response = await fetch(`/api/goals/${goalId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ completed }),
+      });
+      if (!response.ok) {
+        console.error("Error completing goal:", await response.text());
+      }
+      await fetchData();
+    } catch (error) {
+      console.error("Error completing goal:", error);
+      await fetchData();
+    }
+  };
+
+  const handleRenameGoal = async (goalId: string, name: string) => {
+    setDatabase((prev) => {
+      if (!prev || !prev.goals) return prev;
+      return {
+        ...prev,
+        goals: prev.goals.map((goal) =>
+          goal.id === goalId
+            ? { ...goal, name, updatedAt: new Date().toISOString() }
+            : goal,
+        ),
+      };
+    });
+    try {
+      const response = await fetch(`/api/goals/${goalId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name }),
+      });
+      if (!response.ok) {
+        console.error("Error renaming goal:", await response.text());
+      }
+      await fetchData();
+    } catch (error) {
+      console.error("Error renaming goal:", error);
+      await fetchData();
+    }
+  };
+
+  const handleDeleteGoal = async (goalId: string) => {
+    try {
+      const response = await fetch(`/api/goals/${goalId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (response.ok) {
+        await fetchData();
+      } else {
+        console.error("Error deleting goal:", await response.text());
+      }
+    } catch (error) {
+      console.error("Error deleting goal:", error);
+    }
   };
 
   const openAddTask = (projectId?: string, sectionId?: string) => {
@@ -2873,6 +3045,7 @@ export default function ViewPage({
       showEditOrganization ||
       showEditProject ||
       showAddSection ||
+      showAddGoal ||
       showBulkEditModal ||
       showProjectNotesModal ||
       showAutoSectionConfirm ||
@@ -3134,6 +3307,7 @@ export default function ViewPage({
     showAddOrganization,
     showAddProject,
     showAddSection,
+    showAddGoal,
     showAddTask,
     showAutoSectionConfirm,
     showBulkEditModal,
@@ -3225,12 +3399,18 @@ export default function ViewPage({
       );
     });
 
+    const projectGoals =
+      (database.goals || [])
+        .filter((g) => ((g as any).project_id || g.projectId) === projectId)
+        .sort((a, b) => (a.order || 0) - (b.order || 0)) || [];
+
     return {
       projectId,
       project,
       projectTasks,
       projectSections,
       unassignedTasks,
+      projectGoals,
     };
   }, [database, view]);
 
@@ -5168,6 +5348,29 @@ export default function ViewPage({
           addTaskToSection(sectionId, task),
         );
       }
+
+      // Goal indexes (parallel to sectionTasksBySectionId). Group this
+      // project's goals by sectionId (null key = project-level) and group
+      // visible tasks by goalId.
+      const projectGoals = projectViewData?.projectGoals || [];
+      const goalsBySectionId = new Map<string | null, Goal[]>();
+      for (const goal of projectGoals) {
+        const key = (goal.sectionId || (goal as any).section_id || null) as
+          | string
+          | null;
+        const list = goalsBySectionId.get(key) || [];
+        list.push(goal);
+        goalsBySectionId.set(key, list);
+      }
+      const goalTasksByGoalId = new Map<string, Task[]>();
+      for (const task of visibleProjectTasks) {
+        const goalId = task.goalId || (task as any).goal_id;
+        if (!goalId) continue;
+        const list = goalTasksByGoalId.get(goalId) || [];
+        list.push(task);
+        goalTasksByGoalId.set(goalId, list);
+      }
+
       const sectionHasVisibleTasks = (sectionId: string): boolean => {
         if ((sectionTasksBySectionId.get(sectionId)?.length || 0) > 0) {
           return true;
@@ -5765,6 +5968,8 @@ export default function ViewPage({
                     freshlyUpdatedTaskIds={freshlyUpdatedTaskIds}
                     sectionTasksBySectionId={sectionTasksBySectionId}
                     childSectionsByParentId={sectionChildrenByParent}
+                    goalsBySectionId={goalsBySectionId}
+                    goalTasksByGoalId={goalTasksByGoalId}
                     autoSectioning={autoSectioning}
                     onTaskFocus={focusTaskRow}
                     onTaskToggle={handleTaskToggle}
@@ -5784,6 +5989,13 @@ export default function ViewPage({
                     onAutoOrganizeUnassigned={() =>
                       setShowAutoSectionConfirm(true)
                     }
+                    onTaskDropToGoal={handleTaskDropToGoal}
+                    onAddGoal={(targetProjectId, sectionId) =>
+                      openAddGoal(targetProjectId, sectionId)
+                    }
+                    onCompleteGoal={handleCompleteGoal}
+                    onRenameGoal={handleRenameGoal}
+                    onDeleteGoal={handleDeleteGoal}
                   />
                 )}
               </>
@@ -6346,6 +6558,21 @@ export default function ViewPage({
           projectId={view.replace("project-", "")}
           parentId={sectionParentId}
           order={sectionOrder}
+        />
+      )}
+
+      {view.startsWith("project-") && showAddGoal && (
+        <AddGoalModal
+          isOpen
+          onClose={() => {
+            setShowAddGoal(false);
+            setAddGoalSectionId(undefined);
+            setAddGoalOrder(0);
+          }}
+          onSave={handleAddGoal}
+          projectId={addGoalProjectId || view.replace("project-", "")}
+          sectionId={addGoalSectionId}
+          order={addGoalOrder}
         />
       )}
 

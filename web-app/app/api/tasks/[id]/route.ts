@@ -66,6 +66,34 @@ export async function PUT(
       .eq("id", params.id)
       .maybeSingle()) as { data: any };
     const adapter = new SupabaseAdapter(supabase, session.user.id);
+
+    // If a goal is (re)assigned to a non-null value, it must be a live goal in
+    // the task's project (mirrors how sectionId moves are validated elsewhere).
+    const goalId = updates?.goalId ?? updates?.goal_id ?? undefined;
+    if (typeof goalId === "string" && goalId) {
+      const targetProjectId =
+        updates?.projectId ?? existingTask?.project_id ?? null;
+      const { data: goal } = await supabase
+        .from("goals")
+        .select("id,project_id")
+        .eq("id", goalId)
+        .is("deleted_at", null)
+        .maybeSingle();
+
+      if (!goal) {
+        return NextResponse.json(
+          { error: "goalId must reference a live goal" },
+          { status: 400 },
+        );
+      }
+      if (targetProjectId && (goal as any).project_id !== targetProjectId) {
+        return NextResponse.json(
+          { error: "goalId must reference a goal in the same project" },
+          { status: 400 },
+        );
+      }
+    }
+
     const normalizedTaskContent =
       updates?.description !== undefined ||
       updates?.devnotesMeta !== undefined ||

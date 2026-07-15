@@ -33,6 +33,7 @@ import {
   FileText,
   UserCheck,
   Sparkles,
+  Target,
 } from "lucide-react";
 import type {
   Database,
@@ -107,6 +108,7 @@ interface TaskModalProps {
   onDataRefresh?: () => void;
   defaultProjectId?: string;
   defaultSectionId?: string;
+  defaultGoalId?: string;
   onTaskSelect?: (task: Task) => void;
   onRequestNewDependencyTask?: (seedName?: string) => Promise<Task | null>;
   onRequestNewProject?: (
@@ -130,6 +132,7 @@ export function TaskModal({
   onDataRefresh,
   defaultProjectId,
   defaultSectionId,
+  defaultGoalId,
   onTaskSelect,
   onRequestNewDependencyTask,
   onRequestNewProject,
@@ -155,6 +158,9 @@ export function TaskModal({
   );
   const [selectedParentTask, setSelectedParentTask] = useState<string | null>(
     null,
+  );
+  const [selectedGoalId, setSelectedGoalId] = useState<string>(
+    defaultGoalId || "",
   );
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [showReminderInput, setShowReminderInput] = useState(false);
@@ -274,6 +280,7 @@ export function TaskModal({
       // Handle both snake_case and camelCase for parentId
       const parentId = (task as any).parent_id || task.parentId;
       setSelectedParentTask(parentId || null);
+      setSelectedGoalId((task as any).goal_id || task.goalId || "");
       setSelectedTags(task.tags || []);
       // Handle both snake_case and camelCase for assignedTo
       const assignedTo = (task as any).assigned_to || task.assignedTo;
@@ -334,6 +341,7 @@ export function TaskModal({
       setRequiresHitl(false);
       setSelectedProject(defaultProjectId || "");
       setSelectedParentTask(null);
+      setSelectedGoalId(defaultGoalId || "");
       setReminders([]);
       setSelectedTags([]);
       setAssignedTo(authUser?.id ?? null);
@@ -559,6 +567,7 @@ export function TaskModal({
       dependsOn: dependencies.length > 0 ? dependencies : undefined,
       recurringPattern: serializeRecurringConfig(recurringConfig),
       sectionId: defaultSectionId || undefined,
+      goalId: selectedGoalId || (isEditMode ? null : undefined),
       timeEstimate:
         timeEstimate !== "" ? parseInt(timeEstimate, 10) : isEditMode ? null : undefined,
       startDate: nextStartDate,
@@ -2153,6 +2162,42 @@ export function TaskModal({
               </div>
             </div>
           </div>
+
+          {/* Goal */}
+          {(() => {
+            const goalProjectId = selectedProject || defaultProjectId || "";
+            const availableGoals = (data.goals || []).filter((goal) => {
+              const gProjectId = (goal as any).project_id || goal.projectId;
+              if (gProjectId !== goalProjectId) return false;
+              if (goal.completed) return false;
+              const gSectionId = (goal as any).section_id || goal.sectionId;
+              // Show project-level goals plus goals in the task's section (if any).
+              if (!gSectionId) return true;
+              if (defaultSectionId) return gSectionId === defaultSectionId;
+              return true;
+            });
+            if (availableGoals.length === 0 && !selectedGoalId) return null;
+            return (
+              <div>
+                <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
+                  <Target className="w-4 h-4" />
+                  Goal
+                </div>
+                <select
+                  value={selectedGoalId}
+                  onChange={(e) => setSelectedGoalId(e.target.value)}
+                  className="w-full bg-zinc-800 text-white rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary)]"
+                >
+                  <option value="">No goal</option>
+                  {availableGoals.map((goal) => (
+                    <option key={goal.id} value={goal.id}>
+                      {goal.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })()}
 
           {/* Time Estimate */}
           <div>
