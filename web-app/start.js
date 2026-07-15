@@ -57,10 +57,6 @@ async function main() {
   const handle = app.getRequestHandler();
 
   await app.prepare();
-  stopEmailWorker = await startEmailLiveSyncWorker({
-    exitOnShutdown: false,
-    registerSignalHandlers: false,
-  });
 
   server = http.createServer((request, response) => {
     void handle(request, response).catch((error) => {
@@ -75,9 +71,28 @@ async function main() {
     process.exit(1);
   });
 
-  server.listen(PORT, HOST, () => {
-    console.log(`Server listening on http://${HOST}:${PORT}`);
+  // Listen before side workers so Railway /api/health can pass even if
+  // IMAP/Supabase refresh is slow or unavailable (was blocking boot → 5m×3 deploys).
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(PORT, HOST, () => {
+      server.removeListener('error', reject);
+      console.log(`Server listening on http://${HOST}:${PORT}`);
+      resolve();
+    });
   });
+
+  void startEmailLiveSyncWorker({
+    exitOnShutdown: false,
+    registerSignalHandlers: false,
+  })
+    .then((stop) => {
+      stopEmailWorker = stop;
+      console.log('Email live sync worker started');
+    })
+    .catch((error) => {
+      console.error('Email live sync worker failed to start (app stays up):', error);
+    });
 }
 
 process.on('SIGTERM', () => {
