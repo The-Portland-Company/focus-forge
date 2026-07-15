@@ -1,5 +1,22 @@
 #!/usr/bin/env sh
+# Fast commit gate only. Full test+build lives in CI / `npm run check:precommit` (release).
+# See docs/DEPLOY-PLAYBOOK.md
 set -eu
 
-cd web-app
-npm run check:precommit
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+# RLS recursion patterns on staged SQL
+if [ -x "$ROOT/web-app/scripts/hooks/pre-commit-rls-check.sh" ]; then
+  "$ROOT/web-app/scripts/hooks/pre-commit-rls-check.sh"
+elif [ -x "$ROOT/scripts/hooks/pre-commit-rls-check.sh" ]; then
+  "$ROOT/scripts/hooks/pre-commit-rls-check.sh"
+fi
+
+# Secrets on staged content (if gitleaks installed)
+if command -v gitleaks >/dev/null 2>&1; then
+  # Run from web-app when that is where secrets tools were configured; staged is repo-wide
+  gitleaks protect --staged --redact --verbose
+else
+  echo "pre-commit: gitleaks not installed — skip secret scan (install for local parity with CI)"
+fi
