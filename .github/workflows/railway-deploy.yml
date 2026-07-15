@@ -64,13 +64,19 @@ jobs:
             const commit = process.env.GITHUB_SHA || "unknown";
             const builtAt = process.env.BUILT_AT || "";
             const runId = process.env.GITHUB_RUN_ID || "";
+            // Use explicit string types (not `as const`) so health route can
+            // compare against "unknown" without a TS literal-type error.
             const body = [
               "/** CI rewrites this file before `railway up`. Defaults for local/dev. */",
-              "export const BUILD_INFO = {",
+              "export const BUILD_INFO: {",
+              "  git_commit: string",
+              "  built_at: string",
+              "  run_id: string",
+              "} = {",
               `  git_commit: ${JSON.stringify(commit)},`,
               `  built_at: ${JSON.stringify(builtAt)},`,
               `  run_id: ${JSON.stringify(runId)},`,
-              "} as const",
+              "}",
               "",
             ].join("\n");
             fs.writeFileSync("web-app/lib/build-info.generated.ts", body);
