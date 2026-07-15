@@ -29,11 +29,37 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // links/aiCreated/publicByTaskId maps (publicByTaskId lets clients show and
-    // toggle Public/Private without a re-fetch).
-    const { links, aiCreated, publicByTaskId } = buildTaskLinkMaps(data);
+    // Fetch the sender ("from") address for the linked threads so clients can
+    // render "From: <email>" next to email-created tasks. RLS scopes rows to
+    // threads the user can see.
+    const threadIds = Array.from(
+      new Set(
+        ((data as any[]) || [])
+          .map((r) => r?.thread_id)
+          .filter((id): id is string => typeof id === "string"),
+      ),
+    );
+    let senderRows: any[] = [];
+    if (threadIds.length > 0) {
+      const { data: senders } = await (supabase as any)
+        .from("email_participants")
+        .select("thread_id, email_address, created_at")
+        .eq("participant_role", "from")
+        .in("thread_id", threadIds)
+        .order("created_at", { ascending: true });
+      senderRows = senders || [];
+    }
 
-    return NextResponse.json({ links, aiCreated, publicByTaskId });
+    // links/aiCreated/publicByTaskId/senderByTaskId maps.
+    const { links, aiCreated, publicByTaskId, senderByTaskId } =
+      buildTaskLinkMaps(data, senderRows);
+
+    return NextResponse.json({
+      links,
+      aiCreated,
+      publicByTaskId,
+      senderByTaskId,
+    });
   } catch (error) {
     console.error("GET /api/email/task-links error:", error);
     return NextResponse.json(

@@ -63,6 +63,7 @@ interface TaskListProps {
     string,
     { threadId: string; generatedBy: string; rationale: string | null }
   >; // task id -> AI-origin info for tasks the AI created from an email
+  emailSenderByTaskId?: Record<string, string>; // task id -> sender email of source thread
   onOpenAiRationale?: (args: {
     taskId: string;
     taskName: string;
@@ -206,6 +207,7 @@ export function TaskList({
   freshlyUpdatedTaskIds,
   emailThreadIdByTaskId,
   aiCreatedByTaskId,
+  emailSenderByTaskId,
   onOpenAiRationale,
   dominoByTaskId,
   dominoRationaleByTaskId,
@@ -984,6 +986,26 @@ export function TaskList({
                         />
                       ) : null}
                       {task.name}
+                      {emailSenderByTaskId?.[task.id] ? (
+                        <span
+                          className="ml-2 font-normal opacity-50"
+                          title={`From: ${emailSenderByTaskId[task.id]}`}
+                        >
+                          From: {emailSenderByTaskId[task.id]}
+                        </span>
+                      ) : task.agentName ? (
+                        <span
+                          className="ml-2 font-normal opacity-50"
+                          title={
+                            task.agentModel
+                              ? `${task.agentName} · ${task.agentModel}`
+                              : task.agentName
+                          }
+                        >
+                          {task.agentName}
+                          {task.agentModel ? ` · ${task.agentModel}` : ""}
+                        </span>
+                      ) : null}
                     </span>
                     {dominoByTaskId?.[task.id] ? (
                       <DominoBadge

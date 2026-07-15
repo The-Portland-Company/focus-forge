@@ -108,10 +108,14 @@ test("buildHeuristicAnalysis routes actionable email to a matching project", () 
   assert.equal(result.summary, "The sender needs a response about acme website proposal.");
 });
 
-test("formatAiGeneratedTaskName decorates review/respond task names", () => {
+test("formatAiGeneratedTaskName strips emojis and returns clean text", () => {
   assert.equal(
     formatAiGeneratedTaskName("Review and respond: The Portland Company"),
-    "🤖 👀 Review and 💬 Respond: The Portland Company.",
+    "Review and respond: The Portland Company.",
+  );
+  assert.equal(
+    formatAiGeneratedTaskName("🤖 👀 Review and 💬 Respond: Invoice"),
+    "Review and Respond: Invoice.",
   );
 });
 

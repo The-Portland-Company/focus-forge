@@ -643,6 +643,9 @@ export default function ViewPage({
   const [emailPublicByTaskId, setEmailPublicByTaskId] = useState<
     Record<string, boolean>
   >({});
+  const [emailSenderByTaskId, setEmailSenderByTaskId] = useState<
+    Record<string, string>
+  >({});
   const [aiRationaleModal, setAiRationaleModal] = useState<{
     taskId: string;
     taskName: string;
@@ -798,10 +801,14 @@ export default function ViewPage({
     show: boolean;
     taskId: string | null;
     taskName: string;
+    emailThreadId: string | null;
+    emailAction: "none" | "archive" | "delete";
   }>({
     show: false,
     taskId: null,
     taskName: "",
+    emailThreadId: null,
+    emailAction: "none",
   });
   const [showProjectNotesModal, setShowProjectNotesModal] = useState(false);
   const [showAutoSectionConfirm, setShowAutoSectionConfirm] = useState(false);
@@ -1245,6 +1252,8 @@ export default function ViewPage({
         if (payload?.aiCreated) setAiCreatedTasks(payload.aiCreated);
         if (payload?.publicByTaskId)
           setEmailPublicByTaskId(payload.publicByTaskId);
+        if (payload?.senderByTaskId)
+          setEmailSenderByTaskId(payload.senderByTaskId);
       })
       .catch(() => undefined);
   }, [user?.id, view]);
@@ -2195,6 +2204,8 @@ export default function ViewPage({
       show: true,
       taskId,
       taskName: task?.name || "this task",
+      emailThreadId: emailTaskLinks[taskId] || null,
+      emailAction: "none",
     });
   };
 
@@ -2202,6 +2213,8 @@ export default function ViewPage({
     if (!taskDeleteConfirm.taskId) return;
     const deletedName = taskDeleteConfirm.taskName;
     const deletingId = taskDeleteConfirm.taskId;
+    const emailThreadId = taskDeleteConfirm.emailThreadId;
+    const emailAction = taskDeleteConfirm.emailAction;
     // Capture the scroll container position before the delete so the list
     // rebuild from fetchData() doesn't re-anchor / jump the view.
     const savedScrollTop = mainScrollRef.current?.scrollTop ?? 0;
@@ -2221,6 +2234,22 @@ export default function ViewPage({
               current?.batchId === payload.batchId ? null : current,
             );
           }, 15000);
+        }
+        // Optionally act on the source email the task was created from.
+        if (
+          emailThreadId &&
+          (emailAction === "archive" || emailAction === "delete")
+        ) {
+          try {
+            await fetch(`/api/email/threads/${emailThreadId}/actions`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ action: emailAction }),
+            });
+          } catch (emailError) {
+            console.error("Failed to act on linked email:", emailError);
+          }
         }
         await fetchData();
         restoreMainScrollTop(savedScrollTop);
@@ -3953,6 +3982,7 @@ export default function ViewPage({
         freshlyUpdatedTaskIds,
         emailThreadIdByTaskId: emailTaskLinks,
         aiCreatedByTaskId: aiCreatedTasks,
+        emailSenderByTaskId,
         onOpenAiRationale: ({
           taskId,
           taskName,
@@ -6641,7 +6671,13 @@ export default function ViewPage({
       <ConfirmModal
         isOpen={taskDeleteConfirm.show}
         onClose={() =>
-          setTaskDeleteConfirm({ show: false, taskId: null, taskName: "" })
+          setTaskDeleteConfirm({
+            show: false,
+            taskId: null,
+            taskName: "",
+            emailThreadId: null,
+            emailAction: "none",
+          })
         }
         onConfirm={confirmTaskDelete}
         title="Delete Task"
@@ -6649,7 +6685,43 @@ export default function ViewPage({
         confirmText="Delete"
         cancelText="Cancel"
         variant="destructive"
-      />
+      >
+        {taskDeleteConfirm.emailThreadId ? (
+          <div className="rounded-md border border-zinc-800 bg-zinc-950/50 p-3">
+            <p className="mb-2 text-sm font-medium text-zinc-300">
+              This task was created from an email. Do something with the email
+              too? (Optional)
+            </p>
+            <div className="flex flex-col gap-2">
+              {(
+                [
+                  { value: "none", label: "Keep the email as is" },
+                  { value: "archive", label: "Archive the email" },
+                  { value: "delete", label: "Delete the email too" },
+                ] as const
+              ).map((opt) => (
+                <label
+                  key={opt.value}
+                  className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300"
+                >
+                  <input
+                    type="radio"
+                    name="delete-email-action"
+                    checked={taskDeleteConfirm.emailAction === opt.value}
+                    onChange={() =>
+                      setTaskDeleteConfirm((prev) => ({
+                        ...prev,
+                        emailAction: opt.value,
+                      }))
+                    }
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </ConfirmModal>
 
       {view.startsWith("project-") && showAddSection && (
         <AddSectionModal

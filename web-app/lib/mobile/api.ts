@@ -213,6 +213,8 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
     dueTime: 'due_time',
     parentId: 'parent_id',
     assignedTo: 'assigned_to',
+    agentName: 'agent_name',
+    agentModel: 'agent_model',
     completedAt: 'completed_at',
     createdAt: 'created_at',
     updatedAt: 'updated_at',
@@ -247,6 +249,8 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
     'deadline',
     'project_id',
     'assigned_to',
+    'agent_name',
+    'agent_model',
     'completed',
     'completed_at',
     'todoist_id',
@@ -333,6 +337,8 @@ export const serializeMobileTask = <T extends Record<string, any>>(
   assigned_to_name: string | null
   created_by: string | null
   created_by_name: string | null
+  agent_name: string | null
+  agent_model: string | null
   goal_id: string | null
 } => ({
   ...task,
@@ -340,6 +346,8 @@ export const serializeMobileTask = <T extends Record<string, any>>(
   assigned_to_name: task?.assignedToName ?? null,
   created_by: task?.created_by ?? task?.createdBy ?? null,
   created_by_name: task?.createdByName ?? null,
+  agent_name: task?.agent_name ?? task?.agentName ?? null,
+  agent_model: task?.agent_model ?? task?.agentModel ?? null,
   goal_id: task?.goal_id ?? task?.goalId ?? null,
 })
 

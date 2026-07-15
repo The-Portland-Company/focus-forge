@@ -1,5 +1,6 @@
 "use client"
 
+import type { ReactNode } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 
@@ -12,6 +13,7 @@ interface ConfirmModalProps {
   confirmText?: string
   cancelText?: string
   variant?: "default" | "destructive"
+  children?: ReactNode
 }
 
 export function ConfirmModal({
@@ -22,7 +24,8 @@ export function ConfirmModal({
   description,
   confirmText = "Confirm",
   cancelText = "Cancel",
-  variant = "default"
+  variant = "default",
+  children,
 }: ConfirmModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -33,6 +36,7 @@ export function ConfirmModal({
             {description}
           </DialogDescription>
         </DialogHeader>
+        {children}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             {cancelText}

@@ -7,6 +7,7 @@ import {
   createRule,
 } from "@/lib/email-inbox/server";
 import { writeAuditLog } from "@/lib/audit/log";
+import { BARTOK_USER_ID } from "@/lib/agents/bartok";
 import {
   evaluateConfirmGate,
   type DestructiveAction,
@@ -36,6 +37,13 @@ export type AgentToolContext = {
    * back to the server's local date when absent.
    */
   timezone?: string | null;
+  /**
+   * Provenance for tasks this agent creates: the agent's display name and the
+   * specific model that produced the action (e.g. "Claude Sonnet 4.5"). Set by
+   * the provider runner once a model is chosen. Surfaced on created tasks.
+   */
+  agentName?: string | null;
+  agentModel?: string | null;
 };
 
 export type AgentToolResult = {
@@ -707,6 +715,14 @@ async function createTask(ctx: AgentToolContext, args: Record<string, any>): Pro
     project_id: projectId,
     completed: false,
     priority: [1, 2, 3, 4].includes(args.priority) ? args.priority : 4,
+    // Provenance: who (agent + model) created this, and default ownership.
+    created_by: ctx.userId,
+    agent_name: ctx.agentName ?? "Focus Forge Assistant",
+    agent_model: ctx.agentModel ?? null,
+    assigned_to:
+      typeof args.assignedTo === "string" && args.assignedTo
+        ? args.assignedTo
+        : BARTOK_USER_ID,
   };
   if (typeof args.description === "string") insert.description = args.description;
   if (typeof args.dueDate === "string") insert.due_date = args.dueDate;
