@@ -17,6 +17,7 @@ import {
   Edit,
   Plus,
   Bot,
+  Target,
   Link2,
   Link2Off,
   CalendarClock,
@@ -56,6 +57,8 @@ import { Database, Task, Project, Organization, Section, Goal } from "@/lib/type
 import { SectionView } from "@/components/section-view";
 import { AddSectionModal } from "@/components/add-section-modal";
 import { AddGoalModal, AddGoalPayload } from "@/components/add-goal-modal";
+import { GoalGroupShell } from "@/components/goal-group";
+import { CreateMenuButton } from "@/components/create-menu-button";
 import { AddSectionDivider } from "@/components/add-section-divider";
 import { EmailWorkList } from "@/components/email-work-list";
 import { Tooltip } from "@/components/tooltip";
@@ -5521,20 +5524,13 @@ export default function ViewPage({
                   </Tooltip>
                 </>
               ) : null}
-              <Tooltip
-                content="New task"
-                side="bottom"
+              <CreateMenuButton
+                onAddTask={() => openAddTask(project?.id)}
+                onAddGoal={() => openAddGoal(projectId)}
+                buttonClassName="btn-theme-primary text-white rounded-lg p-2 flex items-center justify-center transition-all"
+                iconClassName="w-4 h-4"
                 align="end"
-                className="inline-flex"
-              >
-                <button
-                  onClick={() => openAddTask(project?.id)}
-                  className="btn-theme-primary text-white rounded-lg p-2 flex items-center justify-center transition-all"
-                  aria-label="New task"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </Tooltip>
+              />
             </div>
           </div>
 
@@ -5585,17 +5581,13 @@ export default function ViewPage({
                       )}
                     </button>
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => openAddTask(project?.id)}
-                        className="group relative inline-flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
-                        aria-label="New task"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        <span className="pointer-events-none absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-zinc-800 px-2 py-1 text-xs sm:text-[11px] text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                          New task
-                        </span>
-                      </button>
+                      <CreateMenuButton
+                        onAddTask={() => openAddTask(project?.id)}
+                        onAddGoal={() => openAddGoal(projectId)}
+                        buttonClassName="inline-flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                        iconClassName="h-3.5 w-3.5"
+                        align="start"
+                      />
                       <div className="text-xs text-zinc-500">
                         {visibleProjectTasks.length} visible
                       </div>
@@ -5858,6 +5850,7 @@ export default function ViewPage({
                           optimisticCompletedIds={optimisticCompletedIds}
                           sectionTasksBySectionId={sectionTasksBySectionId}
                           childSectionsByParentId={sectionChildrenByParent}
+                          goalsBySectionId={goalsBySectionId}
                           enableDueDateQuickEdit={true}
                           onTaskFocus={focusTaskRow}
                           onTaskUpdate={handleProjectTaskUpdate}
@@ -5882,65 +5875,177 @@ export default function ViewPage({
                           }
                           onTaskDrop={handleTaskDropToSection}
                           onSectionReorder={handleSectionReorder}
+                          onAddGoal={(targetProjectId, sectionId) =>
+                            openAddGoal(targetProjectId, sectionId)
+                          }
+                          onCompleteGoal={handleCompleteGoal}
+                          onRenameGoal={handleRenameGoal}
+                          onDeleteGoal={handleDeleteGoal}
+                          onTaskDropToGoal={handleTaskDropToGoal}
                           userId={currentUserId || ""}
                         />
                       </div>
                     ))}
 
-                    {visibleUnassignedTasks.length > 0 && (
-                      <div className="mt-6">
-                        <div className="mb-3 flex items-center justify-between gap-3">
-                          <h3 className="text-lg font-medium text-zinc-400">
-                            Unassigned Tasks
-                          </h3>
-                          <button
-                            type="button"
-                            onClick={() => setShowAutoSectionConfirm(true)}
-                            disabled={autoSectioning}
-                            className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-                            title="AI organize unassigned tasks"
-                          >
-                            <Bot
-                              className={`h-4 w-4 ${autoSectioning ? "animate-pulse" : ""}`}
+                    {(() => {
+                      const projectLevelGoals =
+                        goalsBySectionId.get(null) || [];
+                      const goalLessUnassigned = projectLevelGoals.length
+                        ? visibleUnassignedTasks.filter(
+                            (task) =>
+                              !(task.goalId || (task as any).goal_id),
+                          )
+                        : visibleUnassignedTasks;
+
+                      if (
+                        visibleUnassignedTasks.length === 0 &&
+                        projectLevelGoals.length === 0
+                      ) {
+                        return null;
+                      }
+
+                      return (
+                        <div className="mt-6">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <h3 className="text-lg font-medium text-zinc-400">
+                              Unassigned Tasks
+                            </h3>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openAddGoal(projectId)}
+                                className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800"
+                                title="Add project-level goal"
+                                aria-label="Add project-level goal"
+                              >
+                                <Target className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowAutoSectionConfirm(true)}
+                                disabled={autoSectioning}
+                                className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                title="AI organize unassigned tasks"
+                              >
+                                <Bot
+                                  className={`h-4 w-4 ${autoSectioning ? "animate-pulse" : ""}`}
+                                />
+                              </button>
+                            </div>
+                          </div>
+                          {goalLessUnassigned.length > 0 && (
+                            <TaskList
+                              tasks={goalLessUnassigned}
+                              allTasks={database.tasks}
+                              projects={database.projects}
+                              tags={database.tags}
+                              currentUserId={currentUserId}
+                              priorityColor={userPriorityColor}
+                              showCompleted={
+                                database.settings?.showCompletedTasks ?? true
+                              }
+                              completedAccordionKey={`project-${projectId}-unassigned`}
+                              revealActionsOnHover={true}
+                              dueDateLayout={dueDateLayout}
+                              uniformDueBadgeWidth={dueDateLayout === "inline"}
+                              bulkSelectMode={bulkSelectMode}
+                              selectedTaskIds={selectedTaskIds}
+                              loadingTaskIds={loadingTaskIds}
+                              animatingOutTaskIds={animatingOutTaskIds}
+                              optimisticCompletedIds={optimisticCompletedIds}
+                              deletingTaskIds={deletingTaskIds}
+                              savingTaskIds={savingTaskIds}
+                              recentlySavedTaskIds={recentlySavedTaskIds}
+                              freshlyUpdatedTaskIds={freshlyUpdatedTaskIds}
+                              enableDueDateQuickEdit={true}
+                              onTaskFocus={focusTaskRow}
+                              onTaskUpdate={handleProjectTaskUpdate}
+                              onTaskToggle={handleTaskToggle}
+                              onTaskEdit={handleTaskEdit}
+                              onTaskDelete={handleTaskDelete}
+                              onTaskSelect={handleProjectTaskSelect}
                             />
-                          </button>
+                          )}
+                          {projectLevelGoals.map((goal) => {
+                            const goalTasks = visibleUnassignedTasks.filter(
+                              (task) =>
+                                (task.goalId ||
+                                  (task as any).goal_id) === goal.id,
+                            );
+                            const completedCount = goalTasks.filter(
+                              (task) =>
+                                task.completed ||
+                                optimisticCompletedIds.has(task.id),
+                            ).length;
+
+                            return (
+                              <div key={goal.id} className="mt-2">
+                                <GoalGroupShell
+                                  goal={goal}
+                                  completedCount={completedCount}
+                                  totalCount={goalTasks.length}
+                                  onTaskDropToGoal={handleTaskDropToGoal}
+                                  onCompleteGoal={handleCompleteGoal}
+                                  onRenameGoal={handleRenameGoal}
+                                  onDeleteGoal={handleDeleteGoal}
+                                >
+                                  {goalTasks.length > 0 ? (
+                                    <TaskList
+                                      tasks={goalTasks}
+                                      allTasks={database.tasks}
+                                      projects={database.projects}
+                                      tags={database.tags}
+                                      currentUserId={currentUserId}
+                                      priorityColor={userPriorityColor}
+                                      showCompleted={
+                                        database.settings
+                                          ?.showCompletedTasks ?? true
+                                      }
+                                      completedAccordionKey={`project-${projectId}-goal-${goal.id}`}
+                                      revealActionsOnHover={true}
+                                      dueDateLayout={dueDateLayout}
+                                      uniformDueBadgeWidth={
+                                        dueDateLayout === "inline"
+                                      }
+                                      bulkSelectMode={bulkSelectMode}
+                                      selectedTaskIds={selectedTaskIds}
+                                      loadingTaskIds={loadingTaskIds}
+                                      animatingOutTaskIds={animatingOutTaskIds}
+                                      optimisticCompletedIds={
+                                        optimisticCompletedIds
+                                      }
+                                      deletingTaskIds={deletingTaskIds}
+                                      savingTaskIds={savingTaskIds}
+                                      recentlySavedTaskIds={
+                                        recentlySavedTaskIds
+                                      }
+                                      freshlyUpdatedTaskIds={
+                                        freshlyUpdatedTaskIds
+                                      }
+                                      enableDueDateQuickEdit={true}
+                                      onTaskFocus={focusTaskRow}
+                                      onTaskUpdate={handleProjectTaskUpdate}
+                                      onTaskToggle={handleTaskToggle}
+                                      onTaskEdit={handleTaskEdit}
+                                      onTaskDelete={handleTaskDelete}
+                                      onTaskSelect={handleProjectTaskSelect}
+                                    />
+                                  ) : (
+                                    <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-center text-xs text-zinc-600">
+                                      Drop tasks here.
+                                    </div>
+                                  )}
+                                </GoalGroupShell>
+                              </div>
+                            );
+                          })}
                         </div>
-                        <TaskList
-                          tasks={visibleUnassignedTasks}
-                          allTasks={database.tasks}
-                          projects={database.projects}
-                          tags={database.tags}
-                          currentUserId={currentUserId}
-                          priorityColor={userPriorityColor}
-                          showCompleted={
-                            database.settings?.showCompletedTasks ?? true
-                          }
-                          completedAccordionKey={`project-${projectId}-unassigned`}
-                          revealActionsOnHover={true}
-                          dueDateLayout={dueDateLayout}
-                          uniformDueBadgeWidth={dueDateLayout === "inline"}
-                          bulkSelectMode={bulkSelectMode}
-                          selectedTaskIds={selectedTaskIds}
-                          loadingTaskIds={loadingTaskIds}
-                          animatingOutTaskIds={animatingOutTaskIds}
-                          optimisticCompletedIds={optimisticCompletedIds}
-                          deletingTaskIds={deletingTaskIds}
-                          savingTaskIds={savingTaskIds}
-                          recentlySavedTaskIds={recentlySavedTaskIds}
-                          freshlyUpdatedTaskIds={freshlyUpdatedTaskIds}
-                          enableDueDateQuickEdit={true}
-                          onTaskFocus={focusTaskRow}
-                          onTaskUpdate={handleProjectTaskUpdate}
-                          onTaskToggle={handleTaskToggle}
-                          onTaskEdit={handleTaskEdit}
-                          onTaskDelete={handleTaskDelete}
-                          onTaskSelect={handleProjectTaskSelect}
-                        />
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     {visibleUnassignedTasks.length === 0 &&
-                      visibleProjectSections.length === 0 && (
+                      visibleProjectSections.length === 0 &&
+                      (goalsBySectionId.get(null) || []).length === 0 && (
                         <div className="text-center py-8 text-zinc-500">
                           <p className="mb-4">
                             No matching tasks or sections for the current

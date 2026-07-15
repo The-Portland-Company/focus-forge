@@ -620,6 +620,94 @@ function detectUnsolicitedServicePitchSpam(
   return solicitationMatches >= 2 && servicePitchMatches >= 1;
 }
 
+function detectTransactionalNotification(
+  subject: string,
+  senderEmail: string,
+) {
+  const normalizedSubject = subject.toLowerCase();
+  const normalizedSender = senderEmail.toLowerCase();
+
+  const subjectSignals = [
+    "billing alert",
+    "statement is ready",
+    "statement is available",
+    "your receipt",
+    "receipt from",
+    "invoice",
+    "payment received",
+    "you received money",
+    "order confirmation",
+    "new order #",
+    "security alert",
+    "sign-in",
+    "new sign in",
+    "log in to",
+    "login attempt",
+    "verify your",
+    "confirm your",
+    "verification code",
+    "password reset",
+    "reset your",
+    "welcome to",
+    "thank you for registering",
+    "exceeded its usage quota",
+    "usage quota",
+    "weekly activity report",
+    "accept your invitation",
+  ];
+  const senderSignals = [
+    "no-reply@",
+    "noreply@",
+    "notifications@",
+    "notification@",
+    "alerts@",
+    "alert@",
+    "billing@",
+    "receipts@",
+    "donotreply@",
+  ];
+
+  return (
+    subjectSignals.some((signal) => normalizedSubject.includes(signal)) ||
+    senderSignals.some((signal) => normalizedSender.startsWith(signal))
+  );
+}
+
+/**
+ * Task names like "Review and respond: Spencer" say nothing about the work.
+ * When the payload after "Review (and respond)" is missing or is just a short
+ * name, rebuild the title from the email subject instead.
+ */
+export function repairGenericTaskName(name: string, subject?: string | null) {
+  let cleanSubject = (subject || "").trim();
+  while (/^\s*(re|fw|fwd)\s*:\s*/i.test(cleanSubject)) {
+    cleanSubject = cleanSubject.replace(/^\s*(re|fw|fwd)\s*:\s*/i, "").trim();
+  }
+  cleanSubject = cleanSubject.replace(/\s+/g, " ").trim();
+  if (!cleanSubject) {
+    return name;
+  }
+
+  const match = name
+    .trim()
+    .match(/^(?:🤖\s*)?(?:👀\s*)?review(?:\s+and\s+(?:💬\s*)?respond)?\s*[:\-]?\s*(.*)$/iu);
+  if (!match) {
+    return name;
+  }
+
+  const payload = match[1].replace(/[.!?]+\s*$/, "").trim();
+  const payloadWordCount = payload ? payload.split(/\s+/).length : 0;
+  const payloadInSubject =
+    payload.length > 0 &&
+    cleanSubject.toLowerCase().includes(payload.toLowerCase());
+
+  if (payloadWordCount <= 2 && !payloadInSubject) {
+    return `Review and respond: ${cleanSubject}`.slice(0, 140);
+  }
+
+  return name;
+}
+
 function detectNewsletter(subject: string, senderEmail: string) {
   const normalizedSubject = subject.toLowerCase();
   return (
@@ -708,6 +796,29 @@ export function buildHeuristicAnalysis(
       }),
       reason: "Sender or content matched common spam signals.",
       confidence: 0.87,
+      needsProject: false,
+      projectId: null,
+      taskSuggestions: [],
+    };
+  }
+
+  if (detectTransactionalNotification(subject, input.senderEmail)) {
+    const actionTitle = `Automated notification: ${subject}`.slice(0, 140);
+    return {
+      classification: "reference",
+      status: "active",
+      actionTitle,
+      summary: finalizeInboxSummary({
+        summary: "Automated transactional notification — no action needed.",
+        subject,
+        bodyText,
+        classification: "reference",
+        status: "active",
+        actionTitle,
+      }),
+      reason:
+        "Automated transactional notification (billing/receipt/security/signup); not actionable work.",
+      confidence: 0.8,
       needsProject: false,
       projectId: null,
       taskSuggestions: [],
@@ -908,6 +1019,8 @@ The summary must be a single sentence on one line, under 160 characters, and mus
 Prefer an existing project ID only when evidence is strong.
 Use the user's summary instructions when present.
 If the email is spam or low-value, quarantine it.
+Automated transactional notifications — billing alerts, receipts, statements, invoices, payment/order confirmations, security/sign-in alerts, signup/verification emails, welcome emails, usage/quota alerts, and automated activity reports — are not actionable work. Classify them as reference or newsletter and return an empty taskSuggestions array.
+Every task name must state what the task is about, using the email subject or topic (e.g. "Review and respond: <subject>"). Never name a task after only a person or sender name, and never use a bare "Review and respond" with no topic.
 Treat unsolicited vendor pitches and generic service offers as spam when they are cold outreach with no established context.
 If actionable but you cannot confidently route it, set needsProject=true and status=needs_project.
 ${
@@ -978,7 +1091,13 @@ ${
           )
             ? parsed.projectId
             : null,
-        taskSuggestions: Array.isArray(parsed.taskSuggestions)
+        // Tasks only make sense for actionable email. Some model outputs
+        // classify a thread as newsletter/reference yet still return
+        // suggestions; creating those tasks is pure Today-view noise.
+        taskSuggestions:
+          parsed.classification !== "actionable"
+            ? []
+            : Array.isArray(parsed.taskSuggestions)
           ? parsed.taskSuggestions.map((task: any) => ({
               name: String(task.name || "").slice(0, 140),
               description: String(task.description || ""),
