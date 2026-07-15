@@ -4049,11 +4049,38 @@ export default function ViewPage({
         pendingTaskMutationsRef.current.set(taskId, updates as any);
         setDatabase((prev) => {
           if (!prev) return prev;
+          // When the assignee changes, refresh the row's avatar badge fields
+          // immediately (overlayTaskPatch only syncs the id) so the change is
+          // visible before the server round-trip completes.
+          const hasAssignee = Object.prototype.hasOwnProperty.call(
+            updates as any,
+            "assignedTo",
+          );
+          const nextAssignee = hasAssignee
+            ? ((updates as any).assignedTo ?? null)
+            : undefined;
+          const assignedUser =
+            hasAssignee && nextAssignee
+              ? prev.users?.find((u) => u.id === nextAssignee)
+              : undefined;
           return {
             ...prev,
-            tasks: prev.tasks.map((task) =>
-              task.id === taskId ? overlayTaskPatch(task, updates as any) : task,
-            ),
+            tasks: prev.tasks.map((task) => {
+              if (task.id !== taskId) return task;
+              const patched = overlayTaskPatch(task, updates as any);
+              if (!hasAssignee) return patched;
+              return {
+                ...patched,
+                assignedToName: assignedUser
+                  ? assignedUser.name ||
+                    `${assignedUser.firstName || ""} ${assignedUser.lastName || ""}`.trim() ||
+                    assignedUser.email ||
+                    null
+                  : null,
+                assignedToColor: assignedUser?.profileColor ?? null,
+                assignedToMemoji: assignedUser?.profileMemoji ?? null,
+              };
+            }),
           };
         });
         try {
@@ -4085,6 +4112,7 @@ export default function ViewPage({
         tasks,
         allTasks: database.tasks,
         projects: database.projects,
+        members: database.users,
         tags: database.tags,
         currentUserId,
         priorityColor: userPriorityColor,
