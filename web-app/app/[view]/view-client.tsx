@@ -1642,7 +1642,12 @@ export default function ViewPage({
             (task as any).recurring_pattern || task.recurringPattern;
           if (recurringRaw) {
             const config = parseRecurringPattern(recurringRaw);
-            if (config) {
+            // Only spawn a next occurrence for a recognized recurrence. An
+            // unparseable free-text pattern parses to `custom`, for which we
+            // can't compute a real next date — spawning would clone the task
+            // +1 day on every completion (e.g. "Prepare for Mothers Day"
+            // reappearing daily), so skip it.
+            if (config && config.frequency !== "custom") {
               const currentDue =
                 (task as any).due_date ||
                 task.dueDate ||
@@ -3850,7 +3855,20 @@ export default function ViewPage({
             return false;
           }
         }
-        // Include overdue, today, tomorrow, and rest of week
+        // Recurring tasks: only surface their overdue/today occurrence, not
+        // future ones. Otherwise completing one (which spawns the next
+        // occurrence) immediately re-populates Today with the later-this-week
+        // instance and looks like the completed task "reappeared".
+        const isRecurring = Boolean(
+          (task as any).recurring_pattern ||
+            task.recurringPattern ||
+            (task as any).is_recurring ||
+            (task as any).isRecurring,
+        );
+        if (isRecurring) {
+          return isOverdue(dueDate) || isToday(dueDate);
+        }
+        // Non-recurring: overdue, today, tomorrow, and rest of week.
         return (
           isOverdue(dueDate) ||
           isToday(dueDate) ||
