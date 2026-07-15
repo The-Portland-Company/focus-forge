@@ -8,6 +8,10 @@ import {
   listRulesForUser,
   listSummaryProfilesForUser,
 } from "@/lib/email-inbox/server";
+import {
+  isPostgrestHealthy,
+  loadCoreDatabaseViaPostgres,
+} from "@/lib/db/pg-direct";
 
 export interface LoadDatabaseOptions {
   includeEmailData?: boolean;
@@ -32,6 +36,51 @@ export async function loadDatabaseForUser(
   const includeEmailData = options.includeEmailData !== false;
   const includeInboxItems =
     includeEmailData && options.includeInboxItems !== false;
+
+  // When PostgREST is in PGRST002 (schema cache down), supabase-js hangs/503s
+  // and the app never leaves skeletons. Fall back to direct Postgres for core
+  // data so login + Today/Project views still work.
+  const postgrestOk = await isPostgrestHealthy();
+  if (!postgrestOk) {
+    console.warn(
+      "PostgREST unhealthy (PGRST002 or unreachable) — loading core DB via direct Postgres",
+    );
+    try {
+      const core = await loadCoreDatabaseViaPostgres(userId, userEmail);
+      return {
+        users: core.userProfile ? [core.userProfile] : [],
+        organizations: core.organizations.map((org: any) => ({
+          ...org,
+          memberIds: core.orgMemberMap.get(org.id) || [],
+          ownerId: core.orgOwnerMap.get(org.id) || null,
+        })),
+        projects: core.projects.map((project: any) => ({
+          ...project,
+          memberIds: core.projectMemberMap.get(project.id) || [],
+          ownerId: core.projectOwnerMap.get(project.id) || null,
+        })),
+        tasks: core.tasks,
+        mailboxes: [],
+        inboxItems: [],
+        emailRules: [],
+        summaryProfiles: [],
+        ruleStats: { active: 0, quarantine: 0, alwaysDelete: 0 },
+        quarantineCount: 0,
+        sentCount: 0,
+        tags: core.tags,
+        sections: core.sections,
+        goals: core.goals,
+        reminders: [],
+        userSectionPreferences: [],
+        settings: { showCompletedTasks: true },
+        taskSections: [],
+        _source: "postgres-direct",
+      };
+    } catch (directError) {
+      console.error("Direct Postgres core load failed:", directError);
+      // Fall through to PostgREST path (may still fail) for existing error shapes.
+    }
+  }
 
   // Use service role client to bypass RLS issues with user_organizations table
   const supabase = createSupabaseClient(
