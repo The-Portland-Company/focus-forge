@@ -82,17 +82,21 @@ async function main() {
     });
   });
 
-  void startEmailLiveSyncWorker({
-    exitOnShutdown: false,
-    registerSignalHandlers: false,
-  })
-    .then((stop) => {
-      stopEmailWorker = stop;
-      console.log('Email live sync worker started');
+  // Delay worker so cold deploys / first page loads don't compete with
+  // PostgREST for connections (worker refresh was saturating DB latency).
+  setTimeout(() => {
+    void startEmailLiveSyncWorker({
+      exitOnShutdown: false,
+      registerSignalHandlers: false,
     })
-    .catch((error) => {
-      console.error('Email live sync worker failed to start (app stays up):', error);
-    });
+      .then((stop) => {
+        stopEmailWorker = stop;
+        console.log('Email live sync worker started');
+      })
+      .catch((error) => {
+        console.error('Email live sync worker failed to start (app stays up):', error);
+      });
+  }, 15_000);
 }
 
 process.on('SIGTERM', () => {
