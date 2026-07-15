@@ -1,23 +1,27 @@
 "use client";
 
-import { ListTodo, Plus, Target } from "lucide-react";
+import { FolderPlus, ListChecks, ListTodo, Plus, Target } from "lucide-react";
 
 /**
  * A "+" creation button that reveals a small slideout menu on hover (or
- * keyboard focus) offering two actions: Task and Goal. Keeps the single-tap
- * affordance discoverable while exposing goal creation without a second
- * button.
+ * keyboard focus). The primary tap adds a Task; the menu also exposes Task
+ * List, Section, and Goal creation without extra buttons. Menu items only
+ * render when their handler is supplied.
  */
 export function CreateMenuButton({
   onAddTask,
   onAddGoal,
+  onAddTaskList,
+  onAddSection,
   buttonClassName,
   iconClassName = "h-4 w-4",
   align = "end",
-  label = "Create task or goal",
+  label = "Create task, list, section, or goal",
 }: {
   onAddTask: () => void;
   onAddGoal: () => void;
+  onAddTaskList?: () => void;
+  onAddSection?: () => void;
   buttonClassName?: string;
   iconClassName?: string;
   align?: "start" | "end";
@@ -54,6 +58,28 @@ export function CreateMenuButton({
             <ListTodo className="h-4 w-4 text-zinc-400" />
             Task
           </button>
+          {onAddTaskList && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onAddTaskList}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800 hover:text-white"
+            >
+              <ListChecks className="h-4 w-4 text-zinc-400" />
+              Task List
+            </button>
+          )}
+          {onAddSection && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onAddSection}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800 hover:text-white"
+            >
+              <FolderPlus className="h-4 w-4 text-zinc-400" />
+              Section
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"

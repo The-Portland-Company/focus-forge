@@ -106,6 +106,9 @@ export function EditProjectModal({
   const [color, setColor] = useState("#ef4444")
   const [budget, setBudget] = useState("")
   const [deadline, setDeadline] = useState("")
+  const [startDate, setStartDate] = useState("")
+  const [endDate, setEndDate] = useState("")
+  const [goal, setGoal] = useState("")
   const [projectUserIds, setProjectUserIds] = useState<string[]>([])
   const [showInviteUser, setShowInviteUser] = useState(false)
   const [showAddUser, setShowAddUser] = useState(false)
@@ -137,6 +140,11 @@ export function EditProjectModal({
     setBudget(((project as any).budget ?? project.budget)?.toString() || "")
     const projectDeadline = (project as any).deadline || project.deadline
     setDeadline(projectDeadline ? String(projectDeadline).split("T")[0] : "")
+    const projectStart = (project as any).start_date || project.startDate
+    setStartDate(projectStart ? String(projectStart).split("T")[0] : "")
+    const projectEnd = (project as any).end_date || project.endDate
+    setEndDate(projectEnd ? String(projectEnd).split("T")[0] : "")
+    setGoal(project.goal || (project as any).goal || "")
     setProjectUserIds(
       Array.from(new Set([...(project.memberIds || []), ...(project.ownerId ? [project.ownerId] : [])])),
     )
@@ -200,6 +208,9 @@ export function EditProjectModal({
         color,
         budget: budget ? parseFloat(budget) : undefined,
         deadline: deadline || undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        goal: goal.trim() || undefined,
       })
       onClose()
     } finally {
@@ -413,6 +424,41 @@ export function EditProjectModal({
                     className="bg-zinc-800 border-zinc-700 themed-date-input"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="project-start-date">Start Date</Label>
+                  <Input
+                    id="project-start-date"
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="bg-zinc-800 border-zinc-700 themed-date-input"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="project-end-date">End Date</Label>
+                  <Input
+                    id="project-end-date"
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="bg-zinc-800 border-zinc-700 themed-date-input"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="project-goal">Goal</Label>
+                <Input
+                  id="project-goal"
+                  value={goal}
+                  onChange={(e) => setGoal(e.target.value)}
+                  placeholder="What is the goal of this project?"
+                  className="bg-zinc-800 border-zinc-700"
+                />
               </div>
 
               <div className="space-y-2">

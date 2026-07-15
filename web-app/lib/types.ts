@@ -31,6 +31,7 @@ export interface User {
   todoistEmail?: string;
   todoistFullName?: string;
   todoistTimezone?: string;
+  dateFormat?: string;
 }
 
 export interface Organization {
@@ -59,6 +60,9 @@ export interface Project {
   archived?: boolean;
   budget?: number;
   deadline?: string;
+  startDate?: string;
+  endDate?: string;
+  goal?: string;
   order?: number;
   createdAt: string;
   updatedAt: string;

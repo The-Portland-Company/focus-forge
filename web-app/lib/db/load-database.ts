@@ -375,6 +375,7 @@ export async function loadDatabaseForUser(
             profile.profile_color ||
             "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
           profileMemoji: profile.profile_memoji || null,
+          dateFormat: profile.date_format || undefined,
           animationsEnabled: profile.animations_enabled ?? true,
           dockBadgeEnabled: profile.dock_badge_enabled ?? true,
           aiModelChains:
@@ -420,6 +421,9 @@ export async function loadDatabaseForUser(
     projects: projects.map((project: any) => ({
       ...project,
       devnotesMeta: project.devnotes_meta || null,
+      startDate: project.start_date ?? project.startDate ?? undefined,
+      endDate: project.end_date ?? project.endDate ?? undefined,
+      goal: project.goal ?? undefined,
       memberIds: projectMemberMap.get(project.id) || [],
       ownerId: projectOwnerMap.get(project.id) || project.owner_id || null,
     })),

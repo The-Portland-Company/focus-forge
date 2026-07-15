@@ -48,6 +48,9 @@ export async function POST(request: NextRequest) {
       archived: body?.archived ?? false,
       budget: body?.budget ?? null,
       deadline: body?.deadline || null,
+      start_date: body?.start_date ?? body?.startDate ?? null,
+      end_date: body?.end_date ?? body?.endDate ?? null,
+      goal: body?.goal ?? null,
       order_index: body?.order_index ?? body?.orderIndex ?? 0,
     }
 
