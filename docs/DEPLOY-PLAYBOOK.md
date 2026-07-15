@@ -20,10 +20,10 @@ Durable rules for agents and humans shipping the web app (`web-app/`) to product
 
 | When | What runs | Notes |
 | --- | --- | --- |
-| **Every commit** | gitleaks (if available), RLS pre-commit hook on `*.sql`, cheap lint/typecheck if needed | Keep hooks fast. Do not block typing on full builds. |
-| **Before production push** | Targeted tests for touched areas | Unit/integration for the files you changed. Fix failures before push. |
+| **Every commit** (`.husky/pre-commit`) | gitleaks (if installed) + RLS check on staged `*.sql` | Fast. **No** full `next build` / full test suite on commit. |
+| **Before production push** | Targeted tests for touched areas; optional `cd web-app && npm run check:precommit` | Full local dry-run only when you want parity with a release gate. |
 | **CI / Railway** | Full Next.js build + deploy + smoke | Source of truth for “it builds in prod.” |
-| **Release gate only** | Full `npm run check:precommit` (tests + full build + gitleaks) | **Never** treat this as a per-keystroke or every-commit hook. Use before a deliberate release push when you want a full local dry-run. |
+| **Release gate only** | `cd web-app && npm run check:precommit` (tests + full build + gitleaks) | **Not** wired as the default husky pre-commit (that used to turn 4‑minute work into 20+ minutes). |
 
 Do **not** run a full `next build` after every edit unless the change is build-sensitive (config, middleware, env, import graph). Prefer targeted tests and typecheck on touched paths.
 
