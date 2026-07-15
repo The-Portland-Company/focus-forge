@@ -33,6 +33,7 @@ import {
   readStoredThemePreference,
 } from "@/lib/theme-utils";
 import { ThemePreset, DEFAULT_THEME_PRESET } from "@/lib/theme-constants";
+import { DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMAT } from "@/lib/format-date";
 import { useToast } from "@/contexts/ToastContext";
 import { MEMOJI_OPTIONS } from "@/lib/memoji";
 import { ALLOWED_API_SCOPES, type ApiKeyMeta } from "@/lib/api/keys/types";
@@ -115,6 +116,7 @@ export default function SettingsPage() {
   const [dockBadgeEnabled, setDockBadgeEnabled] = useState<boolean | null>(
     null,
   );
+  const [dateFormat, setDateFormat] = useState<string>(DEFAULT_DATE_FORMAT);
   const [emailInboxIntroDismissed, setEmailInboxIntroDismissed] = useState<
     boolean | null
   >(null);
@@ -683,6 +685,7 @@ export default function SettingsPage() {
       setProfileColor(userColor);
       setAnimationsEnabled(userAnimations);
       setDockBadgeEnabled(userDockBadge);
+      setDateFormat((profile as any).date_format || DEFAULT_DATE_FORMAT);
       setEmailInboxIntroDismissed(userInboxIntroDismissed);
       const chains = (profile as any).ai_model_chains || {};
       setEstimatorChain(normalizeChainIds(chains.estimator));
@@ -709,6 +712,7 @@ export default function SettingsPage() {
     priorityColor?: string;
     animationsEnabled?: boolean;
     dockBadgeEnabled?: boolean;
+    dateFormat?: string;
     emailInboxIntroDismissed?: boolean;
     emailDeleteUndoSeconds?: number;
     dailyCapacityMinutes?: number;
@@ -749,6 +753,9 @@ export default function SettingsPage() {
         }
         if (updates.dockBadgeEnabled !== undefined) {
           profileUpdates.dock_badge_enabled = updates.dockBadgeEnabled;
+        }
+        if (updates.dateFormat !== undefined) {
+          profileUpdates.date_format = updates.dateFormat;
         }
         if (updates.emailInboxIntroDismissed !== undefined) {
           profileUpdates.email_inbox_intro_dismissed =
@@ -1558,6 +1565,29 @@ export default function SettingsPage() {
                     </p>
                   </div>
                 </label>
+              </div>
+
+              {/* Date format */}
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <h3 className="text-lg font-medium mb-4">Date format</h3>
+                <p className="text-sm text-zinc-400 mb-4">
+                  How dates are displayed throughout the application.
+                </p>
+                <select
+                  value={dateFormat}
+                  onChange={async (e) => {
+                    const next = e.target.value;
+                    setDateFormat(next);
+                    await handleAutoSave({ dateFormat: next });
+                  }}
+                  className="w-full max-w-sm rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-theme-primary"
+                >
+                  {DATE_FORMAT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Dock badge */}

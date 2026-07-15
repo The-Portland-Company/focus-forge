@@ -2,6 +2,7 @@
 
 import { Mail, FolderSearch, MessageSquare, Sparkles } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AddSectionDivider } from "@/components/add-section-divider";
 
 // Data-region skeletons only.
 //
@@ -90,15 +91,61 @@ function SkeletonSectionHeader({ title }: { title: string }) {
   );
 }
 
+/** A single board-column placeholder: a section header + stacked task-card
+ *  skeletons, dimensioned to match a real project board column. */
+function SkeletonBoardColumn({ title, count }: { title: string; count: number }) {
+  return (
+    <div className="flex w-72 flex-shrink-0 flex-col gap-2 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
+      <div className="flex items-center justify-between px-1 py-1">
+        <span className="text-sm font-medium text-zinc-500">{title}</span>
+        <Skeleton className="h-4 w-6" />
+      </div>
+      <div className="space-y-2">
+        {Array.from({ length: count }).map((_, i) => (
+          <div
+            key={i}
+            className="rounded-lg border border-zinc-800 bg-zinc-900/70 px-3 py-2"
+          >
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="mt-2 h-3 w-1/2 bg-zinc-800/50" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** A set of titled task-list sections, used in the Today view and project
- *  list/board views while the first load is in flight. */
+ *  list/board views while the first load is in flight. In `board` layout the
+ *  sections render as horizontally-scrolling column skeletons; in `list`
+ *  layout they render as stacked rows with the Add Section affordance. Only
+ *  the dynamic task/section data is skeletoned — static chrome renders live. */
 export function SkeletonSectionedTasks({
   sections,
+  layout = "list",
+  showAddSectionDivider = false,
 }: {
   sections: Array<{ title: string; count: number }>;
+  layout?: "list" | "board";
+  showAddSectionDivider?: boolean;
 }) {
+  if (layout === "board") {
+    return (
+      <div className="flex gap-4 overflow-x-auto pb-2">
+        {sections.map((section, i) => (
+          <SkeletonBoardColumn
+            key={`${section.title}-${i}`}
+            title={section.title}
+            count={section.count}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <>
+      {showAddSectionDivider && <AddSectionDivider onClick={() => {}} />}
       {sections.map((section, i) => (
         <div key={`${section.title}-${i}`}>
           <SkeletonSectionHeader title={section.title} />

@@ -30,6 +30,11 @@ type ProjectInput = {
   archived?: boolean;
   budget?: number | null;
   deadline?: string | null;
+  startDate?: string | null;
+  start_date?: string | null;
+  endDate?: string | null;
+  end_date?: string | null;
+  goal?: string | null;
   isFavorite?: boolean;
   is_favorite?: boolean;
   organizationId?: string;
@@ -519,6 +524,11 @@ export class SupabaseAdapter implements DatabaseAdapter {
     if (input.archived !== undefined) payload.archived = input.archived;
     if (input.budget !== undefined) payload.budget = input.budget;
     if (input.deadline !== undefined) payload.deadline = input.deadline;
+    if (input.startDate !== undefined) payload.start_date = input.startDate;
+    if (input.start_date !== undefined) payload.start_date = input.start_date;
+    if (input.endDate !== undefined) payload.end_date = input.endDate;
+    if (input.end_date !== undefined) payload.end_date = input.end_date;
+    if (input.goal !== undefined) payload.goal = input.goal;
     if (input.isFavorite !== undefined) payload.is_favorite = input.isFavorite;
     if (input.is_favorite !== undefined)
       payload.is_favorite = input.is_favorite;
@@ -609,6 +619,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       parentId: project.parent_id ?? null,
       isFavorite: project.is_favorite ?? false,
       devnotesMeta: project.devnotes_meta ?? null,
+      startDate: project.start_date ?? undefined,
+      endDate: project.end_date ?? undefined,
+      goal: project.goal ?? undefined,
       orderIndex: project.order_index,
       createdAt: project.created_at,
       updatedAt: project.updated_at,
@@ -1494,6 +1507,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
         data.email,
       profileColor: data.profile_color,
       profileMemoji: data.profile_memoji,
+      dateFormat: data.date_format || undefined,
       animationsEnabled: data.animations_enabled,
       dockBadgeEnabled: data.dock_badge_enabled,
       aiModelChains: data.ai_model_chains,

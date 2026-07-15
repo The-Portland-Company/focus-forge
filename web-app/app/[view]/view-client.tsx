@@ -18,6 +18,9 @@ import {
   Plus,
   Bot,
   Target,
+  FolderPlus,
+  ListChecks,
+  ListTodo,
   Link2,
   Link2Off,
   CalendarClock,
@@ -41,6 +44,11 @@ import {
   History,
   ChevronRight,
   Menu,
+  Pencil,
+  Calendar,
+  CalendarPlus,
+  CalendarCheck,
+  Palette,
 } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -53,6 +61,8 @@ import { TaskList } from "@/components/task-list";
 import { AiTaskRefinementModal } from "@/components/ai-task-refinement-modal";
 import { KanbanView } from "@/components/kanban-view";
 import { ColorPicker } from "@/components/color-picker";
+import { ColorWheelPicker } from "@/components/color-wheel-picker";
+import { formatDate } from "@/lib/format-date";
 import { Database, Task, Project, Organization, Section, Goal } from "@/lib/types";
 import { SectionView } from "@/components/section-view";
 import { AddSectionModal } from "@/components/add-section-modal";
@@ -124,12 +134,14 @@ const PROJECT_SECTION_LAYOUT_STORAGE_KEY = "focus-forge:project-section-layout";
 const getDatabaseCoreCacheKey = (userId?: string | null) =>
   `focus-forge:database-core:v${DATABASE_CORE_CACHE_VERSION}:${userId || "anonymous"}`;
 
-// The sidebar's Email Inbox sub-item badges (Inbox/Quarantine/Trash/Sent +
-// Rules count) read from data.inboxItems and data.emailRules — and the
-// sidebar renders on every view. So always include inbox items in the
-// database fetch; otherwise the badges go to 0 anywhere the user lands
-// (or refreshes) outside Today.
-const shouldIncludeInboxItemsForInitialView = (_view: string) => true;
+// Whether the project view should hydrate its header (name + color) from the
+// sessionStorage core snapshot on mount / view change. Scoped to project views
+// so a repeat visit paints the real title + color at 0ms instead of a skeleton
+// while the server data (loadDatabaseForUser) is still gating. This does NOT
+// affect the fetch — inbox items are always included below so the sidebar
+// Email badges never go to 0.
+const shouldHydrateProjectHeaderFromCache = (view: string) =>
+  view.startsWith("project-");
 
 const readCachedDatabaseCore = (userId?: string | null): Database | null => {
   if (typeof window === "undefined") return null;
@@ -628,6 +640,34 @@ export default function ViewPage({
   // adding it to the callback's dependency array.
   const databaseStateRef = useRef<Database | null>(null);
   databaseStateRef.current = databaseState;
+
+  // On a repeat visit the real project data streams in ~5s late (server
+  // `loadDatabaseForUser` gate), so the header title/color would otherwise
+  // flash a skeleton. Read the sessionStorage core snapshot synchronously so
+  // the project header paints its real name + color at 0ms. Scoped to the
+  // project view only — we deliberately DON'T seed the whole `database` from
+  // cache (that snapshot strips inbox items and would zero the sidebar badges).
+  const [cachedProjectHeader, setCachedProjectHeader] = useState<{
+    id: string;
+    name: string;
+    color?: string;
+  } | null>(() => {
+    if (typeof window === "undefined" || !view.startsWith("project-")) {
+      return null;
+    }
+    const cachedProjectId = view.replace("project-", "");
+    const cached = readCachedDatabaseCore(user?.id);
+    const cachedProject = cached?.projects.find(
+      (project) => project.id === cachedProjectId,
+    );
+    return cachedProject
+      ? {
+          id: cachedProject.id,
+          name: cachedProject.name,
+          color: cachedProject.color,
+        }
+      : null;
+  });
   // Synchronous mirror of recentlySavedTaskIds so the background-refresh diff
   // can exclude self-edited rows without depending on render state.
   const recentlySavedTaskIdsRef = useRef<Set<string>>(new Set());
@@ -658,6 +698,12 @@ export default function ViewPage({
     useState<Organization | null>(null);
   const [showEditProject, setShowEditProject] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [colorPickerProjectId, setColorPickerProjectId] = useState<
+    string | null
+  >(null);
+  const [orgColorGradientMode, setOrgColorGradientMode] = useState<
+    Record<string, boolean>
+  >({});
   const [confirmDelete, setConfirmDelete] = useState<{
     show: boolean;
     orgId: string | null;
@@ -671,6 +717,9 @@ export default function ViewPage({
     string | null
   >(null);
   const [showProjectColorPicker, setShowProjectColorPicker] = useState(false);
+  // Inline edit state for the project Goal shown under the title.
+  const [isEditingProjectGoal, setIsEditingProjectGoal] = useState(false);
+  const [projectGoalDraft, setProjectGoalDraft] = useState("");
   const [sortBy, setSortBy] = useState<"dueDate" | "deadline" | "priority">(
     "dueDate",
   );
@@ -996,9 +1045,10 @@ export default function ViewPage({
       if (isBackgroundRefresh) {
         setIsRefreshing(true);
       }
-      const includeInboxItems =
-        options?.includeInboxItems ??
-        shouldIncludeInboxItemsForInitialView(view);
+      // Always include inbox items on the initial fetch: the sidebar Email
+      // badges render on every view and read from data.inboxItems, so omitting
+      // them would zero the badges wherever the user lands or refreshes.
+      const includeInboxItems = options?.includeInboxItems ?? true;
       const includeEmailData =
         options?.includeEmailData ??
         (includeInboxItems || view.startsWith("email-"));
@@ -1151,11 +1201,27 @@ export default function ViewPage({
       return;
     }
 
-    if (!shouldIncludeInboxItemsForInitialView(view)) {
+    // Repeat-visit fast paint: hydrate the project header (name + color) from
+    // the core snapshot so it's correct immediately, without seeding the whole
+    // `database` from cache (that snapshot strips inbox items and would zero
+    // the sidebar badges until the fetch below completes).
+    if (shouldHydrateProjectHeaderFromCache(view)) {
+      const cachedProjectId = view.replace("project-", "");
       const cachedDatabase = readCachedDatabaseCore(user?.id);
-      if (cachedDatabase) {
-        setDatabase((previous) => previous ?? cachedDatabase);
-      }
+      const cachedProject = cachedDatabase?.projects.find(
+        (project) => project.id === cachedProjectId,
+      );
+      setCachedProjectHeader(
+        cachedProject
+          ? {
+              id: cachedProject.id,
+              name: cachedProject.name,
+              color: cachedProject.color,
+            }
+          : null,
+      );
+    } else {
+      setCachedProjectHeader(null);
     }
 
     void fetchData();
@@ -2435,6 +2501,43 @@ export default function ViewPage({
     setSelectedOrgForProject(database?.organizations[0]?.id || null);
     setShowAddProject(true);
   };
+
+  // Brand gradient string used for project dots when an org is in
+  // "brand gradient" color mode, and by the animated color wheel picker.
+  const brandGradient =
+    resolvedCurrentUser?.profileColor &&
+    resolvedCurrentUser.profileColor.includes("gradient")
+      ? resolvedCurrentUser.profileColor
+      : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+
+  const toggleOrgColorMode = (orgId: string) => {
+    setOrgColorGradientMode((prev) => {
+      const next = { ...prev, [orgId]: !prev[orgId] };
+      try {
+        localStorage.setItem(
+          `focus-forge-org-color-mode:${orgId}`,
+          next[orgId] ? "gradient" : "manual",
+        );
+      } catch {}
+      return next;
+    });
+  };
+
+  // Hydrate the current org's color mode from localStorage when the view
+  // switches to an org page (mirrors the theme-preference localStorage pattern).
+  useEffect(() => {
+    if (!view.startsWith("org-")) return;
+    const orgId = view.replace("org-", "");
+    try {
+      const stored = localStorage.getItem(
+        `focus-forge-org-color-mode:${orgId}`,
+      );
+      setOrgColorGradientMode((prev) => ({
+        ...prev,
+        [orgId]: stored === "gradient",
+      }));
+    } catch {}
+  }, [view]);
 
   const handleAddOrganization = async (orgData: {
     name: string;
@@ -5152,6 +5255,18 @@ export default function ViewPage({
       );
       const activeProjects = orgProjects.filter((p) => !p.archived);
       const archivedProjects = orgProjects.filter((p) => p.archived);
+      const gradientMode = orgColorGradientMode[orgId] === true;
+
+      // A project's stored color is either a solid hex or a gradient string /
+      // "brand-gradient" sentinel. In org gradient mode, every dot renders as
+      // the brand gradient regardless of its stored color.
+      const projectDotStyle = (color: string): React.CSSProperties => {
+        if (gradientMode) return { background: brandGradient };
+        if (!color) return { backgroundColor: "#6B7280" };
+        if (color === "brand-gradient") return { background: brandGradient };
+        if (color.includes("gradient")) return { background: color };
+        return { backgroundColor: color };
+      };
 
       return (
         <div>
@@ -5161,6 +5276,29 @@ export default function ViewPage({
                 {organization?.name || "Organization"}
               </h1>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleOpenAddProject(orgId)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded bg-theme-gradient text-white text-sm font-medium hover:opacity-90 transition-opacity"
+                  title="New project"
+                >
+                  <Plus className="w-4 h-4" />
+                  New Project
+                </button>
+                <button
+                  onClick={() => toggleOrgColorMode(orgId)}
+                  className={`p-2 hover:bg-zinc-800 rounded transition-colors ${
+                    orgColorGradientMode[orgId]
+                      ? "text-white bg-zinc-800"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                  title={
+                    orgColorGradientMode[orgId]
+                      ? "Show project colors"
+                      : "Show brand gradient for all projects"
+                  }
+                >
+                  <Palette className="w-5 h-5" />
+                </button>
                 <button
                   onClick={() => handleOpenEditOrganization(orgId)}
                   className="p-2 hover:bg-zinc-800 rounded transition-colors text-zinc-400 hover:text-white"
@@ -5266,31 +5404,83 @@ export default function ViewPage({
                       t.completed,
                   ).length;
 
+                  const openTasks = taskCount - completedCount;
+                  const endValue = project.endDate ?? project.deadline;
+
                   return (
                     <div
                       key={project.id}
                       className="bg-zinc-900 rounded-lg p-4 border border-zinc-800"
                     >
                       <div className="flex items-start justify-between mb-2">
-                        <Link
-                          href={`/project-${project.id}`}
-                          className="flex items-center gap-2 text-lg font-medium hover:text-zinc-300 transition-colors"
-                        >
-                          <span
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: project.color }}
-                          />
-                          {project.name}
-                        </Link>
+                        <div className="flex items-center gap-2 min-w-0">
+                          {/* Clickable color dot → animated wheel picker */}
+                          <div className="relative flex-shrink-0">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setColorPickerProjectId((prev) =>
+                                  prev === project.id ? null : project.id,
+                                )
+                              }
+                              className="w-3.5 h-3.5 rounded-full ring-1 ring-white/20 hover:ring-white/60 transition-all"
+                              style={projectDotStyle(project.color)}
+                              title="Change project color"
+                              aria-label="Change project color"
+                            />
+                            {colorPickerProjectId === project.id && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => setColorPickerProjectId(null)}
+                                />
+                                <ColorWheelPicker
+                                  currentColor={project.color}
+                                  brandGradient={brandGradient}
+                                  className="left-0 top-6"
+                                  onColorChange={(color) => {
+                                    handleProjectUpdate(project.id, { color });
+                                  }}
+                                  onClose={() => setColorPickerProjectId(null)}
+                                />
+                              </>
+                            )}
+                          </div>
+                          <Link
+                            href={`/project-${project.id}`}
+                            className="text-lg font-medium hover:text-zinc-300 transition-colors truncate"
+                          >
+                            {project.name}
+                          </Link>
+                          <Tooltip
+                            content={`${openTasks} Tasks Open out of ${taskCount} Total`}
+                            side="top"
+                            className="flex-shrink-0"
+                          >
+                            <span className="inline-flex items-center rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
+                              {openTasks}/{taskCount}
+                            </span>
+                          </Tooltip>
+                        </div>
                         <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              setEditingProject(project);
+                              setShowEditProject(true);
+                            }}
+                            className="p-1 hover:bg-zinc-800 rounded transition-colors"
+                            title="Edit project"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
                           <button
                             onClick={() =>
                               handleProjectUpdate(project.id, {
-                                archived: false,
+                                archived: true,
                               })
                             }
                             className="p-1 hover:bg-zinc-800 rounded transition-colors"
-                            title="Unarchive project"
+                            title="Archive project"
                           >
                             <Archive className="w-4 h-4" />
                           </button>
@@ -5316,18 +5506,41 @@ export default function ViewPage({
                           {getRichTextPreview(project.description, 180)}
                         </p>
                       )}
-                      <div className="flex items-center gap-4 text-sm text-zinc-500">
-                        <span>
-                          {taskCount} tasks ({completedCount} completed)
-                        </span>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-zinc-500">
                         {project.budget && (
                           <span>Budget: ${project.budget}</span>
                         )}
-                        {project.deadline && (
-                          <span>
-                            Deadline:{" "}
-                            {new Date(project.deadline).toLocaleDateString()}
+                        {/* Date badges */}
+                        <Tooltip content="Created" side="top">
+                          <span className="inline-flex items-center gap-1 text-zinc-400">
+                            <Calendar className="w-3.5 h-3.5" />
+                            {formatDate(
+                              project.createdAt,
+                              resolvedCurrentUser?.dateFormat,
+                            )}
                           </span>
+                        </Tooltip>
+                        {project.startDate && (
+                          <Tooltip content="Start date" side="top">
+                            <span className="inline-flex items-center gap-1 text-zinc-400">
+                              <CalendarPlus className="w-3.5 h-3.5" />
+                              {formatDate(
+                                project.startDate,
+                                resolvedCurrentUser?.dateFormat,
+                              )}
+                            </span>
+                          </Tooltip>
+                        )}
+                        {endValue && (
+                          <Tooltip content="End date" side="top">
+                            <span className="inline-flex items-center gap-1 text-zinc-400">
+                              <CalendarCheck className="w-3.5 h-3.5" />
+                              {formatDate(
+                                endValue,
+                                resolvedCurrentUser?.dateFormat,
+                              )}
+                            </span>
+                          </Tooltip>
                         )}
                       </div>
                     </div>
@@ -5360,7 +5573,7 @@ export default function ViewPage({
                           <div className="flex items-center gap-2 text-lg font-medium">
                             <span
                               className="w-3 h-3 rounded-full"
-                              style={{ backgroundColor: project.color }}
+                              style={projectDotStyle(project.color)}
                             />
                             {project.name}
                           </div>
@@ -5638,80 +5851,139 @@ export default function ViewPage({
 
       return (
         <div>
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold flex items-center gap-3">
-              <div className="relative">
-                <span
-                  className="w-4 h-4 rounded-full block cursor-pointer hover:ring-2 hover:ring-zinc-400 transition-all"
-                  style={{ backgroundColor: project?.color }}
-                  onMouseEnter={() => setShowProjectColorPicker(true)}
-                  onMouseLeave={() => setShowProjectColorPicker(false)}
-                ></span>
-                {showProjectColorPicker && project && (
-                  <div
+          <div className="flex items-start justify-between mb-6 gap-3">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold flex items-center gap-3">
+                <div className="relative">
+                  <span
+                    className="w-4 h-4 rounded-full block cursor-pointer hover:ring-2 hover:ring-zinc-400 transition-all"
+                    style={{
+                      backgroundColor:
+                        project?.color ?? cachedProjectHeader?.color ?? "#3f3f46",
+                    }}
                     onMouseEnter={() => setShowProjectColorPicker(true)}
                     onMouseLeave={() => setShowProjectColorPicker(false)}
+                  ></span>
+                  {showProjectColorPicker && project && (
+                    <div
+                      onMouseEnter={() => setShowProjectColorPicker(true)}
+                      onMouseLeave={() => setShowProjectColorPicker(false)}
+                    >
+                      <ColorPicker
+                        currentColor={project.color}
+                        onColorChange={(color) => {
+                          handleProjectUpdate(project.id, { color });
+                          setShowProjectColorPicker(false);
+                        }}
+                        onClose={() => setShowProjectColorPicker(false)}
+                      />
+                    </div>
+                  )}
+                </div>
+                {project?.name ?? cachedProjectHeader?.name ?? (
+                  <Skeleton className="h-7 w-48 rounded-md" />
+                )}
+              </h1>
+              {/* Editable project goal under the title (task 10). */}
+              <div className="mt-1 ml-7 flex items-center gap-1.5 text-sm">
+                <Target className="h-3.5 w-3.5 shrink-0 text-[rgb(var(--theme-primary-rgb))]" />
+                {isEditingProjectGoal && project ? (
+                  <input
+                    type="text"
+                    autoFocus
+                    value={projectGoalDraft}
+                    onChange={(e) => setProjectGoalDraft(e.target.value)}
+                    onBlur={() => {
+                      handleProjectUpdate(project.id, {
+                        goal: projectGoalDraft.trim() || undefined,
+                      });
+                      setIsEditingProjectGoal(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        setIsEditingProjectGoal(false);
+                      }
+                    }}
+                    placeholder="Set a goal"
+                    className="min-w-0 flex-1 bg-transparent border-b border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-[rgb(var(--theme-primary-rgb))]"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!project}
+                    onClick={() => {
+                      if (!project) return;
+                      setProjectGoalDraft(project.goal ?? "");
+                      setIsEditingProjectGoal(true);
+                    }}
+                    className={`truncate text-left transition-colors ${
+                      project?.goal
+                        ? "text-zinc-300 hover:text-white"
+                        : "text-zinc-600 hover:text-zinc-400"
+                    } disabled:cursor-default disabled:hover:text-zinc-600`}
+                    title="Set the project goal"
                   >
-                    <ColorPicker
-                      currentColor={project.color}
-                      onColorChange={(color) => {
-                        handleProjectUpdate(project.id, { color });
-                        setShowProjectColorPicker(false);
-                      }}
-                      onClose={() => setShowProjectColorPicker(false)}
-                    />
-                  </div>
+                    {project?.goal || "Set a goal"}
+                  </button>
                 )}
               </div>
-              {project?.name || "Project"}
-            </h1>
+            </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {project ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setShowProjectNotesModal(true)}
-                    className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
-                    title="Project description and notes"
-                    aria-label="Project description and notes"
-                  >
-                    <FileText className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenEditProject(projectId)}
-                    className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
-                    title="Project settings and DevNotes"
-                    aria-label="Project settings and DevNotes"
-                  >
-                    <Edit className="h-4 w-4" />
-                  </button>
-                  <ProjectAiExportControls projectId={project.id} />
-                  <Tooltip
-                    content="Browse previous versions of this project's tasks and settings"
-                    side="bottom"
-                    align="end"
-                    className="inline-flex"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setShowProjectHistory((prev) => !prev)}
-                      aria-pressed={showProjectHistory}
-                      className={`rounded-lg border p-2 transition-colors ${
-                        showProjectHistory
-                          ? "border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))]"
-                          : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
-                      }`}
-                      aria-label="Project history"
-                    >
-                      <History className="h-4 w-4" />
-                    </button>
-                  </Tooltip>
-                </>
-              ) : null}
+              {/* Action cluster is gated on `projectId` (known from the route
+                  immediately), not the late-arriving `project` object, so the
+                  buttons paint at 0ms. Handlers that truly need the loaded
+                  project are disabled until it arrives. */}
+              <button
+                type="button"
+                disabled={!project}
+                onClick={() => setShowProjectNotesModal(true)}
+                className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                title="Project description and notes"
+                aria-label="Project description and notes"
+              >
+                <FileText className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                disabled={!project}
+                onClick={() => handleOpenEditProject(projectId)}
+                className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                title="Project settings and DevNotes"
+                aria-label="Project settings and DevNotes"
+              >
+                <Edit className="h-4 w-4" />
+              </button>
+              <ProjectAiExportControls projectId={projectId} />
+              <Tooltip
+                content="Browse previous versions of this project's tasks and settings"
+                side="bottom"
+                align="end"
+                className="inline-flex"
+              >
+                <button
+                  type="button"
+                  disabled={!project}
+                  onClick={() => setShowProjectHistory((prev) => !prev)}
+                  aria-pressed={showProjectHistory}
+                  className={`rounded-lg border p-2 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                    showProjectHistory
+                      ? "border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))]"
+                      : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
+                  }`}
+                  aria-label="Project history"
+                >
+                  <History className="h-4 w-4" />
+                </button>
+              </Tooltip>
               <CreateMenuButton
-                onAddTask={() => openAddTask(project?.id)}
+                onAddTask={() => openAddTask(projectId)}
                 onAddGoal={() => openAddGoal(projectId)}
+                onAddTaskList={() => openAddSection(projectId, undefined, 0)}
+                onAddSection={() => openAddSection(projectId, undefined, 0)}
                 buttonClassName="btn-theme-primary text-white rounded-lg p-2 flex items-center justify-center transition-all"
                 iconClassName="w-4 h-4"
                 align="end"
@@ -5767,8 +6039,14 @@ export default function ViewPage({
                     </button>
                     <div className="flex items-center gap-2">
                       <CreateMenuButton
-                        onAddTask={() => openAddTask(project?.id)}
+                        onAddTask={() => openAddTask(projectId)}
                         onAddGoal={() => openAddGoal(projectId)}
+                        onAddTaskList={() =>
+                          openAddSection(projectId, undefined, 0)
+                        }
+                        onAddSection={() =>
+                          openAddSection(projectId, undefined, 0)
+                        }
                         buttonClassName="inline-flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
                         iconClassName="h-3.5 w-3.5"
                         align="start"
@@ -6002,11 +6280,20 @@ export default function ViewPage({
                 </div>
 
                 {isDataLoading ? (
-                  <div className="mx-auto w-full max-w-[1000px]">
+                  <div
+                    className={
+                      projectSectionLayout === "board"
+                        ? "w-full"
+                        : "mx-auto w-full max-w-[1000px]"
+                    }
+                  >
                     <SkeletonSectionedTasks
+                      layout={projectSectionLayout === "board" ? "board" : "list"}
+                      showAddSectionDivider={projectSectionLayout !== "board"}
                       sections={[
                         { title: "Section", count: 4 },
                         { title: "Section", count: 3 },
+                        { title: "Section", count: 2 },
                       ]}
                     />
                   </div>
@@ -6236,6 +6523,44 @@ export default function ViewPage({
                             No matching tasks or sections for the current
                             filters.
                           </p>
+                          <div className="flex flex-wrap items-center justify-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openAddSection(projectId, undefined, 0)
+                              }
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
+                            >
+                              <FolderPlus className="h-4 w-4" />
+                              Add a Section
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openAddGoal(projectId)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
+                            >
+                              <Target className="h-4 w-4" />
+                              Add a Goal
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openAddSection(projectId, undefined, 0)
+                              }
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
+                            >
+                              <ListChecks className="h-4 w-4" />
+                              Add a Task List
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openAddTask(projectId)}
+                              className="inline-flex items-center gap-1.5 rounded-lg btn-theme-primary px-3 py-1.5 text-sm text-white transition-all"
+                            >
+                              <ListTodo className="h-4 w-4" />
+                              Add a Task
+                            </button>
+                          </div>
                         </div>
                       )}
                   </div>

@@ -2285,6 +2285,7 @@ export type Database = {
           calendar_feed_token: string | null
           contributes_training_data: boolean
           created_at: string | null
+          date_format: string | null
           display_name: string | null
           dock_badge_enabled: boolean
           email: string
@@ -2328,6 +2329,7 @@ export type Database = {
           calendar_feed_token?: string | null
           contributes_training_data?: boolean
           created_at?: string | null
+          date_format?: string | null
           display_name?: string | null
           dock_badge_enabled?: boolean
           email: string
@@ -2371,6 +2373,7 @@ export type Database = {
           calendar_feed_token?: string | null
           contributes_training_data?: boolean
           created_at?: string | null
+          date_format?: string | null
           display_name?: string | null
           dock_badge_enabled?: boolean
           email?: string
@@ -2420,6 +2423,8 @@ export type Database = {
           deleted_at: string | null
           description: string | null
           devnotes_meta: string | null
+          end_date: string | null
+          goal: string | null
           id: string
           is_favorite: boolean | null
           last_todoist_sync: string | null
@@ -2427,6 +2432,7 @@ export type Database = {
           order_index: number | null
           organization_id: string | null
           parent_id: string | null
+          start_date: string | null
           todoist_child_order: number | null
           todoist_collapsed: boolean | null
           todoist_id: string | null
@@ -2450,6 +2456,8 @@ export type Database = {
           deleted_at?: string | null
           description?: string | null
           devnotes_meta?: string | null
+          end_date?: string | null
+          goal?: string | null
           id?: string
           is_favorite?: boolean | null
           last_todoist_sync?: string | null
@@ -2457,6 +2465,7 @@ export type Database = {
           order_index?: number | null
           organization_id?: string | null
           parent_id?: string | null
+          start_date?: string | null
           todoist_child_order?: number | null
           todoist_collapsed?: boolean | null
           todoist_id?: string | null
@@ -2480,6 +2489,8 @@ export type Database = {
           deleted_at?: string | null
           description?: string | null
           devnotes_meta?: string | null
+          end_date?: string | null
+          goal?: string | null
           id?: string
           is_favorite?: boolean | null
           last_todoist_sync?: string | null
@@ -2487,6 +2498,7 @@ export type Database = {
           order_index?: number | null
           organization_id?: string | null
           parent_id?: string | null
+          start_date?: string | null
           todoist_child_order?: number | null
           todoist_collapsed?: boolean | null
           todoist_id?: string | null
@@ -3072,6 +3084,8 @@ export type Database = {
       }
       tasks: {
         Row: {
+          agent_model: string | null
+          agent_name: string | null
           assigned_to: string | null
           completed: boolean | null
           completed_at: string | null
@@ -3117,6 +3131,8 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          agent_model?: string | null
+          agent_name?: string | null
           assigned_to?: string | null
           completed?: boolean | null
           completed_at?: string | null
@@ -3162,6 +3178,8 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          agent_model?: string | null
+          agent_name?: string | null
           assigned_to?: string | null
           completed?: boolean | null
           completed_at?: string | null
