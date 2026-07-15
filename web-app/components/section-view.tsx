@@ -8,9 +8,11 @@ import {
   Trash2,
   Plus,
   GripVertical,
+  Target,
 } from "lucide-react";
-import { Section, Task, Database } from "@/lib/types";
+import { Section, Task, Database, Goal } from "@/lib/types";
 import { TaskList } from "./task-list";
+import { GoalGroupShell } from "./goal-group";
 
 interface SectionViewProps {
   section: Section;
@@ -30,6 +32,7 @@ interface SectionViewProps {
   optimisticCompletedIds?: Set<string>;
   sectionTasksBySectionId?: Map<string, Task[]>;
   childSectionsByParentId?: Map<string, Section[]>;
+  goalsBySectionId?: Map<string | null, Goal[]>;
   enableDueDateQuickEdit?: boolean;
   onTaskFocus?: (taskId: string) => void;
   onTaskUpdate?: (
@@ -47,6 +50,15 @@ interface SectionViewProps {
   onAddSectionAfter?: (section: Section) => void;
   onTaskDrop: (taskId: string, sectionId: string) => void;
   onSectionReorder: (sectionId: string, newOrder: number) => void;
+  onAddGoal?: (projectId: string, sectionId?: string) => void;
+  onCompleteGoal?: (goalId: string, completed: boolean) => void;
+  onRenameGoal?: (goalId: string, name: string) => void;
+  onDeleteGoal?: (goalId: string) => void;
+  onTaskDropToGoal?: (
+    taskId: string,
+    goalId: string,
+    sectionId?: string,
+  ) => void;
   userId: string;
 }
 
@@ -68,6 +80,7 @@ export function SectionView({
   optimisticCompletedIds,
   sectionTasksBySectionId,
   childSectionsByParentId,
+  goalsBySectionId,
   enableDueDateQuickEdit = false,
   onTaskFocus,
   onTaskUpdate,
@@ -82,6 +95,11 @@ export function SectionView({
   onAddSectionAfter,
   onTaskDrop,
   onSectionReorder,
+  onAddGoal,
+  onCompleteGoal,
+  onRenameGoal,
+  onDeleteGoal,
+  onTaskDropToGoal,
   userId,
 }: SectionViewProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -124,6 +142,58 @@ export function SectionView({
         .sort((a, b) => (a.order || 0) - (b.order || 0)) || []
     );
   }, [childSectionsByParentId, database.sections, section.id]);
+
+  // Goals attached to this section (null-section goals are handled by the
+  // caller in the unsectioned area).
+  const goalsForSection = useMemo(
+    () => goalsBySectionId?.get(section.id) || [],
+    [goalsBySectionId, section.id],
+  );
+
+  const getTaskGoalId = (task: Task): string | null =>
+    (task.goalId || (task as any).goal_id || null) as string | null;
+
+  // When goals exist, split them out of the flat list; otherwise every task
+  // renders in the single ungrouped list (unchanged behavior).
+  const goalLessTasks = useMemo(
+    () =>
+      goalsForSection.length > 0
+        ? sectionTasks.filter((task) => !getTaskGoalId(task))
+        : sectionTasks,
+    [goalsForSection.length, sectionTasks],
+  );
+
+  const renderTaskList = (listTasks: Task[], keySuffix: string) => (
+    <TaskList
+      tasks={listTasks}
+      allTasks={allTasks}
+      projects={database.projects}
+      tags={database.tags}
+      currentUserId={currentUserId}
+      priorityColor={priorityColor}
+      showCompleted={database.settings?.showCompletedTasks ?? true}
+      completedAccordionKey={
+        completedAccordionKey
+          ? `${completedAccordionKey}-section-${section.id}-${keySuffix}`
+          : undefined
+      }
+      revealActionsOnHover={revealActionsOnHover}
+      dueDateLayout={dueDateLayout}
+      uniformDueBadgeWidth={dueDateLayout === "inline"}
+      bulkSelectMode={bulkSelectMode}
+      selectedTaskIds={selectedTaskIds}
+      loadingTaskIds={loadingTaskIds}
+      animatingOutTaskIds={animatingOutTaskIds}
+      optimisticCompletedIds={optimisticCompletedIds}
+      enableDueDateQuickEdit={enableDueDateQuickEdit}
+      onTaskFocus={onTaskFocus}
+      onTaskUpdate={onTaskUpdate}
+      onTaskToggle={onTaskToggle}
+      onTaskEdit={onTaskEdit}
+      onTaskDelete={onTaskDelete}
+      onTaskSelect={onTaskSelect}
+    />
+  );
 
   const handleToggleCollapse = async () => {
     const newCollapsed = !isCollapsed;
@@ -211,6 +281,18 @@ export function SectionView({
           >
             <Plus className="w-4 h-4" />
           </button>
+          {onAddGoal && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddGoal(section.projectId, section.id);
+              }}
+              className="p-1 hover:bg-zinc-700 rounded transition-colors"
+              title="Add goal"
+            >
+              <Target className="w-4 h-4" />
+            </button>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -245,40 +327,44 @@ export function SectionView({
             </p>
           )}
 
-          {/* Tasks in this section */}
-          {sectionTasks.length > 0 && (
-            <div className="mb-4">
-              <TaskList
-                tasks={sectionTasks}
-                allTasks={allTasks}
-                projects={database.projects}
-                tags={database.tags}
-                currentUserId={currentUserId}
-                priorityColor={priorityColor}
-                showCompleted={database.settings?.showCompletedTasks ?? true}
-                completedAccordionKey={
-                  completedAccordionKey
-                    ? `${completedAccordionKey}-section-${section.id}`
-                    : undefined
-                }
-                revealActionsOnHover={revealActionsOnHover}
-                dueDateLayout={dueDateLayout}
-                uniformDueBadgeWidth={dueDateLayout === "inline"}
-                bulkSelectMode={bulkSelectMode}
-                selectedTaskIds={selectedTaskIds}
-                loadingTaskIds={loadingTaskIds}
-                animatingOutTaskIds={animatingOutTaskIds}
-                optimisticCompletedIds={optimisticCompletedIds}
-                enableDueDateQuickEdit={enableDueDateQuickEdit}
-                onTaskFocus={onTaskFocus}
-                onTaskUpdate={onTaskUpdate}
-                onTaskToggle={onTaskToggle}
-                onTaskEdit={onTaskEdit}
-                onTaskDelete={onTaskDelete}
-                onTaskSelect={onTaskSelect}
-              />
-            </div>
+          {/* Goal-less tasks in this section (or all tasks when no goals). */}
+          {goalLessTasks.length > 0 && (
+            <div className="mb-4">{renderTaskList(goalLessTasks, "root")}</div>
           )}
+
+          {/* Goal sub-groups, mirroring the board's collapsible goal groups. */}
+          {goalsForSection.map((goal) => {
+            const goalTasks = sectionTasks.filter(
+              (task) => getTaskGoalId(task) === goal.id,
+            );
+            const completedCount = goalTasks.filter(
+              (task) =>
+                task.completed || optimisticCompletedIds?.has(task.id),
+            ).length;
+
+            return (
+              <div key={goal.id} className="mb-4">
+                <GoalGroupShell
+                  goal={goal}
+                  completedCount={completedCount}
+                  totalCount={goalTasks.length}
+                  sectionId={section.id}
+                  onTaskDropToGoal={onTaskDropToGoal}
+                  onCompleteGoal={onCompleteGoal}
+                  onRenameGoal={onRenameGoal}
+                  onDeleteGoal={onDeleteGoal}
+                >
+                  {goalTasks.length > 0 ? (
+                    renderTaskList(goalTasks, `goal-${goal.id}`)
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-center text-xs text-zinc-600">
+                      Drop tasks here.
+                    </div>
+                  )}
+                </GoalGroupShell>
+              </div>
+            );
+          })}
 
           <div className="mb-2 flex h-0 w-full items-center justify-center overflow-visible">
             <div className="pointer-events-auto flex items-center gap-2 rounded-lg opacity-0 transition-all duration-200 translate-y-2 group-hover/section:translate-y-0 group-hover/section:opacity-100">
@@ -324,6 +410,7 @@ export function SectionView({
               optimisticCompletedIds={optimisticCompletedIds}
               sectionTasksBySectionId={sectionTasksBySectionId}
               childSectionsByParentId={childSectionsByParentId}
+              goalsBySectionId={goalsBySectionId}
               enableDueDateQuickEdit={enableDueDateQuickEdit}
               onTaskFocus={onTaskFocus}
               onTaskUpdate={onTaskUpdate}
@@ -338,6 +425,11 @@ export function SectionView({
               onAddSectionAfter={onAddSectionAfter}
               onTaskDrop={onTaskDrop}
               onSectionReorder={onSectionReorder}
+              onAddGoal={onAddGoal}
+              onCompleteGoal={onCompleteGoal}
+              onRenameGoal={onRenameGoal}
+              onDeleteGoal={onDeleteGoal}
+              onTaskDropToGoal={onTaskDropToGoal}
               userId={userId}
             />
           ))}

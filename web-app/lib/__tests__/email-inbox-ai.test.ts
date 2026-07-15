@@ -7,7 +7,50 @@ import {
   finalizeInboxSummary,
   formatAiGeneratedTaskName,
   normalizePreventedSpamResult,
+  repairGenericTaskName,
 } from "../email-inbox/ai";
+
+test("buildHeuristicAnalysis suppresses tasks for transactional notifications", () => {
+  const billing = buildHeuristicAnalysis({
+    subject: "[DigitalOcean] Billing Alert: Monthly Billable Usage",
+    bodyText: "Your account has reached a billing threshold.",
+    senderEmail: "billing@digitalocean.com",
+    mailboxEmail: "ops@example.com",
+    projectOptions: [],
+  });
+  assert.equal(billing.classification, "reference");
+  assert.deepEqual(billing.taskSuggestions, []);
+
+  const security = buildHeuristicAnalysis({
+    subject: "Security alert",
+    bodyText: "If this was you, you don't need to do anything.",
+    senderEmail: "no-reply@accounts.google.com",
+    mailboxEmail: "ops@example.com",
+    projectOptions: [],
+  });
+  assert.deepEqual(security.taskSuggestions, []);
+});
+
+test("repairGenericTaskName rebuilds bare person-name titles from the subject", () => {
+  assert.equal(
+    repairGenericTaskName("Review and respond: Spencer", "Spencer"),
+    "Review and respond: Spencer",
+  );
+  assert.equal(
+    repairGenericTaskName(
+      "Review and respond: Brittany",
+      "Q3 marketing budget approval",
+    ),
+    "Review and respond: Q3 marketing budget approval",
+  );
+  assert.equal(
+    repairGenericTaskName(
+      "Review and respond: Client follow-up on the proposal",
+      "Re: proposal",
+    ),
+    "Review and respond: Client follow-up on the proposal",
+  );
+});
 
 test("buildHeuristicAnalysis quarantines obvious spam", () => {
   const result = buildHeuristicAnalysis({

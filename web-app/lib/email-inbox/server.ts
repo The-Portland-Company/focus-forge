@@ -8,6 +8,7 @@ import {
   buildProjectReplyContextSnapshot,
   formatAiGeneratedTaskName,
   generateReplyDraftWithAI,
+  repairGenericTaskName,
 } from "@/lib/email-inbox/ai";
 import {
   classifySpam,
@@ -2480,7 +2481,9 @@ async function createTasksForThreadInternal(params: {
     const task = await adapter.createTask({
       name:
         params.generatedBy === "ai"
-          ? formatAiGeneratedTaskName(suggestion.name)
+          ? formatAiGeneratedTaskName(
+              repairGenericTaskName(suggestion.name, params.thread.subject),
+            )
           : suggestion.name,
       description:
         suggestion.description ||

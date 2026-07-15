@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { Database, Goal, Section, Task } from "@/lib/types";
+import { GoalGroupShell } from "@/components/goal-group";
 import { getBlockedTaskIds } from "@/lib/dependency-utils";
 import { richTextToPlainText } from "@/lib/rich-text";
 import { UserAvatar } from "@/components/user-avatar";
@@ -437,143 +438,49 @@ function GoalGroup({
   onRenameGoal?: (goalId: string, name: string) => void;
   onDeleteGoal?: (goalId: string) => void;
 }) {
-  const [isDragOver, setIsDragOver] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState(goal.name);
-
   const totalCount = tasks.length;
   const completedCount = tasks.filter(
     (task) => task.completed || cardProps.optimisticCompletedIds.has(task.id),
   ).length;
 
-  const commitRename = () => {
-    const trimmed = editValue.trim();
-    if (trimmed && trimmed !== goal.name) {
-      onRenameGoal?.(goal.id, trimmed);
-    } else {
-      setEditValue(goal.name);
-    }
-    setIsEditing(false);
-  };
-
   return (
-    <div
-      className={`mt-2 rounded-lg border transition-colors ${
-        isDragOver
-          ? "border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))]/10"
-          : "border-zinc-800 bg-zinc-950/40"
-      }`}
-      onDragOver={(event) => {
-        event.preventDefault();
-        setIsDragOver(true);
-      }}
-      onDragLeave={() => setIsDragOver(false)}
-      onDrop={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        setIsDragOver(false);
-        const taskId = event.dataTransfer.getData("taskId");
-        if (taskId) onTaskDropToGoal?.(taskId, goal.id, sectionId);
-      }}
+    <GoalGroupShell
+      goal={goal}
+      completedCount={completedCount}
+      totalCount={totalCount}
+      sectionId={sectionId}
+      onTaskDropToGoal={onTaskDropToGoal}
+      onCompleteGoal={onCompleteGoal}
+      onRenameGoal={onRenameGoal}
+      onDeleteGoal={onDeleteGoal}
     >
-      <div className="flex items-center gap-2 px-2 py-2">
-        <button
-          type="button"
-          onClick={() => onCompleteGoal?.(goal.id, !goal.completed)}
-          className={`shrink-0 transition-colors hover:text-white ${
-            goal.completed ? "text-green-500" : "text-zinc-400"
-          }`}
-          title={goal.completed ? "Mark goal incomplete" : "Mark goal complete"}
-          aria-label={goal.completed ? "Mark goal incomplete" : "Mark goal complete"}
-        >
-          {goal.completed ? (
-            <CheckCircle2 className="h-4 w-4" />
-          ) : (
-            <Circle className="h-4 w-4" />
-          )}
-        </button>
-        <Target className="h-3.5 w-3.5 shrink-0 text-[rgb(var(--theme-primary-rgb))]" />
-        {isEditing ? (
-          <input
-            type="text"
-            value={editValue}
-            autoFocus
-            onChange={(event) => setEditValue(event.target.value)}
-            onBlur={commitRename}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") commitRename();
-              if (event.key === "Escape") {
-                setEditValue(goal.name);
-                setIsEditing(false);
-              }
-            }}
-            className="min-w-0 flex-1 rounded bg-zinc-800 px-1.5 py-0.5 text-sm text-white focus:outline-none focus:ring-2 ring-theme"
-          />
-        ) : (
-          <button
-            type="button"
-            onDoubleClick={() => {
-              setEditValue(goal.name);
-              setIsEditing(true);
-            }}
-            className={`min-w-0 flex-1 truncate text-left text-sm font-medium ${
-              goal.completed ? "text-green-500 line-through" : "text-zinc-200"
-            }`}
-            title="Double-click to rename"
-          >
-            {goal.name}
-          </button>
-        )}
-        <span className="shrink-0 text-xs text-zinc-500">
-          {completedCount}/{totalCount}
-        </span>
-        <button
-          type="button"
-          onClick={() => {
-            if (
-              confirm(
-                `Delete goal "${goal.name}"? Its tasks move back to the section.`,
-              )
-            ) {
-              onDeleteGoal?.(goal.id);
-            }
-          }}
-          className="shrink-0 rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-300"
-          title="Delete goal"
-          aria-label="Delete goal"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <div className="space-y-2 px-2 pb-2">
-        {tasks.map((task) => (
-          <BoardTaskCard
-            key={task.id}
-            task={task}
-            database={cardProps.database}
-            currentUserId={cardProps.currentUserId}
-            bulkSelectMode={cardProps.bulkSelectMode}
-            selectedTaskIds={cardProps.selectedTaskIds}
-            loadingTaskIds={cardProps.loadingTaskIds}
-            animatingOutTaskIds={cardProps.animatingOutTaskIds}
-            optimisticCompletedIds={cardProps.optimisticCompletedIds}
-            deletingTaskIds={cardProps.deletingTaskIds}
-            blockedTaskIds={cardProps.blockedTaskIds}
-            onTaskFocus={cardProps.onTaskFocus}
-            onTaskToggle={cardProps.onTaskToggle}
-            onTaskEdit={cardProps.onTaskEdit}
-            onTaskDelete={cardProps.onTaskDelete}
-            onTaskSelect={cardProps.onTaskSelect}
-            onTaskMoveRequest={cardProps.onTaskMoveRequest}
-          />
-        ))}
-        {tasks.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-center text-xs text-zinc-600">
-            Drop tasks here.
-          </div>
-        ) : null}
-      </div>
-    </div>
+      {tasks.map((task) => (
+        <BoardTaskCard
+          key={task.id}
+          task={task}
+          database={cardProps.database}
+          currentUserId={cardProps.currentUserId}
+          bulkSelectMode={cardProps.bulkSelectMode}
+          selectedTaskIds={cardProps.selectedTaskIds}
+          loadingTaskIds={cardProps.loadingTaskIds}
+          animatingOutTaskIds={cardProps.animatingOutTaskIds}
+          optimisticCompletedIds={cardProps.optimisticCompletedIds}
+          deletingTaskIds={cardProps.deletingTaskIds}
+          blockedTaskIds={cardProps.blockedTaskIds}
+          onTaskFocus={cardProps.onTaskFocus}
+          onTaskToggle={cardProps.onTaskToggle}
+          onTaskEdit={cardProps.onTaskEdit}
+          onTaskDelete={cardProps.onTaskDelete}
+          onTaskSelect={cardProps.onTaskSelect}
+          onTaskMoveRequest={cardProps.onTaskMoveRequest}
+        />
+      ))}
+      {tasks.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-center text-xs text-zinc-600">
+          Drop tasks here.
+        </div>
+      ) : null}
+    </GoalGroupShell>
   );
 }
 
