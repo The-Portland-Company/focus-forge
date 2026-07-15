@@ -2529,6 +2529,50 @@ export type Database = {
           },
         ]
       }
+      project_shares: {
+        Row: {
+          allow_public: boolean
+          created_at: string
+          created_by: string | null
+          expires_at: string | null
+          id: string
+          passcode_hash: string | null
+          project_id: string
+          revoked_at: string | null
+          token: string
+        }
+        Insert: {
+          allow_public?: boolean
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          passcode_hash?: string | null
+          project_id: string
+          revoked_at?: string | null
+          token: string
+        }
+        Update: {
+          allow_public?: boolean
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          passcode_hash?: string | null
+          project_id?: string
+          revoked_at?: string | null
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_shares_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reminders: {
         Row: {
           amount: number | null
