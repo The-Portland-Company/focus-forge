@@ -1047,7 +1047,12 @@ export default function ViewPage({
       includeInboxItems?: boolean;
     }) => {
       const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+      // Core load must finish sooner; email pass can take longer.
+      const abortMs =
+        options?.includeEmailData === false && options?.includeInboxItems === false
+          ? 12_000
+          : 20_000;
+      const timeoutId = window.setTimeout(() => controller.abort(), abortMs);
       // Show the inline header refresh spinners only when we already have data
       // on screen (i.e. this is a background refresh, not the first load).
       const isBackgroundRefresh = databaseStateRef.current !== null;
@@ -1233,7 +1238,14 @@ export default function ViewPage({
       setCachedProjectHeader(null);
     }
 
-    void fetchData();
+    // Core data first (no email) so the shell leaves skeletons quickly even when
+    // the email/inbox path is slow or hung. Email loads in a follow-up fetch.
+    void (async () => {
+      await fetchData({ includeEmailData: false, includeInboxItems: false });
+      if (!chromeOnly) {
+        void fetchData({ includeEmailData: true, includeInboxItems: true });
+      }
+    })();
   }, [fetchData, user?.id, view, chromeOnly]);
 
   // Refresh the in-memory database whenever something changes the data outside

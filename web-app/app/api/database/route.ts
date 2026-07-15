@@ -24,11 +24,32 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const payload = await loadDatabaseForUser(
+    const loadPromise = loadDatabaseForUser(
       session.user.id,
       session.user.email,
       { includeEmailData, includeInboxItems },
     );
+
+    // Hard cap so a hung PostgREST/email path cannot pin the client forever.
+    // Core (no email) should finish well under this; full inbox may time out and
+    // the client keeps previously painted core data.
+    const timeoutMs = includeEmailData ? 12_000 : 8_000;
+    const payload = await Promise.race([
+      loadPromise,
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+
+    if (payload == null) {
+      console.error(
+        `Database load timed out after ${timeoutMs}ms (includeEmailData=${includeEmailData})`,
+      );
+      return NextResponse.json(
+        { error: "Database load timed out" },
+        { status: 504 },
+      );
+    }
 
     return NextResponse.json(payload);
   } catch (error) {

@@ -101,28 +101,35 @@ export async function loadDatabaseForUser(
   const projectMemberMap = new Map<string, string[]>();
   const projectOwnerMap = new Map<string, string>();
 
-  try {
-    organizations = await adapter.getOrganizations();
-  } catch (error) {
-    console.error("❌ Error fetching organizations:", error);
-  }
-
-  try {
-    projects = await adapter.getProjects();
-  } catch (error) {
-    console.error("❌ Error fetching projects:", error);
-  }
-
-  try {
-    tasks = await adapter.getTasks();
-  } catch (error) {
-    console.error("❌ Error fetching tasks:", error);
-  }
-
-  try {
-    tags = await adapter.getTags();
-  } catch (error) {
-    console.error("Error fetching tags:", error);
+  // Parallel core reads — sequential awaits multiplied multi-second PostgREST
+  // latency into multi-minute page loads and infinite loading shells.
+  {
+    const settled = await Promise.allSettled([
+      adapter.getOrganizations(),
+      adapter.getProjects(),
+      adapter.getTasks(),
+      adapter.getTags(),
+    ]);
+    if (settled[0].status === "fulfilled") {
+      organizations = settled[0].value;
+    } else {
+      console.error("❌ Error fetching organizations:", settled[0].reason);
+    }
+    if (settled[1].status === "fulfilled") {
+      projects = settled[1].value;
+    } else {
+      console.error("❌ Error fetching projects:", settled[1].reason);
+    }
+    if (settled[2].status === "fulfilled") {
+      tasks = settled[2].value;
+    } else {
+      console.error("❌ Error fetching tasks:", settled[2].reason);
+    }
+    if (settled[3].status === "fulfilled") {
+      tags = settled[3].value;
+    } else {
+      console.error("Error fetching tags:", settled[3].reason);
+    }
   }
 
   try {

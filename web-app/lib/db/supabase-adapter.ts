@@ -866,7 +866,10 @@ export class SupabaseAdapter implements DatabaseAdapter {
     console.log("📋 Fetching tasks for user:", this.userId);
     const projects = projectId ? [] : await this.getProjects();
     const userProjectIds = projects.map((p: { id: string }) => p.id);
-    const pageSize = 1000;
+    // Smaller pages + lean select: nested embeds (tags/reminders/attachments/
+    // profiles) were multi-joining a large tasks table and timing out PostgREST
+    // (~30s+), which left the whole app on infinite skeletons.
+    const pageSize = 200;
     let offset = 0;
     let allTasks: any[] = [];
 
@@ -874,14 +877,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       let query = supabase
         .from("tasks")
         .select(
-          `
-          *,
-          tags:task_tags(tag:tags(*)),
-          reminders(*),
-          attachments(*),
-          assignee:profiles!tasks_assigned_to_fkey(id, first_name, last_name, email, profile_color, profile_memoji),
-          creator:profiles!tasks_created_by_fkey(id, first_name, last_name, email)
-        `,
+          "id,name,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,order_index,time_estimate,devnotes_meta,requires_hitl,todoist_order",
         )
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
@@ -890,9 +886,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
       if (projectId) {
         query = query.eq("project_id", projectId);
       } else if (userProjectIds.length > 0) {
-        query = query.or(
-          `assigned_to.eq.${this.userId},and(assigned_to.is.null,project_id.in.(${userProjectIds.join(",")}))`,
-        );
+        // Prefer project-scoped filter (indexable) over complex OR of assigned_to.
+        query = query.in("project_id", userProjectIds);
       } else {
         query = query.eq("assigned_to", this.userId);
       }
@@ -903,7 +898,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
       const batch = data || [];
       allTasks = allTasks.concat(batch);
 
-      if (batch.length < pageSize) {
+      // Cap first paint load — do not page forever on huge workspaces.
+      if (batch.length < pageSize || allTasks.length >= 2000) {
         break;
       }
       offset += pageSize;
@@ -911,37 +907,67 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
     console.log("✅ Tasks fetched:", allTasks.length);
 
+    // Optional enrichment: assignee/creator names (single profiles query).
+    const profileIds = Array.from(
+      new Set(
+        allTasks
+          .flatMap((t: any) => [t.assigned_to, t.created_by])
+          .filter(Boolean),
+      ),
+    ) as string[];
+    const profileById = new Map<string, any>();
+    if (profileIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select(
+          "id, first_name, last_name, email, profile_color, profile_memoji",
+        )
+        .in("id", profileIds.slice(0, 200));
+      for (const p of profiles || []) {
+        profileById.set(p.id, p);
+      }
+    }
+
     // Transform the data to match the expected format
     return allTasks.map((task: any) => {
-      // Construct assignee info from joined profile data
+      const assignee = task.assigned_to
+        ? profileById.get(task.assigned_to)
+        : null;
+      const creator = task.created_by
+        ? profileById.get(task.created_by)
+        : null;
+
       let assigneeName: string | null = null;
       let assigneeColor: string | null = null;
       let assigneeInitial: string | null = null;
       let assigneeMemoji: string | null = null;
-      if (task.assignee) {
-        const firstName = task.assignee.first_name || "";
-        const lastName = task.assignee.last_name || "";
+      if (assignee) {
+        const firstName = assignee.first_name || "";
+        const lastName = assignee.last_name || "";
         assigneeName =
-          `${firstName} ${lastName}`.trim() || task.assignee.email || null;
-        assigneeColor = task.assignee.profile_color || null;
+          `${firstName} ${lastName}`.trim() || assignee.email || null;
+        assigneeColor = assignee.profile_color || null;
         assigneeInitial = firstName
           ? firstName.charAt(0).toUpperCase()
-          : task.assignee.email
-            ? task.assignee.email.charAt(0).toUpperCase()
+          : assignee.email
+            ? assignee.email.charAt(0).toUpperCase()
             : null;
-        assigneeMemoji = task.assignee.profile_memoji || null;
+        assigneeMemoji = assignee.profile_memoji || null;
       }
 
       let creatorName: string | null = null;
-      if (task.creator) {
-        const firstName = task.creator.first_name || "";
-        const lastName = task.creator.last_name || "";
+      if (creator) {
+        const firstName = creator.first_name || "";
+        const lastName = creator.last_name || "";
         creatorName =
-          `${firstName} ${lastName}`.trim() || task.creator.email || null;
+          `${firstName} ${lastName}`.trim() || creator.email || null;
       }
 
       return {
         ...task,
+        tags: [],
+        reminders: [],
+        attachments: [],
         // Map snake_case to camelCase for frontend compatibility
         devnotesMeta: task.devnotes_meta,
         requiresHitl: task.requires_hitl ?? false,
@@ -972,19 +998,12 @@ export class SupabaseAdapter implements DatabaseAdapter {
         startTime: task.start_time,
         endDate: task.end_date,
         endTime: task.end_time,
-        tags: task.tags?.map((t: any) => t.tag.id) || [],
-        tagBadges:
-          task.tags
-            ?.map((t: any) => t.tag)
-            .filter(
-              (tag: any) =>
-                tag &&
-                typeof tag.id === "string" &&
-                typeof tag.name === "string",
-            ) || [],
-        reminders: task.reminders || [],
-        attachments: task.attachments || [],
-        files: task.attachments || [], // Compatibility with file-based system
+        // Tags/reminders/attachments loaded lazily elsewhere; empty keeps UI up.
+        tags: [],
+        tagBadges: [],
+        reminders: [],
+        attachments: [],
+        files: [],
       };
     });
   }
