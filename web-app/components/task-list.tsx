@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useMemo, useState, useEffect } from "react";
-import { Task, Project } from "@/lib/types";
+import { Task, Project, User } from "@/lib/types";
 import { ProjectQuickPicker } from "@/components/project-quick-picker";
+import { TaskContextMenu } from "@/components/task-context-menu";
 import {
   Circle,
   CheckCircle2,
@@ -42,6 +43,7 @@ interface TaskListProps {
   tasks: Task[];
   allTasks?: Task[]; // For dependency checking
   projects?: Project[]; // For showing project names
+  members?: User[]; // Assignable people (org + project members) for reassignment
   tags?: Task["tagBadges"];
   currentUserId?: string; // For hiding "me" avatar
   priorityColor?: string; // User's custom priority color (defaults to green)
@@ -189,6 +191,7 @@ export function TaskList({
   tasks,
   allTasks,
   projects,
+  members,
   tags,
   currentUserId,
   priorityColor,
@@ -273,6 +276,11 @@ export function TaskList({
   const [quickDueDate, setQuickDueDate] = useState("");
   const [quickDueTime, setQuickDueTime] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    task: Task;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Load completed accordion state from localStorage
   useEffect(() => {
@@ -737,6 +745,10 @@ export function TaskList({
         data-task-id={task.id}
         draggable={!isLoading && !isAnimatingOut}
         onMouseDown={() => onTaskFocus?.(task.id)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setContextMenu({ task, x: e.clientX, y: e.clientY });
+        }}
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = "move";
           e.dataTransfer.setData("taskId", task.id);
@@ -1402,6 +1414,23 @@ export function TaskList({
           )}
         </div>
       )}
+
+      {contextMenu ? (
+        <TaskContextMenu
+          task={contextMenu.task}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          projects={projects}
+          members={members}
+          currentUserId={currentUserId}
+          onClose={() => setContextMenu(null)}
+          onToggle={onTaskToggle}
+          onEdit={onTaskEdit}
+          onUpdate={onTaskUpdate}
+          onAddDependency={onAddDependency}
+          onDelete={onTaskDelete}
+        />
+      ) : null}
     </div>
   );
 }
