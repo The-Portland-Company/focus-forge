@@ -22,11 +22,21 @@
 - Never use temporary solutions.
 
 ## Deployment Responsibilities
-- You are resposible to check Railway Build and Deploy logs after each deployment. Then debug accordingly.
-- Never say something is "fully functional" or "ready to use" always say "Please test."
+- **Playbook:** [docs/DEPLOY-PLAYBOOK.md](../docs/DEPLOY-PLAYBOOK.md) (canonical). Follow it for every production ship.
+- **Batch work.** One production push per work slice / end of session — not after every small UI tweak. Local commits mid-slice are fine.
+- **Gates.** Prefer targeted tests for touched areas. Do not full `next build` after every edit unless necessary. Full `npm run check:precommit` (tests + full build + gitleaks) is a **release gate**, not a per-keystroke hook. Every commit: gitleaks (if available), RLS hook on `*.sql`, cheap lint/typecheck as needed.
+- **After push:** watch **one** GitHub Actions deploy run. Concurrency cancels in-progress deploys; do not stack watchers or thrash redeploys.
+- **On failure:** read health + deploy/container logs first. Classify before another push:
+  - PGRST002 / schema cache / DB timeout → fix Supabase/PostgREST, do **not** push app commits
+  - Build/type error → fix code, **one** push
+  - Middleware/public route wrong while health is green → check health `build.git_commit` vs expected SHA before cache-bust commits
+  - Max one automatic/redeploy attempt after a real fix
+- **Smoke once** after green: `/api/health` 200 + critical public paths.
+- **Security:** never `--no-verify` to skip secrets/RLS; keep auth middleware; allowlist public routes carefully.
+- Never say something is "fully functional" or "ready to use" — always say **"Please test."**
 - Never change user passwords without permission.
 - Do not rely on me for testing your solutions.
-- Always store .md files in the docs folder, except claude.md
+- Always store .md files in the docs folder, except `CLAUDE.md` / `claude.md`.
 
 ## Roadmap
 
