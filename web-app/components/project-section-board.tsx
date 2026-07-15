@@ -17,9 +17,10 @@ import {
   CheckSquare,
   Trash2,
   MoveRight,
+  Target,
   X,
 } from "lucide-react";
-import { Database, Section, Task } from "@/lib/types";
+import { Database, Goal, Section, Task } from "@/lib/types";
 import { getBlockedTaskIds } from "@/lib/dependency-utils";
 import { richTextToPlainText } from "@/lib/rich-text";
 import { UserAvatar } from "@/components/user-avatar";
@@ -69,6 +70,8 @@ interface ProjectSectionBoardProps {
   freshlyUpdatedTaskIds?: Set<string>;
   sectionTasksBySectionId: Map<string, Task[]>;
   childSectionsByParentId: Map<string, Section[]>;
+  goalsBySectionId?: Map<string | null, Goal[]>;
+  goalTasksByGoalId?: Map<string, Task[]>;
   autoSectioning: boolean;
   onTaskFocus: (taskId: string) => void;
   onTaskToggle: (taskId: string) => void;
@@ -82,6 +85,11 @@ interface ProjectSectionBoardProps {
   onTaskDropToSection: (taskId: string, sectionId: string) => void;
   onTaskDropToUnassigned: (taskId: string) => void;
   onAutoOrganizeUnassigned: () => void;
+  onTaskDropToGoal?: (taskId: string, goalId: string, sectionId?: string) => void;
+  onAddGoal?: (projectId: string, sectionId?: string) => void;
+  onCompleteGoal?: (goalId: string, completed: boolean) => void;
+  onRenameGoal?: (goalId: string, name: string) => void;
+  onDeleteGoal?: (goalId: string) => void;
 }
 
 function formatTaskDate(value?: string | null): string | null {
@@ -392,12 +400,191 @@ function BoardTaskCard({
   );
 }
 
+type GoalCardProps = {
+  database: Database;
+  currentUserId?: string;
+  bulkSelectMode: boolean;
+  selectedTaskIds: Set<string>;
+  loadingTaskIds: Set<string>;
+  animatingOutTaskIds: Set<string>;
+  optimisticCompletedIds: Set<string>;
+  deletingTaskIds: Set<string>;
+  blockedTaskIds: Set<string>;
+  onTaskFocus: (taskId: string) => void;
+  onTaskToggle: (taskId: string) => void;
+  onTaskEdit: (task: Task) => void;
+  onTaskDelete: (taskId: string) => void;
+  onTaskSelect: (taskId: string, event?: React.MouseEvent) => void;
+  onTaskMoveRequest?: (task: Task) => void;
+};
+
+function GoalGroup({
+  goal,
+  tasks,
+  sectionId,
+  cardProps,
+  onTaskDropToGoal,
+  onCompleteGoal,
+  onRenameGoal,
+  onDeleteGoal,
+}: {
+  goal: Goal;
+  tasks: Task[];
+  sectionId?: string;
+  cardProps: GoalCardProps;
+  onTaskDropToGoal?: (taskId: string, goalId: string, sectionId?: string) => void;
+  onCompleteGoal?: (goalId: string, completed: boolean) => void;
+  onRenameGoal?: (goalId: string, name: string) => void;
+  onDeleteGoal?: (goalId: string) => void;
+}) {
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(goal.name);
+
+  const totalCount = tasks.length;
+  const completedCount = tasks.filter(
+    (task) => task.completed || cardProps.optimisticCompletedIds.has(task.id),
+  ).length;
+
+  const commitRename = () => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== goal.name) {
+      onRenameGoal?.(goal.id, trimmed);
+    } else {
+      setEditValue(goal.name);
+    }
+    setIsEditing(false);
+  };
+
+  return (
+    <div
+      className={`mt-2 rounded-lg border transition-colors ${
+        isDragOver
+          ? "border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))]/10"
+          : "border-zinc-800 bg-zinc-950/40"
+      }`}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setIsDragOver(true);
+      }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsDragOver(false);
+        const taskId = event.dataTransfer.getData("taskId");
+        if (taskId) onTaskDropToGoal?.(taskId, goal.id, sectionId);
+      }}
+    >
+      <div className="flex items-center gap-2 px-2 py-2">
+        <button
+          type="button"
+          onClick={() => onCompleteGoal?.(goal.id, !goal.completed)}
+          className={`shrink-0 transition-colors hover:text-white ${
+            goal.completed ? "text-green-500" : "text-zinc-400"
+          }`}
+          title={goal.completed ? "Mark goal incomplete" : "Mark goal complete"}
+          aria-label={goal.completed ? "Mark goal incomplete" : "Mark goal complete"}
+        >
+          {goal.completed ? (
+            <CheckCircle2 className="h-4 w-4" />
+          ) : (
+            <Circle className="h-4 w-4" />
+          )}
+        </button>
+        <Target className="h-3.5 w-3.5 shrink-0 text-[rgb(var(--theme-primary-rgb))]" />
+        {isEditing ? (
+          <input
+            type="text"
+            value={editValue}
+            autoFocus
+            onChange={(event) => setEditValue(event.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") commitRename();
+              if (event.key === "Escape") {
+                setEditValue(goal.name);
+                setIsEditing(false);
+              }
+            }}
+            className="min-w-0 flex-1 rounded bg-zinc-800 px-1.5 py-0.5 text-sm text-white focus:outline-none focus:ring-2 ring-theme"
+          />
+        ) : (
+          <button
+            type="button"
+            onDoubleClick={() => {
+              setEditValue(goal.name);
+              setIsEditing(true);
+            }}
+            className={`min-w-0 flex-1 truncate text-left text-sm font-medium ${
+              goal.completed ? "text-green-500 line-through" : "text-zinc-200"
+            }`}
+            title="Double-click to rename"
+          >
+            {goal.name}
+          </button>
+        )}
+        <span className="shrink-0 text-xs text-zinc-500">
+          {completedCount}/{totalCount}
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            if (
+              confirm(
+                `Delete goal "${goal.name}"? Its tasks move back to the section.`,
+              )
+            ) {
+              onDeleteGoal?.(goal.id);
+            }
+          }}
+          className="shrink-0 rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-300"
+          title="Delete goal"
+          aria-label="Delete goal"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="space-y-2 px-2 pb-2">
+        {tasks.map((task) => (
+          <BoardTaskCard
+            key={task.id}
+            task={task}
+            database={cardProps.database}
+            currentUserId={cardProps.currentUserId}
+            bulkSelectMode={cardProps.bulkSelectMode}
+            selectedTaskIds={cardProps.selectedTaskIds}
+            loadingTaskIds={cardProps.loadingTaskIds}
+            animatingOutTaskIds={cardProps.animatingOutTaskIds}
+            optimisticCompletedIds={cardProps.optimisticCompletedIds}
+            deletingTaskIds={cardProps.deletingTaskIds}
+            blockedTaskIds={cardProps.blockedTaskIds}
+            onTaskFocus={cardProps.onTaskFocus}
+            onTaskToggle={cardProps.onTaskToggle}
+            onTaskEdit={cardProps.onTaskEdit}
+            onTaskDelete={cardProps.onTaskDelete}
+            onTaskSelect={cardProps.onTaskSelect}
+            onTaskMoveRequest={cardProps.onTaskMoveRequest}
+          />
+        ))}
+        {tasks.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-center text-xs text-zinc-600">
+            Drop tasks here.
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function SectionColumn({
   section,
   tasks,
   childSections,
   sectionTasksBySectionId,
   visibleTaskIds,
+  goals,
+  goalTasksByGoalId,
   database,
   currentUserId,
   bulkSelectMode,
@@ -421,12 +608,19 @@ function SectionColumn({
   onAddTask,
   onAddSection,
   onTaskMoveRequest,
+  onTaskDropToGoal,
+  onAddGoal,
+  onCompleteGoal,
+  onRenameGoal,
+  onDeleteGoal,
 }: {
   section: Section;
   tasks: Task[];
   childSections: Section[];
   sectionTasksBySectionId: Map<string, Task[]>;
   visibleTaskIds: Set<string>;
+  goals: Goal[];
+  goalTasksByGoalId: Map<string, Task[]>;
   database: Database;
   currentUserId?: string;
   bulkSelectMode: boolean;
@@ -450,6 +644,11 @@ function SectionColumn({
   onAddTask: (projectId: string, sectionId?: string) => void;
   onAddSection: (parentId?: string, order?: number) => void;
   onTaskMoveRequest?: (task: Task) => void;
+  onTaskDropToGoal?: (taskId: string, goalId: string, sectionId?: string) => void;
+  onAddGoal?: (projectId: string, sectionId?: string) => void;
+  onCompleteGoal?: (goalId: string, completed: boolean) => void;
+  onRenameGoal?: (goalId: string, name: string) => void;
+  onDeleteGoal?: (goalId: string) => void;
 }) {
   const getVisibleSectionTasks = (sectionId: string) =>
     (sectionTasksBySectionId.get(sectionId) || []).filter((task) =>
@@ -465,6 +664,27 @@ function SectionColumn({
         total + getVisibleSectionTasks(childSection.id).length,
       0,
     );
+
+  const goalLessTasks = tasks.filter(
+    (task) => !(task.goalId || (task as any).goal_id),
+  );
+  const cardProps: GoalCardProps = {
+    database,
+    currentUserId,
+    bulkSelectMode,
+    selectedTaskIds,
+    loadingTaskIds,
+    animatingOutTaskIds,
+    optimisticCompletedIds,
+    deletingTaskIds,
+    blockedTaskIds,
+    onTaskFocus,
+    onTaskToggle,
+    onTaskEdit,
+    onTaskDelete,
+    onTaskSelect,
+    onTaskMoveRequest,
+  };
 
   return (
     <section
@@ -541,7 +761,23 @@ function SectionColumn({
 
       <div className="flex-1 overflow-y-auto p-3">
         <div className="space-y-2">
-          {tasks.map((task) => (
+          {goals.map((goal) => (
+            <GoalGroup
+              key={goal.id}
+              goal={goal}
+              tasks={(goalTasksByGoalId.get(goal.id) || []).filter((task) =>
+                visibleTaskIds.has(task.id),
+              )}
+              sectionId={section.id}
+              cardProps={cardProps}
+              onTaskDropToGoal={onTaskDropToGoal}
+              onCompleteGoal={onCompleteGoal}
+              onRenameGoal={onRenameGoal}
+              onDeleteGoal={onDeleteGoal}
+            />
+          ))}
+
+          {goalLessTasks.map((task) => (
             <BoardTaskCard
               key={task.id}
               task={task}
@@ -602,7 +838,9 @@ function SectionColumn({
             );
           })}
 
-          {tasks.length === 0 && visibleChildSections.length === 0 ? (
+          {goalLessTasks.length === 0 &&
+          visibleChildSections.length === 0 &&
+          goals.length === 0 ? (
             <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-8 text-center text-sm text-zinc-500">
               Drop tasks here.
             </div>
@@ -610,13 +848,22 @@ function SectionColumn({
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={() => onAddSection(section.id)}
-        className="mx-3 mb-3 rounded-lg border border-dashed border-zinc-800 px-3 py-2 text-sm text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
-      >
-        Add Sub-section
-      </button>
+      <div className="mx-3 mb-3 flex gap-2">
+        <button
+          type="button"
+          onClick={() => onAddSection(section.id)}
+          className="flex-1 rounded-lg border border-dashed border-zinc-800 px-3 py-2 text-sm text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
+        >
+          Add Sub-section
+        </button>
+        <button
+          type="button"
+          onClick={() => onAddGoal?.(section.projectId, section.id)}
+          className="flex-1 rounded-lg border border-dashed border-zinc-800 px-3 py-2 text-sm text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
+        >
+          Add Goal
+        </button>
+      </div>
     </section>
   );
 }
@@ -639,6 +886,8 @@ export function ProjectSectionBoard({
   freshlyUpdatedTaskIds,
   sectionTasksBySectionId,
   childSectionsByParentId,
+  goalsBySectionId,
+  goalTasksByGoalId,
   autoSectioning,
   onTaskFocus,
   onTaskToggle,
@@ -652,7 +901,14 @@ export function ProjectSectionBoard({
   onTaskDropToSection,
   onTaskDropToUnassigned,
   onAutoOrganizeUnassigned,
+  onTaskDropToGoal,
+  onAddGoal,
+  onCompleteGoal,
+  onRenameGoal,
+  onDeleteGoal,
 }: ProjectSectionBoardProps) {
+  const goalsBySection = goalsBySectionId ?? new Map<string | null, Goal[]>();
+  const goalTasks = goalTasksByGoalId ?? new Map<string, Task[]>();
   const [dragOverSectionId, setDragOverSectionId] = useState<string | null>(null);
   const [unassignedDragOver, setUnassignedDragOver] = useState(false);
   const [moveMenuTask, setMoveMenuTask] = useState<Task | null>(null);
@@ -702,6 +958,8 @@ export function ProjectSectionBoard({
               childSections={childSections}
               sectionTasksBySectionId={sectionTasksBySectionId}
               visibleTaskIds={taskIdsInVisibleSet}
+              goals={goalsBySection.get(section.id) || []}
+              goalTasksByGoalId={goalTasks}
               database={database}
               currentUserId={currentUserId}
               bulkSelectMode={bulkSelectMode}
@@ -725,6 +983,11 @@ export function ProjectSectionBoard({
               onAddTask={onAddTask}
               onAddSection={onAddSection}
               onTaskMoveRequest={isMobile ? setMoveMenuTask : undefined}
+              onTaskDropToGoal={onTaskDropToGoal}
+              onAddGoal={onAddGoal}
+              onCompleteGoal={onCompleteGoal}
+              onRenameGoal={onRenameGoal}
+              onDeleteGoal={onDeleteGoal}
             />
           );
         })}
@@ -764,6 +1027,15 @@ export function ProjectSectionBoard({
               </button>
               <button
                 type="button"
+                onClick={() => onAddGoal?.(projectId)}
+                className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+                title="Add project-level goal"
+                aria-label="Add project-level goal"
+              >
+                <Target className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
                 onClick={onAutoOrganizeUnassigned}
                 disabled={autoSectioning || unassignedTasks.length === 0}
                 className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
@@ -779,7 +1051,40 @@ export function ProjectSectionBoard({
 
           <div className="flex-1 overflow-y-auto p-3">
             <div className="space-y-2">
-              {unassignedTasks.map((task) => (
+              {(goalsBySection.get(null) || []).map((goal) => (
+                <GoalGroup
+                  key={goal.id}
+                  goal={goal}
+                  tasks={(goalTasks.get(goal.id) || []).filter((task) =>
+                    taskIdsInVisibleSet.has(task.id),
+                  )}
+                  sectionId={undefined}
+                  cardProps={{
+                    database,
+                    currentUserId,
+                    bulkSelectMode,
+                    selectedTaskIds,
+                    loadingTaskIds,
+                    animatingOutTaskIds,
+                    optimisticCompletedIds,
+                    deletingTaskIds,
+                    blockedTaskIds,
+                    onTaskFocus,
+                    onTaskToggle,
+                    onTaskEdit,
+                    onTaskDelete,
+                    onTaskSelect,
+                    onTaskMoveRequest: isMobile ? setMoveMenuTask : undefined,
+                  }}
+                  onTaskDropToGoal={onTaskDropToGoal}
+                  onCompleteGoal={onCompleteGoal}
+                  onRenameGoal={onRenameGoal}
+                  onDeleteGoal={onDeleteGoal}
+                />
+              ))}
+              {unassignedTasks
+                .filter((task) => !(task.goalId || (task as any).goal_id))
+                .map((task) => (
                 <BoardTaskCard
                   key={task.id}
                   task={task}

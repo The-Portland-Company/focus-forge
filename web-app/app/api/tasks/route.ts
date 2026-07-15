@@ -71,6 +71,34 @@ export async function POST(request: NextRequest) {
           })
         : null;
 
+    // If a goal is assigned, it must be a live goal in the same project.
+    const goalId =
+      taskData?.goalId ?? taskData?.goal_id ?? undefined;
+    if (typeof goalId === "string" && goalId) {
+      const { data: goal } = await supabase
+        .from("goals")
+        .select("id,project_id")
+        .eq("id", goalId)
+        .is("deleted_at", null)
+        .maybeSingle();
+
+      if (!goal) {
+        return NextResponse.json(
+          { error: "goalId must reference a live goal" },
+          { status: 400 },
+        );
+      }
+      if (
+        taskData?.projectId &&
+        (goal as any).project_id !== taskData.projectId
+      ) {
+        return NextResponse.json(
+          { error: "goalId must reference a goal in the same project" },
+          { status: 400 },
+        );
+      }
+    }
+
     // Add the creator ID to the task data
     const taskDataWithCreator = {
       ...taskData,

@@ -542,6 +542,7 @@ export interface Database {
   sentCount?: number;
   tags: Tag[];
   sections: Section[];
+  goals?: Goal[];
   taskSections: TaskSection[];
   userSectionPreferences: UserSectionPreference[];
   timeBlocks: TimeBlock[];
