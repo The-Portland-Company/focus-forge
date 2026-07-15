@@ -18,7 +18,13 @@ export async function POST(
   const form = await request.formData();
   const passcode = String(form.get("passcode") || "");
 
-  const shareUrl = new URL(`/share/${token}`, request.url);
+  // Prefer public host headers — request.url is often http://0.0.0.0:8080 on Railway.
+  const host =
+    request.headers.get("x-forwarded-host") ||
+    request.headers.get("host") ||
+    "focusforge.theportlandcompany.com";
+  const proto = request.headers.get("x-forwarded-proto") || "https";
+  const shareUrl = new URL(`/share/${token}`, `${proto}://${host}`);
 
   const admin = getAdminClient();
   const { data: share } = await admin

@@ -86,15 +86,41 @@ export default async function SharePage(props: {
   const { token } = await props.params;
   const { error } = await props.searchParams;
 
-  const admin = getAdminClient();
+  let share: {
+    id: string;
+    project_id: string;
+    passcode_hash: string | null;
+    revoked_at: string | null;
+    expires_at: string | null;
+    allow_public: boolean | null;
+  } | null = null;
 
-  // Look up the share via the service-role client (bypasses RLS; anon visitors
-  // have no auth.uid()).
-  const { data: share } = await admin
-    .from("project_shares")
-    .select("id,project_id,passcode_hash,revoked_at,expires_at,allow_public")
-    .eq("token", token)
-    .maybeSingle();
+  try {
+    const admin = getAdminClient();
+    // Cap wait — hung PostgREST must not leave the public share route open forever.
+    const query = admin
+      .from("project_shares")
+      .select("id,project_id,passcode_hash,revoked_at,expires_at,allow_public")
+      .eq("token", token)
+      .maybeSingle();
+    const timed = await Promise.race([
+      query,
+      new Promise<{ data: null; error: { message: string } }>((resolve) =>
+        setTimeout(
+          () => resolve({ data: null, error: { message: "share lookup timed out" } }),
+          5_000,
+        ),
+      ),
+    ]);
+    if (timed.error) {
+      console.error("Share lookup failed:", timed.error);
+      return <Unavailable />;
+    }
+    share = timed.data;
+  } catch (error) {
+    console.error("Share page error:", error);
+    return <Unavailable />;
+  }
 
   if (!share || !isShareActive(share) || share.allow_public === false) {
     return <Unavailable />;
