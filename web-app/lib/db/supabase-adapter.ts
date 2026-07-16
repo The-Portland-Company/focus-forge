@@ -1224,6 +1224,31 @@ export class SupabaseAdapter implements DatabaseAdapter {
       taskData.created_by = this.userId;
     }
 
+    // Subtasks inherit their parent's section/goal placement when the caller
+    // didn't specify one. Without this a subtask created against a task that
+    // lives in a section (or a goal-owned section) has null section_id/goal_id
+    // and falls out of the grouped section/goal views entirely — it never
+    // renders under its parent even though the parent is visible.
+    if (
+      taskData.parent_id &&
+      taskData.section_id == null &&
+      taskData.goal_id == null
+    ) {
+      const { data: parentTask } = await supabase
+        .from("tasks")
+        .select("section_id, goal_id")
+        .eq("id", taskData.parent_id)
+        .maybeSingle();
+      if (parentTask) {
+        if (parentTask.section_id != null) {
+          taskData.section_id = parentTask.section_id;
+        }
+        if (parentTask.goal_id != null) {
+          taskData.goal_id = parentTask.goal_id;
+        }
+      }
+    }
+
     // Create the task
     const { data: newTask, error } = await supabase
       .from("tasks")
