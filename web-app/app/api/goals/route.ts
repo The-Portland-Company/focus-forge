@@ -5,6 +5,7 @@ function toGoalResponse(row: any) {
   return {
     id: row.id,
     sectionId: row.section_id || undefined,
+    parentGoalId: row.parent_goal_id || undefined,
     projectId: row.project_id,
     name: row.name,
     description: row.description || undefined,
@@ -50,6 +51,30 @@ export async function POST(request: NextRequest) {
         : null;
     const description =
       typeof body?.description === "string" ? body.description : null;
+    const parentGoalId =
+      typeof body?.parentGoalId === "string" && body.parentGoalId.trim()
+        ? body.parentGoalId.trim()
+        : null;
+
+    // If nested under a parent goal, it must be a live goal in the same project.
+    if (parentGoalId) {
+      const { data: parentGoal } = await supabase
+        .from("goals")
+        .select("id,project_id")
+        .eq("id", parentGoalId)
+        .is("deleted_at", null)
+        .maybeSingle();
+
+      if (!parentGoal || (parentGoal as any).project_id !== projectId) {
+        return NextResponse.json(
+          {
+            error:
+              "parentGoalId must reference a live goal in the same project",
+          },
+          { status: 400 },
+        );
+      }
+    }
 
     // If nested under a section, it must be a live section in the same project.
     if (sectionId) {
@@ -75,6 +100,7 @@ export async function POST(request: NextRequest) {
       name,
       project_id: projectId,
       section_id: sectionId,
+      parent_goal_id: parentGoalId,
       description,
       order_index: order,
       created_at: new Date().toISOString(),
