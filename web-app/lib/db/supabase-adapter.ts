@@ -877,7 +877,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       let query = supabase
         .from("tasks")
         .select(
-          "id,name,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,order_index,time_estimate,devnotes_meta,requires_hitl,todoist_order",
+          "id,name,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,time_estimate,devnotes_meta,requires_hitl,todoist_order",
         )
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
@@ -988,7 +988,6 @@ export class SupabaseAdapter implements DatabaseAdapter {
         updatedAt: task.updated_at,
         todoistId: task.todoist_id,
         recurringPattern: task.recurring_pattern,
-        orderIndex: task.order_index,
         timeEstimate: task.time_estimate,
         snoozedUntil: task.snoozed_until,
         startDate: task.start_date,

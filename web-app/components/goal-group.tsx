@@ -176,7 +176,9 @@ export function GoalGroupShell({
       </div>
       <div className="space-y-2 px-2 pb-2">{children}</div>
       {(onAddTaskToGoal || onAddSectionToGoal || onAddSubGoal) && (
-        <div className="flex flex-wrap items-center gap-1 border-t border-zinc-800/70 px-2 py-1.5">
+        // Doubles as the goal's drop target: drop tasks/sections anywhere in
+        // the bordered goal, or use these buttons to add directly.
+        <div className="mx-2 mb-2 flex flex-wrap items-center justify-center gap-1 rounded-lg border border-dashed border-zinc-800 px-3 py-2">
           {onAddTaskToGoal && (
             <button
               type="button"

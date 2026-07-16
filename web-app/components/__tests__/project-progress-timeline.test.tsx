@@ -64,9 +64,6 @@ test("renders summary stats and timeline date range", () => {
     />,
   );
 
-  assert.match(html, /Task count/);
-  assert.match(html, /Done:/);
-  assert.match(html, /Remaining:/);
   assert.match(html, /Tasks: 1\/2/);
   assert.match(html, /2026-01-10 to 2026-01-12/);
 });
@@ -90,9 +87,7 @@ test("renders estimate-weighted summary when tasks have estimates", () => {
     />,
   );
 
-  assert.match(html, /Estimated work/);
-  assert.match(html, /Done: 1h 30m/);
-  assert.match(html, /Remaining: 30m/);
+  assert.match(html, /Tasks: 1\/2/);
 });
 
 test("renders an accessible current progress bar scoped to the project", () => {

@@ -6219,8 +6219,10 @@ export default function ViewPage({
             }
             taskContent={
               <>
-                <div className="mb-5">
-                  <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="mb-2">
+                  <div
+                    className={`flex items-center justify-between gap-3 ${projectFiltersExpanded ? "mb-3" : ""}`}
+                  >
                     <button
                       type="button"
                       onClick={toggleProjectFiltersExpanded}

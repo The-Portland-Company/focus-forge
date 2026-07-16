@@ -7,6 +7,7 @@ import {
   Edit,
   Trash2,
   Plus,
+  ListPlus,
   GripVertical,
   Target,
 } from "lucide-react";
@@ -234,7 +235,7 @@ export function SectionView({
       subGoals.length > 0;
 
     return (
-      <div key={goal.id} className="mb-4">
+      <div key={goal.id} className="mb-2">
         <GoalGroupShell
           goal={goal}
           completedCount={completedCount}
@@ -298,11 +299,6 @@ export function SectionView({
             />
           ))}
           {subGoals.map((subGoal) => renderGoalNode(subGoal))}
-          {!hasContent && (
-            <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-center text-xs text-zinc-600">
-              Drop tasks or a task list here.
-            </div>
-          )}
         </GoalGroupShell>
       </div>
     );
@@ -407,6 +403,18 @@ export function SectionView({
           >
             <Plus className="w-4 h-4" />
           </button>
+          {onAddSectionAfter && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddSectionAfter(section);
+              }}
+              className="p-1 hover:bg-zinc-700 rounded transition-colors"
+              title="Add section"
+            >
+              <ListPlus className="w-4 h-4" />
+            </button>
+          )}
           {onAddGoal && (
             <button
               onClick={(e) => {
@@ -445,7 +453,7 @@ export function SectionView({
 
       {/* Section Content */}
       {!isCollapsed && (
-        <div className="ml-6 mt-2">
+        <div className="ml-6 mt-1">
           {/* Section Description */}
           {section.description && (
             <p className="text-sm text-zinc-400 mb-3 ml-6">
@@ -461,29 +469,6 @@ export function SectionView({
           {/* Goal sub-groups (each renders its tasks, nested task lists, and
               sub-goals recursively). */}
           {goalsForSection.map((goal) => renderGoalNode(goal))}
-
-          <div className="mb-2 flex h-0 w-full items-center justify-center overflow-visible">
-            <div className="pointer-events-auto flex items-center gap-2 rounded-lg opacity-0 transition-all duration-200 translate-y-2 group-hover/section:translate-y-0 group-hover/section:opacity-100">
-              {onAddSectionAfter && (
-                <button
-                  onClick={() => onAddSectionAfter(section)}
-                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-500 transition-colors group-hover/section:bg-zinc-900/50 group-hover/section:text-zinc-300"
-                  type="button"
-                >
-                  <Plus className="h-4 w-4 shrink-0" />
-                  <span className="whitespace-nowrap">Add Section</span>
-                </button>
-              )}
-              <button
-                onClick={() => onAddTask(section)}
-                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-500 transition-colors group-hover/section:bg-zinc-900/50 group-hover/section:text-zinc-300"
-                type="button"
-              >
-                <Plus className="h-4 w-4 shrink-0" />
-                <span className="whitespace-nowrap">Add Task</span>
-              </button>
-            </div>
-          </div>
 
           {/* Child sections */}
           {childSections.map((childSection) => (
