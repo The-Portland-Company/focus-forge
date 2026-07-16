@@ -5499,6 +5499,42 @@ export default function ViewPage({
                               {openTasks}/{taskCount}
                             </span>
                           </Tooltip>
+                          <div className="flex items-center gap-x-3 text-sm text-zinc-500 flex-shrink-0">
+                            {project.budget && (
+                              <span>Budget: ${project.budget}</span>
+                            )}
+                            <Tooltip content="Created" side="top">
+                              <span className="inline-flex items-center gap-1 text-zinc-400">
+                                <Calendar className="w-3.5 h-3.5" />
+                                {formatDate(
+                                  project.createdAt,
+                                  resolvedCurrentUser?.dateFormat,
+                                )}
+                              </span>
+                            </Tooltip>
+                            {project.startDate && (
+                              <Tooltip content="Start date" side="top">
+                                <span className="inline-flex items-center gap-1 text-zinc-400">
+                                  <CalendarPlus className="w-3.5 h-3.5" />
+                                  {formatDate(
+                                    project.startDate,
+                                    resolvedCurrentUser?.dateFormat,
+                                  )}
+                                </span>
+                              </Tooltip>
+                            )}
+                            {endValue && (
+                              <Tooltip content="End date" side="top">
+                                <span className="inline-flex items-center gap-1 text-zinc-400">
+                                  <CalendarCheck className="w-3.5 h-3.5" />
+                                  {formatDate(
+                                    endValue,
+                                    resolvedCurrentUser?.dateFormat,
+                                  )}
+                                </span>
+                              </Tooltip>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -5544,43 +5580,6 @@ export default function ViewPage({
                           {getRichTextPreview(project.description, 180)}
                         </p>
                       )}
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-zinc-500">
-                        {project.budget && (
-                          <span>Budget: ${project.budget}</span>
-                        )}
-                        {/* Date badges */}
-                        <Tooltip content="Created" side="top">
-                          <span className="inline-flex items-center gap-1 text-zinc-400">
-                            <Calendar className="w-3.5 h-3.5" />
-                            {formatDate(
-                              project.createdAt,
-                              resolvedCurrentUser?.dateFormat,
-                            )}
-                          </span>
-                        </Tooltip>
-                        {project.startDate && (
-                          <Tooltip content="Start date" side="top">
-                            <span className="inline-flex items-center gap-1 text-zinc-400">
-                              <CalendarPlus className="w-3.5 h-3.5" />
-                              {formatDate(
-                                project.startDate,
-                                resolvedCurrentUser?.dateFormat,
-                              )}
-                            </span>
-                          </Tooltip>
-                        )}
-                        {endValue && (
-                          <Tooltip content="End date" side="top">
-                            <span className="inline-flex items-center gap-1 text-zinc-400">
-                              <CalendarCheck className="w-3.5 h-3.5" />
-                              {formatDate(
-                                endValue,
-                                resolvedCurrentUser?.dateFormat,
-                              )}
-                            </span>
-                          </Tooltip>
-                        )}
-                      </div>
                     </div>
                   );
                 })}
