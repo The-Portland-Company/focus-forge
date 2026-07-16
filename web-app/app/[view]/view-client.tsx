@@ -5820,8 +5820,35 @@ export default function ViewPage({
         );
       };
 
-      const visibleProjectSections = projectSections.filter((section) =>
-        sectionHasVisibleTasks(section.id),
+      // Unfiltered task counts per section, so a genuinely EMPTY section
+      // (e.g. one the user just added) stays visible even though it has no
+      // tasks yet. Sections whose tasks are all filtered out stay hidden.
+      const projectSectionTaskCount = new Map<string, number>();
+      for (const task of projectTasks) {
+        const ids = new Set<string>();
+        const directSectionId = task.sectionId || (task as any).section_id;
+        if (directSectionId) ids.add(directSectionId);
+        for (const sectionId of taskSectionIdsByTaskId.get(task.id) || []) {
+          ids.add(sectionId);
+        }
+        ids.forEach((sectionId) =>
+          projectSectionTaskCount.set(
+            sectionId,
+            (projectSectionTaskCount.get(sectionId) || 0) + 1,
+          ),
+        );
+      }
+      const sectionIsEmpty = (sectionId: string): boolean => {
+        if ((projectSectionTaskCount.get(sectionId) || 0) > 0) return false;
+        const childSections = sectionChildrenByParent.get(sectionId) || [];
+        return childSections.every((childSection) =>
+          sectionIsEmpty(childSection.id),
+        );
+      };
+
+      const visibleProjectSections = projectSections.filter(
+        (section) =>
+          sectionHasVisibleTasks(section.id) || sectionIsEmpty(section.id),
       );
       const projectCreatorIds = Array.from(
         new Set(
