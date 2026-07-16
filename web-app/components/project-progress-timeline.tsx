@@ -127,9 +127,6 @@ export function ProjectProgressTimeline({
   );
   const totalTasks = projectTasks.length;
   const completedTasks = projectTasks.filter((task) => task.completed).length;
-  const completedWork = latestPoint?.completedWork ?? completedTasks;
-  const totalWork = latestPoint?.totalWork ?? totalTasks;
-  const remainingWork = Math.max(0, totalWork - completedWork);
   const completionPct = latestPoint?.completionPct ?? 0;
   const progressBarPct = Math.min(100, Math.max(0, completionPct));
   const tickIndices = useMemo(() => getTickIndices(points.length), [points.length]);
@@ -181,15 +178,6 @@ export function ProjectProgressTimeline({
           </h2>
         </button>
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-zinc-200">
-            {timeline.usesTimeEstimates ? "Estimated work" : "Task count"}
-          </span>
-          <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-zinc-200">
-            Done: {formatWork(completedWork, timeline.usesTimeEstimates)}
-          </span>
-          <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-zinc-200">
-            Remaining: {formatWork(remainingWork, timeline.usesTimeEstimates)}
-          </span>
           <span className="rounded-md border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-zinc-200">
             Tasks: {completedTasks}/{totalTasks}
           </span>
