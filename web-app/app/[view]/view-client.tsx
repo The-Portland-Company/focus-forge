@@ -6562,8 +6562,170 @@ export default function ViewPage({
                     ))}
 
                     {(() => {
-                      const projectLevelGoals =
-                        goalsBySectionId.get(null) || [];
+                      const projectLevelGoals = (
+                        goalsBySectionId.get(null) || []
+                      ).filter(
+                        // Sub-goals render nested inside their parent.
+                        (g) => !(g.parentGoalId || (g as any).parent_goal_id),
+                      );
+                      const renderUnassignedGoal = (
+                        goal: Goal,
+                      ): React.ReactNode => {
+                        const goalTasks = visibleUnassignedTasks.filter(
+                          (task) =>
+                            (task.goalId || (task as any).goal_id) === goal.id,
+                        );
+                        const completedCount = goalTasks.filter(
+                          (task) =>
+                            task.completed ||
+                            optimisticCompletedIds.has(task.id),
+                        ).length;
+                        const goalOwnedSections = (
+                          database.sections || []
+                        ).filter(
+                          (s) =>
+                            (s.goalId || (s as any).goal_id) === goal.id &&
+                            !(s as any).is_deleted &&
+                            !(s as any).isDeleted,
+                        );
+                        const subGoals = (database.goals || []).filter(
+                          (g) =>
+                            (g.parentGoalId ||
+                              (g as any).parent_goal_id) === goal.id &&
+                            !(g as any).deleted_at,
+                        );
+                        const hasContent =
+                          goalTasks.length > 0 ||
+                          goalOwnedSections.length > 0 ||
+                          subGoals.length > 0;
+                        return (
+                          <div key={goal.id} className="mt-2">
+                            <GoalGroupShell
+                              goal={goal}
+                              completedCount={completedCount}
+                              totalCount={goalTasks.length}
+                              onTaskDropToGoal={handleTaskDropToGoal}
+                              onSectionDropToGoal={handleSectionDropToGoal}
+                              onCompleteGoal={handleCompleteGoal}
+                              onRenameGoal={handleRenameGoal}
+                              onDeleteGoal={handleDeleteGoal}
+                              onAddTaskToGoal={handleAddTaskToGoal}
+                              onAddSectionToGoal={handleAddSectionToGoal}
+                              onAddSubGoal={handleAddSubGoal}
+                            >
+                              {goalTasks.length > 0 && (
+                                <TaskList
+                                  tasks={goalTasks}
+                                  allTasks={database.tasks}
+                                  projects={database.projects}
+                                  tags={database.tags}
+                                  currentUserId={currentUserId}
+                                  priorityColor={userPriorityColor}
+                                  showCompleted={
+                                    database.settings?.showCompletedTasks ??
+                                    true
+                                  }
+                                  completedAccordionKey={`project-${projectId}-goal-${goal.id}`}
+                                  revealActionsOnHover={true}
+                                  dueDateLayout={dueDateLayout}
+                                  uniformDueBadgeWidth={
+                                    dueDateLayout === "inline"
+                                  }
+                                  bulkSelectMode={bulkSelectMode}
+                                  selectedTaskIds={selectedTaskIds}
+                                  loadingTaskIds={loadingTaskIds}
+                                  animatingOutTaskIds={animatingOutTaskIds}
+                                  optimisticCompletedIds={
+                                    optimisticCompletedIds
+                                  }
+                                  deletingTaskIds={deletingTaskIds}
+                                  savingTaskIds={savingTaskIds}
+                                  recentlySavedTaskIds={recentlySavedTaskIds}
+                                  freshlyUpdatedTaskIds={freshlyUpdatedTaskIds}
+                                  enableDueDateQuickEdit={true}
+                                  onTaskFocus={focusTaskRow}
+                                  onTaskUpdate={handleProjectTaskUpdate}
+                                  onTaskToggle={handleTaskToggle}
+                                  onTaskEdit={handleTaskEdit}
+                                  onTaskDelete={handleTaskDelete}
+                                  onTaskSelect={handleProjectTaskSelect}
+                                />
+                              )}
+                              {goalOwnedSections.map((ownedSection) => (
+                                <SectionView
+                                  key={ownedSection.id}
+                                  section={ownedSection}
+                                  tasks={visibleProjectTasks}
+                                  allTasks={database.tasks}
+                                  database={database}
+                                  level={1}
+                                  priorityColor={userPriorityColor}
+                                  currentUserId={currentUserId}
+                                  completedAccordionKey={`project-${projectId}`}
+                                  revealActionsOnHover={true}
+                                  dueDateLayout={dueDateLayout}
+                                  bulkSelectMode={bulkSelectMode}
+                                  selectedTaskIds={selectedTaskIds}
+                                  loadingTaskIds={loadingTaskIds}
+                                  animatingOutTaskIds={animatingOutTaskIds}
+                                  optimisticCompletedIds={
+                                    optimisticCompletedIds
+                                  }
+                                  sectionTasksBySectionId={
+                                    sectionTasksBySectionId
+                                  }
+                                  childSectionsByParentId={
+                                    sectionChildrenByParent
+                                  }
+                                  goalsBySectionId={goalsBySectionId}
+                                  enableDueDateQuickEdit={true}
+                                  onTaskFocus={focusTaskRow}
+                                  onTaskUpdate={handleProjectTaskUpdate}
+                                  onTaskToggle={handleTaskToggle}
+                                  onTaskEdit={handleTaskEdit}
+                                  onTaskDelete={handleTaskDelete}
+                                  onTaskSelect={handleProjectTaskSelect}
+                                  onSectionEdit={handleSectionEdit}
+                                  onSectionDelete={handleSectionDelete}
+                                  onAddTask={(s) =>
+                                    openAddTask(s.projectId, s.id)
+                                  }
+                                  onAddSection={(parentId) =>
+                                    openAddSection(projectId, parentId)
+                                  }
+                                  onAddSectionAfter={(s) =>
+                                    openAddSection(
+                                      projectId,
+                                      undefined,
+                                      (s.order || 0) + 1,
+                                    )
+                                  }
+                                  onTaskDrop={handleTaskDropToSection}
+                                  onSectionReorder={handleSectionReorder}
+                                  onAddGoal={(targetProjectId, sectionId) =>
+                                    openAddGoal(targetProjectId, sectionId)
+                                  }
+                                  onCompleteGoal={handleCompleteGoal}
+                                  onRenameGoal={handleRenameGoal}
+                                  onDeleteGoal={handleDeleteGoal}
+                                  onTaskDropToGoal={handleTaskDropToGoal}
+                                  onSectionDropToGoal={handleSectionDropToGoal}
+                                  onAddTaskToGoal={handleAddTaskToGoal}
+                                  onAddSectionToGoal={handleAddSectionToGoal}
+                                  onAddSubGoal={handleAddSubGoal}
+                                  userId={currentUserId || ""}
+                                />
+                              ))}
+                              {subGoals.map((sg) => renderUnassignedGoal(sg))}
+                              {!hasContent && (
+                                <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-center text-xs text-zinc-600">
+                                  Drop tasks or a task list here.
+                                </div>
+                              )}
+                            </GoalGroupShell>
+                          </div>
+                        );
+                      };
                       const goalLessUnassigned = projectLevelGoals.length
                         ? visibleUnassignedTasks.filter(
                             (task) =>
@@ -6640,79 +6802,9 @@ export default function ViewPage({
                               onTaskSelect={handleProjectTaskSelect}
                             />
                           )}
-                          {projectLevelGoals.map((goal) => {
-                            const goalTasks = visibleUnassignedTasks.filter(
-                              (task) =>
-                                (task.goalId ||
-                                  (task as any).goal_id) === goal.id,
-                            );
-                            const completedCount = goalTasks.filter(
-                              (task) =>
-                                task.completed ||
-                                optimisticCompletedIds.has(task.id),
-                            ).length;
-
-                            return (
-                              <div key={goal.id} className="mt-2">
-                                <GoalGroupShell
-                                  goal={goal}
-                                  completedCount={completedCount}
-                                  totalCount={goalTasks.length}
-                                  onTaskDropToGoal={handleTaskDropToGoal}
-                                  onCompleteGoal={handleCompleteGoal}
-                                  onRenameGoal={handleRenameGoal}
-                                  onDeleteGoal={handleDeleteGoal}
-                                >
-                                  {goalTasks.length > 0 ? (
-                                    <TaskList
-                                      tasks={goalTasks}
-                                      allTasks={database.tasks}
-                                      projects={database.projects}
-                                      tags={database.tags}
-                                      currentUserId={currentUserId}
-                                      priorityColor={userPriorityColor}
-                                      showCompleted={
-                                        database.settings
-                                          ?.showCompletedTasks ?? true
-                                      }
-                                      completedAccordionKey={`project-${projectId}-goal-${goal.id}`}
-                                      revealActionsOnHover={true}
-                                      dueDateLayout={dueDateLayout}
-                                      uniformDueBadgeWidth={
-                                        dueDateLayout === "inline"
-                                      }
-                                      bulkSelectMode={bulkSelectMode}
-                                      selectedTaskIds={selectedTaskIds}
-                                      loadingTaskIds={loadingTaskIds}
-                                      animatingOutTaskIds={animatingOutTaskIds}
-                                      optimisticCompletedIds={
-                                        optimisticCompletedIds
-                                      }
-                                      deletingTaskIds={deletingTaskIds}
-                                      savingTaskIds={savingTaskIds}
-                                      recentlySavedTaskIds={
-                                        recentlySavedTaskIds
-                                      }
-                                      freshlyUpdatedTaskIds={
-                                        freshlyUpdatedTaskIds
-                                      }
-                                      enableDueDateQuickEdit={true}
-                                      onTaskFocus={focusTaskRow}
-                                      onTaskUpdate={handleProjectTaskUpdate}
-                                      onTaskToggle={handleTaskToggle}
-                                      onTaskEdit={handleTaskEdit}
-                                      onTaskDelete={handleTaskDelete}
-                                      onTaskSelect={handleProjectTaskSelect}
-                                    />
-                                  ) : (
-                                    <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-center text-xs text-zinc-600">
-                                      Drop tasks here.
-                                    </div>
-                                  )}
-                                </GoalGroupShell>
-                              </div>
-                            );
-                          })}
+                          {projectLevelGoals.map((goal) =>
+                            renderUnassignedGoal(goal),
+                          )}
                         </div>
                       );
                     })()}
