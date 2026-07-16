@@ -7,6 +7,7 @@ function toSectionResponse(row: any) {
     name: row.name,
     projectId: row.project_id,
     parentId: row.parent_id,
+    goalId: row.goal_id,
     color: row.color,
     description: row.description,
     icon: row.icon,
@@ -88,6 +89,10 @@ export async function POST(request: NextRequest) {
       typeof body?.parentId === "string" && body.parentId.trim()
         ? body.parentId.trim()
         : null;
+    const goalId =
+      typeof body?.goalId === "string" && body.goalId.trim()
+        ? body.goalId.trim()
+        : null;
 
     const insertPayload: any = {
       name,
@@ -99,6 +104,9 @@ export async function POST(request: NextRequest) {
 
     if (parentId) {
       insertPayload.parent_id = parentId;
+    }
+    if (goalId) {
+      insertPayload.goal_id = goalId;
     }
 
     const { data, error } = await supabase

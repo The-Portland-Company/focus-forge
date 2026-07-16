@@ -7,6 +7,7 @@ function toSectionResponse(row: any) {
     name: row.name,
     projectId: row.project_id,
     parentId: row.parent_id,
+    goalId: row.goal_id,
     color: row.color,
     description: row.description,
     icon: row.icon,
@@ -41,6 +42,13 @@ export async function PUT(
     if (typeof body?.name === "string") updates.name = body.name.trim();
     if (body?.order !== undefined && Number.isFinite(Number(body.order))) {
       updates.todoist_order = Number(body.order);
+    }
+    // Nest/un-nest this section under a goal (null clears it).
+    if (Object.prototype.hasOwnProperty.call(body ?? {}, "goalId")) {
+      updates.goal_id =
+        typeof body.goalId === "string" && body.goalId.trim()
+          ? body.goalId.trim()
+          : null;
     }
 
     if (Object.keys(updates).length === 0) {

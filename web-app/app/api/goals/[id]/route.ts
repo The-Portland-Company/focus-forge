@@ -5,6 +5,7 @@ function toGoalResponse(row: any) {
   return {
     id: row.id,
     sectionId: row.section_id || undefined,
+    parentGoalId: row.parent_goal_id || undefined,
     projectId: row.project_id,
     name: row.name,
     description: row.description || undefined,
@@ -71,6 +72,22 @@ export async function PATCH(
     if (typeof body?.completed === "boolean") {
       update.completed = body.completed;
       update.completed_at = body.completed ? new Date().toISOString() : null;
+    }
+
+    // Nest/un-nest this goal under a parent goal (null clears it). Guard
+    // against self-parenting.
+    if (Object.prototype.hasOwnProperty.call(body ?? {}, "parentGoalId")) {
+      const nextParent =
+        typeof body.parentGoalId === "string" && body.parentGoalId.trim()
+          ? body.parentGoalId.trim()
+          : null;
+      if (nextParent === params.id) {
+        return NextResponse.json(
+          { error: "A goal cannot be its own parent" },
+          { status: 400 },
+        );
+      }
+      update.parent_goal_id = nextParent;
     }
 
     // Detect a section_id move (null clears it). Reassign live tasks to match.

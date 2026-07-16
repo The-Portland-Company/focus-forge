@@ -173,6 +173,7 @@ export interface Section {
   name: string;
   projectId: string;
   parentId?: string; // For nested sections
+  goalId?: string; // When this section (task list) is nested inside a goal
   color?: string;
   description?: string;
   icon?: string;
@@ -188,6 +189,7 @@ export interface Section {
 export interface Goal {
   id: string;
   sectionId?: string;
+  parentGoalId?: string; // When this goal is nested inside a parent goal
   projectId: string;
   name: string;
   description?: string;
