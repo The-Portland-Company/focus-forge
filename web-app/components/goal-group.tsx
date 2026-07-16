@@ -1,7 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Circle, Loader2, Target, Trash2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Circle,
+  ListPlus,
+  Loader2,
+  Plus,
+  Target,
+  Trash2,
+} from "lucide-react";
 import { Goal } from "@/lib/types";
 
 /**
@@ -17,9 +25,13 @@ export function GoalGroupShell({
   totalCount,
   sectionId,
   onTaskDropToGoal,
+  onSectionDropToGoal,
   onCompleteGoal,
   onRenameGoal,
   onDeleteGoal,
+  onAddTaskToGoal,
+  onAddSectionToGoal,
+  onAddSubGoal,
   children,
 }: {
   goal: Goal;
@@ -31,9 +43,13 @@ export function GoalGroupShell({
     goalId: string,
     sectionId?: string,
   ) => void;
+  onSectionDropToGoal?: (sectionId: string, goalId: string) => void;
   onCompleteGoal?: (goalId: string, completed: boolean) => void;
   onRenameGoal?: (goalId: string, name: string) => void;
   onDeleteGoal?: (goalId: string) => void;
+  onAddTaskToGoal?: (goalId: string) => void;
+  onAddSectionToGoal?: (goalId: string) => void;
+  onAddSubGoal?: (goalId: string) => void;
   children: React.ReactNode;
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -53,7 +69,7 @@ export function GoalGroupShell({
 
   return (
     <div
-      className={`mt-2 rounded-lg border transition-colors ${
+      className={`group/goal mt-2 rounded-lg border transition-colors ${
         isDragOver
           ? "border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))]/10"
           : "border-zinc-800 bg-zinc-950/40"
@@ -67,6 +83,14 @@ export function GoalGroupShell({
         event.preventDefault();
         event.stopPropagation();
         setIsDragOver(false);
+        const droppedSectionId = event.dataTransfer.getData("sectionId");
+        if (droppedSectionId) {
+          // A section can't be dropped into itself or its own goal.
+          if (droppedSectionId !== sectionId) {
+            onSectionDropToGoal?.(droppedSectionId, goal.id);
+          }
+          return;
+        }
         const taskId = event.dataTransfer.getData("taskId");
         if (taskId) onTaskDropToGoal?.(taskId, goal.id, sectionId);
       }}
@@ -134,6 +158,41 @@ export function GoalGroupShell({
             {completedCount}/{totalCount}
           </span>
         )}
+        <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/goal:opacity-100">
+          {onAddTaskToGoal && (
+            <button
+              type="button"
+              onClick={() => onAddTaskToGoal(goal.id)}
+              className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+              title="Add task to goal"
+              aria-label="Add task to goal"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {onAddSectionToGoal && (
+            <button
+              type="button"
+              onClick={() => onAddSectionToGoal(goal.id)}
+              className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+              title="Add task list to goal"
+              aria-label="Add task list to goal"
+            >
+              <ListPlus className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {onAddSubGoal && (
+            <button
+              type="button"
+              onClick={() => onAddSubGoal(goal.id)}
+              className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+              title="Add sub-goal"
+              aria-label="Add sub-goal"
+            >
+              <Target className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
         <button
           type="button"
           disabled={isSaving}
