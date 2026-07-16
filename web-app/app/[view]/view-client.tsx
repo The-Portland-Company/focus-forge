@@ -5413,7 +5413,7 @@ export default function ViewPage({
           <div className="space-y-8">
             <div>
               <h2 className="text-lg font-semibold mb-4">Active Projects</h2>
-              <div className="grid gap-4">
+              <div className="grid gap-1.5">
                 {isDataLoading &&
                   Array.from({ length: 3 }).map((_, i) => (
                     <div
@@ -5448,9 +5448,9 @@ export default function ViewPage({
                   return (
                     <div
                       key={project.id}
-                      className="bg-zinc-900 rounded-lg p-4 border border-zinc-800"
+                      className="bg-zinc-900 rounded-lg px-3 py-1.5 border border-zinc-800"
                     >
-                      <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 min-w-0">
                           {/* Clickable color dot → animated wheel picker */}
                           <div className="relative flex-shrink-0">
@@ -5486,7 +5486,7 @@ export default function ViewPage({
                           </div>
                           <Link
                             href={`/project-${project.id}`}
-                            className="text-lg font-medium hover:text-zinc-300 transition-colors truncate"
+                            className="text-lg font-normal no-underline-link hover:text-zinc-300 transition-colors truncate"
                           >
                             {project.name}
                           </Link>
