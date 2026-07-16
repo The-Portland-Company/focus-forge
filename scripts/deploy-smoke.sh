@@ -99,8 +99,11 @@ if [ "${share_rc}" -ne 0 ]; then
   exit 0
 fi
 
-share_code="$(printf '%s' "${share_headers}" | head -n1 | awk '{print $2}')"
-location="$(printf '%s' "${share_headers}" | tr -d '\r' | grep -i '^location:' | head -n1 | sed 's/^[Ll]ocation:[[:space:]]*//')"
+# Tolerant parsing: under `set -euo pipefail`, a 200 response has no Location
+# header, so `grep` exits 1 and would abort the whole smoke run before the
+# case below. `|| true` keeps these header lookups non-fatal.
+share_code="$(printf '%s' "${share_headers}" | head -n1 | awk '{print $2}' || true)"
+location="$(printf '%s' "${share_headers}" | tr -d '\r' | grep -i '^location:' | head -n1 | sed 's/^[Ll]ocation:[[:space:]]*//' || true)"
 
 echo "Share first response: HTTP ${share_code} Location=${location:-none}"
 
