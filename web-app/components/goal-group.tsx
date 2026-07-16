@@ -85,10 +85,7 @@ export function GoalGroupShell({
         setIsDragOver(false);
         const droppedSectionId = event.dataTransfer.getData("sectionId");
         if (droppedSectionId) {
-          // A section can't be dropped into itself or its own goal.
-          if (droppedSectionId !== sectionId) {
-            onSectionDropToGoal?.(droppedSectionId, goal.id);
-          }
+          onSectionDropToGoal?.(droppedSectionId, goal.id);
           return;
         }
         const taskId = event.dataTransfer.getData("taskId");
@@ -158,41 +155,6 @@ export function GoalGroupShell({
             {completedCount}/{totalCount}
           </span>
         )}
-        <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/goal:opacity-100">
-          {onAddTaskToGoal && (
-            <button
-              type="button"
-              onClick={() => onAddTaskToGoal(goal.id)}
-              className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-              title="Add task to goal"
-              aria-label="Add task to goal"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {onAddSectionToGoal && (
-            <button
-              type="button"
-              onClick={() => onAddSectionToGoal(goal.id)}
-              className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-              title="Add task list to goal"
-              aria-label="Add task list to goal"
-            >
-              <ListPlus className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {onAddSubGoal && (
-            <button
-              type="button"
-              onClick={() => onAddSubGoal(goal.id)}
-              className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-              title="Add sub-goal"
-              aria-label="Add sub-goal"
-            >
-              <Target className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
         <button
           type="button"
           disabled={isSaving}
@@ -213,6 +175,37 @@ export function GoalGroupShell({
         </button>
       </div>
       <div className="space-y-2 px-2 pb-2">{children}</div>
+      {(onAddTaskToGoal || onAddSectionToGoal || onAddSubGoal) && (
+        <div className="flex flex-wrap items-center gap-1 border-t border-zinc-800/70 px-2 py-1.5">
+          {onAddTaskToGoal && (
+            <button
+              type="button"
+              onClick={() => onAddTaskToGoal(goal.id)}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+            >
+              <Plus className="h-3.5 w-3.5" /> Task
+            </button>
+          )}
+          {onAddSectionToGoal && (
+            <button
+              type="button"
+              onClick={() => onAddSectionToGoal(goal.id)}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+            >
+              <ListPlus className="h-3.5 w-3.5" /> Task list
+            </button>
+          )}
+          {onAddSubGoal && (
+            <button
+              type="button"
+              onClick={() => onAddSubGoal(goal.id)}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+            >
+              <Target className="h-3.5 w-3.5" /> Goal
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

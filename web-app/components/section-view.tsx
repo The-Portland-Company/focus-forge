@@ -155,7 +155,11 @@ export function SectionView({
   // Goals attached to this section (null-section goals are handled by the
   // caller in the unsectioned area).
   const goalsForSection = useMemo(
-    () => goalsBySectionId?.get(section.id) || [],
+    () =>
+      (goalsBySectionId?.get(section.id) || []).filter(
+        // Sub-goals render nested inside their parent goal, not here.
+        (g) => !(g.parentGoalId || (g as any).parent_goal_id),
+      ),
     [goalsBySectionId, section.id],
   );
 
@@ -203,6 +207,106 @@ export function SectionView({
       onTaskSelect={onTaskSelect}
     />
   );
+
+  // Recursively render a goal and everything nested inside it: its tasks, its
+  // owned task lists (sections with goal_id), and its sub-goals.
+  const renderGoalNode = (goal: Goal): React.ReactNode => {
+    const goalTasks = sectionTasks.filter(
+      (task) => getTaskGoalId(task) === goal.id,
+    );
+    const completedCount = goalTasks.filter(
+      (task) => task.completed || optimisticCompletedIds?.has(task.id),
+    ).length;
+    const goalOwnedSections = (database.sections || []).filter(
+      (s) =>
+        (s.goalId || (s as any).goal_id) === goal.id &&
+        !(s as any).is_deleted &&
+        !(s as any).isDeleted,
+    );
+    const subGoals = (database.goals || []).filter(
+      (g) =>
+        (g.parentGoalId || (g as any).parent_goal_id) === goal.id &&
+        !(g as any).deleted_at,
+    );
+    const hasContent =
+      goalTasks.length > 0 ||
+      goalOwnedSections.length > 0 ||
+      subGoals.length > 0;
+
+    return (
+      <div key={goal.id} className="mb-4">
+        <GoalGroupShell
+          goal={goal}
+          completedCount={completedCount}
+          totalCount={goalTasks.length}
+          sectionId={section.id}
+          onTaskDropToGoal={onTaskDropToGoal}
+          onSectionDropToGoal={onSectionDropToGoal}
+          onCompleteGoal={onCompleteGoal}
+          onRenameGoal={onRenameGoal}
+          onDeleteGoal={onDeleteGoal}
+          onAddTaskToGoal={onAddTaskToGoal}
+          onAddSectionToGoal={onAddSectionToGoal}
+          onAddSubGoal={onAddSubGoal}
+        >
+          {goalTasks.length > 0 && renderTaskList(goalTasks, `goal-${goal.id}`)}
+          {goalOwnedSections.map((ownedSection) => (
+            <SectionView
+              key={ownedSection.id}
+              section={ownedSection}
+              tasks={tasks}
+              allTasks={allTasks}
+              database={database}
+              level={level + 1}
+              priorityColor={priorityColor}
+              currentUserId={currentUserId}
+              completedAccordionKey={completedAccordionKey}
+              revealActionsOnHover={revealActionsOnHover}
+              dueDateLayout={dueDateLayout}
+              bulkSelectMode={bulkSelectMode}
+              selectedTaskIds={selectedTaskIds}
+              loadingTaskIds={loadingTaskIds}
+              animatingOutTaskIds={animatingOutTaskIds}
+              optimisticCompletedIds={optimisticCompletedIds}
+              sectionTasksBySectionId={sectionTasksBySectionId}
+              childSectionsByParentId={childSectionsByParentId}
+              goalsBySectionId={goalsBySectionId}
+              enableDueDateQuickEdit={enableDueDateQuickEdit}
+              onTaskFocus={onTaskFocus}
+              onTaskUpdate={onTaskUpdate}
+              onTaskToggle={onTaskToggle}
+              onTaskEdit={onTaskEdit}
+              onTaskDelete={onTaskDelete}
+              onTaskSelect={onTaskSelect}
+              onSectionEdit={onSectionEdit}
+              onSectionDelete={onSectionDelete}
+              onAddTask={onAddTask}
+              onAddSection={onAddSection}
+              onAddSectionAfter={onAddSectionAfter}
+              onTaskDrop={onTaskDrop}
+              onSectionReorder={onSectionReorder}
+              onAddGoal={onAddGoal}
+              onCompleteGoal={onCompleteGoal}
+              onRenameGoal={onRenameGoal}
+              onDeleteGoal={onDeleteGoal}
+              onTaskDropToGoal={onTaskDropToGoal}
+              onSectionDropToGoal={onSectionDropToGoal}
+              onAddTaskToGoal={onAddTaskToGoal}
+              onAddSectionToGoal={onAddSectionToGoal}
+              onAddSubGoal={onAddSubGoal}
+              userId={userId}
+            />
+          ))}
+          {subGoals.map((subGoal) => renderGoalNode(subGoal))}
+          {!hasContent && (
+            <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-center text-xs text-zinc-600">
+              Drop tasks or a task list here.
+            </div>
+          )}
+        </GoalGroupShell>
+      </div>
+    );
+  };
 
   const handleToggleCollapse = async () => {
     const newCollapsed = !isCollapsed;
@@ -354,99 +458,9 @@ export function SectionView({
             <div className="mb-4">{renderTaskList(goalLessTasks, "root")}</div>
           )}
 
-          {/* Goal sub-groups, mirroring the board's collapsible goal groups. */}
-          {goalsForSection.map((goal) => {
-            const goalTasks = sectionTasks.filter(
-              (task) => getTaskGoalId(task) === goal.id,
-            );
-            const completedCount = goalTasks.filter(
-              (task) =>
-                task.completed || optimisticCompletedIds?.has(task.id),
-            ).length;
-            // Task lists (sections) nested inside this goal.
-            const goalOwnedSections = (database.sections || []).filter(
-              (s) =>
-                (s.goalId || (s as any).goal_id) === goal.id &&
-                !(s as any).is_deleted &&
-                !(s as any).isDeleted,
-            );
-            const hasContent =
-              goalTasks.length > 0 || goalOwnedSections.length > 0;
-
-            return (
-              <div key={goal.id} className="mb-4">
-                <GoalGroupShell
-                  goal={goal}
-                  completedCount={completedCount}
-                  totalCount={goalTasks.length}
-                  sectionId={section.id}
-                  onTaskDropToGoal={onTaskDropToGoal}
-                  onSectionDropToGoal={onSectionDropToGoal}
-                  onCompleteGoal={onCompleteGoal}
-                  onRenameGoal={onRenameGoal}
-                  onDeleteGoal={onDeleteGoal}
-                  onAddTaskToGoal={onAddTaskToGoal}
-                  onAddSectionToGoal={onAddSectionToGoal}
-                  onAddSubGoal={onAddSubGoal}
-                >
-                  {goalTasks.length > 0 &&
-                    renderTaskList(goalTasks, `goal-${goal.id}`)}
-                  {goalOwnedSections.map((ownedSection) => (
-                    <SectionView
-                      key={ownedSection.id}
-                      section={ownedSection}
-                      tasks={tasks}
-                      allTasks={allTasks}
-                      database={database}
-                      level={level + 1}
-                      priorityColor={priorityColor}
-                      currentUserId={currentUserId}
-                      completedAccordionKey={completedAccordionKey}
-                      revealActionsOnHover={revealActionsOnHover}
-                      dueDateLayout={dueDateLayout}
-                      bulkSelectMode={bulkSelectMode}
-                      selectedTaskIds={selectedTaskIds}
-                      loadingTaskIds={loadingTaskIds}
-                      animatingOutTaskIds={animatingOutTaskIds}
-                      optimisticCompletedIds={optimisticCompletedIds}
-                      sectionTasksBySectionId={sectionTasksBySectionId}
-                      childSectionsByParentId={childSectionsByParentId}
-                      goalsBySectionId={goalsBySectionId}
-                      enableDueDateQuickEdit={enableDueDateQuickEdit}
-                      onTaskFocus={onTaskFocus}
-                      onTaskUpdate={onTaskUpdate}
-                      onTaskToggle={onTaskToggle}
-                      onTaskEdit={onTaskEdit}
-                      onTaskDelete={onTaskDelete}
-                      onTaskSelect={onTaskSelect}
-                      onSectionEdit={onSectionEdit}
-                      onSectionDelete={onSectionDelete}
-                      onAddTask={onAddTask}
-                      onAddSection={onAddSection}
-                      onAddSectionAfter={onAddSectionAfter}
-                      onTaskDrop={onTaskDrop}
-                      onSectionReorder={onSectionReorder}
-                      onAddGoal={onAddGoal}
-                      onCompleteGoal={onCompleteGoal}
-                      onRenameGoal={onRenameGoal}
-                      onDeleteGoal={onDeleteGoal}
-                      onTaskDropToGoal={onTaskDropToGoal}
-                      onSectionDropToGoal={onSectionDropToGoal}
-                      onAddTaskToGoal={onAddTaskToGoal}
-                      onAddSectionToGoal={onAddSectionToGoal}
-                      onAddSubGoal={onAddSubGoal}
-                      userId={userId}
-                    />
-                  ))}
-                  {!hasContent && (
-                    <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-center text-xs text-zinc-600">
-                      Drop tasks or a task list here.
-                    </div>
-                  )}
-                </GoalGroupShell>
-              </div>
-            );
-          })}
+          {/* Goal sub-groups (each renders its tasks, nested task lists, and
+              sub-goals recursively). */}
+          {goalsForSection.map((goal) => renderGoalNode(goal))}
 
           <div className="mb-2 flex h-0 w-full items-center justify-center overflow-visible">
             <div className="pointer-events-auto flex items-center gap-2 rounded-lg opacity-0 transition-all duration-200 translate-y-2 group-hover/section:translate-y-0 group-hover/section:opacity-100">

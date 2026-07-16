@@ -276,6 +276,7 @@ export async function loadCoreDatabaseViaPostgres(
     name: row.name,
     projectId: row.project_id,
     parentId: row.parent_id || undefined,
+    goalId: row.goal_id || undefined,
     color: row.color || undefined,
     description: row.description || undefined,
     icon: row.icon || undefined,
@@ -289,6 +290,7 @@ export async function loadCoreDatabaseViaPostgres(
   const goals = goalRows.map((row: any) => ({
     id: row.id,
     sectionId: row.section_id || undefined,
+    parentGoalId: row.parent_goal_id || undefined,
     projectId: row.project_id,
     name: row.name,
     description: row.description || undefined,

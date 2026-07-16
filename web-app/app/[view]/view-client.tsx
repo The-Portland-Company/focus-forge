@@ -693,6 +693,7 @@ export default function ViewPage({
   const [addTaskDefaults, setAddTaskDefaults] = useState<{
     projectId?: string;
     sectionId?: string;
+    goalId?: string;
   }>({});
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [showEditTask, setShowEditTask] = useState(false);
@@ -3239,9 +3240,46 @@ export default function ViewPage({
     }
   };
 
-  const openAddTask = (projectId?: string, sectionId?: string) => {
-    setAddTaskDefaults({ projectId, sectionId });
+  const openAddTask = (
+    projectId?: string,
+    sectionId?: string,
+    goalId?: string,
+  ) => {
+    setAddTaskDefaults({ projectId, sectionId, goalId });
     setShowAddTask(true);
+  };
+
+  // Create a task directly inside a goal (opens the task modal pre-scoped).
+  const handleAddTaskToGoal = (goalId: string) => {
+    const goal = database?.goals?.find((g) => g.id === goalId);
+    if (!goal) return;
+    openAddTask(
+      goal.projectId,
+      goal.sectionId || (goal as any).section_id || undefined,
+      goalId,
+    );
+  };
+
+  // Create a sub-goal nested inside a parent goal.
+  const handleAddSubGoal = async (goalId: string) => {
+    const goal = database?.goals?.find((g) => g.id === goalId);
+    if (!goal) return;
+    try {
+      const response = await fetch(`/api/goals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name: "New goal",
+          projectId: goal.projectId,
+          sectionId: goal.sectionId || (goal as any).section_id || undefined,
+          parentGoalId: goalId,
+        }),
+      });
+      if (response.ok) await fetchData();
+    } catch (error) {
+      console.error("Error adding sub-goal:", error);
+    }
   };
 
   const focusTaskRow = useCallback(
@@ -6515,7 +6553,9 @@ export default function ViewPage({
                           onDeleteGoal={handleDeleteGoal}
                           onTaskDropToGoal={handleTaskDropToGoal}
                           onSectionDropToGoal={handleSectionDropToGoal}
+                          onAddTaskToGoal={handleAddTaskToGoal}
                           onAddSectionToGoal={handleAddSectionToGoal}
+                          onAddSubGoal={handleAddSubGoal}
                           userId={currentUserId || ""}
                         />
                       </div>
@@ -7066,6 +7106,7 @@ export default function ViewPage({
               : undefined)
           }
           defaultSectionId={addTaskDefaults.sectionId}
+          defaultGoalId={addTaskDefaults.goalId}
         />
       )}
 
