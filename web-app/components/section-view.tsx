@@ -59,6 +59,10 @@ interface SectionViewProps {
     goalId: string,
     sectionId?: string,
   ) => void;
+  onSectionDropToGoal?: (sectionId: string, goalId: string) => void;
+  onAddTaskToGoal?: (goalId: string) => void;
+  onAddSectionToGoal?: (goalId: string) => void;
+  onAddSubGoal?: (goalId: string) => void;
   userId: string;
 }
 
@@ -100,10 +104,15 @@ export function SectionView({
   onRenameGoal,
   onDeleteGoal,
   onTaskDropToGoal,
+  onSectionDropToGoal,
+  onAddTaskToGoal,
+  onAddSectionToGoal,
+  onAddSubGoal,
   userId,
 }: SectionViewProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [isDraggingSelf, setIsDraggingSelf] = useState(false);
 
   // Load collapsed state from user preferences
   useEffect(() => {
@@ -247,7 +256,20 @@ export function SectionView({
     >
       {/* Section Header */}
       <div
+        draggable
+        onDragStart={(e) => {
+          e.stopPropagation();
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("sectionId", section.id);
+          // Ghost = the section header itself (natural drag preview).
+          const header = e.currentTarget as HTMLElement;
+          e.dataTransfer.setDragImage(header, 16, 16);
+          setIsDraggingSelf(true);
+        }}
+        onDragEnd={() => setIsDraggingSelf(false)}
         className={`flex items-center gap-2 p-2 rounded-lg hover:bg-zinc-800/50 group transition-all cursor-pointer ${
+          isDraggingSelf ? "opacity-50" : ""
+        } ${
           dragOver ? "bg-zinc-800/50 ring-2 ring-[var(--theme-primary)]" : ""
         }`}
         onClick={handleToggleCollapse}
@@ -341,6 +363,15 @@ export function SectionView({
               (task) =>
                 task.completed || optimisticCompletedIds?.has(task.id),
             ).length;
+            // Task lists (sections) nested inside this goal.
+            const goalOwnedSections = (database.sections || []).filter(
+              (s) =>
+                (s.goalId || (s as any).goal_id) === goal.id &&
+                !(s as any).is_deleted &&
+                !(s as any).isDeleted,
+            );
+            const hasContent =
+              goalTasks.length > 0 || goalOwnedSections.length > 0;
 
             return (
               <div key={goal.id} className="mb-4">
@@ -350,15 +381,66 @@ export function SectionView({
                   totalCount={goalTasks.length}
                   sectionId={section.id}
                   onTaskDropToGoal={onTaskDropToGoal}
+                  onSectionDropToGoal={onSectionDropToGoal}
                   onCompleteGoal={onCompleteGoal}
                   onRenameGoal={onRenameGoal}
                   onDeleteGoal={onDeleteGoal}
+                  onAddTaskToGoal={onAddTaskToGoal}
+                  onAddSectionToGoal={onAddSectionToGoal}
+                  onAddSubGoal={onAddSubGoal}
                 >
-                  {goalTasks.length > 0 ? (
-                    renderTaskList(goalTasks, `goal-${goal.id}`)
-                  ) : (
+                  {goalTasks.length > 0 &&
+                    renderTaskList(goalTasks, `goal-${goal.id}`)}
+                  {goalOwnedSections.map((ownedSection) => (
+                    <SectionView
+                      key={ownedSection.id}
+                      section={ownedSection}
+                      tasks={tasks}
+                      allTasks={allTasks}
+                      database={database}
+                      level={level + 1}
+                      priorityColor={priorityColor}
+                      currentUserId={currentUserId}
+                      completedAccordionKey={completedAccordionKey}
+                      revealActionsOnHover={revealActionsOnHover}
+                      dueDateLayout={dueDateLayout}
+                      bulkSelectMode={bulkSelectMode}
+                      selectedTaskIds={selectedTaskIds}
+                      loadingTaskIds={loadingTaskIds}
+                      animatingOutTaskIds={animatingOutTaskIds}
+                      optimisticCompletedIds={optimisticCompletedIds}
+                      sectionTasksBySectionId={sectionTasksBySectionId}
+                      childSectionsByParentId={childSectionsByParentId}
+                      goalsBySectionId={goalsBySectionId}
+                      enableDueDateQuickEdit={enableDueDateQuickEdit}
+                      onTaskFocus={onTaskFocus}
+                      onTaskUpdate={onTaskUpdate}
+                      onTaskToggle={onTaskToggle}
+                      onTaskEdit={onTaskEdit}
+                      onTaskDelete={onTaskDelete}
+                      onTaskSelect={onTaskSelect}
+                      onSectionEdit={onSectionEdit}
+                      onSectionDelete={onSectionDelete}
+                      onAddTask={onAddTask}
+                      onAddSection={onAddSection}
+                      onAddSectionAfter={onAddSectionAfter}
+                      onTaskDrop={onTaskDrop}
+                      onSectionReorder={onSectionReorder}
+                      onAddGoal={onAddGoal}
+                      onCompleteGoal={onCompleteGoal}
+                      onRenameGoal={onRenameGoal}
+                      onDeleteGoal={onDeleteGoal}
+                      onTaskDropToGoal={onTaskDropToGoal}
+                      onSectionDropToGoal={onSectionDropToGoal}
+                      onAddTaskToGoal={onAddTaskToGoal}
+                      onAddSectionToGoal={onAddSectionToGoal}
+                      onAddSubGoal={onAddSubGoal}
+                      userId={userId}
+                    />
+                  ))}
+                  {!hasContent && (
                     <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-3 text-center text-xs text-zinc-600">
-                      Drop tasks here.
+                      Drop tasks or a task list here.
                     </div>
                   )}
                 </GoalGroupShell>
@@ -430,6 +512,10 @@ export function SectionView({
               onRenameGoal={onRenameGoal}
               onDeleteGoal={onDeleteGoal}
               onTaskDropToGoal={onTaskDropToGoal}
+              onSectionDropToGoal={onSectionDropToGoal}
+              onAddTaskToGoal={onAddTaskToGoal}
+              onAddSectionToGoal={onAddSectionToGoal}
+              onAddSubGoal={onAddSubGoal}
               userId={userId}
             />
           ))}

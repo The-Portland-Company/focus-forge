@@ -3106,6 +3106,65 @@ export default function ViewPage({
     }
   };
 
+  // Nest a section (task list) inside a goal by dragging it onto the goal.
+  const handleSectionDropToGoal = async (
+    sectionId: string,
+    goalId: string,
+  ) => {
+    const movedAt = new Date().toISOString();
+    setDatabase((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        sections: prev.sections.map((s) =>
+          s.id === sectionId
+            ? ({
+                ...s,
+                goalId,
+                goal_id: goalId,
+                updatedAt: movedAt,
+                updated_at: movedAt,
+              } as any)
+            : s,
+        ),
+      };
+    });
+    try {
+      const response = await fetch(`/api/sections/${sectionId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ goalId }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      await fetchData();
+    } catch (error) {
+      console.error("Error nesting section into goal:", error);
+      await fetchData();
+    }
+  };
+
+  // Create a new task list (section) directly inside a goal.
+  const handleAddSectionToGoal = async (goalId: string) => {
+    const goal = database?.goals?.find((g) => g.id === goalId);
+    if (!goal) return;
+    try {
+      const response = await fetch(`/api/sections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name: "New list",
+          projectId: goal.projectId,
+          goalId,
+        }),
+      });
+      if (response.ok) await fetchData();
+    } catch (error) {
+      console.error("Error adding task list to goal:", error);
+    }
+  };
+
   const handleCompleteGoal = async (goalId: string, completed: boolean) => {
     setDatabase((prev) => {
       if (!prev || !prev.goals) return prev;
@@ -5848,7 +5907,9 @@ export default function ViewPage({
 
       const visibleProjectSections = projectSections.filter(
         (section) =>
-          sectionHasVisibleTasks(section.id) || sectionIsEmpty(section.id),
+          // Sections nested inside a goal render within that goal, not here.
+          !(section.goalId || (section as any).goal_id) &&
+          (sectionHasVisibleTasks(section.id) || sectionIsEmpty(section.id)),
       );
       const projectCreatorIds = Array.from(
         new Set(
@@ -6453,6 +6514,8 @@ export default function ViewPage({
                           onRenameGoal={handleRenameGoal}
                           onDeleteGoal={handleDeleteGoal}
                           onTaskDropToGoal={handleTaskDropToGoal}
+                          onSectionDropToGoal={handleSectionDropToGoal}
+                          onAddSectionToGoal={handleAddSectionToGoal}
                           userId={currentUserId || ""}
                         />
                       </div>
