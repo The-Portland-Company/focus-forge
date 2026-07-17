@@ -386,23 +386,9 @@ export function TaskModal({
     }
   }, [isOpen, defaultProjectId, isEditMode, authUser?.id]);
 
-  // Default assignedTo to current user in add mode
-  useEffect(() => {
-    if (!isOpen || isEditMode) return;
-    if (assignedTo) return;
-    if (authUser?.id) {
-      const normalizedAuthEmail = (authUser.email || "").trim().toLowerCase();
-      const currentProfile = data.users.find(
-        (candidate) =>
-          candidate.id === authUser.id ||
-          candidate.authId === authUser.id ||
-          (normalizedAuthEmail &&
-            (candidate.email || "").trim().toLowerCase() ===
-              normalizedAuthEmail),
-      );
-      setAssignedTo(currentProfile?.id || authUser.id);
-    }
-  }, [isOpen, isEditMode, authUser?.id, authUser?.email, data.users, assignedTo]);
+  // New tasks are left unassigned by default: auto-assigning to the creator
+  // made section-less tasks show an assignee memoji under "Unassigned Tasks".
+  // The user can still assign themselves (or anyone) explicitly in the modal.
 
   useEffect(() => {
     if (!isOpen || isEditMode) return;
