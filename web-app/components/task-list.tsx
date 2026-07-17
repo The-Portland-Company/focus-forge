@@ -1228,13 +1228,13 @@ export function TaskList({
                 ) : null}
 
                 {task.assignedToName ? (
-                  <span className="relative group/assignee flex items-center justify-center w-4">
+                  <span className="relative group/assignee flex items-center justify-center w-6">
                     <UserAvatar
                       name={(task as any).assignedToName}
                       profileColor={(task as any).assignedToColor}
                       memoji={(task as any).assignedToMemoji}
-                      size={16}
-                      className="text-xs sm:text-[9px] font-medium"
+                      size={24}
+                      className="text-xs font-medium"
                     />
                     <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/assignee:opacity-100 transition-opacity pointer-events-none z-50">
                       {task.assignedToName}
@@ -1386,7 +1386,7 @@ export function TaskList({
   };
 
   return (
-    <div className="py-4">
+    <div className="py-1">
       {sortedActiveTasks.map(renderTask)}
 
       {sortedActiveTasks.length === 0 && completedTasks.length === 0 && (
