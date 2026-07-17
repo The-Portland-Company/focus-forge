@@ -6743,7 +6743,7 @@ export default function ViewPage({
                       }
 
                       return (
-                        <div className="mt-6">
+                        <div className="mt-2">
                           <div className="mb-3 flex items-center justify-between gap-3">
                             <h3 className="text-lg font-medium text-zinc-400">
                               Unassigned Tasks
