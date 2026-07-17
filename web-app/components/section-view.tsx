@@ -367,7 +367,7 @@ export function SectionView({
           setIsDraggingSelf(true);
         }}
         onDragEnd={() => setIsDraggingSelf(false)}
-        className={`flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-zinc-800/50 group transition-all cursor-pointer ${
+        className={`flex items-center gap-2 px-2 py-0.5 rounded-lg hover:bg-zinc-800/50 group transition-all cursor-pointer ${
           isDraggingSelf ? "opacity-50" : ""
         } ${
           dragOver ? "bg-zinc-800/50 ring-2 ring-[var(--theme-primary)]" : ""
@@ -453,7 +453,7 @@ export function SectionView({
 
       {/* Section Content */}
       {!isCollapsed && (
-        <div className="ml-6 mt-1">
+        <div className="ml-6">
           {/* Section Description */}
           {section.description && (
             <p className="text-sm text-zinc-400 mb-3 ml-6">
