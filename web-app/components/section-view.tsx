@@ -367,7 +367,7 @@ export function SectionView({
           setIsDraggingSelf(true);
         }}
         onDragEnd={() => setIsDraggingSelf(false)}
-        className={`flex items-center gap-2 p-2 rounded-lg hover:bg-zinc-800/50 group transition-all cursor-pointer ${
+        className={`flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-zinc-800/50 group transition-all cursor-pointer ${
           isDraggingSelf ? "opacity-50" : ""
         } ${
           dragOver ? "bg-zinc-800/50 ring-2 ring-[var(--theme-primary)]" : ""
