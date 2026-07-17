@@ -349,7 +349,7 @@ export function SectionView({
 
   return (
     <div
-      className={`section-visibility-auto ${level > 0 ? "ml-6" : ""} group/section`}
+      className={`${level > 0 ? "ml-6" : "section-visibility-auto"} group/section`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
