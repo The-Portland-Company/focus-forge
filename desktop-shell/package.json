@@ -1,0 +1,30 @@
+{
+  "name": "focus-forge-desktop-shell",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone Electron desktop app for Focus: Forge (loads the deployed web app; no Safari dependency).",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac --dir",
+    "dmg": "electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.theportlandcompany.focusforge.desktop",
+    "productName": "Focus - Forge",
+    "directories": {
+      "output": "dist"
+    },
+    "files": ["main.js", "package.json"],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
+      "target": ["dir"],
+      "identity": null
+    }
+  }
+}
