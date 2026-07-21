@@ -10,6 +10,8 @@ import {
   isSupply,
   supplyIdentityKind,
   supplyIdentityLabel,
+  deriveSupplyName,
+  taskDisplayName,
   parseSupplyVendor,
 } from "../supply";
 
@@ -189,5 +191,67 @@ describe("vendor links", () => {
 
   test("no vendor yields nothing", () => {
     assert.equal(parseSupplyVendor({ supply_vendor: null }), null);
+  });
+});
+
+describe("deriveSupplyName", () => {
+  test("prefers the make/model identity", () => {
+    assert.equal(
+      deriveSupplyName(
+        { is_supply: true, supply_make: "DeWalt", supply_model: "DCD771C2" },
+        "typed title",
+      ),
+      "DeWalt DCD771C2",
+    );
+  });
+
+  test("uses the type when there is no make/model", () => {
+    assert.equal(
+      deriveSupplyName({ is_supply: true, supply_type: "2x6x8 doug fir" }),
+      "2x6x8 doug fir",
+    );
+  });
+
+  test("falls back to the vendor site name, then the typed title", () => {
+    assert.equal(
+      deriveSupplyName({
+        is_supply: true,
+        supply_vendor: "https://www.lowes.com/store",
+      }),
+      "lowes.com",
+    );
+    assert.equal(deriveSupplyName({ is_supply: true }, "  bolts  "), "bolts");
+  });
+
+  test("never returns an empty name", () => {
+    assert.equal(deriveSupplyName({ is_supply: true }), "Supply");
+    assert.equal(deriveSupplyName({ is_supply: true }, "   "), "Supply");
+  });
+});
+
+describe("taskDisplayName", () => {
+  test("a supply shows its identity instead of the stored name", () => {
+    assert.equal(
+      taskDisplayName(
+        { is_supply: true, supply_type: "3in deck screws" },
+        "3in deck screws",
+      ),
+      "3in deck screws",
+    );
+    assert.equal(
+      taskDisplayName(
+        { is_supply: true, supply_make: "Makita", supply_model: "XPH12Z" },
+        "stale name",
+      ),
+      "Makita XPH12Z",
+    );
+  });
+
+  test("an ordinary task keeps its name", () => {
+    assert.equal(taskDisplayName({ is_supply: false }, "Call the framer"), "Call the framer");
+  });
+
+  test("a supply with no identity fields falls back to its stored name", () => {
+    assert.equal(taskDisplayName({ is_supply: true }, "Legacy supply"), "Legacy supply");
   });
 });
