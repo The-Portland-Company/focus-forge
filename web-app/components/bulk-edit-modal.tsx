@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from 'react'
-import { X, Calendar, Flag, User, Folder, Repeat2, Trash2, Plus, Mail, Loader2, Check, Merge, Search } from 'lucide-react'
+import { X, Calendar, Flag, User, Folder, Repeat2, Trash2, Plus, Mail, Loader2, Check, Merge, Search, UserCheck, Clock } from 'lucide-react'
 import { Task, Project, Database, RecurringConfig } from '@/lib/types'
 import { RecurringPicker } from '@/components/recurring-picker'
 import { serializeRecurringConfig } from '@/lib/recurring-utils'
@@ -27,6 +27,14 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
   const [dueTime, setDueTime] = useState<string>('')
   const [priority, setPriority] = useState<string>('')
   const [recurringConfig, setRecurringConfig] = useState<RecurringConfig | null>(null)
+  // Tri-state: '' leaves each task's own value alone, which is the only safe
+  // default for a bulk edit — a plain checkbox would force every selected task
+  // to one value the moment the modal opened.
+  const [requiresHitl, setRequiresHitl] = useState<'' | 'true' | 'false'>('')
+  const [timeEstimate, setTimeEstimate] = useState<string>('')
+  const [deadline, setDeadline] = useState<string>('')
+  const [startDate, setStartDate] = useState<string>('')
+  const [endDate, setEndDate] = useState<string>('')
 
   // User search state
   const [userSearchQuery, setUserSearchQuery] = useState('')
@@ -177,6 +185,24 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
         updates.recurring_pattern = serialized
       }
     }
+    if (requiresHitl !== '') {
+      updates.requires_hitl = requiresHitl === 'true'
+    }
+    if (timeEstimate.trim() !== '') {
+      const parsed = parseInt(timeEstimate, 10)
+      if (Number.isFinite(parsed)) {
+        updates.time_estimate = parsed
+      }
+    }
+    if (deadline) {
+      updates.deadline = deadline
+    }
+    if (startDate) {
+      updates.start_date = startDate
+    }
+    if (endDate) {
+      updates.end_date = endDate
+    }
 
     // Only apply if there are updates
     if (Object.keys(updates).length > 0) {
@@ -186,7 +212,18 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
   }
 
   const isMergeReady = (mergeMode === 'existing' && !!mergeTargetId) || (mergeMode === 'new' && !!newParentName.trim())
-  const hasChanges = assignedTo || projectId || dueDate || priority || recurringConfig || isMergeReady
+  const hasChanges =
+    assignedTo ||
+    projectId ||
+    dueDate ||
+    priority ||
+    recurringConfig ||
+    requiresHitl !== '' ||
+    timeEstimate.trim() !== '' ||
+    deadline ||
+    startDate ||
+    endDate ||
+    isMergeReady
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -582,6 +619,93 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
               Recurring
             </label>
             <RecurringPicker value={recurringConfig} onChange={setRecurringConfig} />
+          </div>
+
+          {/* Requires Human in the Loop */}
+          <div>
+            <label className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
+              <UserCheck className="w-4 h-4" />
+              Requires Human in the Loop (HITL)
+            </label>
+            <div className="flex items-center gap-1">
+              {([
+                { value: '' as const, label: 'Leave unchanged' },
+                { value: 'true' as const, label: 'Require' },
+                { value: 'false' as const, label: "Don't require" },
+              ]).map((option) => (
+                <button
+                  key={option.value || 'leave'}
+                  type="button"
+                  onClick={() => setRequiresHitl(option.value)}
+                  aria-pressed={requiresHitl === option.value}
+                  className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${
+                    requiresHitl === option.value
+                      ? 'bg-zinc-700 text-white'
+                      : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Time Estimate */}
+          <div>
+            <label className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
+              <Clock className="w-4 h-4" />
+              Time Estimate
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={timeEstimate}
+              onChange={(e) => setTimeEstimate(e.target.value)}
+              placeholder="Minutes"
+              className="w-full bg-zinc-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
+          </div>
+
+          {/* Deadline */}
+          <div>
+            <label className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
+              <Calendar className="w-4 h-4" />
+              Deadline
+            </label>
+            <input
+              type="date"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="w-full bg-zinc-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all themed-date-input"
+            />
+          </div>
+
+          {/* Start / End dates */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
+                <Calendar className="w-4 h-4" />
+                Start Date
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full bg-zinc-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all themed-date-input"
+              />
+            </div>
+            <div>
+              <label className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
+                <Calendar className="w-4 h-4" />
+                End Date
+              </label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full bg-zinc-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all themed-date-input"
+              />
+            </div>
           </div>
 
           {/* Merge Into */}
