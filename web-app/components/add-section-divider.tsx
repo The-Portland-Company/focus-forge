@@ -17,7 +17,7 @@ export function AddSectionDivider({
     <button
       onClick={onClick}
       className={`flex w-full overflow-visible rounded-lg ${
-        revealOnParentHover ? "h-full pointer-events-none justify-start" : "group h-2 items-center justify-center"
+        revealOnParentHover ? "h-full pointer-events-none justify-start" : "group h-1.5 items-center justify-center"
       }`}
     >
       <div
