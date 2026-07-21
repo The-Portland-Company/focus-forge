@@ -122,6 +122,12 @@ export interface Task {
   sectionId?: string;
   goalId?: string;
   timeEstimate?: number; // Time estimate in minutes
+  // Supplies: a task marked as a purchasable line item. Sections subtotal
+  // these and the project totals them. See lib/supply.ts for the maths.
+  isSupply?: boolean;
+  supplyQuantity?: number | null;
+  supplyPrice?: number | null;
+  supplyVendor?: string | null;
   snoozedUntil?: string | null;
   startDate?: string;
   startTime?: string;

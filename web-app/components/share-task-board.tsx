@@ -2,12 +2,18 @@
 
 import { useState } from "react";
 import { CheckCircle2, Circle, Loader2, Plus } from "lucide-react";
+import { SupplyTotal } from "./supply-total";
+import { SupplyLine } from "./supply-line";
 
 interface ShareTask {
   id: string;
   name: string;
   completed: boolean | null;
   section_id: string | null;
+  is_supply?: boolean | null;
+  supply_quantity?: number | string | null;
+  supply_price?: number | string | null;
+  supply_vendor?: string | null;
 }
 
 interface ShareGroup {
@@ -107,6 +113,10 @@ export function ShareTaskBoard({
         </div>
       )}
 
+      {/* Totals bracket the list, top and bottom, and update live as tasks
+          are ticked off or added. */}
+      <SupplyTotal items={tasks} label="Supplies total" variant="total" />
+
       {groups.map((group) => {
         const groupKey = group.id ?? "no-section";
         const groupTasks = tasks.filter(
@@ -151,10 +161,12 @@ export function ShareTaskBoard({
                     >
                       {task.name}
                     </span>
+                    <SupplyLine task={task} />
                   </li>
                 );
               })}
             </ul>
+            <SupplyTotal items={groupTasks} className="mt-2" />
 
             {addingIn === groupKey ? (
               <form
@@ -204,6 +216,8 @@ export function ShareTaskBoard({
           </section>
         );
       })}
+
+      <SupplyTotal items={tasks} label="Supplies total" variant="total" />
     </div>
   );
 }
