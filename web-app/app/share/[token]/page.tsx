@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { cookies } from "next/headers";
 import { CheckCircle2, Circle, Lock } from "lucide-react";
 import { getAdminClient } from "@/lib/supabase/admin";
@@ -13,13 +14,14 @@ import { ShareTaskBoard } from "@/components/share-task-board";
 import { SupplyTotal } from "@/components/supply-total";
 import { SupplyLine } from "@/components/supply-line";
 import { taskDisplayName } from "@/lib/supply";
+import { ShareSupplyPanel } from "@/components/share-supply-panel";
 
 export const dynamic = "force-dynamic";
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-3xl px-5 py-10">{children}</div>
+      <div className="w-full px-5 py-10 sm:px-8">{children}</div>
       <footer className="pb-10 text-center text-xs text-zinc-600">
         Shared via Focus Forge
       </footer>
@@ -30,7 +32,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 function Unavailable() {
   return (
     <Shell>
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-8 text-center">
+      <div className="mx-auto max-w-md rounded-xl border border-zinc-800 bg-zinc-900 p-8 text-center">
         <h1 className="text-lg font-semibold text-white">
           This link is no longer available
         </h1>
@@ -157,6 +159,9 @@ export default async function SharePage(props: {
     supply_quantity: number | string | null;
     supply_price: number | string | null;
     supply_vendor: string | null;
+    supply_make: string | null;
+    supply_model: string | null;
+    supply_type: string | null;
   }> | null = null;
 
   try {
@@ -181,7 +186,7 @@ export default async function SharePage(props: {
       admin
         .from("tasks")
         .select(
-          "id,name,completed,section_id,todoist_order,parent_id,is_supply,supply_quantity,supply_price,supply_vendor",
+          "id,name,completed,section_id,todoist_order,parent_id,is_supply,supply_quantity,supply_price,supply_vendor,supply_make,supply_model,supply_type",
         )
         .eq("project_id", project.id)
         .is("deleted_at", null)
@@ -207,6 +212,9 @@ export default async function SharePage(props: {
     supply_quantity: number | string | null;
     supply_price: number | string | null;
     supply_vendor: string | null;
+    supply_make: string | null;
+    supply_model: string | null;
+    supply_type: string | null;
   }>;
 
   const tasksBySection = (sectionId: string | null) =>
@@ -250,59 +258,76 @@ export default async function SharePage(props: {
           initialTasks={allTasks}
         />
       ) : (
-      <div className="space-y-6">
-        {/* Totals bracket the list, top and bottom. */}
-        <SupplyTotal
-          items={allTasks}
-          label="Supplies total"
-          variant="total"
-        />
+      /*
+        One grid, two columns: tasks left, that section's supplies right. Each
+        section is its own grid row, so the supplies panel always starts level
+        with the section it belongs to no matter how tall either side grows —
+        two independently-flowing columns would drift apart. Below `lg` the
+        grid collapses to one column and each supplies panel stacks directly
+        under its own section.
+      */
+      <div className="grid grid-cols-1 gap-x-6 gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+        {/* Grand total, top of the supplies column. */}
+        <div className="lg:col-start-2">
+          <SupplyTotal
+            items={allTasks}
+            label="Supplies total"
+            variant="total"
+          />
+        </div>
         {groups.map((group) => {
           const groupTasks = tasksBySection(group.id);
           if (groupTasks.length === 0) return null;
           return (
-            <section key={group.id ?? "no-section"}>
-              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
-                {group.name}
-              </h2>
-              <ul className="space-y-1.5">
-                {groupTasks.map((task) => (
-                  <li
-                    key={task.id}
-                    className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2"
-                  >
-                    {task.completed ? (
-                      <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
-                    ) : (
-                      <Circle className="h-4 w-4 shrink-0 text-zinc-600" />
-                    )}
-                    <span
-                      className={
-                        task.completed
-                          ? "text-sm text-zinc-500 line-through"
-                          : "text-sm text-zinc-200"
-                      }
+            <Fragment key={group.id ?? "no-section"}>
+              <section className="lg:col-start-1">
+                <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                  {group.name}
+                </h2>
+                <ul className="space-y-1.5">
+                  {groupTasks.map((task) => (
+                    <li
+                      key={task.id}
+                      className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2"
                     >
-                      {taskDisplayName(task, task.name)}
-                    </span>
-                    <SupplyLine task={task} />
-                  </li>
-                ))}
-              </ul>
-              <SupplyTotal items={groupTasks} className="mt-2" />
-            </section>
+                      {task.completed ? (
+                        <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+                      ) : (
+                        <Circle className="h-4 w-4 shrink-0 text-zinc-600" />
+                      )}
+                      <span
+                        className={
+                          task.completed
+                            ? "text-sm text-zinc-500 line-through"
+                            : "text-sm text-zinc-200"
+                        }
+                      >
+                        {taskDisplayName(task, task.name)}
+                      </span>
+                      <SupplyLine task={task} />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+              <div className="lg:col-start-2">
+                <ShareSupplyPanel items={groupTasks} />
+              </div>
+            </Fragment>
           );
         })}
         {allTasks.length === 0 && (
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-zinc-500 lg:col-start-1">
             This project has no tasks yet.
           </p>
         )}
-        <SupplyTotal
-          items={allTasks}
-          label="Supplies total"
-          variant="total"
-        />
+        {/* Grand total again, bottom of the supplies column. */}
+        <div className="lg:col-start-2">
+          <SupplyTotal
+            items={allTasks}
+            label="Supplies total"
+            variant="total"
+          />
+        </div>
       </div>
       )}
     </Shell>
