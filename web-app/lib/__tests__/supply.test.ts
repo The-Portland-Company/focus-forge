@@ -230,20 +230,20 @@ describe("deriveSupplyName", () => {
 });
 
 describe("taskDisplayName", () => {
-  test("a supply shows its identity instead of the stored name", () => {
+  test("a supply shows its identity instead of the stored name, as an action", () => {
     assert.equal(
       taskDisplayName(
         { is_supply: true, supply_type: "3in deck screws" },
         "3in deck screws",
       ),
-      "3in deck screws",
+      "Acquire 3in deck screws",
     );
     assert.equal(
       taskDisplayName(
         { is_supply: true, supply_make: "Makita", supply_model: "XPH12Z" },
         "stale name",
       ),
-      "Makita XPH12Z",
+      "Acquire Makita XPH12Z",
     );
   });
 
@@ -261,10 +261,10 @@ describe("supply display name", () => {
     assert.equal(taskDisplayName({ is_supply: false }, "Frame the wall"), "Frame the wall");
   });
 
-  test("a supply shows its identity over the stored name", () => {
+  test("a supply shows its identity over the stored name, as an action", () => {
     assert.equal(
       taskDisplayName({ is_supply: true, supply_make: "DeWalt", supply_model: "DCD771C2" }, "DeWalt DCD999"),
-      "DeWalt DCD771C2",
+      "Acquire DeWalt DCD771C2",
     );
   });
 
@@ -274,11 +274,12 @@ describe("supply display name", () => {
         { is_supply: true, supply_vendor: "https://www.homedepot.com/p/1" },
         "DeWalt DCD771C2",
       ),
-      "homedepot.com",
+      "Acquire homedepot.com",
     );
   });
 
-  test("with nothing to derive from, the stored name is still used", () => {
+  test("with nothing to derive from, the stored name is used unprefixed", () => {
+    // It may already read as an action, so it is not double-prefixed.
     assert.equal(taskDisplayName({ is_supply: true }, "Lumber"), "Lumber");
   });
 });
