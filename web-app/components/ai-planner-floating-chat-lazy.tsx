@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 
 /**
  * Client-only lazy wrapper for the global floating AI assistant. It is a
@@ -19,5 +20,10 @@ const AiPlannerFloatingChat = dynamic(
 );
 
 export function AiPlannerFloatingChatLazy() {
+  const pathname = usePathname();
+  // Public share links are unauthenticated and read-only; the assistant has no
+  // place there and would call authed endpoints that 401. Mounted app-wide in
+  // the root layout, so this is where it is gated out.
+  if (pathname?.startsWith("/share/")) return null;
   return <AiPlannerFloatingChat />;
 }
