@@ -10,6 +10,8 @@ import {
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { hasRichTextContent } from "@/lib/rich-text";
 import { ShareTaskBoard } from "@/components/share-task-board";
+import { SupplyTotal } from "@/components/supply-total";
+import { SupplyLine } from "@/components/supply-line";
 
 export const dynamic = "force-dynamic";
 
@@ -150,6 +152,10 @@ export default async function SharePage(props: {
     name: string;
     completed: boolean | null;
     section_id: string | null;
+    is_supply: boolean | null;
+    supply_quantity: number | string | null;
+    supply_price: number | string | null;
+    supply_vendor: string | null;
   }> | null = null;
 
   try {
@@ -173,7 +179,9 @@ export default async function SharePage(props: {
         .order("todoist_order", { ascending: true }),
       admin
         .from("tasks")
-        .select("id,name,completed,section_id,todoist_order,parent_id")
+        .select(
+          "id,name,completed,section_id,todoist_order,parent_id,is_supply,supply_quantity,supply_price,supply_vendor",
+        )
         .eq("project_id", project.id)
         .is("deleted_at", null)
         .order("todoist_order", { ascending: true }),
@@ -194,6 +202,10 @@ export default async function SharePage(props: {
     name: string;
     completed: boolean | null;
     section_id: string | null;
+    is_supply: boolean | null;
+    supply_quantity: number | string | null;
+    supply_price: number | string | null;
+    supply_vendor: string | null;
   }>;
 
   const tasksBySection = (sectionId: string | null) =>
@@ -238,6 +250,12 @@ export default async function SharePage(props: {
         />
       ) : (
       <div className="space-y-6">
+        {/* Totals bracket the list, top and bottom. */}
+        <SupplyTotal
+          items={allTasks}
+          label="Supplies total"
+          variant="total"
+        />
         {groups.map((group) => {
           const groupTasks = tasksBySection(group.id);
           if (groupTasks.length === 0) return null;
@@ -266,9 +284,11 @@ export default async function SharePage(props: {
                     >
                       {task.name}
                     </span>
+                    <SupplyLine task={task} />
                   </li>
                 ))}
               </ul>
+              <SupplyTotal items={groupTasks} className="mt-2" />
             </section>
           );
         })}
@@ -277,6 +297,11 @@ export default async function SharePage(props: {
             This project has no tasks yet.
           </p>
         )}
+        <SupplyTotal
+          items={allTasks}
+          label="Supplies total"
+          variant="total"
+        />
       </div>
       )}
     </Shell>

@@ -34,7 +34,9 @@ import {
   UserCheck,
   Sparkles,
   Target,
+  ShoppingCart,
 } from "lucide-react";
+import { formatCurrency, supplyLineTotal } from "@/lib/supply";
 import type {
   Database,
   Task,
@@ -232,6 +234,12 @@ export function TaskModal({
     useState<RecurringConfig | null>(null);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [timeEstimate, setTimeEstimate] = useState<string>("");
+  // Supply line-item fields. Kept as strings so a cleared input is
+  // distinguishable from a zero.
+  const [isSupply, setIsSupply] = useState(false);
+  const [supplyQuantity, setSupplyQuantity] = useState<string>("");
+  const [supplyPrice, setSupplyPrice] = useState<string>("");
+  const [supplyVendor, setSupplyVendor] = useState<string>("");
   const [estimateSuggesting, setEstimateSuggesting] = useState(false);
   const [estimateError, setEstimateError] = useState<string | null>(null);
   const [startDate, setStartDate] = useState("");
@@ -301,6 +309,15 @@ export function TaskModal({
       );
       const te = (task as any).time_estimate ?? task.timeEstimate ?? undefined;
       setTimeEstimate(te != null ? String(te) : "");
+      const supplyFlag =
+        (task as any).is_supply ?? task.isSupply ?? false;
+      setIsSupply(Boolean(supplyFlag));
+      const sq = (task as any).supply_quantity ?? task.supplyQuantity;
+      setSupplyQuantity(sq != null ? String(sq) : "");
+      const sp = (task as any).supply_price ?? task.supplyPrice;
+      setSupplyPrice(sp != null ? String(sp) : "");
+      const sv = (task as any).supply_vendor ?? task.supplyVendor;
+      setSupplyVendor(sv != null ? String(sv) : "");
       const sd = (task as any).start_date || task.startDate;
       const st = (task as any).start_time || task.startTime;
       const ed = (task as any).end_date || task.endDate;
@@ -374,6 +391,10 @@ export function TaskModal({
       setUserMentionIndex(0);
       setExpandedBlockerId(null);
       setRecurringConfig(null);
+      setIsSupply(false);
+      setSupplyQuantity("");
+      setSupplyPrice("");
+      setSupplyVendor("");
       setPendingSubtasks([]);
       setNewSubtaskName("");
       setNewSubtaskEstimate("");
@@ -567,6 +588,36 @@ export function TaskModal({
       goalId: selectedGoalId || (isEditMode ? null : undefined),
       timeEstimate:
         timeEstimate !== "" ? parseInt(timeEstimate, 10) : isEditMode ? null : undefined,
+      isSupply,
+      // Only send supply details when the task is actually a supply, and clear
+      // them out when the flag is turned off so stale amounts can't linger.
+      supplyQuantity: isSupply
+        ? supplyQuantity !== ""
+          ? Number(supplyQuantity)
+          : isEditMode
+            ? null
+            : undefined
+        : isEditMode
+          ? null
+          : undefined,
+      supplyPrice: isSupply
+        ? supplyPrice !== ""
+          ? Number(supplyPrice)
+          : isEditMode
+            ? null
+            : undefined
+        : isEditMode
+          ? null
+          : undefined,
+      supplyVendor: isSupply
+        ? supplyVendor.trim() !== ""
+          ? supplyVendor.trim()
+          : isEditMode
+            ? null
+            : undefined
+        : isEditMode
+          ? null
+          : undefined,
       startDate: nextStartDate,
       startTime: startDate
         ? nullableEditFieldValue(startTime, isEditMode)
@@ -2344,6 +2395,80 @@ export function TaskModal({
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* Supply line item */}
+          <div>
+            <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isSupply}
+                onChange={(e) => setIsSupply(e.target.checked)}
+                className="accent-[rgb(var(--theme-primary-rgb))]"
+              />
+              <ShoppingCart className="w-4 h-4" />
+              This is a supply
+            </label>
+            {isSupply && (
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">
+                    Quantity
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={supplyQuantity}
+                    onChange={(e) => setSupplyQuantity(e.target.value)}
+                    placeholder="1"
+                    className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">
+                    Price (each)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={supplyPrice}
+                    onChange={(e) => setSupplyPrice(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">
+                    Vendor
+                  </label>
+                  <input
+                    type="text"
+                    value={supplyVendor}
+                    onChange={(e) => setSupplyVendor(e.target.value)}
+                    placeholder="Where to buy it"
+                    className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                  />
+                </div>
+                {supplyPrice !== "" && (
+                  <p className="text-xs text-zinc-500 sm:col-span-3">
+                    Line total:{" "}
+                    <span className="text-zinc-300">
+                      {formatCurrency(
+                        supplyLineTotal({
+                          is_supply: true,
+                          supply_quantity:
+                            supplyQuantity !== "" ? Number(supplyQuantity) : null,
+                          supply_price: Number(supplyPrice),
+                        }),
+                      )}
+                    </span>
+                    {supplyQuantity === "" && " (quantity blank counts as 1)"}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Deadline */}
