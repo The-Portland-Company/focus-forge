@@ -8,6 +8,7 @@ import { ChunkErrorReloader } from "@/components/chunk-error-reloader"
 import { DockBadgeSync } from "@/components/dock-badge-sync"
 import { EstimateReviewNudge } from "@/components/estimate-review-nudge"
 import { AgentIntroNudge } from "@/components/agent-intro-nudge"
+import { THEME_PREPAINT_SCRIPT } from "@/lib/theme-prepaint"
 import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"] })
@@ -45,7 +46,23 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark theme-dark" data-theme="dark" suppressHydrationWarning>
+    <html
+      lang="en"
+      className="dark theme-dark theme-neutral"
+      data-theme="neutral-dark"
+      suppressHydrationWarning
+    >
+      <head>
+        {/* Applies the stored theme before first paint. Without this the
+            document paints the SSR preset, then React re-applies the real one
+            after hydration + the profile fetch, which flashed the default
+            blue/purple gradient through --theme-gradient consumers such as
+            the sidebar's .btn-theme-primary buttons. Must stay a blocking
+            inline script: anything async paints too late. */}
+        <script
+          dangerouslySetInnerHTML={{ __html: THEME_PREPAINT_SCRIPT }}
+        />
+      </head>
       <body className={inter.className} suppressHydrationWarning>
         <AuthProvider>
           <ToastProvider>
