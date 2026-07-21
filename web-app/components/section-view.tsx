@@ -367,14 +367,14 @@ export function SectionView({
           setIsDraggingSelf(true);
         }}
         onDragEnd={() => setIsDraggingSelf(false)}
-        className={`flex items-center gap-2 px-2 py-0.5 rounded-lg hover:bg-zinc-800/50 group transition-all cursor-pointer ${
+        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg hover:bg-zinc-800/50 group transition-all cursor-pointer ${
           isDraggingSelf ? "opacity-50" : ""
         } ${
           dragOver ? "bg-zinc-800/50 ring-2 ring-[var(--theme-primary)]" : ""
         }`}
         onClick={handleToggleCollapse}
       >
-        <button className="p-1">
+        <button className="p-0.5">
           {isCollapsed ? (
             <ChevronRight className="w-4 h-4 text-zinc-400" />
           ) : (
@@ -382,12 +382,16 @@ export function SectionView({
           )}
         </button>
 
+        {/* Icon and color dot are omitted entirely when unset — rendering them
+            empty left their surrounding gaps behind as dead space. */}
         <div className="flex items-center gap-2 flex-1">
-          <span className="text-lg">{section.icon}</span>
-          <div
-            className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: section.color }}
-          />
+          {section.icon && <span className="text-lg">{section.icon}</span>}
+          {section.color && (
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: section.color }}
+            />
+          )}
           <span className="font-medium text-white">{section.name}</span>
           <span className="text-sm text-zinc-500">({sectionTasks.length})</span>
         </div>
