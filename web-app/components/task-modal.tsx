@@ -36,6 +36,8 @@ import {
   Target,
   ShoppingCart,
   Maximize2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { formatCurrency, supplyLineTotal } from "@/lib/supply";
 import type {
@@ -95,6 +97,23 @@ interface PendingSubtask {
  * this form opts in.
  */
 const DEFAULT_REQUIRES_HITL_IN_UI = true;
+
+/**
+ * The task form is long enough that everything at once is hard to scan, so it
+ * pages through tabs. Panels stay mounted and are hidden with CSS rather than
+ * unmounted — a half-filled field must survive paging away and back, and the
+ * whole form still submits as one.
+ */
+const TASK_MODAL_TABS = [
+  { key: "details", label: "Details" },
+  { key: "schedule", label: "Schedule" },
+  { key: "assigned", label: "Assigned" },
+  { key: "dependencies", label: "Dependencies" },
+  { key: "subtasks", label: "Subtasks" },
+  { key: "history", label: "History" },
+] as const;
+
+type TaskModalTab = (typeof TASK_MODAL_TABS)[number]["key"];
 
 /**
  * Maps the supply identity form state to the three columns. The inactive set is
@@ -342,6 +361,14 @@ export function TaskModal({
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState<string>("");
   const [copiedId, setCopiedId] = useState(false);
+  const [activeTab, setActiveTab] = useState<TaskModalTab>("details");
+  // History only exists once the task does, so it is hidden when adding.
+  const visibleTabs = TASK_MODAL_TABS.filter(
+    (tab) => tab.key !== "history" || isEditMode,
+  );
+  const activeTabIndex = visibleTabs.findIndex((tab) => tab.key === activeTab);
+  const tabPanelClass = (tab: TaskModalTab) =>
+    activeTab === tab ? "space-y-6" : "hidden";
   // Tasks composed by a human in this modal default to requiring HITL. This is
   // deliberately a UI-only default: the column default stays false so tasks
   // created over the API (PATs, the mobile endpoints, AI agents) are not
@@ -763,6 +790,14 @@ export function TaskModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Title is validated here rather than with the `required` attribute: the
+    // input lives on the Details tab, and a hidden required control cannot be
+    // focused, which makes the browser block submission with no visible reason.
+    if (!taskName.trim()) {
+      setActiveTab("details");
+      requestAnimationFrame(() => titleInputRef.current?.focus());
+      return;
+    }
     const taskData = buildTaskData();
     if (!taskData) return;
     onSave(taskData);
@@ -1734,7 +1769,7 @@ export function TaskModal({
     >
       <div
         ref={modalRef}
-        className="bg-zinc-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-zinc-800"
+        className="bg-zinc-900 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto border border-zinc-800"
       >
         <div className="sticky top-0 bg-zinc-900 border-b border-zinc-800 px-6 py-4 flex items-center justify-between z-10">
           <h2 className="text-xl font-semibold text-white">
@@ -1751,7 +1786,31 @@ export function TaskModal({
           </div>
         </div>
 
+        <div
+          role="tablist"
+          aria-label="Task sections"
+          className="sticky top-[65px] z-10 flex gap-1 overflow-x-auto border-b border-zinc-800 bg-zinc-900 px-6 py-2"
+        >
+          {visibleTabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                activeTab === tab.key
+                  ? "bg-zinc-800 text-white"
+                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          <div className={tabPanelClass("details")}>
           {/* Parent task navigation (edit mode only) */}
           {isEditMode && parentTask && onTaskSelect && (
             <button
@@ -1763,36 +1822,42 @@ export function TaskModal({
             </button>
           )}
 
+          </div>
+          <div className={tabPanelClass("details")}>
           {/* Task Name */}
           <div className="relative">
-            {isEditMode && task && (
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(task.id);
-                    setCopiedId(true);
-                    setTimeout(() => setCopiedId(false), 1000);
-                  } catch {}
-                }}
-                className="relative mb-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors font-mono flex items-center gap-1"
-                title="Click to copy task ID"
+            {/* Task id sits inline with the Title label rather than above it,
+                so the field keeps a single header row. */}
+            <div className="mb-1.5 flex items-center gap-2">
+              <label
+                htmlFor={titleInputId}
+                className="block text-xs font-medium uppercase tracking-wide text-zinc-400"
               >
-                <Hash className="w-3 h-3" />
-                {task.id.slice(0, 8)}
-                {copiedId && (
-                  <span className="absolute left-full ml-2 text-xs sm:text-[10px] text-green-400 font-medium whitespace-nowrap animate-fade-in-up-out">
-                    Copied!
-                  </span>
-                )}
-              </button>
-            )}
-            <label
-              htmlFor={titleInputId}
-              className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-zinc-400"
-            >
-              Title
-            </label>
+                Title
+              </label>
+              {isEditMode && task && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(task.id);
+                      setCopiedId(true);
+                      setTimeout(() => setCopiedId(false), 1000);
+                    } catch {}
+                  }}
+                  className="relative flex items-center gap-1 font-mono text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+                  title="Click to copy task ID"
+                >
+                  <Hash className="w-3 h-3" />
+                  {task.id.slice(0, 8)}
+                  {copiedId && (
+                    <span className="absolute left-full ml-2 whitespace-nowrap text-xs sm:text-[10px] font-medium text-green-400 animate-fade-in-up-out">
+                      Copied!
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
             <input
               id={titleInputId}
               ref={titleInputRef}
@@ -1858,7 +1923,6 @@ export function TaskModal({
               }}
               placeholder="Title"
               className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors placeholder-zinc-500 focus-theme"
-              required
               autoFocus
             />
 
@@ -1972,6 +2036,8 @@ export function TaskModal({
             )}
           </div>
 
+          </div>
+          <div className={tabPanelClass("details")}>
           {/* Description */}
           <div className="relative">
             <label
@@ -2005,6 +2071,8 @@ export function TaskModal({
             {renderBlockerMentionPopover("description")}
           </div>
 
+          </div>
+          <div className={tabPanelClass("details")}>
           {/* Attachments */}
           <div>
             <input
@@ -2057,6 +2125,8 @@ export function TaskModal({
             )}
           </div>
 
+          </div>
+          <div className={tabPanelClass("details")}>
           {/* Project & Parent Task */}
           <div className="grid grid-cols-2 gap-4">
             <div ref={projectDropdownRef}>
@@ -2320,6 +2390,8 @@ export function TaskModal({
             </div>
           </div>
 
+          </div>
+          <div className={tabPanelClass("schedule")}>
           {/* Start Date & Time */}
           <div>
             <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
@@ -2365,6 +2437,8 @@ export function TaskModal({
             </div>
           </div>
 
+          </div>
+          <div className={tabPanelClass("schedule")}>
           {/* End Date & Time */}
           <div>
             <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
@@ -2410,6 +2484,8 @@ export function TaskModal({
             </div>
           </div>
 
+          </div>
+          <div className={tabPanelClass("schedule")}>
           {/* Due Date & Time */}
           <div>
             <div className="mb-2 flex items-center justify-between gap-3">
@@ -2476,6 +2552,8 @@ export function TaskModal({
             </div>
           </div>
 
+          </div>
+          <div className={tabPanelClass("details")}>
           {/* Goal */}
           {(() => {
             const goalProjectId = selectedProject || defaultProjectId || "";
@@ -2512,6 +2590,8 @@ export function TaskModal({
             );
           })()}
 
+          </div>
+          <div className={tabPanelClass("schedule")}>
           {/* Time Estimate */}
           <div>
             <div className="flex items-center justify-between gap-2 mb-2 text-sm text-zinc-400">
@@ -2623,6 +2703,8 @@ export function TaskModal({
             </div>
           </div>
 
+          </div>
+          <div className={tabPanelClass("details")}>
           {/* Supply line item */}
           <div>
             <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer">
@@ -2764,6 +2846,8 @@ export function TaskModal({
             )}
           </div>
 
+          </div>
+          <div className={tabPanelClass("schedule")}>
           {/* Deadline */}
           <div>
             <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
@@ -2816,6 +2900,8 @@ export function TaskModal({
             </div>
           </div>
 
+          </div>
+          <div className={tabPanelClass("assigned")}>
           {/* Assignee & Priority */}
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -3082,6 +3168,8 @@ export function TaskModal({
             </div>
           </div>
 
+          </div>
+          <div className={tabPanelClass("assigned")}>
           {/* Requires Human in the Loop (HITL) to complete */}
           <div>
             <button
@@ -3121,6 +3209,8 @@ export function TaskModal({
             </button>
           </div>
 
+          </div>
+          <div className={tabPanelClass("schedule")}>
           {/* Reminders */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -3189,6 +3279,8 @@ export function TaskModal({
             ) : null}
           </div>
 
+          </div>
+          <div className={tabPanelClass("details")}>
           {/* Tags */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -3287,6 +3379,8 @@ export function TaskModal({
             </div>
           </div>
 
+          </div>
+          <div className={tabPanelClass("dependencies")}>
           {/* Dependencies */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -3584,6 +3678,8 @@ export function TaskModal({
             )}
           </div>
 
+          </div>
+          <div className={tabPanelClass("schedule")}>
           {/* Recurring */}
           <div>
             <label className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
@@ -3596,6 +3692,8 @@ export function TaskModal({
             />
           </div>
 
+          </div>
+          <div className={tabPanelClass("dependencies")}>
           {/* Stakes (Domino Effect) — edit mode only, once a task id exists */}
           {isEditMode && task?.id ? (
             <StakeEditor
@@ -3604,6 +3702,8 @@ export function TaskModal({
             />
           ) : null}
 
+          </div>
+          <div className={tabPanelClass("subtasks")}>
           {/* Subtasks */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -4006,6 +4106,8 @@ export function TaskModal({
             ) : null}
           </div>
 
+          </div>
+          <div className={tabPanelClass("history")}>
           {/* History */}
           {isEditMode && task && (
             <div className="mt-4">
@@ -4026,6 +4128,44 @@ export function TaskModal({
               )}
             </div>
           )}
+
+          </div>
+          {/* Tab pagination — page through the form before saving. Prev/next
+              move between tabs; the save action stays available throughout, so
+              a task can be saved from any tab without paging to the end. */}
+          <div className="flex items-center justify-between border-t border-zinc-800 pt-4">
+            <button
+              type="button"
+              onClick={() =>
+                setActiveTab(visibleTabs[Math.max(0, activeTabIndex - 1)].key)
+              }
+              disabled={activeTabIndex <= 0}
+              className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              {activeTabIndex > 0 ? visibleTabs[activeTabIndex - 1].label : "Back"}
+            </button>
+            <span className="text-xs tabular-nums text-zinc-500">
+              {activeTabIndex + 1} / {visibleTabs.length}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setActiveTab(
+                  visibleTabs[
+                    Math.min(visibleTabs.length - 1, activeTabIndex + 1)
+                  ].key,
+                )
+              }
+              disabled={activeTabIndex >= visibleTabs.length - 1}
+              className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              {activeTabIndex < visibleTabs.length - 1
+                ? visibleTabs[activeTabIndex + 1].label
+                : "Next"}
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
 
           {/* Form Actions */}
           <div className="flex justify-between pt-6 border-t border-zinc-800">
