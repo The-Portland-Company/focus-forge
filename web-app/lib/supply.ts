@@ -16,6 +16,12 @@ export interface SupplyLike {
   supplyPrice?: number | string | null;
   supply_vendor?: string | null;
   supplyVendor?: string | null;
+  supply_make?: string | null;
+  supplyMake?: string | null;
+  supply_model?: string | null;
+  supplyModel?: string | null;
+  supply_type?: string | null;
+  supplyType?: string | null;
 }
 
 /** numeric columns arrive from PostgREST as strings; coerce safely. */
@@ -96,4 +102,73 @@ export function formatQuantity(quantity: number | null | undefined): string {
     return "";
   }
   return String(Number(quantity.toFixed(3)));
+}
+
+export function supplyMake(item: SupplyLike): string | null {
+  const value = item.supply_make ?? item.supplyMake;
+  return value ? String(value) : null;
+}
+
+export function supplyModel(item: SupplyLike): string | null {
+  const value = item.supply_model ?? item.supplyModel;
+  return value ? String(value) : null;
+}
+
+export function supplyType(item: SupplyLike): string | null {
+  const value = item.supply_type ?? item.supplyType;
+  return value ? String(value) : null;
+}
+
+/**
+ * How a supply identifies itself: a make/model pair names a specific product, a
+ * type names a commodity. Which one is in use is inferred from what's filled in
+ * rather than stored, so supplies predating these fields stay valid.
+ */
+export function supplyIdentityKind(
+  item: SupplyLike,
+): "make-model" | "type" | null {
+  if (supplyMake(item) || supplyModel(item)) return "make-model";
+  if (supplyType(item)) return "type";
+  return null;
+}
+
+/** One-line identity label, e.g. "DeWalt DCD771C2" or "2x6x8 doug fir". */
+export function supplyIdentityLabel(item: SupplyLike): string | null {
+  const make = supplyMake(item);
+  const model = supplyModel(item);
+  if (make || model) return [make, model].filter(Boolean).join(" ");
+  return supplyType(item);
+}
+
+/**
+ * A vendor may be a plain name or a URL. Returns the parsed pieces so callers
+ * can render a link labelled by site name rather than showing a raw URL.
+ *
+ * Only http(s) is treated as a link — a bare "Home Depot" stays text, and
+ * javascript:/data: URLs are never linkified.
+ */
+export function parseSupplyVendor(
+  item: SupplyLike,
+): { label: string; url: string | null } | null {
+  const raw = supplyVendor(item);
+  if (!raw) return null;
+
+  const trimmed = raw.trim();
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+    ? trimmed
+    : /^[\w-]+(\.[\w-]+)+(\/|$)/.test(trimmed)
+      ? `https://${trimmed}`
+      : null;
+
+  if (!candidate) return { label: trimmed, url: null };
+
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return { label: trimmed, url: null };
+    }
+    return { label: url.hostname.replace(/^www\./, ""), url: url.toString() };
+  } catch {
+    return { label: trimmed, url: null };
+  }
 }

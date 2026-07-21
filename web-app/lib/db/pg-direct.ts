@@ -92,7 +92,8 @@ export async function loadCoreDatabaseViaPostgres(
         deleted_at, todoist_id, recurring_pattern, time_estimate,
         devnotes_meta, requires_hitl, todoist_order, snoozed_until,
         start_date, start_time, end_date, end_time,
-        is_supply, supply_quantity, supply_price, supply_vendor
+        is_supply, supply_quantity, supply_price, supply_vendor,
+        supply_make, supply_model, supply_type
       FROM tasks
       WHERE deleted_at IS NULL
         AND project_id = ANY(${projectIds})
@@ -267,6 +268,9 @@ export async function loadCoreDatabaseViaPostgres(
         ? null
         : Number(task.supply_price),
     supplyVendor: task.supply_vendor,
+    supplyMake: task.supply_make,
+    supplyModel: task.supply_model,
+    supplyType: task.supply_type,
     snoozedUntil: task.snoozed_until,
     startDate: task.start_date,
     startTime: task.start_time,

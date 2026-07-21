@@ -83,6 +83,9 @@ interface PendingSubtask {
   supplyQuantity?: string;
   supplyPrice?: string;
   supplyVendor?: string;
+  supplyMake?: string;
+  supplyModel?: string;
+  supplyType?: string;
 }
 
 /**
@@ -92,6 +95,50 @@ interface PendingSubtask {
  * this form opts in.
  */
 const DEFAULT_REQUIRES_HITL_IN_UI = true;
+
+/**
+ * Maps the supply identity form state to the three columns. The inactive set is
+ * nulled on edit (and omitted on create) so switching a supply between a
+ * specific product and a commodity can't leave the other set's values behind.
+ */
+function supplyIdentityFields({
+  isSupply,
+  identity,
+  make,
+  model,
+  type,
+  isEditMode,
+}: {
+  isSupply: boolean;
+  identity: "make-model" | "type";
+  make: string;
+  model: string;
+  type: string;
+  isEditMode: boolean;
+}): Record<string, string | null | undefined> {
+  const cleared = isEditMode ? null : undefined;
+  const keep = (value: string) => (value.trim() !== "" ? value.trim() : cleared);
+
+  if (!isSupply) {
+    return {
+      supplyMake: cleared,
+      supplyModel: cleared,
+      supplyType: cleared,
+    };
+  }
+
+  return identity === "make-model"
+    ? {
+        supplyMake: keep(make),
+        supplyModel: keep(model),
+        supplyType: cleared,
+      }
+    : {
+        supplyMake: cleared,
+        supplyModel: cleared,
+        supplyType: keep(type),
+      };
+}
 
 const quickProjectColors = [
   "#ef4444",
@@ -211,6 +258,12 @@ export function TaskModal({
   const [newSubtaskSupplyQuantity, setNewSubtaskSupplyQuantity] = useState("");
   const [newSubtaskSupplyPrice, setNewSubtaskSupplyPrice] = useState("");
   const [newSubtaskSupplyVendor, setNewSubtaskSupplyVendor] = useState("");
+  const [newSubtaskSupplyIdentity, setNewSubtaskSupplyIdentity] = useState<
+    "make-model" | "type"
+  >("make-model");
+  const [newSubtaskSupplyMake, setNewSubtaskSupplyMake] = useState("");
+  const [newSubtaskSupplyModel, setNewSubtaskSupplyModel] = useState("");
+  const [newSubtaskSupplyType, setNewSubtaskSupplyType] = useState("");
   const [newSubtaskEstimate, setNewSubtaskEstimate] = useState("");
   const [newSubtaskDueDate, setNewSubtaskDueDate] = useState("");
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
@@ -273,6 +326,15 @@ export function TaskModal({
   const [supplyQuantity, setSupplyQuantity] = useState<string>("");
   const [supplyPrice, setSupplyPrice] = useState<string>("");
   const [supplyVendor, setSupplyVendor] = useState<string>("");
+  // A supply identifies itself either as a specific product (make + model) or
+  // as a commodity (type). Which set is active is inferred from the stored
+  // values, so supplies predating these fields open on the default.
+  const [supplyIdentity, setSupplyIdentity] = useState<"make-model" | "type">(
+    "make-model",
+  );
+  const [supplyMake, setSupplyMake] = useState<string>("");
+  const [supplyModel, setSupplyModel] = useState<string>("");
+  const [supplyType, setSupplyType] = useState<string>("");
   const [estimateSuggesting, setEstimateSuggesting] = useState(false);
   const [estimateError, setEstimateError] = useState<string | null>(null);
   const [startDate, setStartDate] = useState("");
@@ -356,6 +418,13 @@ export function TaskModal({
       setSupplyPrice(sp != null ? String(sp) : "");
       const sv = (task as any).supply_vendor ?? task.supplyVendor;
       setSupplyVendor(sv != null ? String(sv) : "");
+      const smk = (task as any).supply_make ?? task.supplyMake;
+      const smd = (task as any).supply_model ?? task.supplyModel;
+      const styp = (task as any).supply_type ?? task.supplyType;
+      setSupplyMake(smk != null ? String(smk) : "");
+      setSupplyModel(smd != null ? String(smd) : "");
+      setSupplyType(styp != null ? String(styp) : "");
+      setSupplyIdentity(!smk && !smd && styp ? "type" : "make-model");
       const sd = (task as any).start_date || task.startDate;
       const st = (task as any).start_time || task.startTime;
       const ed = (task as any).end_date || task.endDate;
@@ -433,6 +502,10 @@ export function TaskModal({
       setSupplyQuantity("");
       setSupplyPrice("");
       setSupplyVendor("");
+      setSupplyMake("");
+      setSupplyModel("");
+      setSupplyType("");
+      setSupplyIdentity("make-model");
       setPendingSubtasks([]);
       setNewSubtaskName("");
       setNewSubtaskEstimate("");
@@ -659,6 +732,17 @@ export function TaskModal({
         : isEditMode
           ? null
           : undefined,
+      // Make/model and type are alternatives: whichever set is not active is
+      // cleared, so a supply switched from one to the other can't keep stale
+      // values from the set it no longer uses.
+      ...supplyIdentityFields({
+        isSupply,
+        identity: supplyIdentity,
+        make: supplyMake,
+        model: supplyModel,
+        type: supplyType,
+        isEditMode,
+      }),
       startDate: nextStartDate,
       startTime: startDate
         ? nullableEditFieldValue(startTime, isEditMode)
@@ -1427,6 +1511,7 @@ export function TaskModal({
         ? Number(newSubtaskSupplyPrice)
         : null;
       subtask.supplyVendor = newSubtaskSupplyVendor.trim() || null;
+      Object.assign(subtask, newSubtaskSupplyIdentityFields());
     }
 
     // Show it right away, then clear the inputs so the next one can be typed
@@ -1485,7 +1570,20 @@ export function TaskModal({
     setNewSubtaskSupplyQuantity("");
     setNewSubtaskSupplyPrice("");
     setNewSubtaskSupplyVendor("");
+    setNewSubtaskSupplyIdentity("make-model");
+    setNewSubtaskSupplyMake("");
+    setNewSubtaskSupplyModel("");
+    setNewSubtaskSupplyType("");
   };
+
+  /** Identity fields for a subtask supply, matching the parent's semantics. */
+  const newSubtaskSupplyIdentityFields = () =>
+    newSubtaskSupplyIdentity === "make-model"
+      ? {
+          supplyMake: newSubtaskSupplyMake.trim() || undefined,
+          supplyModel: newSubtaskSupplyModel.trim() || undefined,
+        }
+      : { supplyType: newSubtaskSupplyType.trim() || undefined };
 
   const commitPendingSubtask = () => {
     if (!newSubtaskName.trim()) return;
@@ -1502,6 +1600,7 @@ export function TaskModal({
               supplyQuantity: newSubtaskSupplyQuantity.trim() || undefined,
               supplyPrice: newSubtaskSupplyPrice.trim() || undefined,
               supplyVendor: newSubtaskSupplyVendor.trim() || undefined,
+              ...newSubtaskSupplyIdentityFields(),
             }
           : {}),
       },
@@ -2537,7 +2636,73 @@ export function TaskModal({
               This is a supply
             </label>
             {isSupply && (
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="mt-3 space-y-3">
+                {/* Make/model names a specific product; type names a commodity.
+                    They are alternatives, so only one set is shown at a time. */}
+                <div className="flex items-center gap-1 text-xs">
+                  {(
+                    [
+                      { key: "make-model" as const, label: "Make & Model" },
+                      { key: "type" as const, label: "Type" },
+                    ]
+                  ).map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setSupplyIdentity(option.key)}
+                      aria-pressed={supplyIdentity === option.key}
+                      className={`rounded px-2 py-1 transition-colors ${
+                        supplyIdentity === option.key
+                          ? "bg-zinc-700 text-white"
+                          : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                {supplyIdentity === "make-model" ? (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-400 mb-1">
+                        Make
+                      </label>
+                      <input
+                        type="text"
+                        value={supplyMake}
+                        onChange={(e) => setSupplyMake(e.target.value)}
+                        placeholder="Manufacturer"
+                        className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-400 mb-1">
+                        Model
+                      </label>
+                      <input
+                        type="text"
+                        value={supplyModel}
+                        onChange={(e) => setSupplyModel(e.target.value)}
+                        placeholder="Model or part number"
+                        className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-400 mb-1">
+                      Type
+                    </label>
+                    <input
+                      type="text"
+                      value={supplyType}
+                      onChange={(e) => setSupplyType(e.target.value)}
+                      placeholder='e.g. 2x6x8 doug fir'
+                      className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                    />
+                  </div>
+                )}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div>
                   <label className="block text-xs font-medium text-zinc-400 mb-1">
                     Quantity
@@ -2594,6 +2759,7 @@ export function TaskModal({
                     {supplyQuantity === "" && " (quantity blank counts as 1)"}
                   </p>
                 )}
+                </div>
               </div>
             )}
           </div>
@@ -3773,13 +3939,65 @@ export function TaskModal({
                         className="w-20 bg-transparent px-2 py-1.5 text-sm text-white focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
                     </div>
+                    {(
+                      [
+                        { key: "make-model" as const, label: "Make/Model" },
+                        { key: "type" as const, label: "Type" },
+                      ]
+                    ).map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => setNewSubtaskSupplyIdentity(option.key)}
+                        aria-pressed={newSubtaskSupplyIdentity === option.key}
+                        className={`rounded px-2 py-1 text-xs transition-colors ${
+                          newSubtaskSupplyIdentity === option.key
+                            ? "bg-zinc-700 text-white"
+                            : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                    {newSubtaskSupplyIdentity === "make-model" ? (
+                      <>
+                        <input
+                          type="text"
+                          value={newSubtaskSupplyMake}
+                          onChange={(e) =>
+                            setNewSubtaskSupplyMake(e.target.value)
+                          }
+                          placeholder="Make"
+                          className="w-24 rounded bg-zinc-800 px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 ring-theme"
+                        />
+                        <input
+                          type="text"
+                          value={newSubtaskSupplyModel}
+                          onChange={(e) =>
+                            setNewSubtaskSupplyModel(e.target.value)
+                          }
+                          placeholder="Model"
+                          className="w-28 rounded bg-zinc-800 px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 ring-theme"
+                        />
+                      </>
+                    ) : (
+                      <input
+                        type="text"
+                        value={newSubtaskSupplyType}
+                        onChange={(e) =>
+                          setNewSubtaskSupplyType(e.target.value)
+                        }
+                        placeholder="Type"
+                        className="w-36 rounded bg-zinc-800 px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 ring-theme"
+                      />
+                    )}
                     <input
                       type="text"
                       value={newSubtaskSupplyVendor}
                       onChange={(e) =>
                         setNewSubtaskSupplyVendor(e.target.value)
                       }
-                      placeholder="Vendor"
+                      placeholder="Vendor or link"
                       className="min-w-[120px] flex-1 rounded bg-zinc-800 px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 ring-theme"
                     />
                   </div>

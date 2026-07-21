@@ -1684,6 +1684,9 @@ export default function ViewPage({
                             ? Number(sub.supplyPrice)
                             : null,
                         supplyVendor: sub.supplyVendor || null,
+                        supplyMake: sub.supplyMake || null,
+                        supplyModel: sub.supplyModel || null,
+                        supplyType: sub.supplyType || null,
                       }
                     : {}),
                 }),

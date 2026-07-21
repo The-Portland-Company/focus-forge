@@ -877,7 +877,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       let query = supabase
         .from("tasks")
         .select(
-          "id,name,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,time_estimate,devnotes_meta,requires_hitl,todoist_order,is_supply,supply_quantity,supply_price,supply_vendor",
+          "id,name,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,time_estimate,devnotes_meta,requires_hitl,todoist_order,is_supply,supply_quantity,supply_price,supply_vendor,supply_make,supply_model,supply_type",
         )
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
@@ -993,6 +993,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
         supplyQuantity: task.supply_quantity,
         supplyPrice: task.supply_price,
         supplyVendor: task.supply_vendor,
+        supplyMake: task.supply_make,
+        supplyModel: task.supply_model,
+        supplyType: task.supply_type,
         snoozedUntil: task.snoozed_until,
         startDate: task.start_date,
         startTime: task.start_time,
@@ -1086,6 +1089,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       supplyQuantity: data.supply_quantity,
       supplyPrice: data.supply_price,
       supplyVendor: data.supply_vendor,
+      supplyMake: data.supply_make,
+      supplyModel: data.supply_model,
+      supplyType: data.supply_type,
       snoozedUntil: data.snoozed_until,
       startDate: data.start_date,
       startTime: data.start_time,
@@ -1178,6 +1184,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "supply_quantity",
       "supply_price",
       "supply_vendor",
+      "supply_make",
+      "supply_model",
+      "supply_type",
       "snoozed_until",
       "start_date",
       "start_time",
@@ -1218,6 +1227,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       supplyQuantity: "supply_quantity",
       supplyPrice: "supply_price",
       supplyVendor: "supply_vendor",
+      supplyMake: "supply_make",
+      supplyModel: "supply_model",
+      supplyType: "supply_type",
       snoozedUntil: "snoozed_until",
       startDate: "start_date",
       startTime: "start_time",
@@ -1377,6 +1389,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "supply_quantity",
       "supply_price",
       "supply_vendor",
+      "supply_make",
+      "supply_model",
+      "supply_type",
       "snoozed_until",
       "start_date",
       "start_time",
@@ -1413,6 +1428,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       supplyQuantity: "supply_quantity",
       supplyPrice: "supply_price",
       supplyVendor: "supply_vendor",
+      supplyMake: "supply_make",
+      supplyModel: "supply_model",
+      supplyType: "supply_type",
       snoozedUntil: "snoozed_until",
       startDate: "start_date",
       startTime: "start_time",
