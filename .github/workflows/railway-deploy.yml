@@ -150,11 +150,24 @@ jobs:
         run: railway status --json > logs/railway-status.json
 
       - name: Smoke production
+        id: smoke
         if: steps.token.outputs.has_token == 'true'
         env:
           DEPLOY_SMOKE_URL: https://focusforge.theportlandcompany.com
           EXPECTED_GIT_COMMIT: ${{ github.sha }}
         run: bash scripts/deploy-smoke.sh
+
+      # If the deploy went out but production does not come back healthy, roll
+      # back to the previous successful Railway deployment rather than leaving
+      # a broken build serving traffic. Only reachable when the smoke step
+      # actually ran and failed.
+      - name: Roll back on failed smoke
+        if: failure() && steps.smoke.outcome == 'failure' && steps.token.outputs.has_token == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "::error::Post-deploy smoke failed — rolling back to the previous deployment"
+          bash scripts/railway/rollback-latest.sh
 
       - name: Upload Logs
         if: always()
