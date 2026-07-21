@@ -41,15 +41,16 @@ export function SupplyLine({
         </span>
       )}
       {/* A vendor may be a plain name or a URL. URLs render as a link labelled
-          by site name; the click is stopped so opening the vendor does not also
-          open the task. */}
+          by site name. No onClick here: this renders inside the share page,
+          which is a Server Component — passing an event handler across that
+          boundary throws at render time. Neither share view has a row click to
+          stop, so the handler was unnecessary as well as fatal. */}
       {vendor &&
         (vendor.url ? (
           <a
             href={vendor.url}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
             title={`Open ${vendor.label} in a new tab`}
             className="inline-flex items-center gap-0.5 text-amber-300/70 underline-offset-2 hover:text-amber-200 hover:underline"
           >
