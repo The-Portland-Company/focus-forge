@@ -78,7 +78,19 @@ interface PendingSubtask {
   name: string;
   timeEstimate?: string;
   dueDate?: string;
+  isSupply?: boolean;
+  supplyQuantity?: string;
+  supplyPrice?: string;
+  supplyVendor?: string;
 }
+
+/**
+ * HITL defaults ON for anything a person composes in this modal, and stays OFF
+ * everywhere else. The `tasks.requires_hitl` column default remains false, so
+ * API-created tasks (PATs, mobile endpoints, AI agents) are unaffected — only
+ * this form opts in.
+ */
+const DEFAULT_REQUIRES_HITL_IN_UI = true;
 
 const quickProjectColors = [
   "#ef4444",
@@ -178,6 +190,12 @@ export function TaskModal({
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const modalRef = useRef<HTMLDivElement>(null);
   const [newSubtaskName, setNewSubtaskName] = useState("");
+  // Supply fields for the subtask being composed. Mirrors the parent task's
+  // own supply inputs so a subtask can be a line item in its own right.
+  const [newSubtaskIsSupply, setNewSubtaskIsSupply] = useState(false);
+  const [newSubtaskSupplyQuantity, setNewSubtaskSupplyQuantity] = useState("");
+  const [newSubtaskSupplyPrice, setNewSubtaskSupplyPrice] = useState("");
+  const [newSubtaskSupplyVendor, setNewSubtaskSupplyVendor] = useState("");
   const [newSubtaskEstimate, setNewSubtaskEstimate] = useState("");
   const [newSubtaskDueDate, setNewSubtaskDueDate] = useState("");
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
@@ -247,7 +265,12 @@ export function TaskModal({
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState<string>("");
   const [copiedId, setCopiedId] = useState(false);
-  const [requiresHitl, setRequiresHitl] = useState(false);
+  // Tasks composed by a human in this modal default to requiring HITL. This is
+  // deliberately a UI-only default: the column default stays false so tasks
+  // created over the API (PATs, the mobile endpoints, AI agents) are not
+  // silently made un-completable by automation. Edit mode overwrites this from
+  // the task's own stored value below.
+  const [requiresHitl, setRequiresHitl] = useState(DEFAULT_REQUIRES_HITL_IN_UI);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -366,7 +389,7 @@ export function TaskModal({
       setDeadline("");
       setDeadlineTime("");
       setPriority(4);
-      setRequiresHitl(false);
+      setRequiresHitl(DEFAULT_REQUIRES_HITL_IN_UI);
       setSelectedProject(defaultProjectId || "");
       setSelectedParentTask(null);
       setSelectedGoalId(defaultGoalId || "");
@@ -1320,6 +1343,16 @@ export function TaskModal({
     if (newSubtaskDueDate) {
       subtask.dueDate = newSubtaskDueDate;
     }
+    if (newSubtaskIsSupply) {
+      subtask.isSupply = true;
+      subtask.supplyQuantity = newSubtaskSupplyQuantity.trim()
+        ? Number(newSubtaskSupplyQuantity)
+        : null;
+      subtask.supplyPrice = newSubtaskSupplyPrice.trim()
+        ? Number(newSubtaskSupplyPrice)
+        : null;
+      subtask.supplyVendor = newSubtaskSupplyVendor.trim() || null;
+    }
 
     // Show it right away, then clear the inputs so the next one can be typed
     // without waiting on the network.
@@ -1372,6 +1405,13 @@ export function TaskModal({
     }
   };
 
+  const clearNewSubtaskSupply = () => {
+    setNewSubtaskIsSupply(false);
+    setNewSubtaskSupplyQuantity("");
+    setNewSubtaskSupplyPrice("");
+    setNewSubtaskSupplyVendor("");
+  };
+
   const commitPendingSubtask = () => {
     if (!newSubtaskName.trim()) return;
     setPendingSubtasks((prev) => [
@@ -1381,11 +1421,20 @@ export function TaskModal({
         timeEstimate:
           newSubtaskEstimate.trim() !== "" ? newSubtaskEstimate.trim() : undefined,
         dueDate: newSubtaskDueDate || undefined,
+        ...(newSubtaskIsSupply
+          ? {
+              isSupply: true,
+              supplyQuantity: newSubtaskSupplyQuantity.trim() || undefined,
+              supplyPrice: newSubtaskSupplyPrice.trim() || undefined,
+              supplyVendor: newSubtaskSupplyVendor.trim() || undefined,
+            }
+          : {}),
       },
     ]);
     setNewSubtaskName("");
     setNewSubtaskEstimate("");
     setNewSubtaskDueDate("");
+    clearNewSubtaskSupply();
   };
 
   // --- Inline subtask-title editing (double-click) --------------------
@@ -3470,6 +3519,26 @@ export function TaskModal({
                       {sub.dueDate}
                     </span>
                   )}
+                  {sub.isSupply && (
+                    <span
+                      className="inline-flex flex-shrink-0 items-center gap-1 text-xs text-emerald-300"
+                      title={
+                        sub.supplyVendor ? `Vendor: ${sub.supplyVendor}` : "Supply"
+                      }
+                    >
+                      <ShoppingCart className="w-3 h-3" />
+                      {sub.supplyQuantity ? `${sub.supplyQuantity}×` : ""}
+                      {sub.supplyPrice
+                        ? formatCurrency(
+                            supplyLineTotal({
+                              isSupply: true,
+                              supplyQuantity: sub.supplyQuantity ?? null,
+                              supplyPrice: sub.supplyPrice ?? null,
+                            }) ?? 0,
+                          )
+                        : "Supply"}
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={() =>
@@ -3528,6 +3597,23 @@ export function TaskModal({
                 </div>
                 <button
                   type="button"
+                  onClick={() => setNewSubtaskIsSupply((v) => !v)}
+                  aria-pressed={newSubtaskIsSupply}
+                  title={
+                    newSubtaskIsSupply
+                      ? "This subtask is a supply"
+                      : "Mark this subtask as a supply"
+                  }
+                  className={`rounded px-2 py-1.5 transition-colors ${
+                    newSubtaskIsSupply
+                      ? "bg-emerald-500/20 text-emerald-300"
+                      : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  <ShoppingCart className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     if (isEditMode) {
                       handleAddSubtask();
@@ -3546,11 +3632,55 @@ export function TaskModal({
                     setNewSubtaskName("");
                     setNewSubtaskEstimate("");
                     setNewSubtaskDueDate("");
+                    clearNewSubtaskSupply();
                   }}
                   className="text-zinc-400 hover:text-white"
                 >
                   <X className="w-4 h-4" />
                 </button>
+                {/* Supply line-item fields, revealed only once the row is
+                    flagged so the common case stays a single compact row. */}
+                {newSubtaskIsSupply && (
+                  <div className="mt-1 flex w-full flex-wrap items-center gap-2 pl-1">
+                    <div className="flex items-center rounded bg-zinc-800 pr-1.5 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
+                      <span className="pl-2 text-xs text-zinc-500">Qty</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={newSubtaskSupplyQuantity}
+                        onChange={(e) =>
+                          setNewSubtaskSupplyQuantity(e.target.value)
+                        }
+                        placeholder="1"
+                        className="w-16 bg-transparent px-2 py-1.5 text-sm text-white focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
+                    </div>
+                    <div className="flex items-center rounded bg-zinc-800 pr-1.5 focus-within:ring-2 focus-within:ring-[var(--theme-primary)]">
+                      <span className="pl-2 text-xs text-zinc-500">$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={newSubtaskSupplyPrice}
+                        onChange={(e) =>
+                          setNewSubtaskSupplyPrice(e.target.value)
+                        }
+                        placeholder="0.00"
+                        className="w-20 bg-transparent px-2 py-1.5 text-sm text-white focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={newSubtaskSupplyVendor}
+                      onChange={(e) =>
+                        setNewSubtaskSupplyVendor(e.target.value)
+                      }
+                      placeholder="Vendor"
+                      className="min-w-[120px] flex-1 rounded bg-zinc-800 px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 ring-theme"
+                    />
+                  </div>
+                )}
               </div>
             ) : null}
           </div>
