@@ -40,6 +40,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { deriveSupplyName, formatCurrency, supplyLineTotal } from "@/lib/supply";
+import { shouldDismissOnOutsidePointer } from "@/lib/modal-dismiss";
 import type {
   Database,
   Task,
@@ -589,23 +590,17 @@ export function TaskModal({
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-
-      // Check if click is inside modal
-      if (modalRef.current && modalRef.current.contains(target)) {
-        return;
+      // See lib/modal-dismiss: guards the two cases that look like an outside
+      // click but are not — a target detached by this same interaction, and a
+      // target inside a portalled layer such as a nested confirm dialog.
+      if (
+        shouldDismissOnOutsidePointer(
+          event.target as unknown as Element | null,
+          modalRef.current,
+        )
+      ) {
+        onClose();
       }
-
-      // Check if click is inside any popover content (for time picker, selects, etc)
-      const popoverContent = (target as Element)?.closest(
-        "[data-radix-popper-content-wrapper]",
-      );
-      if (popoverContent) {
-        return;
-      }
-
-      // If not inside modal or popover, close the modal
-      onClose();
     };
 
     if (isOpen) {
