@@ -64,11 +64,19 @@ import { KanbanView } from "@/components/kanban-view";
 import { ColorPicker } from "@/components/color-picker";
 import { ColorWheelPicker } from "@/components/color-wheel-picker";
 import { formatDate } from "@/lib/format-date";
-import { Database, Task, Project, Organization, Section, Goal } from "@/lib/types";
+import {
+  Database,
+  Task,
+  Project,
+  Organization,
+  Section,
+  Goal,
+} from "@/lib/types";
 import { SectionView } from "@/components/section-view";
 import { AddSectionModal } from "@/components/add-section-modal";
 import { AddGoalModal, AddGoalPayload } from "@/components/add-goal-modal";
 import { GoalGroupShell } from "@/components/goal-group";
+import { GoalEdits } from "@/components/edit-goal-modal";
 import { CreateMenuButton } from "@/components/create-menu-button";
 import { AddSectionDivider } from "@/components/add-section-divider";
 import { EmailWorkList } from "@/components/email-work-list";
@@ -114,10 +122,7 @@ import {
 } from "@/lib/project-bulk-selection";
 import { shouldShowInboxItemInToday } from "@/lib/email-inbox/shared";
 import { mergeDatabasePayload } from "@/lib/database-state";
-import {
-  diffFreshTaskIds,
-  diffFreshInboxItemIds,
-} from "@/lib/fresh-data-diff";
+import { diffFreshTaskIds, diffFreshInboxItemIds } from "@/lib/fresh-data-diff";
 import { DailyPlanCard } from "@/components/daily-plan-card";
 import type { DominoTaskSummary } from "@/lib/daily-plan/types";
 
@@ -296,15 +301,22 @@ const getTaskAssignedTo = (task: Task) =>
  * concurrent refetch cannot revert them.
  */
 const overlayTaskPatch = (task: any, updates: Record<string, unknown>) => {
-  const has = (k: string) =>
-    Object.prototype.hasOwnProperty.call(updates, k);
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(updates, k);
   const pick = (camel: string, snake: string, current: any) =>
     has(camel) || has(snake)
       ? ((updates as any)[camel] ?? (updates as any)[snake] ?? null)
       : current;
 
-  const dueDate = pick("dueDate", "due_date", task.due_date ?? task.dueDate ?? null);
-  const dueTime = pick("dueTime", "due_time", task.due_time ?? task.dueTime ?? null);
+  const dueDate = pick(
+    "dueDate",
+    "due_date",
+    task.due_date ?? task.dueDate ?? null,
+  );
+  const dueTime = pick(
+    "dueTime",
+    "due_time",
+    task.due_time ?? task.dueTime ?? null,
+  );
   const projectId = pick(
     "projectId",
     "project_id",
@@ -732,8 +744,11 @@ export default function ViewPage({
   const [sortBy, setSortBy] = useState<"dueDate" | "deadline" | "priority">(
     "dueDate",
   );
-  const [filterAssignedTo, setFilterAssignedTo] =
-    useState<string>("me-unassigned");
+  // Assignee filter is URL-backed so a filtered view is bookmarkable. The
+  // default ("me-unassigned") is left out of the query string.
+  const [filterAssignedTo, setFilterAssignedTo] = useState<string>(
+    () => searchParams.get("assignee") || "me-unassigned",
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFilter, setSearchFilter] = useState<
     "all" | "tasks" | "projects" | "organizations"
@@ -741,15 +756,13 @@ export default function ViewPage({
   const [showBlockedTasks, setShowBlockedTasks] = useState(false);
   const [groupTasksByProject, setGroupTasksByProject] = useState(false);
   const [showTaskDescriptions, setShowTaskDescriptions] = useState(false);
-  const [todayViewMode, setTodayViewMode] = useState<"list" | "kanban">(
-    "list",
-  );
+  const [todayViewMode, setTodayViewMode] = useState<"list" | "kanban">("list");
   const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(
     new Set(),
   );
-  const [emailTaskLinks, setEmailTaskLinks] = useState<
-    Record<string, string>
-  >({});
+  const [emailTaskLinks, setEmailTaskLinks] = useState<Record<string, string>>(
+    {},
+  );
   const [aiCreatedTasks, setAiCreatedTasks] = useState<
     Record<
       string,
@@ -934,6 +947,21 @@ export default function ViewPage({
     emailThreadId: null,
     emailAction: "none",
   });
+  // Pending section delete. `taskIds` are the live tasks currently filed under
+  // the section; `taskAction` is the user's choice for what happens to them.
+  const [sectionDeleteConfirm, setSectionDeleteConfirm] = useState<{
+    show: boolean;
+    sectionId: string | null;
+    sectionName: string;
+    taskIds: string[];
+    taskAction: "unassign" | "delete";
+  }>({
+    show: false,
+    sectionId: null,
+    sectionName: "",
+    taskIds: [],
+    taskAction: "unassign",
+  });
   const [showProjectNotesModal, setShowProjectNotesModal] = useState(false);
   const [showProjectShareModal, setShowProjectShareModal] = useState(false);
   const [showAutoSectionConfirm, setShowAutoSectionConfirm] = useState(false);
@@ -1058,7 +1086,8 @@ export default function ViewPage({
       const controller = new AbortController();
       // Core load must finish sooner; email pass can take longer.
       const abortMs =
-        options?.includeEmailData === false && options?.includeInboxItems === false
+        options?.includeEmailData === false &&
+        options?.includeInboxItems === false
           ? 12_000
           : 20_000;
       const timeoutId = window.setTimeout(() => controller.abort(), abortMs);
@@ -1382,7 +1411,8 @@ export default function ViewPage({
         window.clearInterval(interval);
       }
       const hidden =
-        typeof document !== "undefined" && document.visibilityState === "hidden";
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden";
       const delay = hidden
         ? EMAIL_BACKGROUND_SYNC_INTERVAL_HIDDEN_MS
         : EMAIL_BACKGROUND_SYNC_INTERVAL_VISIBLE_MS;
@@ -2805,40 +2835,107 @@ export default function ViewPage({
     }
   };
 
-  const handleSectionDelete = async (sectionId: string) => {
+  // Write the assignee filter into the query string so the view can be
+  // bookmarked and shared; the default value stays out of the URL.
+  const applyAssigneeFilter = (value: string) => {
+    setFilterAssignedTo(value);
+    const nextParams = new URLSearchParams(searchParams.toString());
+    if (value === "me-unassigned") {
+      nextParams.delete("assignee");
+    } else {
+      nextParams.set("assignee", value);
+    }
+    const query = nextParams.toString();
+    router.replace(query ? `/${view}?${query}` : `/${view}`, { scroll: false });
+  };
+
+  // Keep the filter in step with browser back/forward navigation.
+  useEffect(() => {
+    setFilterAssignedTo(searchParams.get("assignee") || "me-unassigned");
+  }, [searchParams]);
+
+  const handleSectionDelete = (sectionId: string) => {
     const section = database?.sections?.find((s) => s.id === sectionId);
     if (!section) return;
 
-    // Count tasks in this section
-    const tasksInSection =
-      database?.taskSections?.filter((ts) => ts.sectionId === sectionId)
-        .length || 0;
+    // Tasks land in a section either through a task_sections association or a
+    // direct section_id on the task, so collect both.
+    const taskIds = Array.from(
+      new Set([
+        ...(database?.taskSections || [])
+          .filter((ts) => ts.sectionId === sectionId)
+          .map((ts) => ts.taskId),
+        ...(database?.tasks || [])
+          .filter(
+            (task) =>
+              (((task as any).section_id || task.sectionId) ?? null) ===
+              sectionId,
+          )
+          .map((task) => task.id),
+      ]),
+    );
 
-    const confirmMessage =
-      tasksInSection > 0
-        ? `Are you sure you want to delete "${section.name}"? This section contains ${tasksInSection} task(s). They can be moved to "Unassigned" or deleted.`
-        : `Are you sure you want to delete "${section.name}"?`;
+    setSectionDeleteConfirm({
+      show: true,
+      sectionId,
+      sectionName: section.name,
+      taskIds,
+      taskAction: "unassign",
+    });
+  };
 
-    if (confirm(confirmMessage)) {
-      if (tasksInSection > 0) {
-        const action = confirm(
-          'Click OK to delete the tasks, or Cancel to move them to "Unassigned"',
-        );
-        // TODO: Implement task handling based on user choice
-      }
+  const confirmSectionDelete = async () => {
+    const { sectionId, taskIds, taskAction } = sectionDeleteConfirm;
+    if (!sectionId) return;
 
-      try {
-        const response = await fetch(`/api/sections/${sectionId}`, {
-          method: "DELETE",
-          credentials: "include",
-        });
-
-        if (response.ok) {
-          await fetchData();
+    try {
+      // Resolve the tasks first so deleting the section never strands them.
+      if (taskIds.length > 0) {
+        if (taskAction === "delete") {
+          await Promise.all(
+            taskIds.map((taskId) =>
+              fetch(`/api/tasks/${taskId}`, {
+                method: "DELETE",
+                credentials: "include",
+              }),
+            ),
+          );
+        } else {
+          await Promise.all(
+            taskIds.map(async (taskId) => {
+              const response = await fetch(`/api/tasks/${taskId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ sectionId: null, goalId: null }),
+              });
+              if (!response.ok) {
+                console.error(
+                  "Failed to unassign task from deleted section:",
+                  await response.text(),
+                );
+              }
+              await fetch(
+                `/api/task-sections?taskId=${encodeURIComponent(taskId)}&sectionId=${encodeURIComponent(sectionId)}`,
+                { method: "DELETE", credentials: "include" },
+              );
+            }),
+          );
         }
-      } catch (error) {
-        console.error("Error deleting section:", error);
       }
+
+      const response = await fetch(`/api/sections/${sectionId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        console.error("Error deleting section:", await response.text());
+      }
+      await fetchData();
+    } catch (error) {
+      console.error("Error deleting section:", error);
+      await fetchData();
     }
   };
 
@@ -3163,10 +3260,7 @@ export default function ViewPage({
   };
 
   // Nest a section (task list) inside a goal by dragging it onto the goal.
-  const handleSectionDropToGoal = async (
-    sectionId: string,
-    goalId: string,
-  ) => {
+  const handleSectionDropToGoal = async (sectionId: string, goalId: string) => {
     const movedAt = new Date().toISOString();
     setDatabase((prev) => {
       if (!prev) return prev;
@@ -3264,6 +3358,39 @@ export default function ViewPage({
       await fetchData();
     } catch (error) {
       console.error("Error renaming goal:", error);
+      await fetchData();
+    }
+  };
+
+  const handleUpdateGoal = async (goalId: string, edits: GoalEdits) => {
+    setDatabase((prev) => {
+      if (!prev || !prev.goals) return prev;
+      return {
+        ...prev,
+        goals: prev.goals.map((goal) =>
+          goal.id === goalId
+            ? { ...goal, ...edits, updatedAt: new Date().toISOString() }
+            : goal,
+        ),
+      };
+    });
+    try {
+      const response = await fetch(`/api/goals/${goalId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name: edits.name,
+          description: edits.description ?? null,
+          completed: edits.completed,
+        }),
+      });
+      if (!response.ok) {
+        console.error("Error updating goal:", await response.text());
+      }
+      await fetchData();
+    } catch (error) {
+      console.error("Error updating goal:", error);
       await fetchData();
     }
   };
@@ -4126,9 +4253,9 @@ export default function ViewPage({
         // instance and looks like the completed task "reappeared".
         const isRecurring = Boolean(
           (task as any).recurring_pattern ||
-            task.recurringPattern ||
-            (task as any).is_recurring ||
-            (task as any).isRecurring,
+          task.recurringPattern ||
+          (task as any).is_recurring ||
+          (task as any).isRecurring,
         );
         if (isRecurring) {
           return isOverdue(dueDate) || isToday(dueDate);
@@ -4287,9 +4414,7 @@ export default function ViewPage({
             <span className="flex items-center gap-2 text-sm font-medium text-[rgba(var(--theme-primary-rgb),0.9)] transition-colors group-hover:text-[rgb(var(--theme-primary-rgb))]">
               <span>
                 {title}{" "}
-                {count > 0 && (
-                  <span className="text-zinc-600">({count})</span>
-                )}
+                {count > 0 && <span className="text-zinc-600">({count})</span>}
               </span>
               {isRefreshing && (
                 <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />
@@ -4467,8 +4592,7 @@ export default function ViewPage({
         }
         const groups = new Map<string, typeof allWeekTasks>();
         sectionTasks.forEach((task) => {
-          const pid =
-            (task as any).project_id || task.projectId || "__none__";
+          const pid = (task as any).project_id || task.projectId || "__none__";
           const bucket = groups.get(pid) || [];
           bucket.push(task);
           groups.set(pid, bucket);
@@ -4731,7 +4855,7 @@ export default function ViewPage({
                     </Tooltip>
                     <Select
                       value={filterAssignedTo}
-                      onValueChange={(value) => setFilterAssignedTo(value)}
+                      onValueChange={applyAssigneeFilter}
                     >
                       <SelectTrigger className="h-8 w-[170px] bg-zinc-800 text-white text-sm border border-zinc-700">
                         <SelectValue placeholder="Assigned to" />
@@ -4779,7 +4903,9 @@ export default function ViewPage({
                   </Tooltip>
 
                   <Tooltip
-                    content={bulkSelectMode ? "Cancel bulk select" : "Bulk select"}
+                    content={
+                      bulkSelectMode ? "Cancel bulk select" : "Bulk select"
+                    }
                     side="bottom"
                     className="inline-flex"
                   >
@@ -4826,17 +4952,15 @@ export default function ViewPage({
           <div className="w-full pb-8 pt-6">
             <div className="mx-4 mb-4">
               <DailyPlanCard
-                capacityMinutes={
-                  Math.min(
-                    1440,
-                    Math.max(
-                      30,
-                      Number(
-                        (resolvedCurrentUser as any)?.dailyCapacityMinutes ?? 300,
-                      ) || 300,
-                    ),
-                  )
-                }
+                capacityMinutes={Math.min(
+                  1440,
+                  Math.max(
+                    30,
+                    Number(
+                      (resolvedCurrentUser as any)?.dailyCapacityMinutes ?? 300,
+                    ) || 300,
+                  ),
+                )}
                 plannedMinutesActual={todayTasks.reduce((acc, task) => {
                   if (task.completed) return acc;
                   const minutes = Number(
@@ -4886,30 +5010,24 @@ export default function ViewPage({
                   } as any);
                 }}
                 onSnoozeInboxItem={(inboxItemId, iso) => {
-                  void fetch(
-                    `/api/email/threads/${inboxItemId}/actions`,
-                    {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        action: "snooze",
-                        snoozedUntil: iso,
-                      }),
-                    },
-                  )
+                  void fetch(`/api/email/threads/${inboxItemId}/actions`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      action: "snooze",
+                      snoozedUntil: iso,
+                    }),
+                  })
                     .then(() => fetchData())
                     .catch(() => undefined);
                 }}
                 onPlanLoaded={handlePlanLoaded}
                 onConvertInboxToTask={(inboxItemId) => {
-                  void fetch(
-                    `/api/email/threads/${inboxItemId}/actions`,
-                    {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ action: "to_task" }),
-                    },
-                  )
+                  void fetch(`/api/email/threads/${inboxItemId}/actions`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "to_task" }),
+                  })
                     .then(() => fetchData())
                     .catch(() => undefined);
                 }}
@@ -4981,7 +5099,9 @@ export default function ViewPage({
                       />
                       {todaySections.overdue && (
                         <div className="mt-1">
-                          <>{renderTaskSection(overdueTasks, "today-overdue")}</>
+                          <>
+                            {renderTaskSection(overdueTasks, "today-overdue")}
+                          </>
                         </div>
                       )}
                     </div>
@@ -4998,7 +5118,9 @@ export default function ViewPage({
                     {todaySections.tomorrow && (
                       <div className="mt-1">
                         {tomorrowTasks.length > 0 ? (
-                          <>{renderTaskSection(tomorrowTasks, "today-tomorrow")}</>
+                          <>
+                            {renderTaskSection(tomorrowTasks, "today-tomorrow")}
+                          </>
                         ) : (
                           <p className="text-sm text-zinc-600 py-2 px-1">
                             No tasks due tomorrow
@@ -5020,7 +5142,10 @@ export default function ViewPage({
                       <div className="mt-1">
                         {restOfWeekTasks.length > 0 ? (
                           <>
-                            {renderTaskSection(restOfWeekTasks, "today-restofweek")}
+                            {renderTaskSection(
+                              restOfWeekTasks,
+                              "today-restofweek",
+                            )}
                           </>
                         ) : (
                           <p className="text-sm text-zinc-600 py-2 px-1">
@@ -5034,7 +5159,10 @@ export default function ViewPage({
                   {completedWeekTasks.length > 0 && (
                     <div className="mt-4">
                       <TaskList
-                        {...getTaskListProps(completedWeekTasks, "today-completed")}
+                        {...getTaskListProps(
+                          completedWeekTasks,
+                          "today-completed",
+                        )}
                         showCompleted={false}
                       />
                     </div>
@@ -5438,7 +5566,12 @@ export default function ViewPage({
                 {organization?.name || "Organization"}
               </h1>
               <div className="flex items-center gap-2">
-                <Tooltip content="New project" side="bottom" align="end" className="inline-flex">
+                <Tooltip
+                  content="New project"
+                  side="bottom"
+                  align="end"
+                  className="inline-flex"
+                >
                   <button
                     onClick={() => handleOpenAddProject(orgId)}
                     className="flex items-center gap-1.5 px-3 py-2 rounded bg-theme-gradient text-white text-sm font-medium hover:opacity-90 transition-opacity"
@@ -5470,7 +5603,12 @@ export default function ViewPage({
                     <Palette className="w-5 h-5" />
                   </button>
                 </Tooltip>
-                <Tooltip content="Edit organization" side="bottom" align="end" className="inline-flex">
+                <Tooltip
+                  content="Edit organization"
+                  side="bottom"
+                  align="end"
+                  className="inline-flex"
+                >
                   <button
                     onClick={() => handleOpenEditOrganization(orgId)}
                     className="p-2 hover:bg-zinc-800 rounded transition-colors text-zinc-400 hover:text-white"
@@ -5480,7 +5618,12 @@ export default function ViewPage({
                   </button>
                 </Tooltip>
                 {organization?.archived ? (
-                  <Tooltip content="Restore organization" side="bottom" align="end" className="inline-flex">
+                  <Tooltip
+                    content="Restore organization"
+                    side="bottom"
+                    align="end"
+                    className="inline-flex"
+                  >
                     <button
                       onClick={() =>
                         handleOrganizationUpdate(orgId, { archived: false })
@@ -5492,7 +5635,12 @@ export default function ViewPage({
                     </button>
                   </Tooltip>
                 ) : (
-                  <Tooltip content="Archive organization" side="bottom" align="end" className="inline-flex">
+                  <Tooltip
+                    content="Archive organization"
+                    side="bottom"
+                    align="end"
+                    className="inline-flex"
+                  >
                     <button
                       onClick={() =>
                         handleOrganizationUpdate(orgId, { archived: true })
@@ -5504,7 +5652,12 @@ export default function ViewPage({
                     </button>
                   </Tooltip>
                 )}
-                <Tooltip content="Delete organization" side="bottom" align="end" className="inline-flex">
+                <Tooltip
+                  content="Delete organization"
+                  side="bottom"
+                  align="end"
+                  className="inline-flex"
+                >
                   <button
                     onClick={() => openDeleteConfirmation(orgId)}
                     className="p-2 hover:bg-zinc-800 rounded transition-colors text-red-400 hover:text-red-300"
@@ -5573,157 +5726,163 @@ export default function ViewPage({
                   ))}
                 {!isDataLoading &&
                   activeProjects.map((project) => {
-                  const taskCount = database.tasks.filter(
-                    (t) =>
-                      ((t as any).project_id || t.projectId) === project.id,
-                  ).length;
-                  const completedCount = database.tasks.filter(
-                    (t) =>
-                      ((t as any).project_id || t.projectId) === project.id &&
-                      t.completed,
-                  ).length;
+                    const taskCount = database.tasks.filter(
+                      (t) =>
+                        ((t as any).project_id || t.projectId) === project.id,
+                    ).length;
+                    const completedCount = database.tasks.filter(
+                      (t) =>
+                        ((t as any).project_id || t.projectId) === project.id &&
+                        t.completed,
+                    ).length;
 
-                  const openTasks = taskCount - completedCount;
-                  const endValue = project.endDate ?? project.deadline;
+                    const openTasks = taskCount - completedCount;
+                    const endValue = project.endDate ?? project.deadline;
 
-                  return (
-                    <div
-                      key={project.id}
-                      className="bg-zinc-900 rounded-lg px-3 py-1.5 border border-zinc-800"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          {/* Clickable color dot → animated wheel picker */}
-                          <div className="relative flex-shrink-0">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setColorPickerProjectId((prev) =>
-                                  prev === project.id ? null : project.id,
-                                )
-                              }
-                              className="w-3.5 h-3.5 rounded-full ring-1 ring-white/20 hover:ring-white/60 transition-all"
-                              style={projectDotStyle(project.color)}
-                              title="Change project color"
-                              aria-label="Change project color"
-                            />
-                            {colorPickerProjectId === project.id && (
-                              <>
-                                <div
-                                  className="fixed inset-0 z-40"
-                                  onClick={() => setColorPickerProjectId(null)}
-                                />
-                                <ColorWheelPicker
-                                  currentColor={project.color}
-                                  brandGradient={brandGradient}
-                                  className="left-0 top-6"
-                                  onColorChange={(color) => {
-                                    handleProjectUpdate(project.id, { color });
-                                  }}
-                                  onClose={() => setColorPickerProjectId(null)}
-                                />
-                              </>
-                            )}
-                          </div>
-                          <Link
-                            href={`/project-${project.id}`}
-                            className="text-lg font-normal no-underline-link hover:text-zinc-300 transition-colors truncate"
-                          >
-                            {project.name}
-                          </Link>
-                          <Tooltip
-                            content={`${openTasks} Tasks Open out of ${taskCount} Total`}
-                            side="top"
-                            className="flex-shrink-0"
-                          >
-                            <span className="inline-flex items-center rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
-                              {openTasks}/{taskCount}
-                            </span>
-                          </Tooltip>
-                          <div className="flex items-center gap-x-3 text-sm text-zinc-500 flex-shrink-0">
-                            {project.budget && (
-                              <span>Budget: ${project.budget}</span>
-                            )}
-                            <Tooltip content="Created" side="top">
-                              <span className="inline-flex items-center gap-1 text-zinc-400">
-                                <Calendar className="w-3.5 h-3.5" />
-                                {formatDate(
-                                  project.createdAt,
-                                  resolvedCurrentUser?.dateFormat,
-                                )}
+                    return (
+                      <div
+                        key={project.id}
+                        className="bg-zinc-900 rounded-lg px-3 py-1.5 border border-zinc-800"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {/* Clickable color dot → animated wheel picker */}
+                            <div className="relative flex-shrink-0">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setColorPickerProjectId((prev) =>
+                                    prev === project.id ? null : project.id,
+                                  )
+                                }
+                                className="w-3.5 h-3.5 rounded-full ring-1 ring-white/20 hover:ring-white/60 transition-all"
+                                style={projectDotStyle(project.color)}
+                                title="Change project color"
+                                aria-label="Change project color"
+                              />
+                              {colorPickerProjectId === project.id && (
+                                <>
+                                  <div
+                                    className="fixed inset-0 z-40"
+                                    onClick={() =>
+                                      setColorPickerProjectId(null)
+                                    }
+                                  />
+                                  <ColorWheelPicker
+                                    currentColor={project.color}
+                                    brandGradient={brandGradient}
+                                    className="left-0 top-6"
+                                    onColorChange={(color) => {
+                                      handleProjectUpdate(project.id, {
+                                        color,
+                                      });
+                                    }}
+                                    onClose={() =>
+                                      setColorPickerProjectId(null)
+                                    }
+                                  />
+                                </>
+                              )}
+                            </div>
+                            <Link
+                              href={`/project-${project.id}`}
+                              className="text-lg font-normal no-underline-link hover:text-zinc-300 transition-colors truncate"
+                            >
+                              {project.name}
+                            </Link>
+                            <Tooltip
+                              content={`${openTasks} Tasks Open out of ${taskCount} Total`}
+                              side="top"
+                              className="flex-shrink-0"
+                            >
+                              <span className="inline-flex items-center rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
+                                {openTasks}/{taskCount}
                               </span>
                             </Tooltip>
-                            {project.startDate && (
-                              <Tooltip content="Start date" side="top">
+                            <div className="flex items-center gap-x-3 text-sm text-zinc-500 flex-shrink-0">
+                              {project.budget && (
+                                <span>Budget: ${project.budget}</span>
+                              )}
+                              <Tooltip content="Created" side="top">
                                 <span className="inline-flex items-center gap-1 text-zinc-400">
-                                  <CalendarPlus className="w-3.5 h-3.5" />
+                                  <Calendar className="w-3.5 h-3.5" />
                                   {formatDate(
-                                    project.startDate,
+                                    project.createdAt,
                                     resolvedCurrentUser?.dateFormat,
                                   )}
                                 </span>
                               </Tooltip>
-                            )}
-                            {endValue && (
-                              <Tooltip content="End date" side="top">
-                                <span className="inline-flex items-center gap-1 text-zinc-400">
-                                  <CalendarCheck className="w-3.5 h-3.5" />
-                                  {formatDate(
-                                    endValue,
-                                    resolvedCurrentUser?.dateFormat,
-                                  )}
-                                </span>
-                              </Tooltip>
-                            )}
+                              {project.startDate && (
+                                <Tooltip content="Start date" side="top">
+                                  <span className="inline-flex items-center gap-1 text-zinc-400">
+                                    <CalendarPlus className="w-3.5 h-3.5" />
+                                    {formatDate(
+                                      project.startDate,
+                                      resolvedCurrentUser?.dateFormat,
+                                    )}
+                                  </span>
+                                </Tooltip>
+                              )}
+                              {endValue && (
+                                <Tooltip content="End date" side="top">
+                                  <span className="inline-flex items-center gap-1 text-zinc-400">
+                                    <CalendarCheck className="w-3.5 h-3.5" />
+                                    {formatDate(
+                                      endValue,
+                                      resolvedCurrentUser?.dateFormat,
+                                    )}
+                                  </span>
+                                </Tooltip>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                setEditingProject(project);
+                                setShowEditProject(true);
+                              }}
+                              className="p-1 hover:bg-zinc-800 rounded transition-colors"
+                              title="Edit project"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() =>
+                                handleProjectUpdate(project.id, {
+                                  archived: true,
+                                })
+                              }
+                              className="p-1 hover:bg-zinc-800 rounded transition-colors"
+                              title="Archive project"
+                            >
+                              <Archive className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (
+                                  confirm(
+                                    `Are you sure you want to delete "${project.name}"? This will also delete all tasks in this project.`,
+                                  )
+                                ) {
+                                  handleProjectDelete(project.id);
+                                }
+                              }}
+                              className="p-1 hover:bg-zinc-800 rounded transition-colors text-red-400"
+                              title="Delete project"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => {
-                              setEditingProject(project);
-                              setShowEditProject(true);
-                            }}
-                            className="p-1 hover:bg-zinc-800 rounded transition-colors"
-                            title="Edit project"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() =>
-                              handleProjectUpdate(project.id, {
-                                archived: true,
-                              })
-                            }
-                            className="p-1 hover:bg-zinc-800 rounded transition-colors"
-                            title="Archive project"
-                          >
-                            <Archive className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (
-                                confirm(
-                                  `Are you sure you want to delete "${project.name}"? This will also delete all tasks in this project.`,
-                                )
-                              ) {
-                                handleProjectDelete(project.id);
-                              }
-                            }}
-                            className="p-1 hover:bg-zinc-800 rounded transition-colors text-red-400"
-                            title="Delete project"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        {project.description && (
+                          <p className="text-sm text-zinc-400 mb-2">
+                            {getRichTextPreview(project.description, 180)}
+                          </p>
+                        )}
                       </div>
-                      {project.description && (
-                        <p className="text-sm text-zinc-400 mb-2">
-                          {getRichTextPreview(project.description, 180)}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  })}
                 {!isDataLoading && activeProjects.length === 0 && (
                   <p className="text-zinc-500">No active projects</p>
                 )}
@@ -5935,8 +6094,7 @@ export default function ViewPage({
       const goalsBySectionId = new Map<string | null, Goal[]>();
       for (const goal of projectGoals) {
         const key = (goal.sectionId || (goal as any).section_id || null) as
-          | string
-          | null;
+          string | null;
         const list = goalsBySectionId.get(key) || [];
         list.push(goal);
         goalsBySectionId.set(key, list);
@@ -6066,7 +6224,9 @@ export default function ViewPage({
                     className="w-4 h-4 rounded-full block cursor-pointer hover:ring-2 hover:ring-zinc-400 transition-all"
                     style={{
                       backgroundColor:
-                        project?.color ?? cachedProjectHeader?.color ?? "#3f3f46",
+                        project?.color ??
+                        cachedProjectHeader?.color ??
+                        "#3f3f46",
                     }}
                     onMouseEnter={() => setShowProjectColorPicker(true)}
                     onMouseLeave={() => setShowProjectColorPicker(false)}
@@ -6406,120 +6566,121 @@ export default function ViewPage({
                     }
                     aria-hidden={!projectFiltersExpanded}
                   >
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                      <input
-                        type="text"
-                        data-task-search-input="true"
-                        value={projectTaskSearchQuery}
-                        onChange={(e) =>
-                          setProjectTaskSearchQuery(e.target.value)
-                        }
-                        placeholder="Search this project..."
-                        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2 pl-9 pr-9 text-sm text-white transition-all focus:outline-none focus:ring-2 ring-theme"
-                      />
-                      {projectTaskSearchQuery && (
-                        <button
-                          type="button"
-                          onClick={() => setProjectTaskSearchQuery("")}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-zinc-300"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      )}
-                    </div>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                        <input
+                          type="text"
+                          data-task-search-input="true"
+                          value={projectTaskSearchQuery}
+                          onChange={(e) =>
+                            setProjectTaskSearchQuery(e.target.value)
+                          }
+                          placeholder="Search this project..."
+                          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2 pl-9 pr-9 text-sm text-white transition-all focus:outline-none focus:ring-2 ring-theme"
+                        />
+                        {projectTaskSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setProjectTaskSearchQuery("")}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-zinc-300"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
 
-                    <Select
-                      value={projectAssigneeFilter}
-                      onValueChange={setProjectAssigneeFilter}
-                    >
-                      <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
-                        <SelectValue placeholder="Assigned To" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Assigned To: All</SelectItem>
-                        <SelectItem value="assigned">
-                          Assigned To: Assigned
-                        </SelectItem>
-                        <SelectItem value="me">Assigned To: Me</SelectItem>
-                        <SelectItem value="unassigned">
-                          Assigned To: Unassigned
-                        </SelectItem>
-                        {database.users.map((user) => (
-                          <SelectItem key={user.id} value={user.id}>
-                            Assigned To: {user.firstName} {user.lastName}
+                      <Select
+                        value={projectAssigneeFilter}
+                        onValueChange={setProjectAssigneeFilter}
+                      >
+                        <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                          <SelectValue placeholder="Assigned To" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Assigned To: All</SelectItem>
+                          <SelectItem value="assigned">
+                            Assigned To: Assigned
                           </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-
-                    <Select
-                      value={projectCreatorFilter}
-                      onValueChange={setProjectCreatorFilter}
-                    >
-                      <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
-                        <SelectValue placeholder="Created By" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Created By: All</SelectItem>
-                        <SelectItem value="me">Created By: Me</SelectItem>
-                        {projectCreatorIds.map((creatorId) => {
-                          const creator = database.users.find(
-                            (user) => user.id === creatorId,
-                          );
-                          if (!creator) return null;
-                          return (
-                            <SelectItem key={creator.id} value={creator.id}>
-                              Created By: {creator.firstName} {creator.lastName}
+                          <SelectItem value="me">Assigned To: Me</SelectItem>
+                          <SelectItem value="unassigned">
+                            Assigned To: Unassigned
+                          </SelectItem>
+                          {database.users.map((user) => (
+                            <SelectItem key={user.id} value={user.id}>
+                              Assigned To: {user.firstName} {user.lastName}
                             </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
+                          ))}
+                        </SelectContent>
+                      </Select>
 
-                    <Select
-                      value={projectPriorityFilter}
-                      onValueChange={setProjectPriorityFilter}
-                    >
-                      <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
-                        <SelectValue placeholder="Priority" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Priority: All</SelectItem>
-                        <SelectItem value="1">Priority 1</SelectItem>
-                        <SelectItem value="2">Priority 2</SelectItem>
-                        <SelectItem value="3">Priority 3</SelectItem>
-                        <SelectItem value="4">Priority 4</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <Select
+                        value={projectCreatorFilter}
+                        onValueChange={setProjectCreatorFilter}
+                      >
+                        <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                          <SelectValue placeholder="Created By" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Created By: All</SelectItem>
+                          <SelectItem value="me">Created By: Me</SelectItem>
+                          {projectCreatorIds.map((creatorId) => {
+                            const creator = database.users.find(
+                              (user) => user.id === creatorId,
+                            );
+                            if (!creator) return null;
+                            return (
+                              <SelectItem key={creator.id} value={creator.id}>
+                                Created By: {creator.firstName}{" "}
+                                {creator.lastName}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
 
-                    <ProjectTagFilter
-                      tags={database.tags}
-                      value={projectTagFilter}
-                      onChange={setProjectTagFilter}
-                    />
+                      <Select
+                        value={projectPriorityFilter}
+                        onValueChange={setProjectPriorityFilter}
+                      >
+                        <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                          <SelectValue placeholder="Priority" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Priority: All</SelectItem>
+                          <SelectItem value="1">Priority 1</SelectItem>
+                          <SelectItem value="2">Priority 2</SelectItem>
+                          <SelectItem value="3">Priority 3</SelectItem>
+                          <SelectItem value="4">Priority 4</SelectItem>
+                        </SelectContent>
+                      </Select>
 
-                    <Select
-                      value={projectStatusFilter}
-                      onValueChange={(value) =>
-                        setProjectStatusFilter(
-                          value as typeof projectStatusFilter,
-                        )
-                      }
-                    >
-                      <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
-                        <SelectValue placeholder="Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="active">Status: Active</SelectItem>
-                        <SelectItem value="completed">
-                          Status: Completed
-                        </SelectItem>
-                        <SelectItem value="all">Status: All</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      <ProjectTagFilter
+                        tags={database.tags}
+                        value={projectTagFilter}
+                        onChange={setProjectTagFilter}
+                      />
+
+                      <Select
+                        value={projectStatusFilter}
+                        onValueChange={(value) =>
+                          setProjectStatusFilter(
+                            value as typeof projectStatusFilter,
+                          )
+                        }
+                      >
+                        <SelectTrigger className="h-10 w-full bg-zinc-800 text-white text-sm border border-zinc-700">
+                          <SelectValue placeholder="Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Status: Active</SelectItem>
+                          <SelectItem value="completed">
+                            Status: Completed
+                          </SelectItem>
+                          <SelectItem value="all">Status: All</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </div>
 
@@ -6532,7 +6693,9 @@ export default function ViewPage({
                     }
                   >
                     <SkeletonSectionedTasks
-                      layout={projectSectionLayout === "board" ? "board" : "list"}
+                      layout={
+                        projectSectionLayout === "board" ? "board" : "list"
+                      }
                       showAddSectionDivider={projectSectionLayout !== "board"}
                       sections={[
                         { title: "Section", count: 4 },
@@ -6596,6 +6759,7 @@ export default function ViewPage({
                           }
                           onCompleteGoal={handleCompleteGoal}
                           onRenameGoal={handleRenameGoal}
+                          onUpdateGoal={handleUpdateGoal}
                           onDeleteGoal={handleDeleteGoal}
                           onTaskDropToGoal={handleTaskDropToGoal}
                           onSectionDropToGoal={handleSectionDropToGoal}
@@ -6636,9 +6800,8 @@ export default function ViewPage({
                         );
                         const subGoals = (database.goals || []).filter(
                           (g) =>
-                            (g.parentGoalId ||
-                              (g as any).parent_goal_id) === goal.id &&
-                            !(g as any).deleted_at,
+                            (g.parentGoalId || (g as any).parent_goal_id) ===
+                              goal.id && !(g as any).deleted_at,
                         );
                         const hasContent =
                           goalTasks.length > 0 ||
@@ -6654,6 +6817,7 @@ export default function ViewPage({
                               onSectionDropToGoal={handleSectionDropToGoal}
                               onCompleteGoal={handleCompleteGoal}
                               onRenameGoal={handleRenameGoal}
+                              onUpdateGoal={handleUpdateGoal}
                               onDeleteGoal={handleDeleteGoal}
                               onAddTaskToGoal={handleAddTaskToGoal}
                               onAddSectionToGoal={handleAddSectionToGoal}
@@ -6753,6 +6917,7 @@ export default function ViewPage({
                                   }
                                   onCompleteGoal={handleCompleteGoal}
                                   onRenameGoal={handleRenameGoal}
+                                  onUpdateGoal={handleUpdateGoal}
                                   onDeleteGoal={handleDeleteGoal}
                                   onTaskDropToGoal={handleTaskDropToGoal}
                                   onSectionDropToGoal={handleSectionDropToGoal}
@@ -6774,8 +6939,7 @@ export default function ViewPage({
                       };
                       const goalLessUnassigned = projectLevelGoals.length
                         ? visibleUnassignedTasks.filter(
-                            (task) =>
-                              !(task.goalId || (task as any).goal_id),
+                            (task) => !(task.goalId || (task as any).goal_id),
                           )
                         : visibleUnassignedTasks;
 
@@ -6790,7 +6954,7 @@ export default function ViewPage({
                         <div className="mt-2">
                           <div className="mb-3 flex items-center justify-between gap-3">
                             <h3 className="text-lg font-medium text-zinc-400">
-                              Unassigned Tasks
+                              Ungrouped Tasks
                             </h3>
                             <div className="flex items-center gap-2">
                               <button
@@ -6950,6 +7114,7 @@ export default function ViewPage({
                     }
                     onCompleteGoal={handleCompleteGoal}
                     onRenameGoal={handleRenameGoal}
+                    onUpdateGoal={handleUpdateGoal}
                     onDeleteGoal={handleDeleteGoal}
                   />
                 )}
@@ -7101,15 +7266,15 @@ export default function ViewPage({
                 ? "p-0"
                 : view === "today"
                   ? "p-0"
-                : view.startsWith("email-")
-                  ? "px-3 pr-6 py-6"
-                  : view === "time"
-                    ? "p-6"
-                    : view.startsWith("project-")
-                      ? projectSectionLayout === "board"
-                        ? "p-6"
-                        : "w-full p-6 xl:p-8"
-                      : "max-w-4xl mx-auto p-8"
+                  : view.startsWith("email-")
+                    ? "px-3 pr-6 py-6"
+                    : view === "time"
+                      ? "p-6"
+                      : view.startsWith("project-")
+                        ? projectSectionLayout === "board"
+                          ? "p-6"
+                          : "w-full p-6 xl:p-8"
+                        : "max-w-4xl mx-auto p-8"
           }
         >
           {isMobile && (
@@ -7178,7 +7343,7 @@ export default function ViewPage({
         taskId={aiRationaleModal?.taskId ?? null}
         isPublic={
           aiRationaleModal
-            ? emailPublicByTaskId[aiRationaleModal.taskId] ?? false
+            ? (emailPublicByTaskId[aiRationaleModal.taskId] ?? false)
             : false
         }
         onPublicChange={(taskId, isPublic) =>
@@ -7543,6 +7708,66 @@ export default function ViewPage({
                       setTaskDeleteConfirm((prev) => ({
                         ...prev,
                         emailAction: opt.value,
+                      }))
+                    }
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </ConfirmModal>
+
+      <ConfirmModal
+        isOpen={sectionDeleteConfirm.show}
+        onClose={() =>
+          setSectionDeleteConfirm({
+            show: false,
+            sectionId: null,
+            sectionName: "",
+            taskIds: [],
+            taskAction: "unassign",
+          })
+        }
+        onConfirm={confirmSectionDelete}
+        title="Delete Task List"
+        description={
+          sectionDeleteConfirm.taskIds.length > 0
+            ? `Are you sure you want to delete "${sectionDeleteConfirm.sectionName}"? It contains ${sectionDeleteConfirm.taskIds.length} task(s).`
+            : `Are you sure you want to delete "${sectionDeleteConfirm.sectionName}"?`
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="destructive"
+      >
+        {sectionDeleteConfirm.taskIds.length > 0 ? (
+          <div className="rounded-md border border-zinc-800 bg-zinc-950/50 p-3">
+            <p className="mb-2 text-sm font-medium text-zinc-300">
+              What should happen to the tasks in this list?
+            </p>
+            <div className="flex flex-col gap-2">
+              {(
+                [
+                  {
+                    value: "unassign",
+                    label: "Keep them, ungrouped in the project",
+                  },
+                  { value: "delete", label: "Delete the tasks too" },
+                ] as const
+              ).map((opt) => (
+                <label
+                  key={opt.value}
+                  className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300"
+                >
+                  <input
+                    type="radio"
+                    name="delete-section-task-action"
+                    checked={sectionDeleteConfirm.taskAction === opt.value}
+                    onChange={() =>
+                      setSectionDeleteConfirm((prev) => ({
+                        ...prev,
+                        taskAction: opt.value,
                       }))
                     }
                   />

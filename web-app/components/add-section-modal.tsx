@@ -1,8 +1,14 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-import { X, Palette, FileText, Smile } from 'lucide-react'
+import { X, Palette } from 'lucide-react'
 import { Section } from '@/lib/types'
+import {
+  SECTION_ICONS,
+  DEFAULT_SECTION_ICON_KEY,
+  getSectionIcon,
+  resolveSectionIconKey,
+} from '@/lib/section-icons'
 
 interface AddSectionModalProps {
   isOpen: boolean
@@ -15,19 +21,6 @@ interface AddSectionModalProps {
   /** When set, the modal edits this section instead of creating a new one. */
   section?: Section | null
 }
-
-const iconOptions = [
-  { value: '📁', label: 'Folder' },
-  { value: '📋', label: 'Clipboard' },
-  { value: '🎯', label: 'Target' },
-  { value: '💡', label: 'Idea' },
-  { value: '⚡', label: 'Lightning' },
-  { value: '🔥', label: 'Fire' },
-  { value: '💎', label: 'Gem' },
-  { value: '🚀', label: 'Rocket' },
-  { value: '⭐', label: 'Star' },
-  { value: '🏆', label: 'Trophy' }
-]
 
 const colorOptions = [
   '#ef4444', // red
@@ -54,7 +47,7 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [color, setColor] = useState(colorOptions[0])
-  const [icon, setIcon] = useState(iconOptions[0].value)
+  const [icon, setIcon] = useState<string>(DEFAULT_SECTION_ICON_KEY)
   const [showColorPicker, setShowColorPicker] = useState(false)
   const [showIconPicker, setShowIconPicker] = useState(false)
 
@@ -64,13 +57,15 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
     setName(isOpen ? section?.name ?? '' : '')
     setDescription(isOpen ? section?.description ?? '' : '')
     setColor((isOpen && section?.color) || colorOptions[0])
-    setIcon((isOpen && section?.icon) || iconOptions[0].value)
+    setIcon((isOpen && section?.icon) || DEFAULT_SECTION_ICON_KEY)
     setShowColorPicker(false)
     setShowIconPicker(false)
   }, [isOpen, section])
 
   if (!isOpen) return null
 
+  const SelectedIcon = getSectionIcon(icon)
+  const selectedIconKey = resolveSectionIconKey(icon)
   const isEditing = Boolean(section)
   const isSubSection = Boolean(parentId ?? section?.parentId)
   const title = isEditing
@@ -190,28 +185,27 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
                   onClick={() => setShowIconPicker(!showIconPicker)}
                   className="w-full bg-zinc-800 text-white rounded px-3 py-2 flex items-center gap-2 hover:bg-zinc-700 transition-colors"
                 >
-                  <span className="text-lg">{icon}</span>
-                  <Smile className="w-4 h-4" />
+                  <SelectedIcon className="w-5 h-5" />
                   <span className="text-sm">Choose icon</span>
                 </button>
                 
                 {showIconPicker && (
                   <div className="absolute mt-2 bg-zinc-800 rounded-lg p-3 shadow-lg z-10">
                     <div className="grid grid-cols-5 gap-2">
-                      {iconOptions.map((opt) => (
+                      {SECTION_ICONS.map((opt) => (
                         <button
-                          key={opt.value}
+                          key={opt.key}
                           type="button"
                           onClick={() => {
-                            setIcon(opt.value)
+                            setIcon(opt.key)
                             setShowIconPicker(false)
                           }}
-                          className={`w-10 h-10 rounded flex items-center justify-center text-xl hover:bg-zinc-700 ${
-                            icon === opt.value ? 'bg-zinc-700 ring-2 ring-white' : ''
+                          className={`w-10 h-10 rounded flex items-center justify-center text-zinc-200 hover:bg-zinc-700 ${
+                            selectedIconKey === opt.key ? 'bg-zinc-700 ring-2 ring-white' : ''
                           }`}
                           title={opt.label}
                         >
-                          {opt.value}
+                          <opt.Icon className="w-5 h-5" />
                         </button>
                       ))}
                     </div>

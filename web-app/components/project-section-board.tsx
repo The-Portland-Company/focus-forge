@@ -21,7 +21,9 @@ import {
   X,
 } from "lucide-react";
 import { Database, Goal, Section, Task } from "@/lib/types";
+import { getSectionIcon } from "@/lib/section-icons";
 import { GoalGroupShell } from "@/components/goal-group";
+import { GoalEdits } from "@/components/edit-goal-modal";
 import { getBlockedTaskIds } from "@/lib/dependency-utils";
 import { richTextToPlainText } from "@/lib/rich-text";
 import { UserAvatar } from "@/components/user-avatar";
@@ -90,6 +92,7 @@ interface ProjectSectionBoardProps {
   onAddGoal?: (projectId: string, sectionId?: string) => void;
   onCompleteGoal?: (goalId: string, completed: boolean) => void;
   onRenameGoal?: (goalId: string, name: string) => void;
+  onUpdateGoal?: (goalId: string, edits: GoalEdits) => void;
   onDeleteGoal?: (goalId: string) => void;
 }
 
@@ -427,6 +430,7 @@ function GoalGroup({
   onTaskDropToGoal,
   onCompleteGoal,
   onRenameGoal,
+  onUpdateGoal,
   onDeleteGoal,
 }: {
   goal: Goal;
@@ -436,6 +440,7 @@ function GoalGroup({
   onTaskDropToGoal?: (taskId: string, goalId: string, sectionId?: string) => void;
   onCompleteGoal?: (goalId: string, completed: boolean) => void;
   onRenameGoal?: (goalId: string, name: string) => void;
+  onUpdateGoal?: (goalId: string, edits: GoalEdits) => void;
   onDeleteGoal?: (goalId: string) => void;
 }) {
   const totalCount = tasks.length;
@@ -452,6 +457,7 @@ function GoalGroup({
       onTaskDropToGoal={onTaskDropToGoal}
       onCompleteGoal={onCompleteGoal}
       onRenameGoal={onRenameGoal}
+      onUpdateGoal={onUpdateGoal}
       onDeleteGoal={onDeleteGoal}
     >
       {tasks.map((task) => (
@@ -519,6 +525,7 @@ function SectionColumn({
   onAddGoal,
   onCompleteGoal,
   onRenameGoal,
+  onUpdateGoal,
   onDeleteGoal,
 }: {
   section: Section;
@@ -555,6 +562,7 @@ function SectionColumn({
   onAddGoal?: (projectId: string, sectionId?: string) => void;
   onCompleteGoal?: (goalId: string, completed: boolean) => void;
   onRenameGoal?: (goalId: string, name: string) => void;
+  onUpdateGoal?: (goalId: string, edits: GoalEdits) => void;
   onDeleteGoal?: (goalId: string) => void;
 }) {
   const getVisibleSectionTasks = (sectionId: string) =>
@@ -615,9 +623,15 @@ function SectionColumn({
       <div className="flex items-start justify-between gap-3 border-b border-zinc-800 px-3 py-3">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
-            {section.icon ? (
-              <span className="shrink-0 text-base leading-none">{section.icon}</span>
-            ) : null}
+            {(() => {
+              const SectionIcon = getSectionIcon(section.icon);
+              return (
+                <SectionIcon
+                  className="w-4 h-4 shrink-0"
+                  style={{ color: section.color || "#a1a1aa" }}
+                />
+              );
+            })()}
             <span
               className="h-2.5 w-2.5 shrink-0 rounded-full"
               style={{ backgroundColor: section.color || "#71717a" }}
@@ -680,6 +694,7 @@ function SectionColumn({
               onTaskDropToGoal={onTaskDropToGoal}
               onCompleteGoal={onCompleteGoal}
               onRenameGoal={onRenameGoal}
+              onUpdateGoal={onUpdateGoal}
               onDeleteGoal={onDeleteGoal}
             />
           ))}
@@ -812,6 +827,7 @@ export function ProjectSectionBoard({
   onAddGoal,
   onCompleteGoal,
   onRenameGoal,
+  onUpdateGoal,
   onDeleteGoal,
 }: ProjectSectionBoardProps) {
   const goalsBySection = goalsBySectionId ?? new Map<string | null, Goal[]>();
@@ -894,6 +910,7 @@ export function ProjectSectionBoard({
               onAddGoal={onAddGoal}
               onCompleteGoal={onCompleteGoal}
               onRenameGoal={onRenameGoal}
+              onUpdateGoal={onUpdateGoal}
               onDeleteGoal={onDeleteGoal}
             />
           );
@@ -986,6 +1003,7 @@ export function ProjectSectionBoard({
                   onTaskDropToGoal={onTaskDropToGoal}
                   onCompleteGoal={onCompleteGoal}
                   onRenameGoal={onRenameGoal}
+                  onUpdateGoal={onUpdateGoal}
                   onDeleteGoal={onDeleteGoal}
                 />
               ))}
@@ -1069,9 +1087,15 @@ export function ProjectSectionBoard({
                 }}
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-white transition-colors hover:bg-zinc-800"
               >
-                {section.icon ? (
-                  <span className="text-base leading-none">{section.icon}</span>
-                ) : null}
+                {(() => {
+                  const SectionIcon = getSectionIcon(section.icon);
+                  return (
+                    <SectionIcon
+                      className="w-4 h-4 shrink-0"
+                      style={{ color: section.color || "#a1a1aa" }}
+                    />
+                  );
+                })()}
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-full"
                   style={{ backgroundColor: section.color || "#71717a" }}

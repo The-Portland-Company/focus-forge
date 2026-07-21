@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CheckCircle2,
+  ChevronRight,
   Circle,
+  Edit,
   ListPlus,
   Loader2,
   Plus,
@@ -11,6 +13,25 @@ import {
   Trash2,
 } from "lucide-react";
 import { Goal } from "@/lib/types";
+import { EditGoalModal, GoalEdits } from "@/components/edit-goal-modal";
+import { ConfirmModal } from "@/components/confirm-modal";
+
+/** Collapsed goal ids, persisted the same way the sidebar persists its own
+ *  expand/collapse preferences: one JSON array under a single storage key. */
+const COLLAPSED_GOALS_KEY = "collapsedGoals";
+
+function readCollapsedGoals(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(COLLAPSED_GOALS_KEY) ?? "[]",
+    );
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error("Failed to parse saved collapsed goals:", e);
+    return [];
+  }
+}
 
 /**
  * Shared shell for a goal sub-group: the bordered drop zone plus the goal
@@ -29,6 +50,7 @@ export function GoalGroupShell({
   onCompleteGoal,
   onRenameGoal,
   onDeleteGoal,
+  onUpdateGoal,
   onAddTaskToGoal,
   onAddSectionToGoal,
   onAddSubGoal,
@@ -47,6 +69,7 @@ export function GoalGroupShell({
   onCompleteGoal?: (goalId: string, completed: boolean) => void;
   onRenameGoal?: (goalId: string, name: string) => void;
   onDeleteGoal?: (goalId: string) => void;
+  onUpdateGoal?: (goalId: string, edits: GoalEdits) => void;
   onAddTaskToGoal?: (goalId: string) => void;
   onAddSectionToGoal?: (goalId: string) => void;
   onAddSubGoal?: (goalId: string) => void;
@@ -55,7 +78,23 @@ export function GoalGroupShell({
   const [isDragOver, setIsDragOver] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(goal.name);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const isSaving = goal._saving === true;
+
+  // Hydrate the persisted collapse state after mount so SSR markup matches.
+  useEffect(() => {
+    setIsCollapsed(readCollapsedGoals().includes(goal.id));
+  }, [goal.id]);
+
+  const toggleCollapsed = () => {
+    const next = !isCollapsed;
+    setIsCollapsed(next);
+    const stored = readCollapsedGoals().filter((id) => id !== goal.id);
+    if (next) stored.push(goal.id);
+    localStorage.setItem(COLLAPSED_GOALS_KEY, JSON.stringify(stored));
+  };
 
   const commitRename = () => {
     const trimmed = editValue.trim();
@@ -93,6 +132,18 @@ export function GoalGroupShell({
       }}
     >
       <div className="flex items-center gap-2 px-2 py-2">
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          className="shrink-0 rounded p-0.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+          title={isCollapsed ? "Expand goal" : "Collapse goal"}
+          aria-label={isCollapsed ? "Expand goal" : "Collapse goal"}
+          aria-expanded={!isCollapsed}
+        >
+          <ChevronRight
+            className={`h-3.5 w-3.5 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
+          />
+        </button>
         <button
           type="button"
           onClick={() => onCompleteGoal?.(goal.id, !goal.completed)}
@@ -155,58 +206,83 @@ export function GoalGroupShell({
             {completedCount}/{totalCount}
           </span>
         )}
-        <button
-          type="button"
-          disabled={isSaving}
-          onClick={() => {
-            if (
-              confirm(
-                `Delete goal "${goal.name}"? Its tasks move back to the section.`,
-              )
-            ) {
-              onDeleteGoal?.(goal.id);
-            }
-          }}
-          className="shrink-0 rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
-          title="Delete goal"
-          aria-label="Delete goal"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <div className="space-y-2 px-2 pb-2">{children}</div>
-      {(onAddTaskToGoal || onAddSectionToGoal || onAddSubGoal) && (
-        // Doubles as the goal's drop target: drop tasks/sections anywhere in
-        // the bordered goal, or use these buttons to add directly.
-        <div className="mx-2 mb-2 flex flex-wrap items-center justify-center gap-1 rounded-lg border border-dashed border-zinc-800 px-3 py-2">
-          {onAddTaskToGoal && (
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/goal:opacity-100">
+          {onUpdateGoal && (
             <button
               type="button"
-              onClick={() => onAddTaskToGoal(goal.id)}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+              disabled={isSaving}
+              onClick={() => setShowEditModal(true)}
+              className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              title="Edit goal"
+              aria-label="Edit goal"
             >
-              <Plus className="h-3.5 w-3.5" /> Task
+              <Edit className="h-3.5 w-3.5" />
             </button>
           )}
-          {onAddSectionToGoal && (
-            <button
-              type="button"
-              onClick={() => onAddSectionToGoal(goal.id)}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
-            >
-              <ListPlus className="h-3.5 w-3.5" /> Task list
-            </button>
-          )}
-          {onAddSubGoal && (
-            <button
-              type="button"
-              onClick={() => onAddSubGoal(goal.id)}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
-            >
-              <Target className="h-3.5 w-3.5" /> Goal
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={() => setShowDeleteConfirm(true)}
+            className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Delete goal"
+            aria-label="Delete goal"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
         </div>
+      </div>
+      {!isCollapsed && <div className="space-y-2 px-2 pb-2">{children}</div>}
+      {!isCollapsed &&
+        (onAddTaskToGoal || onAddSectionToGoal || onAddSubGoal) && (
+          // Doubles as the goal's drop target: drop tasks/sections anywhere in
+          // the bordered goal, or use these buttons to add directly.
+          <div className="mx-2 mb-2 flex flex-wrap items-center justify-center gap-1 rounded-lg border border-dashed border-zinc-800 px-3 py-2">
+            {onAddTaskToGoal && (
+              <button
+                type="button"
+                onClick={() => onAddTaskToGoal(goal.id)}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+              >
+                <Plus className="h-3.5 w-3.5" /> Task
+              </button>
+            )}
+            {onAddSectionToGoal && (
+              <button
+                type="button"
+                onClick={() => onAddSectionToGoal(goal.id)}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+              >
+                <ListPlus className="h-3.5 w-3.5" /> Task list
+              </button>
+            )}
+            {onAddSubGoal && (
+              <button
+                type="button"
+                onClick={() => onAddSubGoal(goal.id)}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+              >
+                <Target className="h-3.5 w-3.5" /> Goal
+              </button>
+            )}
+          </div>
+        )}
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={() => onDeleteGoal?.(goal.id)}
+        title="Delete Goal"
+        description={`Are you sure you want to delete "${goal.name}"? Its tasks move back to the section.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="destructive"
+      />
+      {onUpdateGoal && (
+        <EditGoalModal
+          isOpen={showEditModal}
+          goal={goal}
+          onClose={() => setShowEditModal(false)}
+          onSave={onUpdateGoal}
+        />
       )}
     </div>
   );
