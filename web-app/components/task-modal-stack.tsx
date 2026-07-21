@@ -22,6 +22,13 @@ interface TaskModalStackProps {
   onTaskSelect?: (task: Task) => void;
 }
 
+/** Peek of each parent card, as a percentage of the modal's own width. */
+const CARD_PEEK_PERCENT = 5;
+/** Beyond this the fan reads the same but starts running off-screen. */
+const MAX_VISIBLE_CARDS = 4;
+/** Kept in step with TaskModal's own max-w-4xl so the peek lines up. */
+const MODAL_WIDTH = "min(56rem, 92vw)";
+
 /**
  * Drill-down stack for subtasks: expanding a subtask pushes its own task modal
  * on top of the current one, so a subtask can be given subtasks of its own to
@@ -127,22 +134,32 @@ export function TaskModalStack({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="relative flex h-full w-full items-center justify-center">
-        {/* Cards behind the active one, offset so the stack reads as a deck. */}
-        {Array.from({ length: depth }).map((_, index) => (
-          <div
-            key={`card-${index}`}
-            aria-hidden
-            className="pointer-events-none absolute rounded-lg border border-zinc-800 bg-zinc-900/80"
-            style={{
-              zIndex: 60 + index * 10,
-              width: "min(48rem, 92vw)",
-              height: "min(80vh, 44rem)",
-              transform: `translateX(${(depth - index) * -10}px) translateY(${
-                (depth - index) * 8
-              }px) scale(${1 - (depth - index) * 0.02})`,
-            }}
-          />
-        ))}
+        {/* Cards fan out to the left behind the active modal: each parent shows
+            roughly 5% of its width sticking out, with its own shadow so the
+            layers read as separate sheets rather than one thick edge. Depth is
+            capped so a deep trail doesn't march off the viewport — beyond that
+            the deck just looks the same. */}
+        {Array.from({ length: Math.min(depth, MAX_VISIBLE_CARDS) }).map(
+          (_, index) => {
+            // level 1 = immediately behind the active modal.
+            const level = Math.min(depth, MAX_VISIBLE_CARDS) - index;
+            return (
+              <div
+                key={`card-${index}`}
+                aria-hidden
+                className="pointer-events-none absolute rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/60"
+                style={{
+                  zIndex: 60 + index * 10 - 1,
+                  width: MODAL_WIDTH,
+                  height: "min(80vh, 44rem)",
+                  transform: `translateX(calc(${CARD_PEEK_PERCENT * level} * -1%)) scale(${
+                    1 - level * 0.015
+                  })`,
+                }}
+              />
+            );
+          },
+        )}
 
         <TaskModal
           key={activeTask?.id || "root"}
