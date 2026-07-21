@@ -2447,6 +2447,59 @@ export default function ViewPage({
     // Capture the scroll container position before the delete so the list
     // rebuild from fetchData() doesn't re-anchor / jump the view.
     const savedScrollTop = mainScrollRef.current?.scrollTop ?? 0;
+
+    // Remove the task and its descendants from view immediately. The snapshot
+    // is kept so a failed delete can put them back exactly as they were —
+    // the row should only reappear if the delete actually failed.
+    const descendantIds = new Set<string>([deletingId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const candidate of database?.tasks || []) {
+        const parentId = (candidate as any).parent_id ?? candidate.parentId;
+        if (
+          parentId &&
+          descendantIds.has(parentId) &&
+          !descendantIds.has(candidate.id)
+        ) {
+          descendantIds.add(candidate.id);
+          grew = true;
+        }
+      }
+    }
+    const removedTasks = (database?.tasks || []).filter((t) =>
+      descendantIds.has(t.id),
+    );
+    const removedTaskSections = (database?.taskSections || []).filter((ts) =>
+      descendantIds.has(ts.taskId),
+    );
+    setDatabase((prev) =>
+      prev
+        ? {
+            ...prev,
+            tasks: prev.tasks.filter((t) => !descendantIds.has(t.id)),
+            taskSections: prev.taskSections.filter(
+              (ts) => !descendantIds.has(ts.taskId),
+            ),
+          }
+        : prev,
+    );
+
+    const restoreDeletedTasks = () => {
+      setDatabase((prev) => {
+        if (!prev) return prev;
+        const presentIds = new Set(prev.tasks.map((t) => t.id));
+        return {
+          ...prev,
+          tasks: [
+            ...prev.tasks,
+            ...removedTasks.filter((t) => !presentIds.has(t.id)),
+          ],
+          taskSections: [...prev.taskSections, ...removedTaskSections],
+        };
+      });
+    };
+
     setDeletingTaskIds((prev) => new Set(prev).add(deletingId));
     try {
       const response = await fetch(`/api/tasks/${taskDeleteConfirm.taskId}`, {
@@ -2482,9 +2535,23 @@ export default function ViewPage({
         }
         await fetchData();
         restoreMainScrollTop(savedScrollTop);
+        showSuccess(`Deleted "${deletedName}"`);
+      } else {
+        restoreDeletedTasks();
+        const detail = await response.text().catch(() => "");
+        console.error("Error deleting task:", detail);
+        showError(
+          `Could not delete "${deletedName}"`,
+          "It has been put back. Please try again.",
+        );
       }
     } catch (error) {
+      restoreDeletedTasks();
       console.error("Error deleting task:", error);
+      showError(
+        `Could not delete "${deletedName}"`,
+        "It has been put back. Please try again.",
+      );
     } finally {
       setDeletingTaskIds((prev) => {
         const next = new Set(prev);

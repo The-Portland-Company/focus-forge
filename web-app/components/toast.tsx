@@ -70,7 +70,10 @@ export function ToastContainer({ toasts, onClose }: ToastContainerProps) {
   if (toasts.length === 0) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 space-y-2 max-w-md">
+    // Centered along the bottom edge: these confirm an action the user just
+    // took, so they belong under the cursor's attention rather than off in a
+    // corner. Full width is capped so a long message stays readable.
+    <div className="fixed bottom-4 left-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 space-y-2">
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onClose={onClose} />
       ))}
