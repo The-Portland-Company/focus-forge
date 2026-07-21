@@ -1,12 +1,12 @@
-import { ShoppingCart } from "lucide-react";
+import { ExternalLink, ShoppingCart } from "lucide-react";
 import {
   formatCurrency,
   formatQuantity,
   isSupply,
   supplyLineTotal,
+  parseSupplyVendor,
   supplyPrice,
   supplyQuantity,
-  supplyVendor,
   type SupplyLike,
 } from "@/lib/supply";
 
@@ -24,7 +24,7 @@ export function SupplyLine({
   if (!isSupply(task)) return null;
 
   const price = supplyPrice(task);
-  const vendor = supplyVendor(task);
+  const vendor = parseSupplyVendor(task);
   const lineTotal = supplyLineTotal(task);
 
   // A supply with neither a price nor a vendor still gets the cart icon, so it
@@ -40,7 +40,25 @@ export function SupplyLine({
           {formatCurrency(lineTotal)}
         </span>
       )}
-      {vendor && <span className="text-amber-300/70">@ {vendor}</span>}
+      {/* A vendor may be a plain name or a URL. URLs render as a link labelled
+          by site name; the click is stopped so opening the vendor does not also
+          open the task. */}
+      {vendor &&
+        (vendor.url ? (
+          <a
+            href={vendor.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title={`Open ${vendor.label} in a new tab`}
+            className="inline-flex items-center gap-0.5 text-amber-300/70 underline-offset-2 hover:text-amber-200 hover:underline"
+          >
+            @ {vendor.label}
+            <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+          </a>
+        ) : (
+          <span className="text-amber-300/70">@ {vendor.label}</span>
+        ))}
     </span>
   );
 }

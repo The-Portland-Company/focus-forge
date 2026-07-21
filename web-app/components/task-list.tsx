@@ -39,7 +39,7 @@ import {
   supplyQuantity,
   supplyVendor,
   supplyLineTotal,
-  supplyIdentityLabel,
+  taskDisplayName,
   parseSupplyVendor,
   formatCurrency,
   formatQuantity,
@@ -1035,7 +1035,22 @@ export function TaskList({
                           aria-label="Created from email"
                         />
                       ) : null}
-                      {task.name}
+                      {/* A supply is identified by its make/model or type, not
+                          by a free-text title, so the identity is the primary
+                          label. Falls back to the stored name for supplies
+                          predating the identity fields. */}
+                      {isSupply(task as any) ? (
+                        <>
+                          <ShoppingCart
+                            className="mr-1.5 inline-block h-3.5 w-3.5 shrink-0 -translate-y-px text-amber-300"
+                            role="img"
+                            aria-label="Supply"
+                          />
+                          {taskDisplayName(task as any, task.name)}
+                        </>
+                      ) : (
+                        task.name
+                      )}
                       {emailSenderByTaskId?.[task.id] ? (
                         <span
                           className="ml-2 font-normal opacity-50"
@@ -1314,18 +1329,14 @@ export function TaskList({
                       .filter(Boolean)
                       .join(" · ")}
                   >
-                    <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
+                    {/* The identity now leads the row's primary label, so this
+                        badge carries only the amounts and the vendor. */}
                     {supplyPrice(task as any) !== null && (
                       <span className="font-medium">
                         {formatQuantity(supplyQuantity(task as any) ?? 1)} ×{" "}
                         {formatCurrency(supplyPrice(task as any))}
                         {" = "}
                         {formatCurrency(supplyLineTotal(task as any))}
-                      </span>
-                    )}
-                    {supplyIdentityLabel(task as any) && (
-                      <span className="text-amber-300/70">
-                        {supplyIdentityLabel(task as any)}
                       </span>
                     )}
                     {(() => {

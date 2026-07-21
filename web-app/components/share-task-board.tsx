@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CheckCircle2, Circle, Loader2, Plus } from "lucide-react";
 import { SupplyTotal } from "./supply-total";
 import { SupplyLine } from "./supply-line";
+import { taskDisplayName } from "@/lib/supply";
 
 interface ShareTask {
   id: string;
@@ -159,7 +160,7 @@ export function ShareTaskBoard({
                           : "text-sm text-zinc-200"
                       }
                     >
-                      {task.name}
+                      {taskDisplayName(task, task.name)}
                     </span>
                     <SupplyLine task={task} />
                   </li>
