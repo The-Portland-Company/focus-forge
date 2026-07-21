@@ -74,3 +74,26 @@ export function isShareActive(share: {
   }
   return true;
 }
+
+/** Access level granted to visitors holding a share link. */
+export type SharePermission = "read" | "write";
+
+/** Narrow arbitrary input to a valid permission, defaulting to read-only. */
+export function normalizePermission(value: unknown): SharePermission {
+  return value === "write" ? "write" : "read";
+}
+
+/**
+ * True when a share grants mutation rights. Anything other than an explicit,
+ * active, public, write-level share is read-only — the default is always deny.
+ */
+export function canWriteShare(share: {
+  revoked_at: string | null;
+  expires_at: string | null;
+  allow_public: boolean | null;
+  permission: string | null;
+}): boolean {
+  if (!isShareActive(share)) return false;
+  if (share.allow_public === false) return false;
+  return share.permission === "write";
+}

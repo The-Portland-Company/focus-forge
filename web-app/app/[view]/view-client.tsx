@@ -807,6 +807,14 @@ export default function ViewPage({
     undefined,
   );
   const [sectionOrder, setSectionOrder] = useState(0);
+  // The add-section modal is reachable outside project views (e.g. from a goal
+  // in a Goals view), so it carries its own target instead of parsing `view`.
+  const [sectionProjectId, setSectionProjectId] = useState<string | undefined>(
+    undefined,
+  );
+  const [sectionGoalId, setSectionGoalId] = useState<string | undefined>(
+    undefined,
+  );
   const [editingSection, setEditingSection] = useState<Section | null>(null);
   const [showAddGoal, setShowAddGoal] = useState(false);
   const [addGoalSectionId, setAddGoalSectionId] = useState<string | undefined>(
@@ -2760,7 +2768,41 @@ export default function ViewPage({
 
   const handleSectionEdit = (section: Section) => {
     setEditingSection(section);
-    // TODO: Open edit modal
+    setSectionProjectId(section.projectId);
+    setSectionParentId(section.parentId);
+    setSectionGoalId(section.goalId);
+    setSectionOrder(section.order || 0);
+    setShowAddSection(true);
+  };
+
+  const handleUpdateSection = async (
+    updates: Omit<Section, "id" | "createdAt" | "updatedAt">,
+  ) => {
+    if (!editingSection) return;
+    try {
+      const response = await fetch(`/api/sections/${editingSection.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name: updates.name,
+          description: updates.description ?? null,
+          color: updates.color,
+          icon: updates.icon,
+        }),
+      });
+
+      if (response.ok) {
+        await fetchData();
+        closeSectionModal();
+        return;
+      }
+
+      const errorText = await response.text();
+      console.error("Error updating section:", response.status, errorText);
+    } catch (error) {
+      console.error("Error updating section:", error);
+    }
   };
 
   const handleSectionDelete = async (sectionId: string) => {
@@ -2966,10 +3008,23 @@ export default function ViewPage({
     projectId: string,
     parentId?: string,
     order?: number,
+    goalId?: string,
   ) => {
+    setSectionProjectId(projectId);
     setSectionParentId(parentId);
+    setSectionGoalId(goalId);
     setSectionOrder(order || 0);
+    setEditingSection(null);
     setShowAddSection(true);
+  };
+
+  const closeSectionModal = () => {
+    setShowAddSection(false);
+    setSectionParentId(undefined);
+    setSectionGoalId(undefined);
+    setSectionProjectId(undefined);
+    setSectionOrder(0);
+    setEditingSection(null);
   };
 
   const openAddGoal = (
@@ -3145,25 +3200,14 @@ export default function ViewPage({
     }
   };
 
-  // Create a new task list (section) directly inside a goal.
-  const handleAddSectionToGoal = async (goalId: string) => {
+  // Create a new task list (section) directly inside a goal. Opens the same
+  // modal the project view uses so the list is named on creation.
+  const handleAddSectionToGoal = (goalId: string) => {
     const goal = database?.goals?.find((g) => g.id === goalId);
     if (!goal) return;
-    try {
-      const response = await fetch(`/api/sections`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          name: "New list",
-          projectId: goal.projectId,
-          goalId,
-        }),
-      });
-      if (response.ok) await fetchData();
-    } catch (error) {
-      console.error("Error adding task list to goal:", error);
-    }
+    const siblingCount =
+      database?.sections?.filter((s) => s.goalId === goalId).length || 0;
+    openAddSection(goal.projectId, undefined, siblingCount, goalId);
   };
 
   const handleCompleteGoal = async (goalId: string, completed: boolean) => {
@@ -7510,18 +7554,16 @@ export default function ViewPage({
         ) : null}
       </ConfirmModal>
 
-      {view.startsWith("project-") && showAddSection && (
+      {showAddSection && (sectionProjectId || view.startsWith("project-")) && (
         <AddSectionModal
           isOpen
-          onClose={() => {
-            setShowAddSection(false);
-            setSectionParentId(undefined);
-            setSectionOrder(0);
-          }}
-          onSave={handleAddSection}
-          projectId={view.replace("project-", "")}
+          onClose={closeSectionModal}
+          onSave={editingSection ? handleUpdateSection : handleAddSection}
+          projectId={sectionProjectId || view.replace("project-", "")}
           parentId={sectionParentId}
+          goalId={sectionGoalId}
           order={sectionOrder}
+          section={editingSection}
         />
       )}
 

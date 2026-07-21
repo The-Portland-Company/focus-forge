@@ -18,6 +18,7 @@ interface ProjectShare {
   project_id: string;
   token: string;
   allow_public: boolean;
+  permission: "read" | "write";
   expires_at: string | null;
   created_at: string;
   revoked_at: string | null;
@@ -50,6 +51,7 @@ export function ProjectShareModal({
   const [passcode, setPasscode] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [allowPublic, setAllowPublic] = useState(true);
+  const [permission, setPermission] = useState<"read" | "write">("read");
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const shareUrl = useCallback(
@@ -111,6 +113,7 @@ export function ProjectShareModal({
           passcode: passcode.trim() || undefined,
           expires_at: expiresAt || undefined,
           allow_public: allowPublic,
+          permission,
         }),
       });
       const payload = await res.json();
@@ -119,6 +122,7 @@ export function ProjectShareModal({
       setPasscode("");
       setExpiresAt("");
       setAllowPublic(true);
+      setPermission("read");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create link");
     } finally {
@@ -213,6 +217,40 @@ export function ProjectShareModal({
                 />
               </div>
             </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">
+                Access
+              </label>
+              <div className="flex gap-2">
+                {([
+                  { value: "read", label: "Can view", hint: "Read only" },
+                  { value: "write", label: "Can edit", hint: "Tick off and add tasks" },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setPermission(opt.value)}
+                    aria-pressed={permission === opt.value}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-left transition-colors ${
+                      permission === opt.value
+                        ? "border-[rgb(var(--theme-primary-rgb))] bg-zinc-800 text-white"
+                        : "border-zinc-700 bg-zinc-800/40 text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    <span className="block text-sm font-medium">{opt.label}</span>
+                    <span className="block text-[11px] text-zinc-500">
+                      {opt.hint}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {permission === "write" && (
+                <p className="mt-1.5 text-[11px] text-amber-400/90">
+                  Anyone with this link can change tasks without signing in.
+                  Consider setting a passcode.
+                </p>
+              )}
+            </div>
             <label className="flex items-center gap-2 text-xs text-zinc-400">
               <input
                 type="checkbox"
@@ -283,6 +321,15 @@ export function ProjectShareModal({
                       </button>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 ${
+                          share.permission === "write"
+                            ? "bg-zinc-800 text-emerald-300"
+                            : "bg-zinc-800 text-zinc-400"
+                        }`}
+                      >
+                        {share.permission === "write" ? "Can edit" : "View only"}
+                      </span>
                       {share.has_passcode && (
                         <span className="inline-flex items-center gap-1 rounded bg-zinc-800 px-1.5 py-0.5 text-amber-300">
                           <Lock className="h-3 w-3" /> Passcode

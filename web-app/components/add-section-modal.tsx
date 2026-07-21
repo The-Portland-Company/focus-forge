@@ -10,7 +10,10 @@ interface AddSectionModalProps {
   onSave: (section: Omit<Section, 'id' | 'createdAt' | 'updatedAt'>) => void
   projectId: string
   parentId?: string
+  goalId?: string
   order: number
+  /** When set, the modal edits this section instead of creating a new one. */
+  section?: Section | null
 }
 
 const iconOptions = [
@@ -47,7 +50,7 @@ const colorOptions = [
   '#6b7280'  // gray
 ]
 
-export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, order }: AddSectionModalProps) {
+export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, goalId, order, section }: AddSectionModalProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [color, setColor] = useState(colorOptions[0])
@@ -55,21 +58,27 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
   const [showColorPicker, setShowColorPicker] = useState(false)
   const [showIconPicker, setShowIconPicker] = useState(false)
 
+  // Seed the form when opening (from the edited section, if any) and clear it
+  // on close so a later "add" never inherits the last edit's values.
   useEffect(() => {
-    if (isOpen) return
-    setName('')
-    setDescription('')
-    setColor(colorOptions[0])
-    setIcon(iconOptions[0].value)
+    setName(isOpen ? section?.name ?? '' : '')
+    setDescription(isOpen ? section?.description ?? '' : '')
+    setColor((isOpen && section?.color) || colorOptions[0])
+    setIcon((isOpen && section?.icon) || iconOptions[0].value)
     setShowColorPicker(false)
     setShowIconPicker(false)
-  }, [isOpen])
+  }, [isOpen, section])
 
   if (!isOpen) return null
 
-  const isSubSection = Boolean(parentId)
-  const title = isSubSection ? 'Add Sub-Section' : 'Add Section'
-  const submitLabel = isSubSection ? 'Add Sub-Section' : 'Add Section'
+  const isEditing = Boolean(section)
+  const isSubSection = Boolean(parentId ?? section?.parentId)
+  const title = isEditing
+    ? 'Edit Task List'
+    : isSubSection
+      ? 'Add Sub-Section'
+      : 'Add Task List'
+  const submitLabel = isEditing ? 'Save Changes' : title
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -81,7 +90,8 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
       color,
       icon,
       projectId,
-      parentId,
+      parentId: parentId ?? section?.parentId,
+      goalId: goalId ?? section?.goalId,
       order
     })
   }

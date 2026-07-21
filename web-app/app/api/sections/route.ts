@@ -102,6 +102,11 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
+    if (typeof body?.color === "string") insertPayload.color = body.color;
+    if (typeof body?.icon === "string") insertPayload.icon = body.icon;
+    if (typeof body?.description === "string" && body.description.trim()) {
+      insertPayload.description = body.description.trim();
+    }
     if (parentId) {
       insertPayload.parent_id = parentId;
     }
