@@ -149,7 +149,14 @@ export function supplyIdentityLabel(item: SupplyLike): string | null {
  */
 export function taskDisplayName(item: SupplyLike, name: string): string {
   if (!isSupply(item)) return name;
-  return supplyIdentityLabel(item)?.trim() || name;
+  // Mirrors deriveSupplyName's order so a row never shows a name the save path
+  // would not produce. Falling straight through to the stored name would keep
+  // rendering a stale identity after the make/model/type fields were cleared.
+  const identity = supplyIdentityLabel(item)?.trim();
+  if (identity) return identity;
+  const vendor = parseSupplyVendor(item)?.label?.trim();
+  if (vendor) return vendor;
+  return name;
 }
 
 /**
