@@ -74,6 +74,8 @@ interface ProjectSectionBoardProps {
   sectionTasksBySectionId: Map<string, Task[]>;
   childSectionsByParentId: Map<string, Section[]>;
   goalsBySectionId?: Map<string | null, Goal[]>;
+  /** Sections with an in-flight save; they breathe until it settles. */
+  savingSectionIds?: Set<string>;
   goalTasksByGoalId?: Map<string, Task[]>;
   autoSectioning: boolean;
   onTaskFocus: (taskId: string) => void;
