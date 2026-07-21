@@ -1672,6 +1672,24 @@ export default function ViewPage({
                   assignedTo: taskPayload.assignedTo,
                   ...(timeEstimate !== undefined ? { timeEstimate } : {}),
                   ...(sub.dueDate ? { dueDate: sub.dueDate } : {}),
+                  // Supplies on a pending subtask: only sent when the row was
+                  // actually flagged, so ordinary subtasks keep the column
+                  // defaults rather than writing explicit nulls.
+                  ...(sub.isSupply
+                    ? {
+                        isSupply: true,
+                        supplyQuantity:
+                          sub.supplyQuantity !== undefined &&
+                          sub.supplyQuantity !== ""
+                            ? Number(sub.supplyQuantity)
+                            : null,
+                        supplyPrice:
+                          sub.supplyPrice !== undefined && sub.supplyPrice !== ""
+                            ? Number(sub.supplyPrice)
+                            : null,
+                        supplyVendor: sub.supplyVendor || null,
+                      }
+                    : {}),
                 }),
               });
             }),
