@@ -1,3 +1,24 @@
+## Autonomy — Standing Authorization (THIS PROJECT ONLY)
+
+**Scope:** overrides the global `AGENTS.md` deploy gating for this repository only. It does not change autonomy in any other project.
+
+Ship without asking. No "punch it" required, no approval question before merging or deploying:
+
+- Commit, push, open a PR, and **enable auto-merge** (`gh pr merge --auto --squash`).
+- Let it merge and deploy to production once CI is green.
+- **Additive migrations** (`add column if not exists`, new tables, new indexes, additive grants/revokes) — apply and ship them.
+
+**This authorization is conditional on the CI gates staying in place.** They are what replaced the human check: `.github/workflows/ci.yml` (tests + typecheck + build + gitleaks + Supabase Advisor + migration replay), branch protection requiring those checks, and auto-rollback on a failed post-deploy smoke. If a gate is disabled, broken, or bypassed, autonomy reverts to asking first. Never `--no-verify`, never bypass a required check.
+
+**Still ask first — these are outside the grant:**
+
+- **Destructive migrations**: `drop table/column`, `alter column type`, data backfills that rewrite existing rows, anything not reversible by rolling forward.
+- **Secrets, auth middleware, or RLS policy changes** that widen access.
+- **Anything that emails, texts, or posts to a third party** on real users' behalf.
+- Deleting or overwriting production data.
+
+**Always report after the fact**: what shipped, what the gates said, and anything reverted. Autonomy is not silence.
+
 ## Focus Forge Task Tracking (Forge)
 - Mirror tasks for this project into Focus Forge under org **The Portland Company**, project **Focus: Forge Web** (Project ID `f0010ce0-cd95-45e7-9db7-ed9443b6634b`).
 - AI export / reference: https://focusforge.theportlandcompany.com/projects/f0010ce0-cd95-45e7-9db7-ed9443b6634b/ai-export

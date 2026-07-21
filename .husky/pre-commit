@@ -20,3 +20,22 @@ if command -v gitleaks >/dev/null 2>&1; then
 else
   echo "pre-commit: gitleaks not installed — skip secret scan (install for local parity with CI)"
 fi
+
+# Supabase Advisor, only when the commit touches SQL/migrations. It is a
+# network call against the live project, so running it on every commit would
+# tax an unrelated one-line change; CI runs it unconditionally.
+# Exit 2 means "could not run" (no credentials / offline) and must not block a
+# local commit — CI is the enforcing copy.
+if git diff --cached --name-only --diff-filter=ACM | grep -qE '\.sql$|supabase/migrations/'; then
+  echo "pre-commit: SQL changed — running Supabase Advisor"
+  set +e
+  node "$ROOT/scripts/supabase-advisor.mjs"
+  advisor_status=$?
+  set -e
+  if [ "$advisor_status" -eq 1 ]; then
+    echo "pre-commit: new Supabase Advisor findings — fix them or run: node scripts/supabase-advisor.mjs --update"
+    exit 1
+  elif [ "$advisor_status" -eq 2 ]; then
+    echo "pre-commit: Supabase Advisor unavailable — skipped (CI will enforce)"
+  fi
+fi

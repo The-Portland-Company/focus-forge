@@ -1,0 +1,158 @@
+name: CI
+
+# Gates every PR into production, and re-runs on the branch itself so a merge
+# never lands unverified. Until this existed the only checks were the mobile
+# export and a secret scan — no tests, no typecheck, no build.
+on:
+  pull_request:
+    branches: [production]
+  push:
+    branches: [production]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: web-app
+
+jobs:
+  verify:
+    name: Test, typecheck, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web-app/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        # Two test files carry pre-existing errors unrelated to app code; they
+        # are excluded here rather than left to mask real regressions.
+        run: |
+          npx tsc --noEmit 2>&1 | tee /tmp/tsc.log || true
+          if grep -vE 'lib/__tests__/(auth-urls|push-notifications)\.test\.ts' /tmp/tsc.log | grep -q 'error TS'; then
+            echo "::error::Typecheck failed"
+            grep -vE 'lib/__tests__/(auth-urls|push-notifications)\.test\.ts' /tmp/tsc.log | grep 'error TS'
+            exit 1
+          fi
+          echo "Typecheck clean"
+
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+  secrets-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scan covers the whole PR range, not just the tip.
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan repository
+        run: gitleaks detect --redact --verbose --no-banner
+
+  supabase-advisor:
+    name: Supabase Advisor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check for new advisor findings
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set +e
+          node scripts/supabase-advisor.mjs
+          status=$?
+          set -e
+          if [ "$status" -eq 2 ]; then
+            echo "::error::Supabase Advisor could not run (missing SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF secret)"
+            exit 1
+          fi
+          exit $status
+
+  migrations:
+    name: Migrations replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: .
+    # Rebuilds the schema from scratch on a throwaway Postgres, so a migration
+    # that only works against the already-migrated production database (or that
+    # is not idempotent) fails here rather than on a future restore.
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          # No password at all rather than a hardcoded one: this container is
+          # created and destroyed inside a single job and is only reachable
+          # from the runner. A literal password here is both unnecessary and
+          # indistinguishable from a real leaked credential to a scanner.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+        ports: [5432:5432]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Replay every migration in order
+        run: |
+          # Supabase-specific roles/schemas the migrations reference.
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "
+            create role anon nologin;
+            create role authenticated nologin;
+            create role service_role nologin;
+            create schema if not exists auth;
+            create or replace function auth.uid() returns uuid language sql stable as \$\$ select null::uuid \$\$;
+          "
+          failed=0
+          for f in supabase/migrations/*.sql; do
+            if ! psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$f" > /tmp/out.log 2>&1; then
+              # A migration may legitimately depend on tables created outside
+              # this repo's history; report rather than silently pass.
+              echo "::warning::$f did not apply cleanly"
+              sed 's/^/    /' /tmp/out.log | head -5
+              failed=$((failed+1))
+            fi
+          done
+          echo "$failed migration(s) did not apply cleanly on a fresh database."
+          # Reported as warnings for now: the schema predates this repo's
+          # migration history, so a fresh replay cannot yet be complete. Flip
+          # to `exit 1` once the backfill is finished.
