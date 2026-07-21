@@ -6873,6 +6873,7 @@ export default function ViewPage({
                           priorityColor={userPriorityColor}
                           currentUserId={currentUserId}
                           completedAccordionKey={`project-${projectId}`}
+                          scheduledFirst={true}
                           revealActionsOnHover={true}
                           dueDateLayout={dueDateLayout}
                           bulkSelectMode={bulkSelectMode}
@@ -6990,6 +6991,7 @@ export default function ViewPage({
                                     true
                                   }
                                   completedAccordionKey={`project-${projectId}-goal-${goal.id}`}
+                                  scheduledFirst={true}
                                   revealActionsOnHover={true}
                                   dueDateLayout={dueDateLayout}
                                   uniformDueBadgeWidth={
@@ -7026,6 +7028,7 @@ export default function ViewPage({
                                   priorityColor={userPriorityColor}
                                   currentUserId={currentUserId}
                                   completedAccordionKey={`project-${projectId}`}
+                                  scheduledFirst={true}
                                   revealActionsOnHover={true}
                                   dueDateLayout={dueDateLayout}
                                   bulkSelectMode={bulkSelectMode}
@@ -7146,6 +7149,7 @@ export default function ViewPage({
                                 database.settings?.showCompletedTasks ?? true
                               }
                               completedAccordionKey={`project-${projectId}-unassigned`}
+                              scheduledFirst={true}
                               revealActionsOnHover={true}
                               dueDateLayout={dueDateLayout}
                               uniformDueBadgeWidth={dueDateLayout === "inline"}
