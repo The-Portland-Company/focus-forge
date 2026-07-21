@@ -155,6 +155,7 @@ export default async function SharePage(props: {
     name: string;
     completed: boolean | null;
     section_id: string | null;
+    parent_id: string | null;
     is_supply: boolean | null;
     supply_quantity: number | string | null;
     supply_price: number | string | null;
@@ -208,6 +209,7 @@ export default async function SharePage(props: {
     name: string;
     completed: boolean | null;
     section_id: string | null;
+    parent_id: string | null;
     is_supply: boolean | null;
     supply_quantity: number | string | null;
     supply_price: number | string | null;
@@ -217,8 +219,79 @@ export default async function SharePage(props: {
     supply_type: string | null;
   }>;
 
-  const tasksBySection = (sectionId: string | null) =>
-    allTasks.filter((t) => (t.section_id || null) === sectionId);
+  // Subtasks nest under their parent rather than sitting beside it. A child
+  // may carry a different section_id (or none) from its parent, so grouping is
+  // driven by ROOT tasks only and children follow their parent wherever it
+  // lands — otherwise a subtask surfaces as a stray top-level row in the
+  // unsectioned "Tasks" group.
+  const childrenByParent = new Map<string, typeof allTasks>();
+  for (const task of allTasks) {
+    const parentId = task.parent_id;
+    if (!parentId) continue;
+    const siblings = childrenByParent.get(parentId);
+    if (siblings) siblings.push(task);
+    else childrenByParent.set(parentId, [task]);
+  }
+
+  const knownIds = new Set(allTasks.map((t) => t.id));
+  // A task whose parent was deleted or lies outside this project would never
+  // render if it were treated as a child, so it is promoted to a root.
+  const isRoot = (task: (typeof allTasks)[number]) =>
+    !task.parent_id || !knownIds.has(task.parent_id);
+
+  const rootTasksBySection = (sectionId: string | null) =>
+    allTasks.filter(
+      (t) => isRoot(t) && (t.section_id || null) === sectionId,
+    );
+
+  /** A task plus every descendant, so a section's supplies include subtasks. */
+  const withDescendants = (
+    roots: typeof allTasks,
+  ): typeof allTasks => {
+    const out: typeof allTasks = [];
+    const walk = (task: (typeof allTasks)[number]) => {
+      out.push(task);
+      for (const child of childrenByParent.get(task.id) || []) walk(child);
+    };
+    roots.forEach(walk);
+    return out;
+  };
+
+  const renderTask = (
+    task: (typeof allTasks)[number],
+    depth = 0,
+  ): React.ReactNode => {
+    const children = childrenByParent.get(task.id) || [];
+    return (
+      <li key={task.id}>
+        <div
+          className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2"
+          style={depth > 0 ? { marginLeft: `${depth * 16}px` } : undefined}
+        >
+          {task.completed ? (
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+          ) : (
+            <Circle className="h-4 w-4 shrink-0 text-zinc-600" />
+          )}
+          <span
+            className={
+              task.completed
+                ? "text-sm text-zinc-500 line-through"
+                : "text-sm text-zinc-200"
+            }
+          >
+            {taskDisplayName(task, task.name)}
+          </span>
+          <SupplyLine task={task} />
+        </div>
+        {children.length > 0 && (
+          <ul className="mt-1.5 space-y-1.5">
+            {children.map((child) => renderTask(child, depth + 1))}
+          </ul>
+        )}
+      </li>
+    );
+  };
 
   // Re-derived from the row on every request, so revoking or downgrading a link
   // takes effect on the next load rather than being baked into the markup.
@@ -276,8 +349,10 @@ export default async function SharePage(props: {
           />
         </div>
         {groups.map((group) => {
-          const groupTasks = tasksBySection(group.id);
-          if (groupTasks.length === 0) return null;
+          const roots = rootTasksBySection(group.id);
+          if (roots.length === 0) return null;
+          // Supplies count the whole subtree, not just top-level rows.
+          const groupTasks = withDescendants(roots);
           return (
             <Fragment key={group.id ?? "no-section"}>
               <section className="lg:col-start-1">
@@ -285,31 +360,13 @@ export default async function SharePage(props: {
                   {group.name}
                 </h2>
                 <ul className="space-y-1.5">
-                  {groupTasks.map((task) => (
-                    <li
-                      key={task.id}
-                      className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2"
-                    >
-                      {task.completed ? (
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
-                      ) : (
-                        <Circle className="h-4 w-4 shrink-0 text-zinc-600" />
-                      )}
-                      <span
-                        className={
-                          task.completed
-                            ? "text-sm text-zinc-500 line-through"
-                            : "text-sm text-zinc-200"
-                        }
-                      >
-                        {taskDisplayName(task, task.name)}
-                      </span>
-                      <SupplyLine task={task} />
-                    </li>
-                  ))}
+                  {roots.map((task) => renderTask(task))}
                 </ul>
               </section>
-              <div className="lg:col-start-2">
+              {/* The section heading has no counterpart in this column, so the
+                  panel is pushed down by its height (text-sm line box + mb-2)
+                  to sit level with the first task rather than the title. */}
+              <div className="lg:col-start-2 lg:pt-[1.75rem]">
                 <ShareSupplyPanel items={groupTasks} />
               </div>
             </Fragment>
