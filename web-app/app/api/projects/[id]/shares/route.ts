@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   generateShareToken,
   hashPasscode,
+  normalizePermission,
 } from "@/lib/project-share";
 
 // Shape returned to the client. NEVER includes passcode_hash.
@@ -12,6 +13,7 @@ function toClientShare(row: any) {
     project_id: row.project_id,
     token: row.token,
     allow_public: row.allow_public,
+    permission: row.permission === "write" ? "write" : "read",
     expires_at: row.expires_at,
     created_at: row.created_at,
     revoked_at: row.revoked_at,
@@ -90,6 +92,8 @@ export async function POST(
       passcode_hash: passcode ? hashPasscode(passcode) : null,
       expires_at: expiresAt,
       allow_public: allowPublic,
+      // Anything but an explicit "write" is stored as read-only.
+      permission: normalizePermission(body?.permission),
       created_by: session.user.id,
     };
 
