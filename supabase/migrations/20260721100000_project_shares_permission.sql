@@ -10,8 +10,13 @@ alter table public.project_shares
 
 do $$
 begin
+  -- Scope the lookup to this table: conname is not globally unique, so an
+  -- unqualified name match would skip creating the constraint whenever any
+  -- other table already carries one by the same name.
   if not exists (
-    select 1 from pg_constraint where conname = 'project_shares_permission_check'
+    select 1 from pg_constraint
+    where conname = 'project_shares_permission_check'
+      and conrelid = 'public.project_shares'::regclass
   ) then
     alter table public.project_shares
       add constraint project_shares_permission_check
