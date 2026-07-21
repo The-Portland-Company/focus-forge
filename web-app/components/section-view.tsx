@@ -243,7 +243,7 @@ export function SectionView({
       subGoals.length > 0;
 
     return (
-      <div key={goal.id} className="mb-2">
+      <div key={goal.id} className="mb-1.5">
         <GoalGroupShell
           goal={goal}
           completedCount={completedCount}
@@ -359,7 +359,7 @@ export function SectionView({
 
   return (
     <div
-      className={`${level > 0 ? "ml-6" : "section-visibility-auto"} group/section`}
+      className={`${level > 0 ? "ml-4" : "section-visibility-auto"} group/section`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -407,8 +407,11 @@ export function SectionView({
               style={{ backgroundColor: section.color }}
             />
           )}
-          <span className="font-medium text-white">{section.name}</span>
-          <span className="text-sm text-zinc-500">({sectionTasks.length})</span>
+          {/* text-sm matches the goal name (goal-group.tsx) and the task name
+              (task-list.tsx); without it this inherited text-base and rendered
+              a step larger than everything it sits above. */}
+          <span className="text-sm font-medium text-white">{section.name}</span>
+          <span className="text-xs text-zinc-500">({sectionTasks.length})</span>
         </div>
 
         <div className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 flex items-center gap-1 transition-opacity">
@@ -470,19 +473,19 @@ export function SectionView({
         </div>
       </div>
 
-      {/* Section Content */}
+      {/* Section Content — ml-3 rather than ml-6: the content was
+          double-indented against an already-indented header, pushing tasks far
+          off the left edge. */}
       {!isCollapsed && (
-        <div className="ml-6">
+        <div className="ml-3">
           {/* Section Description */}
           {section.description && (
-            <p className="text-sm text-zinc-400 mb-3 ml-6">
-              {section.description}
-            </p>
+            <p className="text-sm text-zinc-400 mb-2">{section.description}</p>
           )}
 
           {/* Goal-less tasks in this section (or all tasks when no goals). */}
           {goalLessTasks.length > 0 && (
-            <div className="mb-4">{renderTaskList(goalLessTasks, "root")}</div>
+            <div className="mb-2.5">{renderTaskList(goalLessTasks, "root")}</div>
           )}
 
           {/* Goal sub-groups (each renders its tasks, nested task lists, and
