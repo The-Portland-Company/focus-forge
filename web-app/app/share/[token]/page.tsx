@@ -2,12 +2,16 @@ import { cookies } from "next/headers";
 import { CheckCircle2, Circle, Lock } from "lucide-react";
 import { getAdminClient } from "@/lib/supabase/admin";
 import {
+  canWriteShare,
   isShareActive,
   isValidShareCookie,
   shareCookieName,
 } from "@/lib/project-share";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { hasRichTextContent } from "@/lib/rich-text";
+import { ShareTaskBoard } from "@/components/share-task-board";
+import { SupplyTotal } from "@/components/supply-total";
+import { SupplyLine } from "@/components/supply-line";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +97,7 @@ export default async function SharePage(props: {
     revoked_at: string | null;
     expires_at: string | null;
     allow_public: boolean | null;
+    permission: string | null;
   } | null = null;
 
   let admin: ReturnType<typeof getAdminClient>;
@@ -101,7 +106,9 @@ export default async function SharePage(props: {
     // Cap wait — hung PostgREST must not leave the public share route open forever.
     const query = admin
       .from("project_shares")
-      .select("id,project_id,passcode_hash,revoked_at,expires_at,allow_public")
+      .select(
+        "id,project_id,passcode_hash,revoked_at,expires_at,allow_public,permission",
+      )
       .eq("token", token)
       .maybeSingle();
     const timed = await Promise.race([
@@ -145,6 +152,10 @@ export default async function SharePage(props: {
     name: string;
     completed: boolean | null;
     section_id: string | null;
+    is_supply: boolean | null;
+    supply_quantity: number | string | null;
+    supply_price: number | string | null;
+    supply_vendor: string | null;
   }> | null = null;
 
   try {
@@ -168,7 +179,9 @@ export default async function SharePage(props: {
         .order("todoist_order", { ascending: true }),
       admin
         .from("tasks")
-        .select("id,name,completed,section_id,todoist_order,parent_id")
+        .select(
+          "id,name,completed,section_id,todoist_order,parent_id,is_supply,supply_quantity,supply_price,supply_vendor",
+        )
         .eq("project_id", project.id)
         .is("deleted_at", null)
         .order("todoist_order", { ascending: true }),
@@ -189,10 +202,18 @@ export default async function SharePage(props: {
     name: string;
     completed: boolean | null;
     section_id: string | null;
+    is_supply: boolean | null;
+    supply_quantity: number | string | null;
+    supply_price: number | string | null;
+    supply_vendor: string | null;
   }>;
 
   const tasksBySection = (sectionId: string | null) =>
     allTasks.filter((t) => (t.section_id || null) === sectionId);
+
+  // Re-derived from the row on every request, so revoking or downgrading a link
+  // takes effect on the next load rather than being baked into the markup.
+  const canWrite = canWriteShare(share);
 
   const groups: Array<{ id: string | null; name: string }> = [
     { id: null, name: "Tasks" },
@@ -205,7 +226,12 @@ export default async function SharePage(props: {
   return (
     <Shell>
       <header className="mb-8">
-        <h1 className="text-2xl font-bold text-white">{project.name}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-white">{project.name}</h1>
+          <span className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[11px] text-zinc-400">
+            {canWrite ? "Can edit" : "View only"}
+          </span>
+        </div>
         {project.goal && (
           <p className="mt-2 text-sm text-zinc-400">{project.goal}</p>
         )}
@@ -216,7 +242,20 @@ export default async function SharePage(props: {
         )}
       </header>
 
+      {canWrite ? (
+        <ShareTaskBoard
+          token={token}
+          groups={groups}
+          initialTasks={allTasks}
+        />
+      ) : (
       <div className="space-y-6">
+        {/* Totals bracket the list, top and bottom. */}
+        <SupplyTotal
+          items={allTasks}
+          label="Supplies total"
+          variant="total"
+        />
         {groups.map((group) => {
           const groupTasks = tasksBySection(group.id);
           if (groupTasks.length === 0) return null;
@@ -245,9 +284,11 @@ export default async function SharePage(props: {
                     >
                       {task.name}
                     </span>
+                    <SupplyLine task={task} />
                   </li>
                 ))}
               </ul>
+              <SupplyTotal items={groupTasks} className="mt-2" />
             </section>
           );
         })}
@@ -256,7 +297,13 @@ export default async function SharePage(props: {
             This project has no tasks yet.
           </p>
         )}
+        <SupplyTotal
+          items={allTasks}
+          label="Supplies total"
+          variant="total"
+        />
       </div>
+      )}
     </Shell>
   );
 }

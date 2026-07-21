@@ -34,7 +34,9 @@ import {
   UserCheck,
   Sparkles,
   Target,
+  ShoppingCart,
 } from "lucide-react";
+import { formatCurrency, supplyLineTotal } from "@/lib/supply";
 import type {
   Database,
   Task,
@@ -180,6 +182,11 @@ export function TaskModal({
   const [newSubtaskDueDate, setNewSubtaskDueDate] = useState("");
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
   const [pendingSubtasks, setPendingSubtasks] = useState<PendingSubtask[]>([]);
+  // Subtasks added to an already-saved task are rendered immediately (with a
+  // breathing pulse) instead of waiting for the POST + parent data refresh.
+  // Each entry is dropped once the refreshed `data.tasks` contains its id.
+  const [optimisticSubtasks, setOptimisticSubtasks] = useState<any[]>([]);
+  const optimisticSubtaskSeq = useRef(0);
   // Inline subtask-title editing. For existing subtasks we key by id; for
   // pending subtasks we key by `pending:<index>`.
   const [editingSubtaskKey, setEditingSubtaskKey] = useState<string | null>(
@@ -227,6 +234,12 @@ export function TaskModal({
     useState<RecurringConfig | null>(null);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [timeEstimate, setTimeEstimate] = useState<string>("");
+  // Supply line-item fields. Kept as strings so a cleared input is
+  // distinguishable from a zero.
+  const [isSupply, setIsSupply] = useState(false);
+  const [supplyQuantity, setSupplyQuantity] = useState<string>("");
+  const [supplyPrice, setSupplyPrice] = useState<string>("");
+  const [supplyVendor, setSupplyVendor] = useState<string>("");
   const [estimateSuggesting, setEstimateSuggesting] = useState(false);
   const [estimateError, setEstimateError] = useState<string | null>(null);
   const [startDate, setStartDate] = useState("");
@@ -296,6 +309,15 @@ export function TaskModal({
       );
       const te = (task as any).time_estimate ?? task.timeEstimate ?? undefined;
       setTimeEstimate(te != null ? String(te) : "");
+      const supplyFlag =
+        (task as any).is_supply ?? task.isSupply ?? false;
+      setIsSupply(Boolean(supplyFlag));
+      const sq = (task as any).supply_quantity ?? task.supplyQuantity;
+      setSupplyQuantity(sq != null ? String(sq) : "");
+      const sp = (task as any).supply_price ?? task.supplyPrice;
+      setSupplyPrice(sp != null ? String(sp) : "");
+      const sv = (task as any).supply_vendor ?? task.supplyVendor;
+      setSupplyVendor(sv != null ? String(sv) : "");
       const sd = (task as any).start_date || task.startDate;
       const st = (task as any).start_time || task.startTime;
       const ed = (task as any).end_date || task.endDate;
@@ -326,6 +348,12 @@ export function TaskModal({
       setTaskName(initialName);
     }
   }, [initialName, task]);
+
+  // Optimistic subtask rows belong to one open task — never carry them over to
+  // the next task the modal is opened on.
+  useEffect(() => {
+    setOptimisticSubtasks([]);
+  }, [task?.id, isOpen]);
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -363,6 +391,10 @@ export function TaskModal({
       setUserMentionIndex(0);
       setExpandedBlockerId(null);
       setRecurringConfig(null);
+      setIsSupply(false);
+      setSupplyQuantity("");
+      setSupplyPrice("");
+      setSupplyVendor("");
       setPendingSubtasks([]);
       setNewSubtaskName("");
       setNewSubtaskEstimate("");
@@ -556,6 +588,36 @@ export function TaskModal({
       goalId: selectedGoalId || (isEditMode ? null : undefined),
       timeEstimate:
         timeEstimate !== "" ? parseInt(timeEstimate, 10) : isEditMode ? null : undefined,
+      isSupply,
+      // Only send supply details when the task is actually a supply, and clear
+      // them out when the flag is turned off so stale amounts can't linger.
+      supplyQuantity: isSupply
+        ? supplyQuantity !== ""
+          ? Number(supplyQuantity)
+          : isEditMode
+            ? null
+            : undefined
+        : isEditMode
+          ? null
+          : undefined,
+      supplyPrice: isSupply
+        ? supplyPrice !== ""
+          ? Number(supplyPrice)
+          : isEditMode
+            ? null
+            : undefined
+        : isEditMode
+          ? null
+          : undefined,
+      supplyVendor: isSupply
+        ? supplyVendor.trim() !== ""
+          ? supplyVendor.trim()
+          : isEditMode
+            ? null
+            : undefined
+        : isEditMode
+          ? null
+          : undefined,
       startDate: nextStartDate,
       startTime: startDate
         ? nullableEditFieldValue(startTime, isEditMode)
@@ -1259,6 +1321,26 @@ export function TaskModal({
       subtask.dueDate = newSubtaskDueDate;
     }
 
+    // Show it right away, then clear the inputs so the next one can be typed
+    // without waiting on the network.
+    const tempId = `subtask-temp-${(optimisticSubtaskSeq.current += 1)}`;
+    const now = new Date().toISOString();
+    setOptimisticSubtasks((prev) => [
+      ...prev,
+      {
+        ...subtask,
+        id: tempId,
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+        _saving: true,
+      },
+    ]);
+    setNewSubtaskName("");
+    setNewSubtaskEstimate("");
+    setNewSubtaskDueDate("");
+    setIsAddingSubtask(false);
+
     try {
       const response = await fetch("/api/tasks", {
         method: "POST",
@@ -1266,15 +1348,27 @@ export function TaskModal({
         body: JSON.stringify(subtask),
       });
 
-      if (response.ok) {
-        setNewSubtaskName("");
-        setNewSubtaskEstimate("");
-        setNewSubtaskDueDate("");
-        setIsAddingSubtask(false);
-        if (onDataRefresh) onDataRefresh();
-      }
+      if (!response.ok) throw new Error(`POST /api/tasks ${response.status}`);
+
+      // Swap the placeholder for the saved row. Keeping it in local state under
+      // the real id means the refresh below dedupes it away, with no flicker.
+      const created = await response.json();
+      setOptimisticSubtasks((prev) =>
+        prev.map((s) =>
+          s.id === tempId ? { ...created, _saving: false } : s,
+        ),
+      );
+      if (onDataRefresh) onDataRefresh();
     } catch (error) {
       console.error("Failed to create subtask:", error);
+      // Roll the row back and hand the text back to the user.
+      setOptimisticSubtasks((prev) => prev.filter((s) => s.id !== tempId));
+      setNewSubtaskName(subtask.name);
+      setNewSubtaskEstimate(
+        subtask.timeEstimate != null ? String(subtask.timeEstimate) : "",
+      );
+      setNewSubtaskDueDate(subtask.dueDate || "");
+      setIsAddingSubtask(true);
     }
   };
 
@@ -1391,8 +1485,15 @@ export function TaskModal({
     task && task.parentId
       ? data.tasks.find((t) => t.id === task.parentId)
       : null;
-  const subtasks =
+  const savedSubtasks =
     isEditMode && task ? data.tasks.filter((t) => t.parentId === task.id) : [];
+  // Optimistic rows drop out as soon as the refreshed data carries the same id.
+  const subtasks = [
+    ...savedSubtasks,
+    ...optimisticSubtasks.filter(
+      (o) => !savedSubtasks.some((s) => s.id === o.id),
+    ),
+  ];
 
   // Highlight deadlines
   const deadlineHighlight =
@@ -2296,6 +2397,80 @@ export function TaskModal({
             </div>
           </div>
 
+          {/* Supply line item */}
+          <div>
+            <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isSupply}
+                onChange={(e) => setIsSupply(e.target.checked)}
+                className="accent-[rgb(var(--theme-primary-rgb))]"
+              />
+              <ShoppingCart className="w-4 h-4" />
+              This is a supply
+            </label>
+            {isSupply && (
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">
+                    Quantity
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={supplyQuantity}
+                    onChange={(e) => setSupplyQuantity(e.target.value)}
+                    placeholder="1"
+                    className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">
+                    Price (each)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={supplyPrice}
+                    onChange={(e) => setSupplyPrice(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">
+                    Vendor
+                  </label>
+                  <input
+                    type="text"
+                    value={supplyVendor}
+                    onChange={(e) => setSupplyVendor(e.target.value)}
+                    placeholder="Where to buy it"
+                    className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+                  />
+                </div>
+                {supplyPrice !== "" && (
+                  <p className="text-xs text-zinc-500 sm:col-span-3">
+                    Line total:{" "}
+                    <span className="text-zinc-300">
+                      {formatCurrency(
+                        supplyLineTotal({
+                          is_supply: true,
+                          supply_quantity:
+                            supplyQuantity !== "" ? Number(supplyQuantity) : null,
+                          supply_price: Number(supplyPrice),
+                        }),
+                      )}
+                    </span>
+                    {supplyQuantity === "" && " (quantity blank counts as 1)"}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Deadline */}
           <div>
             <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
@@ -3156,11 +3331,17 @@ export function TaskModal({
             {/* Existing subtasks (edit mode) */}
             {isEditMode &&
               subtasks.map((subtask) => (
-                <div key={subtask.id} className="flex items-center gap-2 mb-2">
+                <div
+                  key={subtask.id}
+                  className={`flex items-center gap-2 mb-2 ${
+                    (subtask as any)._saving ? "animate-breathe" : ""
+                  }`}
+                >
                   <button
                     type="button"
+                    disabled={(subtask as any)._saving}
                     onClick={() => toggleSubtaskComplete(subtask)}
-                    className="text-zinc-400 hover:text-white"
+                    className="text-zinc-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {subtask.completed ? (
                       <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -3188,9 +3369,10 @@ export function TaskModal({
                     />
                   ) : (
                     <span
-                      onDoubleClick={() =>
-                        startEditingSubtask(subtask.id, subtask.name)
-                      }
+                      onDoubleClick={() => {
+                        if ((subtask as any)._saving) return;
+                        startEditingSubtask(subtask.id, subtask.name);
+                      }}
                       title="Double-click to rename"
                       className={`flex-1 cursor-text ${subtask.completed ? "line-through text-zinc-500" : "text-zinc-300"}`}
                     >

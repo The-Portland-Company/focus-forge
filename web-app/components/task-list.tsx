@@ -28,7 +28,17 @@ import {
   StickyNote,
   Sparkles,
   UserCheck,
+  ShoppingCart,
 } from "lucide-react";
+import {
+  isSupply,
+  supplyPrice,
+  supplyQuantity,
+  supplyVendor,
+  supplyLineTotal,
+  formatCurrency,
+  formatQuantity,
+} from "@/lib/supply";
 import { isAiCreatedTask } from "@/lib/email-inbox/ai-task-origin";
 import { format, addDays } from "date-fns";
 import { getStartOfDay, isToday, isOverdue } from "@/lib/date-utils";
@@ -1276,6 +1286,38 @@ export function TaskList({
                     </span>
                   );
                 })()}
+
+                {/* Supply line item: quantity x price, vendor, line total */}
+                {isSupply(task as any) && (
+                  <span
+                    className="flex items-center gap-1 text-xs sm:text-[10px] text-amber-300"
+                    title={[
+                      supplyVendor(task as any)
+                        ? `Vendor: ${supplyVendor(task as any)}`
+                        : null,
+                      supplyLineTotal(task as any) !== null
+                        ? `Line total: ${formatCurrency(supplyLineTotal(task as any))}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  >
+                    <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
+                    {supplyPrice(task as any) !== null && (
+                      <span className="font-medium">
+                        {formatQuantity(supplyQuantity(task as any) ?? 1)} ×{" "}
+                        {formatCurrency(supplyPrice(task as any))}
+                        {" = "}
+                        {formatCurrency(supplyLineTotal(task as any))}
+                      </span>
+                    )}
+                    {supplyVendor(task as any) && (
+                      <span className="text-amber-300/70">
+                        @ {supplyVendor(task as any)}
+                      </span>
+                    )}
+                  </span>
+                )}
 
                 {/* Comments indicator */}
                 {(task as any).todoistCommentCount > 0 ||

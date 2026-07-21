@@ -25,18 +25,22 @@
     --ring: 240 10% 3.9%;
     --radius: 0.5rem;
     
-    /* Theme variables - will be set by JavaScript */
-    --theme-primary: #007AFF; /* Default to Liquid Glass Apple blue */
-    --theme-gradient: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
-    --theme-primary-rgb: 0, 122, 255;
-    
+    /* Theme variables — overwritten by JS once the stored theme loads.
+       These defaults are what paints during that round-trip, so they match
+       DEFAULT_THEME_PRESET ('neutral-dark', see lib/theme-constants.ts)
+       rather than a saturated brand color. They used to default to Apple
+       blue, which made every refresh flash blue before settling. */
+    --theme-primary: #e4e4e7; /* zinc-200, same as .theme-neutral */
+    --theme-gradient: #e4e4e7;
+    --theme-primary-rgb: 228, 228, 231;
+
     /* Default gradient theme */
     --default-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    
-    /* User profile color - defaults to Liquid Glass theme */
-    --user-profile-color: #007AFF;
-    --user-profile-gradient: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
-    --user-profile-color-rgb: 0, 122, 255;
+
+    /* User profile color - neutral until the profile's color loads */
+    --user-profile-color: #e4e4e7;
+    --user-profile-gradient: #e4e4e7;
+    --user-profile-color-rgb: 228, 228, 231;
   }
 
   .dark {
@@ -386,16 +390,57 @@ input[type="checkbox"]:focus {
 /* The full-screen app shell is always dark, regardless of theme preset, so a
    light/system-light account preference can't leave it transparent-white.
    A future real light theme can override `.theme-light .app-shell-background`. */
+/* The flat black base paints immediately from CSS; the colored gradient wash
+   rides on an overlay that fades in, so a refresh settles from black into the
+   gradient instead of flashing a color first.
+
+   The overlay is a pseudo-element because background-image is not animatable.
+   z-index:-1 keeps it above the element's own background but behind all its
+   in-flow content. Base opacity is 1 so that when animations are disabled
+   (.no-animations sets animation:none) the gradient simply appears at once. */
 .app-shell-background {
+  position: relative;
   background-color: var(--app-background-color); /* zinc-950 base */
-  background-image: var(--app-background-image);
   background-repeat: no-repeat;
 }
 
 .theme-dark body {
   background-color: var(--app-background-color);
+  background-repeat: no-repeat;
+}
+
+@keyframes app-background-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.app-shell-background::before,
+.theme-dark body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background-image: var(--app-background-image);
   background-repeat: no-repeat;
+  opacity: 1;
+  animation: app-background-fade-in 700ms ease-out;
+}
+
+/* Body's overlay must span the viewport, not just the body box. */
+.theme-dark body::before {
+  position: fixed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell-background::before,
+  .theme-dark body::before {
+    animation: none;
+  }
 }
 
 .theme-dark body {
@@ -1025,6 +1070,12 @@ input[type="datetime-local"].themed-date-input {
     radial-gradient(circle at 24% 12%, rgba(0, 122, 255, 0.06) 0, transparent 34rem),
     radial-gradient(circle at 80% 20%, rgba(88, 86, 214, 0.05) 0, transparent 38rem),
     linear-gradient(135deg, #f7f7f9 0%, #eef0f3 48%, #f5f5f7 100%);
+}
+
+/* Light mode paints its own wash on the element itself, so the dark overlay
+   must not sit on top of it. */
+:is(.light, .theme-light) .app-shell-background::before {
+  background-image: none;
 }
 
 /* Dark surface backgrounds -> light. zinc-950/900/black become the base/card
