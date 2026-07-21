@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { Section, Task, Database, Goal } from "@/lib/types";
 import { TaskList } from "./task-list";
+import { SupplyTotal } from "./supply-total";
+import type { SupplyLike } from "@/lib/supply";
 import { GoalGroupShell } from "./goal-group";
 
 interface SectionViewProps {
@@ -522,6 +524,11 @@ export function SectionView({
               userId={userId}
             />
           ))}
+
+          {/* Supplies subtotal for this section. Covers every task filed under
+              it (including those grouped into goals); child sections carry
+              their own subtotal. Renders nothing when there are no supplies. */}
+          <SupplyTotal items={sectionTasks as SupplyLike[]} className="mt-2" />
         </div>
       )}
     </div>

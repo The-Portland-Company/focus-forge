@@ -91,7 +91,8 @@ export async function loadCoreDatabaseViaPostgres(
         assigned_to, created_by, agent_name, agent_model, created_at, updated_at,
         deleted_at, todoist_id, recurring_pattern, time_estimate,
         devnotes_meta, requires_hitl, todoist_order, snoozed_until,
-        start_date, start_time, end_date, end_time
+        start_date, start_time, end_date, end_time,
+        is_supply, supply_quantity, supply_price, supply_vendor
       FROM tasks
       WHERE deleted_at IS NULL
         AND project_id = ANY(${projectIds})
@@ -254,6 +255,18 @@ export async function loadCoreDatabaseViaPostgres(
     todoistId: task.todoist_id,
     recurringPattern: task.recurring_pattern,
     timeEstimate: task.time_estimate,
+    isSupply: task.is_supply ?? false,
+    // numeric columns come back from node-postgres as strings; Number() keeps
+    // the client working in numbers so subtotals never string-concatenate.
+    supplyQuantity:
+      task.supply_quantity === null || task.supply_quantity === undefined
+        ? null
+        : Number(task.supply_quantity),
+    supplyPrice:
+      task.supply_price === null || task.supply_price === undefined
+        ? null
+        : Number(task.supply_price),
+    supplyVendor: task.supply_vendor,
     snoozedUntil: task.snoozed_until,
     startDate: task.start_date,
     startTime: task.start_time,

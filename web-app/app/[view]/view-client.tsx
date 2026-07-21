@@ -66,6 +66,8 @@ import { ColorWheelPicker } from "@/components/color-wheel-picker";
 import { formatDate } from "@/lib/format-date";
 import { Database, Task, Project, Organization, Section, Goal } from "@/lib/types";
 import { SectionView } from "@/components/section-view";
+import { SupplyTotal } from "@/components/supply-total";
+import type { SupplyLike } from "@/lib/supply";
 import { AddSectionModal } from "@/components/add-section-modal";
 import { AddGoalModal, AddGoalPayload } from "@/components/add-goal-modal";
 import { GoalGroupShell } from "@/components/goal-group";
@@ -6543,6 +6545,15 @@ export default function ViewPage({
                   </div>
                 ) : projectSectionLayout === "list" ? (
                   <div className="mx-auto w-full max-w-[1000px]">
+                    {/* Project supplies total, mirrored at the foot of the
+                        list. Hidden entirely when the project has none. */}
+                    <SupplyTotal
+                      items={visibleProjectTasks as SupplyLike[]}
+                      label="Supplies total"
+                      variant="total"
+                      className="mb-3"
+                    />
+
                     <AddSectionDivider
                       onClick={() => openAddSection(projectId, undefined, 0)}
                     />
@@ -6903,6 +6914,13 @@ export default function ViewPage({
                           </div>
                         </div>
                       )}
+
+                    <SupplyTotal
+                      items={visibleProjectTasks as SupplyLike[]}
+                      label="Supplies total"
+                      variant="total"
+                      className="mt-4"
+                    />
                   </div>
                 ) : (
                   <ProjectSectionBoard
