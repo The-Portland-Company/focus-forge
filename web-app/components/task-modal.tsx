@@ -363,6 +363,10 @@ export function TaskModal({
   const [endTime, setEndTime] = useState<string>("");
   const [copiedId, setCopiedId] = useState(false);
   const [activeTab, setActiveTab] = useState<TaskModalTab>("details");
+  // Inline goal creation from the picker.
+  const [isAddingGoal, setIsAddingGoal] = useState(false);
+  const [newGoalName, setNewGoalName] = useState("");
+  const [isSavingGoal, setIsSavingGoal] = useState(false);
   // History only exists once the task does, so it is hidden when adding.
   const visibleTabs = TASK_MODAL_TABS.filter(
     (tab) => tab.key !== "history" || isEditMode,
@@ -2214,12 +2218,60 @@ export function TaskModal({
               if (defaultSectionId) return gSectionId === defaultSectionId;
               return true;
             });
-            if (availableGoals.length === 0 && !selectedGoalId) return null;
+            // Rendered even with no goals yet: the picker is the only place to
+            // create one, so hiding it when the list is empty left no way in.
+            const parentGoal = availableGoals.find(
+              (g) => g.id === selectedGoalId,
+            );
+
+            const createGoal = async () => {
+              const name = newGoalName.trim();
+              if (!name || !goalProjectId || isSavingGoal) return;
+              setIsSavingGoal(true);
+              try {
+                const response = await fetch("/api/goals", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  body: JSON.stringify({
+                    name,
+                    projectId: goalProjectId,
+                    ...(defaultSectionId ? { sectionId: defaultSectionId } : {}),
+                    // Nest under whatever is currently selected, so choosing a
+                    // goal then adding one puts the new goal inside it.
+                    ...(selectedGoalId ? { parentGoalId: selectedGoalId } : {}),
+                  }),
+                });
+                if (!response.ok) {
+                  console.error("Failed to create goal:", await response.text());
+                  return;
+                }
+                const created = await response.json().catch(() => null);
+                const createdId = created?.goal?.id || created?.id;
+                if (createdId) setSelectedGoalId(createdId);
+                setNewGoalName("");
+                setIsAddingGoal(false);
+                onDataRefresh?.();
+              } finally {
+                setIsSavingGoal(false);
+              }
+            };
+
             return (
               <div>
-                <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
-                  <Target className="w-4 h-4" />
-                  Goal
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2 text-sm text-zinc-400">
+                    <Target className="w-4 h-4" />
+                    Goal
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingGoal((v) => !v)}
+                    className="flex items-center gap-1 text-xs text-zinc-400 transition-colors hover:text-white"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    New goal
+                  </button>
                 </div>
                 <select
                   value={selectedGoalId}
@@ -2233,6 +2285,49 @@ export function TaskModal({
                     </option>
                   ))}
                 </select>
+                {isAddingGoal && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={newGoalName}
+                      onChange={(e) => setNewGoalName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void createGoal();
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          setIsAddingGoal(false);
+                          setNewGoalName("");
+                        }
+                      }}
+                      placeholder={
+                        parentGoal
+                          ? `New goal inside "${parentGoal.name}"`
+                          : "New goal name"
+                      }
+                      autoFocus
+                      className="flex-1 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 ring-theme"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void createGoal()}
+                      disabled={!newGoalName.trim() || isSavingGoal}
+                      className="flex items-center gap-1.5 rounded-lg btn-theme-primary px-3 py-2 text-sm text-white transition-all disabled:opacity-60"
+                    >
+                      {isSavingGoal && (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      )}
+                      Add
+                    </button>
+                  </div>
+                )}
+                {parentGoal && isAddingGoal && (
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Nests inside &quot;{parentGoal.name}&quot;. Clear the goal
+                    above to create a top-level one.
+                  </p>
+                )}
               </div>
             );
           })()}
