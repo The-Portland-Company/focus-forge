@@ -7,6 +7,14 @@ const { app, BrowserWindow, shell } = require("electron");
 const APP_URL = process.env.FOCUSFORGE_URL || "https://focusforge.theportlandcompany.com/today";
 const APP_HOST = new URL(APP_URL).host;
 
+// Present as plain Chrome. The default Electron user agent carries
+// "focus-forge-desktop-shell/1.0.0" and "Electron/<ver>" tokens, and 1Password
+// treats a window whose UA contains "Electron" as a non-browser: it never
+// offers inline autofill on the login form. Stripping those tokens down to a
+// standard Chrome UA (same Chromium version the shell already runs) makes
+// 1Password recognise the embedded browser and prompt as it does in Chrome.
+const CHROME_UA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`;
+
 let mainWindow = null;
 
 const createWindow = () => {
@@ -24,7 +32,10 @@ const createWindow = () => {
     },
   });
 
-  mainWindow.loadURL(APP_URL);
+  // Apply the Chrome UA to the whole session, so sub-resources and any
+  // navigation report it too, not just the top document.
+  mainWindow.webContents.setUserAgent(CHROME_UA);
+  mainWindow.loadURL(APP_URL, { userAgent: CHROME_UA });
   mainWindow.once("ready-to-show", () => mainWindow.show());
 
   // Off-domain links open in the user's default browser; app links stay in-window.

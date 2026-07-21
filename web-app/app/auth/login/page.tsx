@@ -115,18 +115,19 @@ function LoginContent() {
               />
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label htmlFor="password" className="block text-sm font-medium">
-                  Password
-                </label>
-                <Link 
-                  href="/auth/forgot-password" 
-                  className="text-sm text-[rgb(var(--theme-primary-rgb))] hover:underline"
-                >
-                  Forgot password?
-                </Link>
-              </div>
+            {/* Relative wrapper so the "Forgot password?" link can float to the
+                top-right where it visually belongs while coming AFTER the
+                password input in the DOM. Previously the link sat before the
+                input, so Tab from Email jumped to it instead of the password
+                field. Order is now Email → Password → Forgot password → Sign
+                in. */}
+            <div className="relative">
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium mb-2"
+              >
+                Password
+              </label>
               <input
                 id="password"
                 type="password"
@@ -137,6 +138,12 @@ function LoginContent() {
                 required
                 autoComplete="current-password"
               />
+              <Link
+                href="/auth/forgot-password"
+                className="absolute top-0 right-0 text-sm text-[rgb(var(--theme-primary-rgb))] hover:underline"
+              >
+                Forgot password?
+              </Link>
             </div>
           </div>
 
