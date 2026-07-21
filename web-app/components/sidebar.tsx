@@ -2925,9 +2925,17 @@ export function Sidebar({
         </div>
       )}
 
-      {/* Bottom section */}
+      {/* Bottom section — pinned to the bottom of the sidebar column so the
+          scrollable nav above it gets the remaining height. Kept tight on top
+          (the divider sits just above API Docs) so the Projects list shows as
+          many rows as possible. The old fixed mb-12 lifted it ~48px off the
+          bottom and wasted that space; the safe-area padding below replaces it
+          and only reserves height on devices that actually need it. */}
       <div
-        className={`${isCollapsed ? "p-2" : "px-3 py-3"} border-t border-zinc-800 mb-12 relative`}
+        className={`${isCollapsed ? "px-2 pt-1 pb-2" : "px-3 pt-1 pb-2"} mt-auto shrink-0 border-t border-zinc-800 relative`}
+        style={{
+          paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom, 0px))",
+        }}
       >
         {isCollapsed ? (
           <div className="space-y-1">

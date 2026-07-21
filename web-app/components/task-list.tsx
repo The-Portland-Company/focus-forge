@@ -19,6 +19,8 @@ import {
   AlertCircle,
   Repeat2,
   Hash,
+  ListTree,
+  CornerDownRight,
   Square,
   CheckSquare,
   Loader2,
@@ -566,6 +568,13 @@ export function TaskList({
   const renderTask = (task: Task) => {
     const indentLevel = getIndentLevel(task);
     const hasSubtasks = hasChildren(task.id);
+    // Parent, child and standalone tasks each get their own glyph in the id
+    // column so the hierarchy reads without relying on indentation alone.
+    const TaskGlyph = hasSubtasks
+      ? ListTree
+      : indentLevel > 0
+        ? CornerDownRight
+        : Hash;
     const isCollapsed = collapsedTasks.has(task.id);
     const isLoading = loadingTaskIds?.has(task.id);
     const isAnimatingOut = animatingOutTaskIds?.has(task.id);
@@ -777,7 +786,7 @@ export function TaskList({
               ? "bg-violet-900/10 hover:bg-violet-900/20"
               : ""
         }`}
-        style={{ paddingLeft: `${6 + indentLevel * 24}px` }}
+        style={{ paddingLeft: `${6 + indentLevel * 16}px` }}
       >
         {/* Fixed-width expander slot (far left) — always reserved so parent and
             non-parent rows align identically with zero layout shift. -mr-2
@@ -821,7 +830,7 @@ export function TaskList({
               aria-label="Copy task ID"
               title="Copy task ID"
             >
-              <Hash className="w-4 h-4" />
+              <TaskGlyph className="w-4 h-4" />
             </button>
             <span className="absolute left-full ml-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/copyid:opacity-100 transition-opacity pointer-events-none z-50">
               Copy task ID
