@@ -128,6 +128,9 @@ export interface Task {
   supplyQuantity?: number | null;
   supplyPrice?: number | null;
   supplyVendor?: string | null;
+  supplyMake?: string | null;
+  supplyModel?: string | null;
+  supplyType?: string | null;
   snoozedUntil?: string | null;
   startDate?: string;
   startTime?: string;

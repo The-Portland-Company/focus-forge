@@ -31,6 +31,7 @@ import {
   Sparkles,
   UserCheck,
   ShoppingCart,
+  ExternalLink,
 } from "lucide-react";
 import {
   isSupply,
@@ -38,6 +39,8 @@ import {
   supplyQuantity,
   supplyVendor,
   supplyLineTotal,
+  supplyIdentityLabel,
+  parseSupplyVendor,
   formatCurrency,
   formatQuantity,
 } from "@/lib/supply";
@@ -1320,11 +1323,38 @@ export function TaskList({
                         {formatCurrency(supplyLineTotal(task as any))}
                       </span>
                     )}
-                    {supplyVendor(task as any) && (
+                    {supplyIdentityLabel(task as any) && (
                       <span className="text-amber-300/70">
-                        @ {supplyVendor(task as any)}
+                        {supplyIdentityLabel(task as any)}
                       </span>
                     )}
+                    {(() => {
+                      // A vendor may be a plain name or a URL. URLs render as a
+                      // link labelled by site name with an open-in-new-tab
+                      // affordance; plain names stay text.
+                      const vendor = parseSupplyVendor(task as any);
+                      if (!vendor) return null;
+                      if (!vendor.url) {
+                        return (
+                          <span className="text-amber-300/70">
+                            @ {vendor.label}
+                          </span>
+                        );
+                      }
+                      return (
+                        <a
+                          href={vendor.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          title={`Open ${vendor.label} in a new tab`}
+                          className="inline-flex items-center gap-0.5 text-amber-300/70 underline-offset-2 hover:text-amber-200 hover:underline"
+                        >
+                          @ {vendor.label}
+                          <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+                        </a>
+                      );
+                    })()}
                   </span>
                 )}
 
