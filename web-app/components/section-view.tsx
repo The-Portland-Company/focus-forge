@@ -12,10 +12,12 @@ import {
   Target,
 } from "lucide-react";
 import { Section, Task, Database, Goal } from "@/lib/types";
+import { getSectionIcon } from "@/lib/section-icons";
 import { TaskList } from "./task-list";
 import { SupplyTotal } from "./supply-total";
 import type { SupplyLike } from "@/lib/supply";
 import { GoalGroupShell } from "./goal-group";
+import { GoalEdits } from "./edit-goal-modal";
 
 interface SectionViewProps {
   section: Section;
@@ -56,6 +58,7 @@ interface SectionViewProps {
   onAddGoal?: (projectId: string, sectionId?: string) => void;
   onCompleteGoal?: (goalId: string, completed: boolean) => void;
   onRenameGoal?: (goalId: string, name: string) => void;
+  onUpdateGoal?: (goalId: string, edits: GoalEdits) => void;
   onDeleteGoal?: (goalId: string) => void;
   onTaskDropToGoal?: (
     taskId: string,
@@ -105,6 +108,7 @@ export function SectionView({
   onAddGoal,
   onCompleteGoal,
   onRenameGoal,
+  onUpdateGoal,
   onDeleteGoal,
   onTaskDropToGoal,
   onSectionDropToGoal,
@@ -126,6 +130,8 @@ export function SectionView({
       setIsCollapsed(preference.isCollapsed);
     }
   }, [database.userSectionPreferences, userId, section.id]);
+
+  const SectionIcon = getSectionIcon(section.icon);
 
   // Get tasks for this section
   const sectionTasks = useMemo(() => {
@@ -247,6 +253,7 @@ export function SectionView({
           onSectionDropToGoal={onSectionDropToGoal}
           onCompleteGoal={onCompleteGoal}
           onRenameGoal={onRenameGoal}
+          onUpdateGoal={onUpdateGoal}
           onDeleteGoal={onDeleteGoal}
           onAddTaskToGoal={onAddTaskToGoal}
           onAddSectionToGoal={onAddSectionToGoal}
@@ -291,6 +298,7 @@ export function SectionView({
               onAddGoal={onAddGoal}
               onCompleteGoal={onCompleteGoal}
               onRenameGoal={onRenameGoal}
+              onUpdateGoal={onUpdateGoal}
               onDeleteGoal={onDeleteGoal}
               onTaskDropToGoal={onTaskDropToGoal}
               onSectionDropToGoal={onSectionDropToGoal}
@@ -387,7 +395,12 @@ export function SectionView({
         {/* Icon and color dot are omitted entirely when unset — rendering them
             empty left their surrounding gaps behind as dead space. */}
         <div className="flex items-center gap-2 flex-1">
-          {section.icon && <span className="text-lg">{section.icon}</span>}
+          <SectionIcon
+            className="w-4 h-4 shrink-0"
+            style={{ color: section.color }}
+          />
+          {/* The dot is omitted when no color is set: an empty one left its
+              surrounding gaps behind as dead space next to the chevron. */}
           {section.color && (
             <div
               className="w-2 h-2 rounded-full"
@@ -515,6 +528,7 @@ export function SectionView({
               onAddGoal={onAddGoal}
               onCompleteGoal={onCompleteGoal}
               onRenameGoal={onRenameGoal}
+              onUpdateGoal={onUpdateGoal}
               onDeleteGoal={onDeleteGoal}
               onTaskDropToGoal={onTaskDropToGoal}
               onSectionDropToGoal={onSectionDropToGoal}
