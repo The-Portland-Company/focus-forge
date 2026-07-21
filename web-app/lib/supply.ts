@@ -141,6 +141,39 @@ export function supplyIdentityLabel(item: SupplyLike): string | null {
 }
 
 /**
+ * What a task row should show as its primary label.
+ *
+ * A supply is identified by its make/model or type rather than a free-text
+ * title, so those lead the row. Supplies predating the identity fields — and
+ * every ordinary task — fall back to the stored name.
+ */
+export function taskDisplayName(item: SupplyLike, name: string): string {
+  if (!isSupply(item)) return name;
+  return supplyIdentityLabel(item)?.trim() || name;
+}
+
+/**
+ * The name a supply is stored under.
+ *
+ * `tasks.name` is NOT NULL and every list view renders it, so a supply — whose
+ * form has no title input — still needs one. It is derived from the identity
+ * fields, falling back to the vendor, then a typed title, then a constant, so a
+ * supply can never save with an empty name.
+ */
+export function deriveSupplyName(
+  item: SupplyLike,
+  fallback?: string | null,
+): string {
+  const identity = supplyIdentityLabel(item)?.trim();
+  if (identity) return identity;
+  const vendor = parseSupplyVendor(item)?.label?.trim();
+  if (vendor) return vendor;
+  const typed = fallback?.trim();
+  if (typed) return typed;
+  return "Supply";
+}
+
+/**
  * A vendor may be a plain name or a URL. Returns the parsed pieces so callers
  * can render a link labelled by site name rather than showing a raw URL.
  *

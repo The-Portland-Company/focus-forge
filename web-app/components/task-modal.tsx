@@ -39,7 +39,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { formatCurrency, supplyLineTotal } from "@/lib/supply";
+import { deriveSupplyName, formatCurrency, supplyLineTotal } from "@/lib/supply";
 import type {
   Database,
   Task,
@@ -696,8 +696,24 @@ export function TaskModal({
     const nextStartDate = nullableEditFieldValue(startDate, isEditMode);
     const nextEndDate = nullableEditFieldValue(endDate, isEditMode);
 
+    // A supply has no Title input — its name is derived from the supply fields
+    // so `tasks.name` (NOT NULL, rendered in every list) is never empty. A
+    // title typed before the supply toggle was flipped is only a last resort.
+    const resolvedName = isSupply
+      ? deriveSupplyName(
+          {
+            is_supply: true,
+            supply_make: supplyIdentity === "make-model" ? supplyMake : null,
+            supply_model: supplyIdentity === "make-model" ? supplyModel : null,
+            supply_type: supplyIdentity === "type" ? supplyType : null,
+            supply_vendor: supplyVendor,
+          },
+          taskName,
+        )
+      : taskName;
+
     const taskData: any = {
-      name: taskName,
+      name: resolvedName,
       description,
       dueDate: nextDueDate,
       dueTime: dueDate ? nullableEditFieldValue(dueTime, isEditMode) : emptyEditValue,
@@ -788,12 +804,145 @@ export function TaskModal({
     return taskData;
   };
 
+  /**
+   * The supply fields, rendered in place of the Title input. A supply is named
+   * by what it is (make/model or type) rather than a free-text title.
+   */
+  const renderSupplyFields = () => (
+    <div className="space-y-3">
+        {/* Make/model names a specific product; type names a commodity.
+            They are alternatives, so only one set is shown at a time. */}
+        <div className="flex items-center gap-1 text-xs">
+          {(
+            [
+              { key: "make-model" as const, label: "Make & Model" },
+              { key: "type" as const, label: "Type" },
+            ]
+          ).map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setSupplyIdentity(option.key)}
+              aria-pressed={supplyIdentity === option.key}
+              className={`rounded px-2 py-1 transition-colors ${
+                supplyIdentity === option.key
+                  ? "bg-zinc-700 text-white"
+                  : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {supplyIdentity === "make-model" ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">
+                Make
+              </label>
+              <input
+                type="text"
+                value={supplyMake}
+                onChange={(e) => setSupplyMake(e.target.value)}
+                placeholder="Manufacturer"
+                className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">
+                Model
+              </label>
+              <input
+                type="text"
+                value={supplyModel}
+                onChange={(e) => setSupplyModel(e.target.value)}
+                placeholder="Model or part number"
+                className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+              />
+            </div>
+          </div>
+        ) : (
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">
+              Type
+            </label>
+            <input
+              type="text"
+              value={supplyType}
+              onChange={(e) => setSupplyType(e.target.value)}
+              placeholder='e.g. 2x6x8 doug fir'
+              className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+            />
+          </div>
+        )}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">
+            Quantity
+          </label>
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={supplyQuantity}
+            onChange={(e) => setSupplyQuantity(e.target.value)}
+            placeholder="1"
+            className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">
+            Price (each)
+          </label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={supplyPrice}
+            onChange={(e) => setSupplyPrice(e.target.value)}
+            placeholder="0.00"
+            className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">
+            Vendor
+          </label>
+          <input
+            type="text"
+            value={supplyVendor}
+            onChange={(e) => setSupplyVendor(e.target.value)}
+            placeholder="Where to buy it"
+            className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
+          />
+        </div>
+        {supplyPrice !== "" && (
+          <p className="text-xs text-zinc-500 sm:col-span-3">
+            Line total:{" "}
+            <span className="text-zinc-300">
+              {formatCurrency(
+                supplyLineTotal({
+                  is_supply: true,
+                  supply_quantity:
+                    supplyQuantity !== "" ? Number(supplyQuantity) : null,
+                  supply_price: Number(supplyPrice),
+                }),
+              )}
+            </span>
+            {supplyQuantity === "" && " (quantity blank counts as 1)"}
+          </p>
+        )}
+        </div>
+      </div>
+  );
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // Title is validated here rather than with the `required` attribute: the
     // input lives on the Details tab, and a hidden required control cannot be
     // focused, which makes the browser block submission with no visible reason.
-    if (!taskName.trim()) {
+    // Supplies have no Title input; their name is derived in buildTaskData.
+    if (!isSupply && !taskName.trim()) {
       setActiveTab("details");
       requestAnimationFrame(() => titleInputRef.current?.focus());
       return;
@@ -1857,7 +2006,24 @@ export function TaskModal({
                   )}
                 </button>
               )}
+              {/* A supply is identified by its make/model or type rather than a
+                  free-text title, so the toggle lives in the Title header row
+                  and swaps the input below for the supply fields. */}
+              <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-xs text-zinc-400 transition-colors hover:text-zinc-200">
+                <input
+                  type="checkbox"
+                  checked={isSupply}
+                  onChange={(e) => setIsSupply(e.target.checked)}
+                  className="accent-[rgb(var(--theme-primary-rgb))]"
+                />
+                <ShoppingCart className="h-3.5 w-3.5" />
+                This is a supply
+              </label>
             </div>
+            {isSupply ? (
+              renderSupplyFields()
+            ) : (
+            <>
             <input
               id={titleInputId}
               ref={titleInputRef}
@@ -2033,6 +2199,8 @@ export function TaskModal({
                   );
                 })()}
               </div>
+            )}
+            </>
             )}
           </div>
 
@@ -2701,149 +2869,6 @@ export function TaskModal({
                 ))}
               </div>
             </div>
-          </div>
-
-          </div>
-          <div className={tabPanelClass("details")}>
-          {/* Supply line item */}
-          <div>
-            <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={isSupply}
-                onChange={(e) => setIsSupply(e.target.checked)}
-                className="accent-[rgb(var(--theme-primary-rgb))]"
-              />
-              <ShoppingCart className="w-4 h-4" />
-              This is a supply
-            </label>
-            {isSupply && (
-              <div className="mt-3 space-y-3">
-                {/* Make/model names a specific product; type names a commodity.
-                    They are alternatives, so only one set is shown at a time. */}
-                <div className="flex items-center gap-1 text-xs">
-                  {(
-                    [
-                      { key: "make-model" as const, label: "Make & Model" },
-                      { key: "type" as const, label: "Type" },
-                    ]
-                  ).map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => setSupplyIdentity(option.key)}
-                      aria-pressed={supplyIdentity === option.key}
-                      className={`rounded px-2 py-1 transition-colors ${
-                        supplyIdentity === option.key
-                          ? "bg-zinc-700 text-white"
-                          : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                {supplyIdentity === "make-model" ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-xs font-medium text-zinc-400 mb-1">
-                        Make
-                      </label>
-                      <input
-                        type="text"
-                        value={supplyMake}
-                        onChange={(e) => setSupplyMake(e.target.value)}
-                        placeholder="Manufacturer"
-                        className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-zinc-400 mb-1">
-                        Model
-                      </label>
-                      <input
-                        type="text"
-                        value={supplyModel}
-                        onChange={(e) => setSupplyModel(e.target.value)}
-                        placeholder="Model or part number"
-                        className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">
-                      Type
-                    </label>
-                    <input
-                      type="text"
-                      value={supplyType}
-                      onChange={(e) => setSupplyType(e.target.value)}
-                      placeholder='e.g. 2x6x8 doug fir'
-                      className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
-                    />
-                  </div>
-                )}
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">
-                    Quantity
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={supplyQuantity}
-                    onChange={(e) => setSupplyQuantity(e.target.value)}
-                    placeholder="1"
-                    className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">
-                    Price (each)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={supplyPrice}
-                    onChange={(e) => setSupplyPrice(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">
-                    Vendor
-                  </label>
-                  <input
-                    type="text"
-                    value={supplyVendor}
-                    onChange={(e) => setSupplyVendor(e.target.value)}
-                    placeholder="Where to buy it"
-                    className="w-full bg-zinc-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
-                  />
-                </div>
-                {supplyPrice !== "" && (
-                  <p className="text-xs text-zinc-500 sm:col-span-3">
-                    Line total:{" "}
-                    <span className="text-zinc-300">
-                      {formatCurrency(
-                        supplyLineTotal({
-                          is_supply: true,
-                          supply_quantity:
-                            supplyQuantity !== "" ? Number(supplyQuantity) : null,
-                          supply_price: Number(supplyPrice),
-                        }),
-                      )}
-                    </span>
-                    {supplyQuantity === "" && " (quantity blank counts as 1)"}
-                  </p>
-                )}
-                </div>
-              </div>
-            )}
           </div>
 
           </div>
