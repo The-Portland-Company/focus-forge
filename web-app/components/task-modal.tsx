@@ -35,6 +35,7 @@ import {
   Sparkles,
   Target,
   ShoppingCart,
+  Maximize2,
 } from "lucide-react";
 import { formatCurrency, supplyLineTotal } from "@/lib/supply";
 import type {
@@ -134,6 +135,17 @@ interface TaskModalProps {
   stackZIndex?: number;
   stackStyle?: CSSProperties;
   initialName?: string;
+  /** Drill into a saved subtask, opening it in its own stacked modal. */
+  onExpandSubtask?: (subtask: Task) => void;
+  /**
+   * Save this (unsaved) task and resolve to the created row, so a pending
+   * subtask can be expanded — children need a parent that exists.
+   */
+  onRequestSaveForExpand?: (
+    taskData: Omit<Task, "id" | "createdAt" | "updatedAt"> | Partial<Task>,
+  ) => Promise<Task | null>;
+  /** Rendered in the modal header, e.g. the stack's back/forward pager. */
+  stackHeaderExtra?: ReactNode;
 }
 
 export function TaskModal({
@@ -155,6 +167,9 @@ export function TaskModal({
   stackZIndex,
   stackStyle,
   initialName,
+  onExpandSubtask,
+  onRequestSaveForExpand,
+  stackHeaderExtra,
 }: TaskModalProps) {
   const isEditMode = !!task;
   const { user: authUser } = useAuth();
@@ -556,9 +571,12 @@ export function TaskModal({
     }
   }, [newReminderDate, newReminderTime, showReminderInput]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
+  /**
+   * Builds the save payload from current form state, or null when the form
+   * can't be saved. Split out of handleSubmit so expanding a pending subtask
+   * can save through the same path rather than duplicating the mapping.
+   */
+  const buildTaskData = (): any | null => {
     const effectiveProjectId =
       selectedProject ||
       defaultProjectId ||
@@ -570,7 +588,7 @@ export function TaskModal({
     if (!effectiveProjectId) {
       console.error("No project selected");
       alert("Please select a project");
-      return;
+      return null;
     }
 
     const emptyEditValue = nullableEditFieldValue("", isEditMode);
@@ -656,8 +674,65 @@ export function TaskModal({
       }
     }
 
+    return taskData;
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const taskData = buildTaskData();
+    if (!taskData) return;
     onSave(taskData);
     onClose();
+  };
+
+  /**
+   * Opens a subtask in its own stacked modal. A subtask that has never been
+   * saved has no id and so cannot own children yet — in that case the parent is
+   * saved first and the drill-down opens on the row that save created, matched
+   * by position among the parent's children.
+   */
+  const [isExpandingSubtask, setIsExpandingSubtask] = useState(false);
+  const expandSubtask = async (
+    target: { kind: "existing"; task: Task } | { kind: "pending"; index: number },
+  ) => {
+    if (!onExpandSubtask || isExpandingSubtask) return;
+    if (target.kind === "existing") {
+      onExpandSubtask(target.task);
+      return;
+    }
+    if (!onRequestSaveForExpand) return;
+
+    setIsExpandingSubtask(true);
+    try {
+      const taskData = buildTaskData();
+      if (!taskData) return;
+      const savedParent = await onRequestSaveForExpand(taskData);
+      if (!savedParent?.id) {
+        console.error("Could not expand subtask: parent task was not saved");
+        return;
+      }
+      const children = (data.tasks || [])
+        .filter(
+          (t) =>
+            ((t as any).parent_id ?? t.parentId) === savedParent.id &&
+            !(t as any).is_deleted,
+        )
+        .sort(
+          (a, b) =>
+            new Date(a.createdAt || 0).getTime() -
+            new Date(b.createdAt || 0).getTime(),
+        );
+      const created = children[target.index];
+      if (!created) {
+        console.error(
+          "Could not expand subtask: the saved subtask was not found",
+        );
+        return;
+      }
+      onExpandSubtask(created);
+    } finally {
+      setIsExpandingSubtask(false);
+    }
   };
 
   const handleAddReminder = () => {
@@ -1566,12 +1641,15 @@ export function TaskModal({
           <h2 className="text-xl font-semibold text-white">
             {isEditMode ? "Edit Task" : "Add Task"}
           </h2>
-          <button
-            onClick={onClose}
-            className="text-zinc-400 hover:text-white transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-3">
+            {stackHeaderExtra}
+            <button
+              onClick={onClose}
+              className="text-zinc-400 hover:text-white transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
@@ -3457,6 +3535,19 @@ export function TaskModal({
                       Open
                     </button>
                   )}
+                  {onExpandSubtask && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        expandSubtask({ kind: "existing", task: subtask })
+                      }
+                      title="Open this subtask to give it subtasks of its own"
+                      aria-label="Expand subtask"
+                      className="flex-shrink-0 text-zinc-500 transition-colors hover:text-white"
+                    >
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() =>
@@ -3538,6 +3629,18 @@ export function TaskModal({
                           )
                         : "Supply"}
                     </span>
+                  )}
+                  {onExpandSubtask && onRequestSaveForExpand && (
+                    <button
+                      type="button"
+                      onClick={() => expandSubtask({ kind: "pending", index })}
+                      disabled={isExpandingSubtask}
+                      title="Open this subtask to give it subtasks of its own (saves this task first)"
+                      aria-label="Expand subtask"
+                      className="flex-shrink-0 text-zinc-500 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    </button>
                   )}
                   <button
                     type="button"
