@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { X, CheckCircle, XCircle, AlertCircle, Info } from 'lucide-react'
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info'
@@ -18,15 +18,29 @@ interface ToastProps {
   onClose: (id: string) => void
 }
 
+/** Matches slide-down-out in globals.css; removal waits for it to finish. */
+const TOAST_EXIT_MS = 250
+
 function ToastItem({ toast, onClose }: ToastProps) {
+  const [isLeaving, setIsLeaving] = useState(false)
+
+  // Play the exit animation, then remove. Removing on the timer directly would
+  // yank the toast out of the DOM mid-animation, so it vanished instead of
+  // sliding away.
+  const requestClose = useCallback(() => {
+    setIsLeaving((already) => {
+      if (already) return already
+      setTimeout(() => onClose(toast.id), TOAST_EXIT_MS)
+      return true
+    })
+  }, [onClose, toast.id])
+
   useEffect(() => {
     if (toast.duration && toast.duration > 0) {
-      const timer = setTimeout(() => {
-        onClose(toast.id)
-      }, toast.duration)
+      const timer = setTimeout(requestClose, toast.duration)
       return () => clearTimeout(timer)
     }
-  }, [toast, onClose])
+  }, [toast.duration, requestClose])
 
   const icons = {
     success: <CheckCircle className="w-5 h-5 text-green-500" />,
@@ -43,7 +57,11 @@ function ToastItem({ toast, onClose }: ToastProps) {
   }
 
   return (
-    <div className={`flex items-start gap-3 p-4 rounded-lg border ${bgColors[toast.type]} backdrop-blur-sm animate-slide-in`}>
+    <div
+      className={`flex items-start gap-3 p-4 rounded-lg border ${bgColors[toast.type]} backdrop-blur-sm ${
+        isLeaving ? 'animate-slide-down-out' : 'animate-slide-up-in'
+      }`}
+    >
       {icons[toast.type]}
       <div className="flex-1">
         <h4 className="font-medium text-sm">{toast.title}</h4>
@@ -52,7 +70,7 @@ function ToastItem({ toast, onClose }: ToastProps) {
         )}
       </div>
       <button
-        onClick={() => onClose(toast.id)}
+        onClick={requestClose}
         className="p-1 hover:bg-zinc-700 rounded transition-colors"
       >
         <X className="w-4 h-4" />
@@ -73,9 +91,13 @@ export function ToastContainer({ toasts, onClose }: ToastContainerProps) {
     // Centered along the bottom edge: these confirm an action the user just
     // took, so they belong under the cursor's attention rather than off in a
     // corner. Full width is capped so a long message stays readable.
-    <div className="fixed bottom-4 left-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 space-y-2">
+    // Anchored to the bottom edge and stacking upward, so a new toast slides
+    // in at the bottom without shifting the ones already on screen.
+    <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 flex w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 flex-col justify-end gap-2">
       {toasts.map((toast) => (
-        <ToastItem key={toast.id} toast={toast} onClose={onClose} />
+        <div key={toast.id} className="pointer-events-auto">
+          <ToastItem toast={toast} onClose={onClose} />
+        </div>
       ))}
     </div>
   )
