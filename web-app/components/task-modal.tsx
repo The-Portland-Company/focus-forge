@@ -2038,6 +2038,44 @@ export function TaskModal({
 
           </div>
           <div className={tabPanelClass("details")}>
+          {/* Goal */}
+          {(() => {
+            const goalProjectId = selectedProject || defaultProjectId || "";
+            const availableGoals = (data.goals || []).filter((goal) => {
+              const gProjectId = (goal as any).project_id || goal.projectId;
+              if (gProjectId !== goalProjectId) return false;
+              if (goal.completed) return false;
+              const gSectionId = (goal as any).section_id || goal.sectionId;
+              // Show project-level goals plus goals in the task's section (if any).
+              if (!gSectionId) return true;
+              if (defaultSectionId) return gSectionId === defaultSectionId;
+              return true;
+            });
+            if (availableGoals.length === 0 && !selectedGoalId) return null;
+            return (
+              <div>
+                <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
+                  <Target className="w-4 h-4" />
+                  Goal
+                </div>
+                <select
+                  value={selectedGoalId}
+                  onChange={(e) => setSelectedGoalId(e.target.value)}
+                  className="w-full bg-zinc-800 text-white rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary)]"
+                >
+                  <option value="">No goal</option>
+                  {availableGoals.map((goal) => (
+                    <option key={goal.id} value={goal.id}>
+                      {goal.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })()}
+
+          </div>
+          <div className={tabPanelClass("details")}>
           {/* Description */}
           <div className="relative">
             <label
@@ -2551,44 +2589,6 @@ export function TaskModal({
               </div>
             </div>
           </div>
-
-          </div>
-          <div className={tabPanelClass("details")}>
-          {/* Goal */}
-          {(() => {
-            const goalProjectId = selectedProject || defaultProjectId || "";
-            const availableGoals = (data.goals || []).filter((goal) => {
-              const gProjectId = (goal as any).project_id || goal.projectId;
-              if (gProjectId !== goalProjectId) return false;
-              if (goal.completed) return false;
-              const gSectionId = (goal as any).section_id || goal.sectionId;
-              // Show project-level goals plus goals in the task's section (if any).
-              if (!gSectionId) return true;
-              if (defaultSectionId) return gSectionId === defaultSectionId;
-              return true;
-            });
-            if (availableGoals.length === 0 && !selectedGoalId) return null;
-            return (
-              <div>
-                <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
-                  <Target className="w-4 h-4" />
-                  Goal
-                </div>
-                <select
-                  value={selectedGoalId}
-                  onChange={(e) => setSelectedGoalId(e.target.value)}
-                  className="w-full bg-zinc-800 text-white rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary)]"
-                >
-                  <option value="">No goal</option>
-                  {availableGoals.map((goal) => (
-                    <option key={goal.id} value={goal.id}>
-                      {goal.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            );
-          })()}
 
           </div>
           <div className={tabPanelClass("schedule")}>
