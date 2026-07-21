@@ -46,6 +46,7 @@ interface SectionViewProps {
     taskId: string,
     updates: Partial<Task>,
   ) => Promise<void> | void;
+  onLinkDependency?: (sourceId: string, targetId: string) => Promise<boolean>;
   onTaskToggle: (taskId: string) => void;
   onTaskEdit: (task: Task) => void;
   onTaskDelete: (taskId: string) => void;
@@ -97,6 +98,7 @@ export function SectionView({
   enableDueDateQuickEdit = false,
   onTaskFocus,
   onTaskUpdate,
+  onLinkDependency,
   onTaskToggle,
   onTaskEdit,
   onTaskDelete,
@@ -213,6 +215,7 @@ export function SectionView({
       enableDueDateQuickEdit={enableDueDateQuickEdit}
       onTaskFocus={onTaskFocus}
       onTaskUpdate={onTaskUpdate}
+      onLinkDependency={onLinkDependency}
       onTaskToggle={onTaskToggle}
       onTaskEdit={onTaskEdit}
       onTaskDelete={onTaskDelete}
@@ -288,6 +291,7 @@ export function SectionView({
               enableDueDateQuickEdit={enableDueDateQuickEdit}
               onTaskFocus={onTaskFocus}
               onTaskUpdate={onTaskUpdate}
+              onLinkDependency={onLinkDependency}
               onTaskToggle={onTaskToggle}
               onTaskEdit={onTaskEdit}
               onTaskDelete={onTaskDelete}
@@ -522,6 +526,7 @@ export function SectionView({
               enableDueDateQuickEdit={enableDueDateQuickEdit}
               onTaskFocus={onTaskFocus}
               onTaskUpdate={onTaskUpdate}
+              onLinkDependency={onLinkDependency}
               onTaskToggle={onTaskToggle}
               onTaskEdit={onTaskEdit}
               onTaskDelete={onTaskDelete}
