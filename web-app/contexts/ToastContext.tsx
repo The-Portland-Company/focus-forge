@@ -26,7 +26,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }
 
   const showError = (title: string, message?: string) => {
-    showToast('error', title, message, 10000) // Errors stay longer
+    // Duration 0 disables the auto-dismiss timer. A failure needs to be read
+    // and acknowledged — dismissing it on a timer means the user can miss that
+    // their action did not take effect. Closed with the toast's own button.
+    showToast('error', title, message, 0)
   }
 
   const showWarning = (title: string, message?: string) => {
