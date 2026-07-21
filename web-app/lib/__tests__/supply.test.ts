@@ -8,6 +8,9 @@ import {
   formatCurrency,
   formatQuantity,
   isSupply,
+  supplyIdentityKind,
+  supplyIdentityLabel,
+  parseSupplyVendor,
 } from "../supply";
 
 describe("supplyLineTotal", () => {
@@ -129,5 +132,62 @@ describe("formatting", () => {
     assert.equal(formatQuantity(2), "2");
     assert.equal(formatQuantity(2.5), "2.5");
     assert.equal(formatQuantity(null), "");
+  });
+});
+
+describe("supply identity", () => {
+  test("make/model wins and joins into one label", () => {
+    const item = { supply_make: "DeWalt", supply_model: "DCD771C2" };
+    assert.equal(supplyIdentityKind(item), "make-model");
+    assert.equal(supplyIdentityLabel(item), "DeWalt DCD771C2");
+  });
+
+  test("a lone make or model still reads as make/model", () => {
+    assert.equal(supplyIdentityKind({ supplyMake: "Milwaukee" }), "make-model");
+    assert.equal(supplyIdentityLabel({ supplyModel: "M18" }), "M18");
+  });
+
+  test("type is used when no make/model is present", () => {
+    const item = { supply_type: "2x6x8 doug fir" };
+    assert.equal(supplyIdentityKind(item), "type");
+    assert.equal(supplyIdentityLabel(item), "2x6x8 doug fir");
+  });
+
+  test("supplies predating these fields have no identity", () => {
+    assert.equal(supplyIdentityKind({ is_supply: true }), null);
+    assert.equal(supplyIdentityLabel({ is_supply: true }), null);
+  });
+});
+
+describe("vendor links", () => {
+  test("labels an http(s) url by site name, without www", () => {
+    const parsed = parseSupplyVendor({
+      supply_vendor: "https://www.homedepot.com/p/12345",
+    });
+    assert.equal(parsed?.label, "homedepot.com");
+    assert.equal(parsed?.url, "https://www.homedepot.com/p/12345");
+  });
+
+  test("promotes a bare domain to https", () => {
+    const parsed = parseSupplyVendor({ supply_vendor: "lowes.com/store" });
+    assert.equal(parsed?.label, "lowes.com");
+    assert.equal(parsed?.url, "https://lowes.com/store");
+  });
+
+  test("a plain name stays text, not a link", () => {
+    const parsed = parseSupplyVendor({ supply_vendor: "Home Depot" });
+    assert.equal(parsed?.label, "Home Depot");
+    assert.equal(parsed?.url, null);
+  });
+
+  test("non-http schemes are never linkified", () => {
+    for (const vendor of ["javascript:alert(1)", "data:text/html,hi"]) {
+      const parsed = parseSupplyVendor({ supply_vendor: vendor });
+      assert.equal(parsed?.url, null, `${vendor} must not become a link`);
+    }
+  });
+
+  test("no vendor yields nothing", () => {
+    assert.equal(parseSupplyVendor({ supply_vendor: null }), null);
   });
 });
