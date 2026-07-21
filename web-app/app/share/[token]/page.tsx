@@ -12,6 +12,7 @@ import { hasRichTextContent } from "@/lib/rich-text";
 import { ShareTaskBoard } from "@/components/share-task-board";
 import { SupplyTotal } from "@/components/supply-total";
 import { SupplyLine } from "@/components/supply-line";
+import { taskDisplayName } from "@/lib/supply";
 
 export const dynamic = "force-dynamic";
 
@@ -282,7 +283,7 @@ export default async function SharePage(props: {
                           : "text-sm text-zinc-200"
                       }
                     >
-                      {task.name}
+                      {taskDisplayName(task, task.name)}
                     </span>
                     <SupplyLine task={task} />
                   </li>
