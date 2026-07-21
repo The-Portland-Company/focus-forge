@@ -40,6 +40,14 @@ export async function PUT(
     const updates: Record<string, unknown> = {};
 
     if (typeof body?.name === "string") updates.name = body.name.trim();
+    if (typeof body?.color === "string") updates.color = body.color;
+    if (typeof body?.icon === "string") updates.icon = body.icon;
+    if (Object.prototype.hasOwnProperty.call(body ?? {}, "description")) {
+      updates.description =
+        typeof body.description === "string" && body.description.trim()
+          ? body.description.trim()
+          : null;
+    }
     if (body?.order !== undefined && Number.isFinite(Number(body.order))) {
       updates.todoist_order = Number(body.order);
     }

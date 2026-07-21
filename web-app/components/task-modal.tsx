@@ -180,6 +180,11 @@ export function TaskModal({
   const [newSubtaskDueDate, setNewSubtaskDueDate] = useState("");
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
   const [pendingSubtasks, setPendingSubtasks] = useState<PendingSubtask[]>([]);
+  // Subtasks added to an already-saved task are rendered immediately (with a
+  // breathing pulse) instead of waiting for the POST + parent data refresh.
+  // Each entry is dropped once the refreshed `data.tasks` contains its id.
+  const [optimisticSubtasks, setOptimisticSubtasks] = useState<any[]>([]);
+  const optimisticSubtaskSeq = useRef(0);
   // Inline subtask-title editing. For existing subtasks we key by id; for
   // pending subtasks we key by `pending:<index>`.
   const [editingSubtaskKey, setEditingSubtaskKey] = useState<string | null>(
@@ -326,6 +331,12 @@ export function TaskModal({
       setTaskName(initialName);
     }
   }, [initialName, task]);
+
+  // Optimistic subtask rows belong to one open task — never carry them over to
+  // the next task the modal is opened on.
+  useEffect(() => {
+    setOptimisticSubtasks([]);
+  }, [task?.id, isOpen]);
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -1259,6 +1270,26 @@ export function TaskModal({
       subtask.dueDate = newSubtaskDueDate;
     }
 
+    // Show it right away, then clear the inputs so the next one can be typed
+    // without waiting on the network.
+    const tempId = `subtask-temp-${(optimisticSubtaskSeq.current += 1)}`;
+    const now = new Date().toISOString();
+    setOptimisticSubtasks((prev) => [
+      ...prev,
+      {
+        ...subtask,
+        id: tempId,
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+        _saving: true,
+      },
+    ]);
+    setNewSubtaskName("");
+    setNewSubtaskEstimate("");
+    setNewSubtaskDueDate("");
+    setIsAddingSubtask(false);
+
     try {
       const response = await fetch("/api/tasks", {
         method: "POST",
@@ -1266,15 +1297,27 @@ export function TaskModal({
         body: JSON.stringify(subtask),
       });
 
-      if (response.ok) {
-        setNewSubtaskName("");
-        setNewSubtaskEstimate("");
-        setNewSubtaskDueDate("");
-        setIsAddingSubtask(false);
-        if (onDataRefresh) onDataRefresh();
-      }
+      if (!response.ok) throw new Error(`POST /api/tasks ${response.status}`);
+
+      // Swap the placeholder for the saved row. Keeping it in local state under
+      // the real id means the refresh below dedupes it away, with no flicker.
+      const created = await response.json();
+      setOptimisticSubtasks((prev) =>
+        prev.map((s) =>
+          s.id === tempId ? { ...created, _saving: false } : s,
+        ),
+      );
+      if (onDataRefresh) onDataRefresh();
     } catch (error) {
       console.error("Failed to create subtask:", error);
+      // Roll the row back and hand the text back to the user.
+      setOptimisticSubtasks((prev) => prev.filter((s) => s.id !== tempId));
+      setNewSubtaskName(subtask.name);
+      setNewSubtaskEstimate(
+        subtask.timeEstimate != null ? String(subtask.timeEstimate) : "",
+      );
+      setNewSubtaskDueDate(subtask.dueDate || "");
+      setIsAddingSubtask(true);
     }
   };
 
@@ -1391,8 +1434,15 @@ export function TaskModal({
     task && task.parentId
       ? data.tasks.find((t) => t.id === task.parentId)
       : null;
-  const subtasks =
+  const savedSubtasks =
     isEditMode && task ? data.tasks.filter((t) => t.parentId === task.id) : [];
+  // Optimistic rows drop out as soon as the refreshed data carries the same id.
+  const subtasks = [
+    ...savedSubtasks,
+    ...optimisticSubtasks.filter(
+      (o) => !savedSubtasks.some((s) => s.id === o.id),
+    ),
+  ];
 
   // Highlight deadlines
   const deadlineHighlight =
@@ -3156,11 +3206,17 @@ export function TaskModal({
             {/* Existing subtasks (edit mode) */}
             {isEditMode &&
               subtasks.map((subtask) => (
-                <div key={subtask.id} className="flex items-center gap-2 mb-2">
+                <div
+                  key={subtask.id}
+                  className={`flex items-center gap-2 mb-2 ${
+                    (subtask as any)._saving ? "animate-breathe" : ""
+                  }`}
+                >
                   <button
                     type="button"
+                    disabled={(subtask as any)._saving}
                     onClick={() => toggleSubtaskComplete(subtask)}
-                    className="text-zinc-400 hover:text-white"
+                    className="text-zinc-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {subtask.completed ? (
                       <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -3188,9 +3244,10 @@ export function TaskModal({
                     />
                   ) : (
                     <span
-                      onDoubleClick={() =>
-                        startEditingSubtask(subtask.id, subtask.name)
-                      }
+                      onDoubleClick={() => {
+                        if ((subtask as any)._saving) return;
+                        startEditingSubtask(subtask.id, subtask.name);
+                      }}
                       title="Double-click to rename"
                       className={`flex-1 cursor-text ${subtask.completed ? "line-through text-zinc-500" : "text-zinc-300"}`}
                     >
