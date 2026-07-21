@@ -201,16 +201,12 @@ const writeCachedDatabaseCore = (
   }
 };
 
-const AddTaskModal = dynamic(
-  () => import("@/components/add-task-modal").then((mod) => mod.AddTaskModal),
-  { ssr: false },
-);
 const BulkEditModal = dynamic(
   () => import("@/components/bulk-edit-modal").then((mod) => mod.BulkEditModal),
   { ssr: false },
 );
-const EditTaskModal = dynamic(
-  () => import("@/components/edit-task-modal").then((mod) => mod.EditTaskModal),
+const TaskModalStack = dynamic(
+  () => import("@/components/task-modal-stack").then((mod) => mod.TaskModalStack),
   { ssr: false },
 );
 const AddProjectModal = dynamic(
@@ -1697,6 +1693,10 @@ export default function ViewPage({
         }
 
         await fetchData();
+        // Returned so callers that need the saved row can act on it — the
+        // subtask drill-down saves the parent first, then opens the record it
+        // just created.
+        return createdTask as Task;
       } else {
         // Remove optimistic task on failure
         setDatabase((prev) => {
@@ -1709,6 +1709,7 @@ export default function ViewPage({
             ),
           };
         });
+        return null;
       }
     } catch (error) {
       console.error("Error creating task:", error);
@@ -1721,6 +1722,7 @@ export default function ViewPage({
           taskSections: prev.taskSections.filter((ts) => ts.taskId !== tempId),
         };
       });
+      return null;
     } finally {
       setLoadingTaskIds((prev) => {
         const next = new Set(prev);
@@ -7429,14 +7431,14 @@ export default function ViewPage({
       )}
 
       {showAddTask && (
-        <AddTaskModal
+        <TaskModalStack
           isOpen
           onClose={() => {
             setShowAddTask(false);
             setAddTaskDefaults({});
           }}
           data={database}
-          onAddTask={handleAddTask}
+          onSave={handleAddTask}
           onDataRefresh={fetchData}
           defaultProjectId={
             addTaskDefaults.projectId ||
@@ -7450,7 +7452,7 @@ export default function ViewPage({
       )}
 
       {showEditTask && (
-        <EditTaskModal
+        <TaskModalStack
           isOpen
           onClose={() => {
             setShowEditTask(false);
