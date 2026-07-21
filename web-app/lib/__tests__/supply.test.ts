@@ -255,3 +255,30 @@ describe("taskDisplayName", () => {
     assert.equal(taskDisplayName({ is_supply: true }, "Legacy supply"), "Legacy supply");
   });
 });
+
+describe("supply display name", () => {
+  test("a non-supply keeps its own name", () => {
+    assert.equal(taskDisplayName({ is_supply: false }, "Frame the wall"), "Frame the wall");
+  });
+
+  test("a supply shows its identity over the stored name", () => {
+    assert.equal(
+      taskDisplayName({ is_supply: true, supply_make: "DeWalt", supply_model: "DCD771C2" }, "DeWalt DCD999"),
+      "DeWalt DCD771C2",
+    );
+  });
+
+  test("cleared identity falls back to the vendor, not a stale stored name", () => {
+    assert.equal(
+      taskDisplayName(
+        { is_supply: true, supply_vendor: "https://www.homedepot.com/p/1" },
+        "DeWalt DCD771C2",
+      ),
+      "homedepot.com",
+    );
+  });
+
+  test("with nothing to derive from, the stored name is still used", () => {
+    assert.equal(taskDisplayName({ is_supply: true }, "Lumber"), "Lumber");
+  });
+});

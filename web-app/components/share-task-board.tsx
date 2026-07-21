@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { CheckCircle2, Circle, Loader2, Plus } from "lucide-react";
 import { SupplyTotal } from "./supply-total";
+import { ShareSupplyPanel } from "./share-supply-panel";
 import { SupplyLine } from "./supply-line";
 import { taskDisplayName } from "@/lib/supply";
 
@@ -104,11 +105,11 @@ export function ShareTaskBoard({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="grid grid-cols-1 items-start gap-x-6 gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
       {error && (
         <div
           role="alert"
-          className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300"
+          className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300 lg:col-span-2"
         >
           {error}
         </div>
@@ -116,7 +117,9 @@ export function ShareTaskBoard({
 
       {/* Totals bracket the list, top and bottom, and update live as tasks
           are ticked off or added. */}
-      <SupplyTotal items={tasks} label="Supplies total" variant="total" />
+      <div className="lg:col-start-2">
+        <SupplyTotal items={tasks} label="Supplies total" variant="total" />
+      </div>
 
       {groups.map((group) => {
         const groupKey = group.id ?? "no-section";
@@ -124,7 +127,8 @@ export function ShareTaskBoard({
           (t) => (t.section_id || null) === group.id,
         );
         return (
-          <section key={groupKey}>
+          <Fragment key={groupKey}>
+            <section className="lg:col-start-1">
             <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
               {group.name}
             </h2>
@@ -167,7 +171,6 @@ export function ShareTaskBoard({
                 );
               })}
             </ul>
-            <SupplyTotal items={groupTasks} className="mt-2" />
 
             {addingIn === groupKey ? (
               <form
@@ -214,11 +217,17 @@ export function ShareTaskBoard({
                 <Plus className="h-3.5 w-3.5" /> Add task
               </button>
             )}
-          </section>
+            </section>
+            <div className="lg:col-start-2">
+              <ShareSupplyPanel items={groupTasks} />
+            </div>
+          </Fragment>
         );
       })}
 
-      <SupplyTotal items={tasks} label="Supplies total" variant="total" />
+      <div className="lg:col-start-2">
+        <SupplyTotal items={tasks} label="Supplies total" variant="total" />
+      </div>
     </div>
   );
 }
