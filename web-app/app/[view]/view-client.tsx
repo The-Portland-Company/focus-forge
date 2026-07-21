@@ -814,6 +814,10 @@ export default function ViewPage({
   // Email Work sort/filter controls and the mailbox-sync modal now live solely
   // on the /email-inbox full view; the Today view no longer renders raw emails.
   const [showAddSection, setShowAddSection] = useState(false);
+  // Sections whose save is still in flight — they breathe until it settles.
+  const [savingSectionIds, setSavingSectionIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [sectionParentId, setSectionParentId] = useState<string | undefined>(
     undefined,
   );
@@ -2901,8 +2905,40 @@ export default function ViewPage({
     updates: Omit<Section, "id" | "createdAt" | "updatedAt">,
   ) => {
     if (!editingSection) return;
+    const sectionId = editingSection.id;
+    // Snapshot for rollback, then close and apply straight away: the modal is
+    // in the way of the thing being edited, so it goes as soon as the values
+    // are captured and the row itself reports progress by breathing.
+    const previous = (database?.sections || []).find((s) => s.id === sectionId);
+    closeSectionModal();
+    setSavingSectionIds((prev) => new Set(prev).add(sectionId));
+    setDatabase((prev) =>
+      prev
+        ? {
+            ...prev,
+            sections: prev.sections.map((s) =>
+              s.id === sectionId ? { ...s, ...updates } : s,
+            ),
+          }
+        : prev,
+    );
+
+    const rollback = () => {
+      if (!previous) return;
+      setDatabase((prev) =>
+        prev
+          ? {
+              ...prev,
+              sections: prev.sections.map((s) =>
+                s.id === sectionId ? previous : s,
+              ),
+            }
+          : prev,
+      );
+    };
+
     try {
-      const response = await fetch(`/api/sections/${editingSection.id}`, {
+      const response = await fetch(`/api/sections/${sectionId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -2916,14 +2952,30 @@ export default function ViewPage({
 
       if (response.ok) {
         await fetchData();
-        closeSectionModal();
+        showSuccess(`Saved "${updates.name}"`);
         return;
       }
 
+      rollback();
       const errorText = await response.text();
       console.error("Error updating section:", response.status, errorText);
+      showError(
+        `Could not save "${updates.name}"`,
+        "Your changes have been rolled back. Please try again.",
+      );
     } catch (error) {
+      rollback();
       console.error("Error updating section:", error);
+      showError(
+        `Could not save "${updates.name}"`,
+        "Your changes have been rolled back. Please try again.",
+      );
+    } finally {
+      setSavingSectionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(sectionId);
+        return next;
+      });
     }
   };
 
@@ -6831,6 +6883,7 @@ export default function ViewPage({
                           sectionTasksBySectionId={sectionTasksBySectionId}
                           childSectionsByParentId={sectionChildrenByParent}
                           goalsBySectionId={goalsBySectionId}
+                          savingSectionIds={savingSectionIds}
                           enableDueDateQuickEdit={true}
                           onTaskFocus={focusTaskRow}
                           onTaskUpdate={handleProjectTaskUpdate}
@@ -6989,6 +7042,7 @@ export default function ViewPage({
                                     sectionChildrenByParent
                                   }
                                   goalsBySectionId={goalsBySectionId}
+                          savingSectionIds={savingSectionIds}
                                   enableDueDateQuickEdit={true}
                                   onTaskFocus={focusTaskRow}
                                   onTaskUpdate={handleProjectTaskUpdate}
@@ -7196,6 +7250,7 @@ export default function ViewPage({
                     sectionTasksBySectionId={sectionTasksBySectionId}
                     childSectionsByParentId={sectionChildrenByParent}
                     goalsBySectionId={goalsBySectionId}
+                          savingSectionIds={savingSectionIds}
                     goalTasksByGoalId={goalTasksByGoalId}
                     autoSectioning={autoSectioning}
                     onTaskFocus={focusTaskRow}

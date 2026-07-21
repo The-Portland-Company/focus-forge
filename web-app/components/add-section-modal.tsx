@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-import { X, Palette } from 'lucide-react'
+import { X, Palette, Loader2 } from 'lucide-react'
 import { Section } from '@/lib/types'
 import {
   SECTION_ICONS,
@@ -50,6 +50,10 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
   const [icon, setIcon] = useState<string>(DEFAULT_SECTION_ICON_KEY)
   const [showColorPicker, setShowColorPicker] = useState(false)
   const [showIconPicker, setShowIconPicker] = useState(false)
+  // Spinner while the submit handler runs. The parent closes the modal as soon
+  // as it has the values, so this shows only for the moment before that — it
+  // marks the click as received rather than reporting on the request.
+  const [isSaving, setIsSaving] = useState(false)
 
   // Seed the form when opening (from the edited section, if any) and clear it
   // on close so a later "add" never inherits the last edit's values.
@@ -60,6 +64,7 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
     setIcon((isOpen && section?.icon) || DEFAULT_SECTION_ICON_KEY)
     setShowColorPicker(false)
     setShowIconPicker(false)
+    setIsSaving(false)
   }, [isOpen, section])
 
   if (!isOpen) return null
@@ -77,7 +82,8 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) return
+    if (!name.trim() || isSaving) return
+    setIsSaving(true)
 
     onSave({
       name: name.trim(),
@@ -226,9 +232,10 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
             </button>
             <button
               type="submit"
-              className="px-4 py-2 btn-theme-primary text-white rounded-lg transition-all"
-              disabled={!name.trim()}
+              className="flex items-center gap-2 px-4 py-2 btn-theme-primary text-white rounded-lg transition-all disabled:opacity-70"
+              disabled={!name.trim() || isSaving}
             >
+              {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
               {submitLabel}
             </button>
           </div>
