@@ -23,11 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: web-app/package-lock.json
 
@@ -63,7 +63,7 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # Full history so the scan covers the whole PR range, not just the tip.
           fetch-depth: 0
@@ -85,11 +85,11 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Check for new advisor findings
         env:
@@ -130,7 +130,7 @@ jobs:
           --health-timeout 5s --health-retries 5
         ports: [5432:5432]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Replay every migration in order
         run: |
