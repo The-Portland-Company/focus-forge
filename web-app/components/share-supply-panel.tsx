@@ -3,6 +3,7 @@ import {
   formatQuantity,
   hasSupplies,
   isSupply,
+  isSupplyCompleted,
   parseSupplyVendor,
   supplyIdentityLabel,
   supplyLineTotal,
@@ -35,13 +36,27 @@ export function ShareSupplyPanel({ items }: { items: SupplyRow[] }) {
           const vendor = parseSupplyVendor(item);
           const price = supplyPrice(item);
           const lineTotal = supplyLineTotal(item);
+          // Acquired: still listed, but struck through and faded, and already
+          // deducted from the subtotal below.
+          const acquired = isSupplyCompleted(item);
           return (
-            <li key={item.id} className="text-xs">
+            <li
+              key={item.id}
+              className={`text-xs ${acquired ? "opacity-50" : ""}`}
+            >
               <div className="flex items-baseline justify-between gap-3">
-                <span className="min-w-0 truncate text-zinc-200">
+                <span
+                  className={`min-w-0 truncate text-zinc-200 ${
+                    acquired ? "line-through" : ""
+                  }`}
+                >
                   {item.name}
                 </span>
-                <span className="shrink-0 font-medium text-amber-200">
+                <span
+                  className={`shrink-0 font-medium text-amber-200 ${
+                    acquired ? "line-through" : ""
+                  }`}
+                >
                   {formatCurrency(lineTotal)}
                 </span>
               </div>

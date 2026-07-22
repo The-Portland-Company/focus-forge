@@ -74,7 +74,7 @@ import {
 } from "@/lib/types";
 import { SectionView } from "@/components/section-view";
 import { SupplyTotal } from "@/components/supply-total";
-import { hasSupplies, type SupplyLike } from "@/lib/supply";
+import { hasSupplies, isSupply, type SupplyLike } from "@/lib/supply";
 import { AddSectionModal } from "@/components/add-section-modal";
 import { AddGoalModal, AddGoalPayload } from "@/components/add-goal-modal";
 import { GoalGroupShell } from "@/components/goal-group";
@@ -1836,16 +1836,23 @@ export default function ViewPage({
             }
           }
 
-          // Start fade out animation
-          setAnimatingOutTaskIds((prev) => {
-            const next = new Set(prev);
-            next.add(taskId);
-            subtasks.forEach((st) => next.add(st.id));
-            return next;
-          });
+          // A supply stays in the list once completed (struck through and
+          // faded, deducted from the total), so skip the slide-out animation
+          // that removes ordinary tasks — it would animate the row away only
+          // for it to reappear on refetch.
+          const keepInPlace = isSupply(task as any);
+          if (!keepInPlace) {
+            // Start fade out animation
+            setAnimatingOutTaskIds((prev) => {
+              const next = new Set(prev);
+              next.add(taskId);
+              subtasks.forEach((st) => next.add(st.id));
+              return next;
+            });
 
-          // Wait for animation to complete
-          await new Promise((resolve) => setTimeout(resolve, 400));
+            // Wait for animation to complete
+            await new Promise((resolve) => setTimeout(resolve, 400));
+          }
 
           // Refresh data first (while still hiding the task)
           await fetchData();
