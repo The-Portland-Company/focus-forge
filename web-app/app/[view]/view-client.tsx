@@ -74,7 +74,7 @@ import {
 } from "@/lib/types";
 import { SectionView } from "@/components/section-view";
 import { SupplyTotal } from "@/components/supply-total";
-import type { SupplyLike } from "@/lib/supply";
+import { hasSupplies, type SupplyLike } from "@/lib/supply";
 import { AddSectionModal } from "@/components/add-section-modal";
 import { AddGoalModal, AddGoalPayload } from "@/components/add-goal-modal";
 import { GoalGroupShell } from "@/components/goal-group";
@@ -6850,15 +6850,6 @@ export default function ViewPage({
                   </div>
                 ) : projectSectionLayout === "list" ? (
                   <div className="mx-auto w-full max-w-[1000px]">
-                    {/* Project supplies total, mirrored at the foot of the
-                        list. Hidden entirely when the project has none. */}
-                    <SupplyTotal
-                      items={visibleProjectTasks as SupplyLike[]}
-                      label="Supplies total"
-                      variant="total"
-                      className="mb-3"
-                    />
-
                     <AddSectionDivider
                       onClick={() => openAddSection(projectId, undefined, 0)}
                     />
@@ -7232,12 +7223,18 @@ export default function ViewPage({
                         </div>
                       )}
 
-                    <SupplyTotal
-                      items={visibleProjectTasks as SupplyLike[]}
-                      label="Supplies total"
-                      variant="total"
-                      className="mt-4"
-                    />
+                    {hasSupplies(visibleProjectTasks as SupplyLike[]) && (
+                      <div className="pointer-events-none fixed bottom-24 right-4 z-30 sm:bottom-6 sm:right-24">
+                        <div className="pointer-events-auto rounded-lg border border-amber-500/30 bg-zinc-950/95 shadow-lg backdrop-blur">
+                          <SupplyTotal
+                            items={visibleProjectTasks as SupplyLike[]}
+                            label="Supplies total"
+                            variant="total"
+                            className="border-0 bg-transparent"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <ProjectSectionBoard
