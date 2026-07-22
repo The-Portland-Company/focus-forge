@@ -48,6 +48,7 @@ import { isAiCreatedTask } from "@/lib/email-inbox/ai-task-origin";
 import { format, addDays } from "date-fns";
 import { getStartOfDay, isToday, isOverdue } from "@/lib/date-utils";
 import { formatRecurringLabel } from "@/lib/recurring-utils";
+import { compareScheduledFirst } from "@/lib/task-sort";
 import { getBlockedTaskIds, getBlockingTasks } from "@/lib/dependency-utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { DominoBadge } from "@/components/domino-badge";
@@ -63,6 +64,9 @@ interface TaskListProps {
   currentUserId?: string; // For hiding "me" avatar
   priorityColor?: string; // User's custom priority color (defaults to green)
   showCompleted?: boolean;
+  // Project pages: tasks with BOTH a due date and a due time sort first,
+  // chronologically; all other tasks keep their manual drag order after them.
+  scheduledFirst?: boolean;
   completedAccordionKey?: string; // localStorage key for persisting completed state
   revealActionsOnHover?: boolean;
   uniformDueBadgeWidth?: boolean;
@@ -211,6 +215,7 @@ export function TaskList({
   currentUserId,
   priorityColor,
   showCompleted = false,
+  scheduledFirst = false,
   completedAccordionKey,
   revealActionsOnHover = false,
   uniformDueBadgeWidth = false,
@@ -361,21 +366,36 @@ export function TaskList({
     [tasks],
   );
 
-  const sortTasks = useCallback((tasksToSort: Task[]) => {
-    return [...tasksToSort].sort((a, b) => {
-      // By priority (1 is highest)
-      if (a.priority !== b.priority) {
-        return a.priority - b.priority;
+  const sortTasks = useCallback(
+    (tasksToSort: Task[]) => {
+      // Existing (manual) ordering: priority, then due date. Preserved as-is for
+      // the "unscheduled" bucket so drag order / priority order still holds.
+      const fallback = (a: Task, b: Task) => {
+        // By priority (1 is highest)
+        if (a.priority !== b.priority) {
+          return a.priority - b.priority;
+        }
+        // Then by due date
+        const aDueDate = (a as any).due_date ?? a.dueDate;
+        const bDueDate = (b as any).due_date ?? b.dueDate;
+        if (aDueDate && bDueDate) {
+          return new Date(aDueDate).getTime() - new Date(bDueDate).getTime();
+        }
+        return 0;
+      };
+
+      // Project pages: float tasks that have BOTH a due date and a due time to
+      // the top in chronological order; everything else keeps the order above.
+      if (scheduledFirst) {
+        return [...tasksToSort].sort((a, b) =>
+          compareScheduledFirst(a, b, fallback),
+        );
       }
-      // Then by due date
-      const aDueDate = (a as any).due_date ?? a.dueDate;
-      const bDueDate = (b as any).due_date ?? b.dueDate;
-      if (aDueDate && bDueDate) {
-        return new Date(aDueDate).getTime() - new Date(bDueDate).getTime();
-      }
-      return 0;
-    });
-  }, []);
+
+      return [...tasksToSort].sort(fallback);
+    },
+    [scheduledFirst],
+  );
 
   // Organize tasks hierarchically
   const organizeTasksHierarchically = useCallback((tasksToOrganize: Task[]): Task[] => {
