@@ -160,6 +160,16 @@ export default async function SharePage(props: {
     supply_model: string | null;
     supply_type: string | null;
   }> | null = null;
+  let onHandSupplies: Array<{
+    id: string;
+    name: string;
+    quantity: number | string | null;
+    unit: string | null;
+    note: string | null;
+    section_id: string | null;
+    task_id: string | null;
+    order_index: number | null;
+  }> | null = null;
 
   try {
     const projectRes = await admin
@@ -173,7 +183,7 @@ export default async function SharePage(props: {
       return <Unavailable />;
     }
 
-    const [sectionRes, taskRes] = await Promise.all([
+    const [sectionRes, taskRes, onHandRes] = await Promise.all([
       admin
         .from("sections")
         .select("id,name,todoist_order")
@@ -188,9 +198,15 @@ export default async function SharePage(props: {
         .eq("project_id", project.id)
         .is("deleted_at", null)
         .order("todoist_order", { ascending: true }),
+      (admin as any)
+        .from("on_hand_supplies")
+        .select("id,name,quantity,unit,note,section_id,task_id,order_index")
+        .eq("project_id", project.id)
+        .order("order_index", { ascending: true }),
     ]);
     sections = sectionRes.data;
     tasks = taskRes.data;
+    onHandSupplies = (onHandRes.data || []) as any;
   } catch (loadError) {
     console.error("Share project load failed:", loadError);
     return <Unavailable />;
@@ -256,7 +272,25 @@ export default async function SharePage(props: {
       ) : (
         // Read-only: collapsible view. Everything starts collapsed with an
         // expand/collapse-all control and per-section / per-task toggles.
-        <ShareCollapsibleView groups={groups} tasks={allTasks} />
+        <ShareCollapsibleView
+          groups={groups}
+          tasks={allTasks}
+          onHandSupplies={(onHandSupplies || []).map((s) => ({
+            id: s.id,
+            name: s.name,
+            quantity: s.quantity == null ? null : Number(s.quantity),
+            unit: s.unit,
+            note: s.note,
+            sectionId: s.section_id,
+            taskId: s.task_id,
+          }))}
+          sectionNames={Object.fromEntries(
+            (sections || []).map((s) => [s.id, s.name]),
+          )}
+          taskNames={Object.fromEntries(
+            allTasks.map((t) => [t.id, t.name]),
+          )}
+        />
       )}
     </Shell>
   );
