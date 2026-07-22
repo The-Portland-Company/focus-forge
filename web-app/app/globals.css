@@ -1026,6 +1026,32 @@ input[type="datetime-local"].themed-date-input {
   animation: fresh-data-highlight-fade 2.5s ease-out forwards;
 }
 
+/* Drag-to-link dependency affordance. While a link drag is in progress the
+   hovered target row is outlined with the theme colour; the source row dims
+   slightly. On a successful link both rows flash green briefly. */
+.dependency-link-target {
+  outline: 2px solid rgb(var(--theme-primary-rgb));
+  outline-offset: -2px;
+  background-color: rgb(var(--theme-primary-rgb) / 0.14) !important;
+}
+
+.dependency-link-source {
+  opacity: 0.7;
+}
+
+@keyframes dependency-link-flash-fade {
+  0% {
+    background-color: rgb(34 197 94 / 0.45);
+  }
+  100% {
+    background-color: rgb(34 197 94 / 0);
+  }
+}
+
+.dependency-link-flash {
+  animation: dependency-link-flash-fade 0.9s ease-out forwards;
+}
+
 /* ===========================================================================
    UNIVERSAL LIGHT-MODE UTILITY REMAPS
    ---------------------------------------------------------------------------
