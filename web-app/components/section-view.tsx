@@ -29,6 +29,7 @@ interface SectionViewProps {
   currentUserId?: string;
   completedAccordionKey?: string;
   revealActionsOnHover?: boolean;
+  scheduledFirst?: boolean;
   dueDateLayout?: "inline" | "below" | "right";
   bulkSelectMode?: boolean;
   selectedTaskIds?: Set<string>;
@@ -85,6 +86,7 @@ export function SectionView({
   currentUserId,
   completedAccordionKey,
   revealActionsOnHover = false,
+  scheduledFirst = false,
   dueDateLayout = "inline",
   bulkSelectMode = false,
   selectedTaskIds,
@@ -244,6 +246,7 @@ export function SectionView({
       currentUserId={currentUserId}
       priorityColor={priorityColor}
       showCompleted={database.settings?.showCompletedTasks ?? true}
+      scheduledFirst={scheduledFirst}
       completedAccordionKey={
         completedAccordionKey
           ? `${completedAccordionKey}-section-${section.id}-${keySuffix}`
@@ -324,6 +327,7 @@ export function SectionView({
               currentUserId={currentUserId}
               completedAccordionKey={completedAccordionKey}
               revealActionsOnHover={revealActionsOnHover}
+              scheduledFirst={scheduledFirst}
               dueDateLayout={dueDateLayout}
               bulkSelectMode={bulkSelectMode}
               selectedTaskIds={selectedTaskIds}
@@ -572,6 +576,7 @@ export function SectionView({
               currentUserId={currentUserId}
               completedAccordionKey={completedAccordionKey}
               revealActionsOnHover={revealActionsOnHover}
+              scheduledFirst={scheduledFirst}
               dueDateLayout={dueDateLayout}
               bulkSelectMode={bulkSelectMode}
               selectedTaskIds={selectedTaskIds}
