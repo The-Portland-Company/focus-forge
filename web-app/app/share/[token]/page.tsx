@@ -13,7 +13,7 @@ import { hasRichTextContent } from "@/lib/rich-text";
 import { ShareTaskBoard } from "@/components/share-task-board";
 import { SupplyTotal } from "@/components/supply-total";
 import { SupplyLine } from "@/components/supply-line";
-import { taskDisplayName } from "@/lib/supply";
+import { taskDisplayName, hasSupplies, type SupplyLike } from "@/lib/supply";
 import { ShareSupplyPanel } from "@/components/share-supply-panel";
 
 export const dynamic = "force-dynamic";
@@ -340,14 +340,6 @@ export default async function SharePage(props: {
         under its own section.
       */
       <div className="grid grid-cols-1 gap-x-6 gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
-        {/* Grand total, top of the supplies column. */}
-        <div className="lg:col-start-2">
-          <SupplyTotal
-            items={allTasks}
-            label="Supplies total"
-            variant="total"
-          />
-        </div>
         {groups.map((group) => {
           const roots = rootTasksBySection(group.id);
           if (roots.length === 0) return null;
@@ -377,14 +369,19 @@ export default async function SharePage(props: {
             This project has no tasks yet.
           </p>
         )}
-        {/* Grand total again, bottom of the supplies column. */}
-        <div className="lg:col-start-2">
-          <SupplyTotal
-            items={allTasks}
-            label="Supplies total"
-            variant="total"
-          />
-        </div>
+        {/* Grand total, kept in view: sticks to the bottom of the viewport
+            while scrolling the list, then settles at the end. Only rendered
+            when there are supplies to total, so a project without any does not
+            show an empty bar. */}
+        {hasSupplies(allTasks as SupplyLike[]) && (
+          <div className="sticky bottom-0 z-10 -mx-5 mt-2 border-t border-zinc-800 bg-zinc-950/95 px-5 py-3 backdrop-blur sm:-mx-8 sm:px-8 lg:col-start-2 lg:mx-0 lg:border-t-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
+            <SupplyTotal
+              items={allTasks}
+              label="Supplies total"
+              variant="total"
+            />
+          </div>
+        )}
       </div>
       )}
     </Shell>
