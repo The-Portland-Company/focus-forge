@@ -3347,9 +3347,18 @@ export default function ViewPage({
     order?: number,
     goalId?: string,
   ) => {
+    // A list nested under another list belongs to the same goal as its parent.
+    // Nested-add call sites only pass parentId, so inherit the parent's goalId
+    // here — otherwise the new list is created goal-less and renders outside the
+    // goal at the top.
+    const resolvedGoalId =
+      goalId ??
+      (parentId
+        ? database?.sections?.find((s) => s.id === parentId)?.goalId
+        : undefined);
     setSectionProjectId(projectId);
     setSectionParentId(parentId);
-    setSectionGoalId(goalId);
+    setSectionGoalId(resolvedGoalId);
     setSectionOrder(order || 0);
     setEditingSection(null);
     setShowAddSection(true);
@@ -3540,6 +3549,8 @@ export default function ViewPage({
           }
         : prev,
     );
+    // Breathe the moved list until the save settles.
+    setSavingSectionIds((prev) => new Set(prev).add(sectionId));
 
     try {
       const response = await fetch(`/api/sections/${sectionId}`, {
@@ -3568,6 +3579,12 @@ export default function ViewPage({
         `Could not move "${previous?.name ?? "task list"}"`,
         "It has been put back. Please try again.",
       );
+    } finally {
+      setSavingSectionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(sectionId);
+        return next;
+      });
     }
   };
 
@@ -3590,6 +3607,8 @@ export default function ViewPage({
         ),
       };
     });
+    // Breathe the list until its goal move settles.
+    setSavingSectionIds((prev) => new Set(prev).add(sectionId));
     try {
       const response = await fetch(`/api/sections/${sectionId}`, {
         method: "PUT",
@@ -3602,6 +3621,12 @@ export default function ViewPage({
     } catch (error) {
       console.error("Error nesting section into goal:", error);
       await fetchData();
+    } finally {
+      setSavingSectionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(sectionId);
+        return next;
+      });
     }
   };
 
