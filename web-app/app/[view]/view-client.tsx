@@ -6894,7 +6894,16 @@ export default function ViewPage({
                           onSectionEdit={handleSectionEdit}
                           onSectionDelete={handleSectionDelete}
                           onAddTask={(section) =>
-                            openAddTask(section.projectId, section.id)
+                            openAddTask(
+                              section.projectId,
+                              section.id,
+                              // A task list can live inside a goal; a task
+                              // added to it belongs to that goal too, so the
+                              // picker opens on it rather than empty.
+                              (section.goalId ??
+                                (section as any).goal_id) ||
+                                undefined,
+                            )
                           }
                           onAddSection={(parentId) =>
                             openAddSection(projectId, parentId)
