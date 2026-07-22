@@ -58,6 +58,22 @@ export async function PUT(
           ? body.goalId.trim()
           : null;
     }
+    // Nest/un-nest this section under a parent section (null clears it). A
+    // section cannot be its own parent; deeper cycles are prevented client-side
+    // by only offering descendants-excluded drop targets.
+    if (Object.prototype.hasOwnProperty.call(body ?? {}, "parentId")) {
+      const nextParent =
+        typeof body.parentId === "string" && body.parentId.trim()
+          ? body.parentId.trim()
+          : null;
+      if (nextParent === params.id) {
+        return NextResponse.json(
+          { error: "A section cannot be nested under itself" },
+          { status: 400 },
+        );
+      }
+      updates.parent_id = nextParent;
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No valid updates provided" }, { status: 400 });

@@ -3404,6 +3404,77 @@ export default function ViewPage({
   };
 
   // Nest a section (task list) inside a goal by dragging it onto the goal.
+  // Nest one task list inside another by dropping it on the target. Guarded so
+  // a section can't be dropped onto itself or into its own subtree, which would
+  // orphan the branch.
+  const handleSectionDropToSection = async (
+    sectionId: string,
+    targetSectionId: string,
+  ) => {
+    if (sectionId === targetSectionId) return;
+    const sections = database?.sections || [];
+    // Walk up from the target: if we reach the dragged section, the target is a
+    // descendant of it and nesting would form a cycle.
+    let cursor: string | null | undefined = targetSectionId;
+    const seen = new Set<string>();
+    while (cursor && !seen.has(cursor)) {
+      if (cursor === sectionId) return;
+      seen.add(cursor);
+      const current = sections.find((s) => s.id === cursor);
+      cursor = (current?.parentId ?? (current as any)?.parent_id) || null;
+    }
+
+    const movedAt = new Date().toISOString();
+    const previous = sections.find((s) => s.id === sectionId);
+    setDatabase((prev) =>
+      prev
+        ? {
+            ...prev,
+            sections: prev.sections.map((s) =>
+              s.id === sectionId
+                ? ({
+                    ...s,
+                    parentId: targetSectionId,
+                    parent_id: targetSectionId,
+                    updatedAt: movedAt,
+                    updated_at: movedAt,
+                  } as any)
+                : s,
+            ),
+          }
+        : prev,
+    );
+
+    try {
+      const response = await fetch(`/api/sections/${sectionId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ parentId: targetSectionId }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      await fetchData();
+      showSuccess(`Moved "${previous?.name ?? "task list"}"`);
+    } catch (error) {
+      console.error("Error nesting section:", error);
+      // Roll the move back.
+      setDatabase((prev) =>
+        prev && previous
+          ? {
+              ...prev,
+              sections: prev.sections.map((s) =>
+                s.id === sectionId ? previous : s,
+              ),
+            }
+          : prev,
+      );
+      showError(
+        `Could not move "${previous?.name ?? "task list"}"`,
+        "It has been put back. Please try again.",
+      );
+    }
+  };
+
   const handleSectionDropToGoal = async (sectionId: string, goalId: string) => {
     const movedAt = new Date().toISOString();
     setDatabase((prev) => {
@@ -6917,6 +6988,7 @@ export default function ViewPage({
                           onDeleteGoal={handleDeleteGoal}
                           onTaskDropToGoal={handleTaskDropToGoal}
                           onSectionDropToGoal={handleSectionDropToGoal}
+                          onSectionDropToSection={handleSectionDropToSection}
                           onAddTaskToGoal={handleAddTaskToGoal}
                           onAddSectionToGoal={handleAddSectionToGoal}
                           onAddSubGoal={handleAddSubGoal}
@@ -7076,6 +7148,7 @@ export default function ViewPage({
                                   onDeleteGoal={handleDeleteGoal}
                                   onTaskDropToGoal={handleTaskDropToGoal}
                                   onSectionDropToGoal={handleSectionDropToGoal}
+                          onSectionDropToSection={handleSectionDropToSection}
                                   onAddTaskToGoal={handleAddTaskToGoal}
                                   onAddSectionToGoal={handleAddSectionToGoal}
                                   onAddSubGoal={handleAddSubGoal}
