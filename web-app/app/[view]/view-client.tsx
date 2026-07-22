@@ -751,7 +751,10 @@ export default function ViewPage({
   const [searchFilter, setSearchFilter] = useState<
     "all" | "tasks" | "projects" | "organizations"
   >("all");
-  const [showBlockedTasks, setShowBlockedTasks] = useState(false);
+  // Blocked tasks stay visible by default, showing their "Blocked" badge, so
+  // that linking a dependency doesn't make a task vanish from the list. The
+  // toggle still lets you hide them for a focus view.
+  const [showBlockedTasks, setShowBlockedTasks] = useState(true);
   const [groupTasksByProject, setGroupTasksByProject] = useState(false);
   const [showTaskDescriptions, setShowTaskDescriptions] = useState(false);
   const [todayViewMode, setTodayViewMode] = useState<"list" | "kanban">("list");
