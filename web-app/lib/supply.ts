@@ -10,6 +10,7 @@
 export interface SupplyLike {
   is_supply?: boolean | null;
   isSupply?: boolean | null;
+  completed?: boolean | null;
   supply_quantity?: number | string | null;
   supplyQuantity?: number | string | null;
   supply_price?: number | string | null;
@@ -33,6 +34,15 @@ function toNumber(value: number | string | null | undefined): number | null {
 
 export function isSupply(item: SupplyLike): boolean {
   return Boolean(item.is_supply ?? item.isSupply);
+}
+
+/**
+ * A completed supply has been acquired. It stays visible in the list (struck
+ * through and faded) but is deducted from the running total — the total is
+ * "what's still left to buy", not "what the whole list cost".
+ */
+export function isSupplyCompleted(item: SupplyLike): boolean {
+  return Boolean(item.completed);
 }
 
 export function supplyQuantity(item: SupplyLike): number | null {
@@ -64,18 +74,26 @@ export function supplyLineTotal(item: SupplyLike): number | null {
   return Math.round(price * quantity * 100) / 100;
 }
 
-/** Sum of every computable supply line in the list, rounded to cents. */
+/**
+ * Sum of every computable supply line in the list, rounded to cents. Completed
+ * (acquired) supplies are excluded — the total reflects what's still to buy.
+ */
 export function supplyTotal(items: SupplyLike[]): number {
   const total = items.reduce<number>((sum, item) => {
+    if (isSupplyCompleted(item)) return sum;
     const line = supplyLineTotal(item);
     return line === null ? sum : sum + line;
   }, 0);
   return Math.round(total * 100) / 100;
 }
 
-/** How many of the given items are supplies. */
+/**
+ * How many of the given items are supplies still outstanding. Completed
+ * supplies are excluded so the count matches the (deducted) total.
+ */
 export function supplyCount(items: SupplyLike[]): number {
-  return items.filter(isSupply).length;
+  return items.filter((item) => isSupply(item) && !isSupplyCompleted(item))
+    .length;
 }
 
 /** True when the list has at least one supply worth showing a subtotal for. */
