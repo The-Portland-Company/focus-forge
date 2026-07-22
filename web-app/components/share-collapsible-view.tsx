@@ -82,8 +82,11 @@ export function ShareCollapsibleView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, tasks, childrenByParent]);
 
+  // Sections start expanded so the lists are visible at a glance; tasks with
+  // children start collapsed so subtasks stay tucked until you drill in.
+  // "Collapse all" can still fold the sections away.
   const [collapsed, setCollapsed] = useState<Set<string>>(
-    () => new Set(collapsibleKeys),
+    () => new Set([...collapsibleKeys].filter((k) => k.startsWith("task:"))),
   );
 
   const isCollapsed = (key: string) => collapsed.has(key);
