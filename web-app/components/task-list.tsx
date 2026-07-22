@@ -32,6 +32,7 @@ import {
   UserCheck,
   ShoppingCart,
   ExternalLink,
+  Spline,
 } from "lucide-react";
 import {
   isSupply,
@@ -50,6 +51,10 @@ import { getStartOfDay, isToday, isOverdue } from "@/lib/date-utils";
 import { formatRecurringLabel } from "@/lib/recurring-utils";
 import { compareScheduledFirst } from "@/lib/task-sort";
 import { getBlockedTaskIds, getBlockingTasks } from "@/lib/dependency-utils";
+import {
+  useDependencyLinkDrag,
+  DependencyLinkOverlay,
+} from "@/components/dependency-link-overlay";
 import { UserAvatar } from "@/components/user-avatar";
 import { DominoBadge } from "@/components/domino-badge";
 import type { DominoTaskSummary } from "@/lib/daily-plan/types";
@@ -96,6 +101,9 @@ interface TaskListProps {
   dominoRationaleByTaskId?: Record<string, string>; // task id -> AI domino rationale
   onOpenEmailThread?: (threadId: string) => void;
   onAddDependency?: (task: Task) => void;
+  // Persist a drag-created dependency edge: source becomes blocked by target.
+  // Resolves true on success, false on failure (drives toast + rollback).
+  onLinkDependency?: (sourceId: string, targetId: string) => Promise<boolean>;
   showDescriptions?: boolean; // show description excerpts under all tasks
   enableDueDateQuickEdit?: boolean;
   onTaskFocus?: (taskId: string) => void;
@@ -237,6 +245,7 @@ export function TaskList({
   dominoRationaleByTaskId,
   onOpenEmailThread,
   onAddDependency,
+  onLinkDependency,
   showDescriptions = false,
   enableDueDateQuickEdit,
   onTaskFocus,
@@ -276,6 +285,11 @@ export function TaskList({
     () => (allTasks ? getBlockedTaskIds(allTasks) : new Set<string>()),
     [allTasks],
   );
+  const {
+    drag: linkDrag,
+    flashIds: linkFlashIds,
+    startLinkDrag,
+  } = useDependencyLinkDrag({ allTasks, onLink: onLinkDependency });
   const [showCompletedTasks, setShowCompletedTasks] = useState(showCompleted);
   // Initialize with all parent task IDs so accordions start collapsed
   const [collapsedTasks, setCollapsedTasks] = useState<Set<string>>(() => {
@@ -630,6 +644,10 @@ export function TaskList({
       : null;
     const isDueToday = !!(dueDateOnly && isToday(dueDateOnly));
     const isBlocked = blockedTaskIds.has(task.id);
+    const isLinkTarget =
+      !!linkDrag && linkDrag.targetId === task.id && linkDrag.sourceId !== task.id;
+    const isLinkSource = !!linkDrag && linkDrag.sourceId === task.id;
+    const isLinkFlashing = linkFlashIds.has(task.id);
     const actionVisibilityClass = revealActionsOnHover
       ? "opacity-100 pointer-events-auto sm:opacity-0 sm:pointer-events-none sm:group-hover:opacity-100 sm:group-hover:pointer-events-auto sm:group-focus-within:opacity-100 sm:group-focus-within:pointer-events-auto"
       : "opacity-100 pointer-events-auto";
@@ -785,7 +803,7 @@ export function TaskList({
         key={task.id}
         data-task-row="true"
         data-task-id={task.id}
-        draggable={!isLoading && !isAnimatingOut}
+        draggable={!isLoading && !isAnimatingOut && !linkDrag}
         onMouseDown={() => onTaskFocus?.(task.id)}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -797,7 +815,9 @@ export function TaskList({
         }}
         className={`task-list-row group relative z-0 hover:z-40 flex items-center gap-3 px-4 py-1 rounded-lg hover:bg-zinc-800/50 cursor-move ${
           isFreshlyUpdated ? "fresh-data-highlight" : ""
-        } ${isCompleted ? "opacity-50" : ""
+        } ${isLinkTarget ? "dependency-link-target" : ""} ${
+          isLinkSource ? "dependency-link-source" : ""
+        } ${isLinkFlashing ? "dependency-link-flash" : ""} ${isCompleted ? "opacity-50" : ""
         } ${isAnimatingOut ? "animate-slide-fade-out" : ""} ${isOptimisticCompleted && !isAnimatingOut ? "gradient-strikethrough gradient-strikethrough-complete" : ""} ${isLoading ? "opacity-70" : ""} ${
           isDeleting
             ? "gradient-strikethrough gradient-strikethrough-delete animate-breathe pointer-events-none"
@@ -1182,6 +1202,25 @@ export function TaskList({
                   </span>
                 ) : null}
 
+                {onLinkDependency ? (
+                  <span className="relative group/linkdep flex items-center justify-center w-4">
+                    <button
+                      type="button"
+                      draggable={false}
+                      onPointerDown={(e) => startLinkDrag(task.id, e)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="cursor-grab touch-none text-zinc-600 hover:text-[rgb(var(--theme-primary-rgb))] transition-colors active:cursor-grabbing"
+                      aria-label="Drag to link a dependency"
+                      title="Drag onto another task to make this task depend on it"
+                    >
+                      <Spline className="w-4 h-4" />
+                    </button>
+                    <span className="absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/linkdep:opacity-100 transition-opacity pointer-events-none z-50">
+                      Drag to link
+                    </span>
+                  </span>
+                ) : null}
+
                 {onAddDependency ? (
                   <span className="relative group/adddep flex items-center justify-center w-4">
                     <button
@@ -1499,6 +1538,7 @@ export function TaskList({
 
   return (
     <div className="py-1">
+      <DependencyLinkOverlay drag={linkDrag} />
       {sortedActiveTasks.map(renderTask)}
 
       {sortedActiveTasks.length === 0 && completedTasks.length === 0 && (

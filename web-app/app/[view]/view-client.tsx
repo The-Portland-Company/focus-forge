@@ -1897,6 +1897,59 @@ export default function ViewPage({
     setShowEditTask(true);
   };
 
+  // Persist a drag-created dependency edge: the source task becomes blocked by
+  // the target (source.dependsOn gains targetId). Optimistically patches the
+  // in-memory task so the "Blocked" indicator updates instantly, then writes
+  // through the same PUT + refetch path as every other task edit. Returns
+  // true on success so the drag overlay can flash green + toast, false to roll
+  // back (fetchData re-syncs authoritative state either way).
+  const handleLinkDependency = useCallback(
+    async (sourceId: string, targetId: string): Promise<boolean> => {
+      const source = database?.tasks.find((t) => t.id === sourceId);
+      if (!source) return false;
+      const existing = source.dependsOn || [];
+      if (existing.includes(targetId)) return true; // already linked — no-op
+      const nextDependsOn = [...existing, targetId];
+
+      pendingTaskMutationsRef.current.set(sourceId, {
+        dependsOn: nextDependsOn,
+      } as any);
+      setDatabase((prev) =>
+        prev
+          ? {
+              ...prev,
+              tasks: prev.tasks.map((t) =>
+                t.id === sourceId ? { ...t, dependsOn: nextDependsOn } : t,
+              ),
+            }
+          : prev,
+      );
+
+      try {
+        const response = await fetch(`/api/tasks/${sourceId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ dependsOn: nextDependsOn }),
+        });
+        if (!response.ok) {
+          console.error("Failed to link dependency:", response.status);
+          await fetchData();
+          return false;
+        }
+        await fetchData();
+        return true;
+      } catch (error) {
+        console.error("Error linking dependency:", error);
+        await fetchData();
+        return false;
+      } finally {
+        pendingTaskMutationsRef.current.delete(sourceId);
+      }
+    },
+    [database, fetchData],
+  );
+
   // Open the unified task edit modal given only a task id (e.g. from the
   // EmailThreadModal "Linked Tasks" Edit button). Looks the task up from the
   // current database snapshot and reuses the standard edit flow.
@@ -4801,6 +4854,7 @@ export default function ViewPage({
         dominoRationaleByTaskId,
         onOpenEmailThread: (threadId: string) => setTaskEmailThreadId(threadId),
         onAddDependency: (task: Task) => handleTaskEdit(task),
+        onLinkDependency: handleLinkDependency,
         showDescriptions: showTaskDescriptions,
         onTaskFocus: focusTaskRow,
         onTaskSelect: (taskId: string, event?: React.MouseEvent) => {
@@ -5668,6 +5722,7 @@ export default function ViewPage({
                     onTaskEdit={handleTaskEdit}
                     onTaskDelete={handleTaskDelete}
                     onTaskFocus={focusTaskRow}
+                    onLinkDependency={handleLinkDependency}
                   />
                 </div>
               )}
@@ -6993,6 +7048,7 @@ export default function ViewPage({
                           enableDueDateQuickEdit={true}
                           onTaskFocus={focusTaskRow}
                           onTaskUpdate={handleProjectTaskUpdate}
+                          onLinkDependency={handleLinkDependency}
                           onTaskToggle={handleTaskToggle}
                           onTaskEdit={handleTaskEdit}
                           onTaskDelete={handleTaskDelete}
@@ -7126,6 +7182,7 @@ export default function ViewPage({
                                   enableDueDateQuickEdit={true}
                                   onTaskFocus={focusTaskRow}
                                   onTaskUpdate={handleProjectTaskUpdate}
+                          onLinkDependency={handleLinkDependency}
                                   onTaskToggle={handleTaskToggle}
                                   onTaskEdit={handleTaskEdit}
                                   onTaskDelete={handleTaskDelete}
@@ -7164,6 +7221,7 @@ export default function ViewPage({
                                   enableDueDateQuickEdit={true}
                                   onTaskFocus={focusTaskRow}
                                   onTaskUpdate={handleProjectTaskUpdate}
+                          onLinkDependency={handleLinkDependency}
                                   onTaskToggle={handleTaskToggle}
                                   onTaskEdit={handleTaskEdit}
                                   onTaskDelete={handleTaskDelete}
@@ -7281,6 +7339,7 @@ export default function ViewPage({
                               enableDueDateQuickEdit={true}
                               onTaskFocus={focusTaskRow}
                               onTaskUpdate={handleProjectTaskUpdate}
+                          onLinkDependency={handleLinkDependency}
                               onTaskToggle={handleTaskToggle}
                               onTaskEdit={handleTaskEdit}
                               onTaskDelete={handleTaskDelete}

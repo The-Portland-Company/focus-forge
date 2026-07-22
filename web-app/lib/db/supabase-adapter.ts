@@ -877,7 +877,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       let query = supabase
         .from("tasks")
         .select(
-          "id,name,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,time_estimate,devnotes_meta,requires_hitl,todoist_order,is_supply,supply_quantity,supply_price,supply_vendor,supply_make,supply_model,supply_type",
+          "id,name,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,time_estimate,devnotes_meta,requires_hitl,todoist_order,is_supply,supply_quantity,supply_price,supply_vendor,supply_make,supply_model,supply_type,depends_on",
         )
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
@@ -996,6 +996,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
         supplyMake: task.supply_make,
         supplyModel: task.supply_model,
         supplyType: task.supply_type,
+        dependsOn: task.depends_on || [],
         snoozedUntil: task.snoozed_until,
         startDate: task.start_date,
         startTime: task.start_time,
@@ -1092,6 +1093,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       supplyMake: data.supply_make,
       supplyModel: data.supply_model,
       supplyType: data.supply_type,
+      dependsOn: data.depends_on || [],
       snoozedUntil: data.snoozed_until,
       startDate: data.start_date,
       startTime: data.start_time,
@@ -1192,6 +1194,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "start_time",
       "end_date",
       "end_time",
+      "depends_on",
     ]);
 
     // Map camelCase fields to snake_case for Supabase
@@ -1235,6 +1238,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       startTime: "start_time",
       endDate: "end_date",
       endTime: "end_time",
+      dependsOn: "depends_on",
     };
 
     const taskData: Record<string, any> = {};
@@ -1397,6 +1401,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "start_time",
       "end_date",
       "end_time",
+      "depends_on",
     ]);
 
     const fieldMap: Record<string, string> = {
@@ -1436,6 +1441,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       startTime: "start_time",
       endDate: "end_date",
       endTime: "end_time",
+      dependsOn: "depends_on",
     };
 
     const taskData: Record<string, any> = {};
