@@ -1,6 +1,5 @@
-import { Fragment } from "react";
 import { cookies } from "next/headers";
-import { CheckCircle2, Circle, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import { getAdminClient } from "@/lib/supabase/admin";
 import {
   canWriteShare,
@@ -11,10 +10,7 @@ import {
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { hasRichTextContent } from "@/lib/rich-text";
 import { ShareTaskBoard } from "@/components/share-task-board";
-import { SupplyTotal } from "@/components/supply-total";
-import { SupplyLine } from "@/components/supply-line";
-import { taskDisplayName, hasSupplies, type SupplyLike } from "@/lib/supply";
-import { ShareSupplyPanel } from "@/components/share-supply-panel";
+import { ShareCollapsibleView } from "@/components/share-collapsible-view";
 
 export const dynamic = "force-dynamic";
 
@@ -219,81 +215,6 @@ export default async function SharePage(props: {
     supply_type: string | null;
   }>;
 
-  // Subtasks nest under their parent rather than sitting beside it. A child
-  // may carry a different section_id (or none) from its parent, so grouping is
-  // driven by ROOT tasks only and children follow their parent wherever it
-  // lands — otherwise a subtask surfaces as a stray top-level row in the
-  // unsectioned "Tasks" group.
-  const childrenByParent = new Map<string, typeof allTasks>();
-  for (const task of allTasks) {
-    const parentId = task.parent_id;
-    if (!parentId) continue;
-    const siblings = childrenByParent.get(parentId);
-    if (siblings) siblings.push(task);
-    else childrenByParent.set(parentId, [task]);
-  }
-
-  const knownIds = new Set(allTasks.map((t) => t.id));
-  // A task whose parent was deleted or lies outside this project would never
-  // render if it were treated as a child, so it is promoted to a root.
-  const isRoot = (task: (typeof allTasks)[number]) =>
-    !task.parent_id || !knownIds.has(task.parent_id);
-
-  const rootTasksBySection = (sectionId: string | null) =>
-    allTasks.filter(
-      (t) => isRoot(t) && (t.section_id || null) === sectionId,
-    );
-
-  /** A task plus every descendant, so a section's supplies include subtasks. */
-  const withDescendants = (
-    roots: typeof allTasks,
-  ): typeof allTasks => {
-    const out: typeof allTasks = [];
-    const walk = (task: (typeof allTasks)[number]) => {
-      out.push(task);
-      for (const child of childrenByParent.get(task.id) || []) walk(child);
-    };
-    roots.forEach(walk);
-    return out;
-  };
-
-  const renderTask = (
-    task: (typeof allTasks)[number],
-    depth = 0,
-  ): React.ReactNode => {
-    const children = childrenByParent.get(task.id) || [];
-    return (
-      <li key={task.id}>
-        <div
-          className={`flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 ${
-            task.completed ? "opacity-60" : ""
-          }`}
-          style={depth > 0 ? { marginLeft: `${depth * 16}px` } : undefined}
-        >
-          {task.completed ? (
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
-          ) : (
-            <Circle className="h-4 w-4 shrink-0 text-zinc-600" />
-          )}
-          <span
-            className={
-              task.completed
-                ? "text-sm text-zinc-500 line-through"
-                : "text-sm text-zinc-200"
-            }
-          >
-            {taskDisplayName(task, task.name)}
-          </span>
-          <SupplyLine task={task} />
-        </div>
-        {children.length > 0 && (
-          <ul className="mt-1.5 space-y-1.5">
-            {children.map((child) => renderTask(child, depth + 1))}
-          </ul>
-        )}
-      </li>
-    );
-  };
 
   // Re-derived from the row on every request, so revoking or downgrading a link
   // takes effect on the next load rather than being baked into the markup.
@@ -333,58 +254,9 @@ export default async function SharePage(props: {
           initialTasks={allTasks}
         />
       ) : (
-      /*
-        One grid, two columns: tasks left, that section's supplies right. Each
-        section is its own grid row, so the supplies panel always starts level
-        with the section it belongs to no matter how tall either side grows —
-        two independently-flowing columns would drift apart. Below `lg` the
-        grid collapses to one column and each supplies panel stacks directly
-        under its own section.
-      */
-      <div className="grid grid-cols-1 gap-x-6 gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
-        {groups.map((group) => {
-          const roots = rootTasksBySection(group.id);
-          if (roots.length === 0) return null;
-          // Supplies count the whole subtree, not just top-level rows.
-          const groupTasks = withDescendants(roots);
-          return (
-            <Fragment key={group.id ?? "no-section"}>
-              <section className="lg:col-start-1">
-                <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
-                  {group.name}
-                </h2>
-                <ul className="space-y-1.5">
-                  {roots.map((task) => renderTask(task))}
-                </ul>
-              </section>
-              {/* The section heading has no counterpart in this column, so the
-                  panel is pushed down by its height (text-sm line box + mb-2)
-                  to sit level with the first task rather than the title. */}
-              <div className="lg:col-start-2 lg:pt-[1.75rem]">
-                <ShareSupplyPanel items={groupTasks} />
-              </div>
-            </Fragment>
-          );
-        })}
-        {allTasks.length === 0 && (
-          <p className="text-sm text-zinc-500 lg:col-start-1">
-            This project has no tasks yet.
-          </p>
-        )}
-        {/* Grand total, kept in view: sticks to the bottom of the viewport
-            while scrolling the list, then settles at the end. Only rendered
-            when there are supplies to total, so a project without any does not
-            show an empty bar. */}
-        {hasSupplies(allTasks as SupplyLike[]) && (
-          <div className="sticky bottom-0 z-10 -mx-5 mt-2 border-t border-zinc-800 bg-zinc-950/95 px-5 py-3 backdrop-blur sm:-mx-8 sm:px-8 lg:col-start-2 lg:mx-0 lg:border-t-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
-            <SupplyTotal
-              items={allTasks}
-              label="Supplies total"
-              variant="total"
-            />
-          </div>
-        )}
-      </div>
+        // Read-only: collapsible view. Everything starts collapsed with an
+        // expand/collapse-all control and per-section / per-task toggles.
+        <ShareCollapsibleView groups={groups} tasks={allTasks} />
       )}
     </Shell>
   );
