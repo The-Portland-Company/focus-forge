@@ -66,6 +66,7 @@ import {
   SelectLabel,
 } from "@/components/ui/select";
 import { HistoryTimelineScrubber } from "@/components/history-timeline-scrubber";
+import { OnHandSuppliesCard } from "@/components/on-hand-supplies-card";
 import { TimePicker } from "@/components/time-picker";
 import { UserAvatar } from "@/components/user-avatar";
 import { RecurringPicker } from "@/components/recurring-picker";
@@ -3852,6 +3853,15 @@ export function TaskModal({
 
           </div>
           <div className={tabPanelClass("subtasks")}>
+          {/* On-hand supplies scoped to this task (edit mode only, once an id
+              exists to attach them to). */}
+          {isEditMode && task?.id && selectedProject ? (
+            <OnHandSuppliesCard
+              projectId={selectedProject}
+              scope={{ taskId: task.id }}
+              className="mb-4"
+            />
+          ) : null}
           {/* Subtasks */}
           <div>
             <div className="flex items-center justify-between mb-2">

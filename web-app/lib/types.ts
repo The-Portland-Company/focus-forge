@@ -547,6 +547,22 @@ export type WorkItem =
   | (Task & { kind?: "task" })
   | (InboxItem & { kind: "inbox" });
 
+// An itemized supply already on hand, scoped to a project and optionally a
+// section (task list) or task. Never completed — distinct from is_supply tasks.
+export interface OnHandSupply {
+  id: string;
+  projectId: string;
+  sectionId: string | null;
+  taskId: string | null;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  note: string | null;
+  orderIndex: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Database {
   users: User[];
   organizations: Organization[];

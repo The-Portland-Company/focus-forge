@@ -10,12 +10,14 @@ import {
   ListPlus,
   GripVertical,
   Target,
+  Boxes,
 } from "lucide-react";
 import { Section, Task, Database, Goal } from "@/lib/types";
 import { getSectionIcon } from "@/lib/section-icons";
 import { TaskList } from "./task-list";
 import { SupplyTotal } from "./supply-total";
 import { RollupSubtotal } from "./rollup-subtotal";
+import { OnHandSuppliesCard } from "./on-hand-supplies-card";
 import type { SupplyLike } from "@/lib/supply";
 import { GoalGroupShell } from "./goal-group";
 import { GoalEdits } from "./edit-goal-modal";
@@ -128,6 +130,7 @@ export function SectionView({
   userId,
 }: SectionViewProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showSupplies, setShowSupplies] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [isDraggingSelf, setIsDraggingSelf] = useState(false);
 
@@ -507,6 +510,19 @@ export function SectionView({
           >
             <Plus className="w-4 h-4" />
           </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowSupplies((v) => !v);
+              if (isCollapsed) setIsCollapsed(false);
+            }}
+            className={`p-1 hover:bg-zinc-700 rounded transition-colors ${
+              showSupplies ? "text-amber-300" : ""
+            }`}
+            title="Supplies on hand"
+          >
+            <Boxes className="w-4 h-4" />
+          </button>
           {onAddSectionAfter && (
             <button
               onClick={(e) => {
@@ -563,6 +579,16 @@ export function SectionView({
           {/* Section Description */}
           {section.description && (
             <p className="text-sm text-zinc-400 mb-2">{section.description}</p>
+          )}
+
+          {/* On-hand supplies scoped to this list, revealed by the header
+              Boxes toggle. */}
+          {showSupplies && (
+            <OnHandSuppliesCard
+              projectId={section.projectId}
+              scope={{ sectionId: section.id }}
+              className="mb-3"
+            />
           )}
 
           {/* Goal-less tasks in this section (or all tasks when no goals). */}

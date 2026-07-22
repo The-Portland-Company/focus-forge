@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Boxes } from "lucide-react";
 import { CheckCircle2, Circle } from "lucide-react";
 import {
   hasSupplies,
@@ -29,12 +29,28 @@ export type ShareTask = SupplyLike & {
  * open/closed state; the supply maths still comes from lib/supply so totals
  * match the app.
  */
+export type ShareOnHandSupply = {
+  id: string;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  note: string | null;
+  sectionId: string | null;
+  taskId: string | null;
+};
+
 export function ShareCollapsibleView({
   groups,
   tasks,
+  onHandSupplies = [],
+  sectionNames = {},
+  taskNames = {},
 }: {
   groups: Array<{ id: string | null; name: string }>;
   tasks: ShareTask[];
+  onHandSupplies?: ShareOnHandSupply[];
+  sectionNames?: Record<string, string>;
+  taskNames?: Record<string, string>;
 }) {
   const childrenByParent = useMemo(() => {
     const map = new Map<string, ShareTask[]>();
@@ -181,6 +197,57 @@ export function ShareCollapsibleView({
           )}
         </button>
       </div>
+
+      {onHandSupplies.length > 0 && (
+        <div className="mb-6 rounded-lg border border-amber-500/20 bg-amber-500/[0.03] p-3">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-amber-200">
+            <Boxes className="h-3.5 w-3.5" /> Supplies on hand
+            <span className="text-amber-300/50">({onHandSupplies.length})</span>
+          </div>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-3 xl:grid-cols-5">
+            {onHandSupplies.map((s) => {
+              const qty = [
+                s.quantity == null ? "" : String(s.quantity),
+                s.unit ?? "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              const scopeLabel = s.taskId
+                ? taskNames[s.taskId]
+                : s.sectionId
+                  ? sectionNames[s.sectionId]
+                  : null;
+              return (
+                <div
+                  key={s.id}
+                  className="flex flex-col rounded-md border border-zinc-800 bg-zinc-900 p-2"
+                >
+                  <div className="flex items-start justify-between gap-1">
+                    <span className="min-w-0 break-words text-xs font-medium text-zinc-100">
+                      {s.name}
+                    </span>
+                    {qty && (
+                      <span className="shrink-0 rounded bg-amber-500/10 px-1 py-0.5 text-[10px] font-medium text-amber-200">
+                        {qty}
+                      </span>
+                    )}
+                  </div>
+                  {s.note && (
+                    <span className="mt-0.5 break-words text-[11px] text-zinc-500">
+                      {s.note}
+                    </span>
+                  )}
+                  {scopeLabel && (
+                    <span className="mt-1 truncate text-[10px] uppercase tracking-wide text-zinc-600">
+                      {scopeLabel}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-x-6 gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
         {groups.map((group) => {

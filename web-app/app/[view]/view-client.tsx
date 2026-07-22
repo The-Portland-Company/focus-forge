@@ -74,6 +74,7 @@ import {
 } from "@/lib/types";
 import { SectionView } from "@/components/section-view";
 import { SupplyTotal } from "@/components/supply-total";
+import { OnHandSuppliesCard } from "@/components/on-hand-supplies-card";
 import { hasSupplies, isSupply, type SupplyLike } from "@/lib/supply";
 import { AddSectionModal } from "@/components/add-section-modal";
 import { AddGoalModal, AddGoalPayload } from "@/components/add-goal-modal";
@@ -7060,6 +7061,28 @@ export default function ViewPage({
                   </div>
                 ) : projectSectionLayout === "list" ? (
                   <div className="mx-auto w-full max-w-[1000px]">
+                    {/* Every supply already on hand for this project, in a
+                        responsive 1→3→5 grid. Scope chips show which section or
+                        task each belongs to. */}
+                    <OnHandSuppliesCard
+                      projectId={projectId}
+                      className="mb-4"
+                      labelFor={(s) => {
+                        if (s.taskId) {
+                          const t = database.tasks.find(
+                            (x) => x.id === s.taskId,
+                          );
+                          return t ? t.name : null;
+                        }
+                        if (s.sectionId) {
+                          const sec = database.sections.find(
+                            (x) => x.id === s.sectionId,
+                          );
+                          return sec ? sec.name : null;
+                        }
+                        return null;
+                      }}
+                    />
                     <AddSectionDivider
                       onClick={() => openAddSection(projectId, undefined, 0)}
                     />
