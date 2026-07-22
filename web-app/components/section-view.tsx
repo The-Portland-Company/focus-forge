@@ -15,6 +15,7 @@ import { Section, Task, Database, Goal } from "@/lib/types";
 import { getSectionIcon } from "@/lib/section-icons";
 import { TaskList } from "./task-list";
 import { SupplyTotal } from "./supply-total";
+import { RollupSubtotal } from "./rollup-subtotal";
 import type { SupplyLike } from "@/lib/supply";
 import { GoalGroupShell } from "./goal-group";
 import { GoalEdits } from "./edit-goal-modal";
@@ -486,6 +487,12 @@ export function SectionView({
           <SupplyTotal
             items={sectionTasks as SupplyLike[]}
             variant="inline"
+          />
+          {/* Running time subtotal for the list. Cost is already shown by
+              <SupplyTotal> above, so this contributes time only. */}
+          <RollupSubtotal
+            items={sectionTasks as any}
+            showCost={false}
           />
         </div>
 
