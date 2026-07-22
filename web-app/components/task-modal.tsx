@@ -1744,6 +1744,19 @@ export function TaskModal({
     }
   };
 
+  /**
+   * Enter commits the subtask being composed, from any of its fields — name,
+   * estimate or date. Was onKeyPress on the name field only: keypress is a
+   * deprecated DOM event (deprecated in React 19, which this app runs), and it
+   * left the estimate and date fields with no way to submit from the keyboard.
+   */
+  const handleNewSubtaskKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (isEditMode) handleAddSubtask();
+    else commitPendingSubtask();
+  };
+
   const clearNewSubtaskSupply = () => {
     setNewSubtaskIsSupply(false);
     setNewSubtaskSupplyQuantity("");
@@ -3345,7 +3358,7 @@ export function TaskModal({
                       type="text"
                       value={newTagName}
                       onChange={(e) => setNewTagName(e.target.value)}
-                      onKeyPress={(e) =>
+                      onKeyDown={(e) =>
                         e.key === "Enter" &&
                         (e.preventDefault(), handleAddTag())
                       }
@@ -3950,16 +3963,7 @@ export function TaskModal({
                   type="text"
                   value={newSubtaskName}
                   onChange={(e) => setNewSubtaskName(e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      if (isEditMode) {
-                        handleAddSubtask();
-                      } else {
-                        commitPendingSubtask();
-                      }
-                    }
-                  }}
+                  onKeyDown={handleNewSubtaskKeyDown}
                   placeholder="Subtask name"
                   className="flex-1 min-w-[140px] bg-zinc-800 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 ring-theme transition-all"
                   autoFocus
@@ -3971,6 +3975,7 @@ export function TaskModal({
                     min="0"
                     value={newSubtaskEstimate}
                     onChange={(e) => setNewSubtaskEstimate(e.target.value)}
+                    onKeyDown={handleNewSubtaskKeyDown}
                     placeholder="min"
                     className="w-14 bg-transparent text-white pl-2 pr-1 py-1.5 text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
@@ -3981,6 +3986,7 @@ export function TaskModal({
                     type="date"
                     value={newSubtaskDueDate}
                     onChange={(e) => setNewSubtaskDueDate(e.target.value)}
+                    onKeyDown={handleNewSubtaskKeyDown}
                     className="bg-transparent text-white pl-2 pr-1 py-1.5 text-sm focus:outline-none themed-date-input"
                   />
                 </div>
