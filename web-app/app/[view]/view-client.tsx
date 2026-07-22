@@ -3201,9 +3201,15 @@ export default function ViewPage({
               ...task,
               sectionId,
               goalId: null,
+              // Dropping a task into another list makes it a task in that list.
+              // A sub-item's parent lives in the old list, so clear parentId —
+              // otherwise it stays nested under that parent and never appears
+              // in the target list.
+              parentId: null,
               updatedAt: movedAt,
               section_id: sectionId,
               goal_id: null,
+              parent_id: null,
               updated_at: movedAt,
             } as any)
           : task,
@@ -3233,7 +3239,7 @@ export default function ViewPage({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ sectionId, goalId: null }),
+        body: JSON.stringify({ sectionId, goalId: null, parentId: null }),
       });
 
       if (!taskUpdateResponse.ok) {
