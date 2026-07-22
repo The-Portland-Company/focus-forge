@@ -388,8 +388,26 @@ export function TaskModal({
   const projectDropdownRef = useRef<HTMLDivElement>(null);
   const priorityDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load task data in edit mode
+  // Seeds the form from the task being edited. Guarded so it runs once per
+  // opened task rather than on every render of fresh data: `data` is the whole
+  // database object and gets a new identity on every fetchData(), which the
+  // background sync and the realtime subscription both trigger on a timer.
+  // With `data` in the dependency list this re-seeded every field from the
+  // stored task mid-edit, silently discarding whatever had been typed — the
+  // "my work disappears after a while without reloading" bug.
+  //
+  // Keyed on task id + isOpen so reopening the same task still re-seeds, while
+  // a refetch of an already-open task leaves the form alone.
+  const seededTaskKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    if (!isOpen) {
+      seededTaskKeyRef.current = null;
+      return;
+    }
+    const seedKey = `${task?.id ?? "new"}`;
+    if (seededTaskKeyRef.current === seedKey) return;
+    seededTaskKeyRef.current = seedKey;
+
     if (task && isEditMode) {
       setTaskName(task.name);
       setDescription(task.description || "");
@@ -476,7 +494,9 @@ export function TaskModal({
         })),
       );
     }
-  }, [task, isEditMode, data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately not
+    // re-running on `data`/`task` identity changes; see the comment above.
+  }, [task?.id, isEditMode, isOpen]);
 
   useEffect(() => {
     if (!task && initialName !== undefined) {
