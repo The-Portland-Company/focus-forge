@@ -45,6 +45,7 @@ import {
   formatCurrency,
   formatQuantity,
 } from "@/lib/supply";
+import { RollupSubtotal } from "@/components/rollup-subtotal";
 import { isAiCreatedTask } from "@/lib/email-inbox/ai-task-origin";
 import { format, addDays } from "date-fns";
 import { getStartOfDay, isToday, isOverdue } from "@/lib/date-utils";
@@ -503,6 +504,23 @@ export function TaskList({
 
   const hasChildren = useCallback(
     (taskId: string) => (taskChildrenByParent.get(taskId)?.length || 0) > 0,
+    [taskChildrenByParent],
+  );
+
+  // Every descendant (children, grandchildren, …) of a task, for its running
+  // time/cost subtotal.
+  const descendantsOf = useCallback(
+    (taskId: string): Task[] => {
+      const out: Task[] = [];
+      const walk = (id: string) => {
+        for (const child of taskChildrenByParent.get(id) || []) {
+          out.push(child);
+          walk(child.id);
+        }
+      };
+      walk(taskId);
+      return out;
+    },
     [taskChildrenByParent],
   );
 
@@ -1376,6 +1394,15 @@ export function TaskList({
                     </span>
                   );
                 })()}
+
+                {/* Parent task: running time + cost subtotal of its subtree,
+                    so a collapsed parent still shows what it rolls up to. */}
+                {hasSubtasks && (
+                  <RollupSubtotal
+                    items={descendantsOf(task.id) as any}
+                    className="rounded bg-zinc-800/60 px-1.5 py-0.5"
+                  />
+                )}
 
                 {/* Supply line item: quantity x price, vendor, line total */}
                 {isSupply(task as any) && (
