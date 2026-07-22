@@ -68,6 +68,7 @@ interface SectionViewProps {
     sectionId?: string,
   ) => void;
   onSectionDropToGoal?: (sectionId: string, goalId: string) => void;
+  onSectionDropToSection?: (sectionId: string, targetSectionId: string) => void;
   onAddTaskToGoal?: (goalId: string) => void;
   onAddSectionToGoal?: (goalId: string) => void;
   onAddSubGoal?: (goalId: string) => void;
@@ -115,6 +116,7 @@ export function SectionView({
   onDeleteGoal,
   onTaskDropToGoal,
   onSectionDropToGoal,
+  onSectionDropToSection,
   onAddTaskToGoal,
   onAddSectionToGoal,
   onAddSubGoal,
@@ -353,6 +355,7 @@ export function SectionView({
               onDeleteGoal={onDeleteGoal}
               onTaskDropToGoal={onTaskDropToGoal}
               onSectionDropToGoal={onSectionDropToGoal}
+              onSectionDropToSection={onSectionDropToSection}
               onAddTaskToGoal={onAddTaskToGoal}
               onAddSectionToGoal={onAddSectionToGoal}
               onAddSubGoal={onAddSubGoal}
@@ -401,6 +404,12 @@ export function SectionView({
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
+
+    const draggedSectionId = e.dataTransfer.getData("sectionId");
+    if (draggedSectionId && draggedSectionId !== section.id) {
+      onSectionDropToSection?.(draggedSectionId, section.id);
+      return;
+    }
 
     const taskId = e.dataTransfer.getData("taskId");
     if (taskId) {
@@ -594,6 +603,7 @@ export function SectionView({
               onDeleteGoal={onDeleteGoal}
               onTaskDropToGoal={onTaskDropToGoal}
               onSectionDropToGoal={onSectionDropToGoal}
+              onSectionDropToSection={onSectionDropToSection}
               onAddTaskToGoal={onAddTaskToGoal}
               onAddSectionToGoal={onAddSectionToGoal}
               onAddSubGoal={onAddSubGoal}
