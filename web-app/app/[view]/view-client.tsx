@@ -2871,6 +2871,30 @@ export default function ViewPage({
   const handleAddSection = async (
     section: Omit<Section, "id" | "createdAt" | "updatedAt">,
   ) => {
+    // Close immediately and show the new list right away with the breathing
+    // effect, then confirm or roll back once the server responds — same shape
+    // as editing a task list.
+    closeSectionModal();
+    const tempId = `temp-section-${Date.now()}`;
+    const now = new Date().toISOString();
+    const optimistic = {
+      ...section,
+      id: tempId,
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as Section;
+    setDatabase((prev) =>
+      prev ? { ...prev, sections: [...prev.sections, optimistic] } : prev,
+    );
+    setSavingSectionIds((prev) => new Set(prev).add(tempId));
+
+    const removeOptimistic = () =>
+      setDatabase((prev) =>
+        prev
+          ? { ...prev, sections: prev.sections.filter((s) => s.id !== tempId) }
+          : prev,
+      );
+
     try {
       const response = await fetch("/api/sections", {
         method: "POST",
@@ -2880,15 +2904,34 @@ export default function ViewPage({
       });
 
       if (response.ok) {
+        // fetchData replaces the temp row with the real one; drop the temp
+        // first so it can't briefly duplicate.
+        removeOptimistic();
         await fetchData();
-        setShowAddSection(false);
+        showSuccess(`Added "${section.name}"`);
         return;
       }
 
+      removeOptimistic();
       const errorText = await response.text();
       console.error("Error creating section:", response.status, errorText);
+      showError(
+        `Could not add "${section.name}"`,
+        "It has been removed. Please try again.",
+      );
     } catch (error) {
+      removeOptimistic();
       console.error("Error creating section:", error);
+      showError(
+        `Could not add "${section.name}"`,
+        "It has been removed. Please try again.",
+      );
+    } finally {
+      setSavingSectionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(tempId);
+        return next;
+      });
     }
   };
 
