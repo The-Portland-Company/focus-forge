@@ -95,6 +95,29 @@ describe("supplyTotal", () => {
   });
 });
 
+describe("completed supplies are deducted from totals", () => {
+  const items = [
+    { is_supply: true, supply_quantity: 2, supply_price: 10 }, // 20
+    { is_supply: true, supply_price: 5.25, completed: true }, // acquired, deducted
+    { is_supply: true, supply_price: 4 }, // 4
+  ];
+
+  test("supplyTotal excludes completed supplies", () => {
+    assert.equal(supplyTotal(items), 24);
+  });
+
+  test("supplyCount counts only outstanding supplies", () => {
+    assert.equal(supplyCount(items), 2);
+  });
+
+  test("a fully-acquired list totals zero but still has supplies", () => {
+    const done = [{ is_supply: true, supply_price: 9, completed: true }];
+    assert.equal(supplyTotal(done), 0);
+    assert.equal(supplyCount(done), 0);
+    assert.equal(hasSupplies(done), true);
+  });
+});
+
 describe("supplyCount / hasSupplies / isSupply", () => {
   test("counts supplies regardless of whether they have a price", () => {
     assert.equal(

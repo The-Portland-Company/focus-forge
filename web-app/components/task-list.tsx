@@ -371,12 +371,16 @@ export function TaskList({
     return formatRecurringLabel(pattern);
   };
 
+  // A completed supply stays in the main list (struck through and faded, and
+  // deducted from the supply total) rather than dropping into the collapsed
+  // "Completed" accordion — you still want to see what you've already acquired
+  // alongside what's left. Ordinary completed tasks go to the accordion as before.
   const activeTasks = useMemo(
-    () => tasks.filter((task) => !task.completed),
+    () => tasks.filter((task) => !task.completed || isSupply(task as any)),
     [tasks],
   );
   const completedTasks = useMemo(
-    () => tasks.filter((task) => task.completed),
+    () => tasks.filter((task) => task.completed && !isSupply(task as any)),
     [tasks],
   );
 

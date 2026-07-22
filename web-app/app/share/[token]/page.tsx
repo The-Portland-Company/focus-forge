@@ -265,7 +265,9 @@ export default async function SharePage(props: {
     return (
       <li key={task.id}>
         <div
-          className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2"
+          className={`flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 ${
+            task.completed ? "opacity-60" : ""
+          }`}
           style={depth > 0 ? { marginLeft: `${depth * 16}px` } : undefined}
         >
           {task.completed ? (
