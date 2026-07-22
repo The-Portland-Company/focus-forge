@@ -147,15 +147,24 @@ export function supplyIdentityLabel(item: SupplyLike): string | null {
  * title, so those lead the row. Supplies predating the identity fields — and
  * every ordinary task — fall back to the stored name.
  */
+/**
+ * Prefix for a supply's row label. A supply is a thing to obtain, not a thing
+ * to do, so the list phrases it as the action: "Acquire 2x6x8 doug fir".
+ */
+export const SUPPLY_ACTION_PREFIX = "Acquire";
+
 export function taskDisplayName(item: SupplyLike, name: string): string {
   if (!isSupply(item)) return name;
   // Mirrors deriveSupplyName's order so a row never shows a name the save path
   // would not produce. Falling straight through to the stored name would keep
   // rendering a stale identity after the make/model/type fields were cleared.
   const identity = supplyIdentityLabel(item)?.trim();
-  if (identity) return identity;
+  if (identity) return `${SUPPLY_ACTION_PREFIX} ${identity}`;
   const vendor = parseSupplyVendor(item)?.label?.trim();
-  if (vendor) return vendor;
+  if (vendor) return `${SUPPLY_ACTION_PREFIX} ${vendor}`;
+  // Nothing to identify it by: the stored name is all there is, and it may
+  // already read as an action ("Acquire and install the insulation"), so it is
+  // left alone rather than double-prefixed.
   return name;
 }
 

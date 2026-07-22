@@ -22,7 +22,7 @@ export function SupplyTotal({
 }: {
   items: SupplyLike[];
   label?: string;
-  variant?: "subtotal" | "total";
+  variant?: "subtotal" | "total" | "inline";
   className?: string;
 }) {
   if (!hasSupplies(items)) return null;
@@ -30,6 +30,20 @@ export function SupplyTotal({
   const total = supplyTotal(items);
   const count = supplyCount(items);
   const isTotal = variant === "total";
+
+  // Inline sits in a section or task-list heading rather than on its own row,
+  // so it drops the panel chrome and keeps only the figure.
+  if (variant === "inline") {
+    return (
+      <span
+        className={`inline-flex items-center gap-1 text-xs font-normal text-amber-300/80 ${className}`}
+        title={`${count} ${count === 1 ? "supply" : "supplies"}`}
+      >
+        <ShoppingCart className="h-3 w-3 shrink-0" />
+        {formatCurrency(total)}
+      </span>
+    );
+  }
 
   return (
     <div

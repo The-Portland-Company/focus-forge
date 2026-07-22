@@ -178,12 +178,57 @@ export function SectionView({
   const getTaskGoalId = (task: Task): string | null =>
     (task.goalId || (task as any).goal_id || null) as string | null;
 
+  const getTaskParentId = (task: Task): string | null =>
+    (task.parentId || (task as any).parent_id || null) as string | null;
+
+  // Grouping is decided by ROOT tasks; every descendant travels with its
+  // parent. A subtask carries its own goal_id (often none, e.g. a supply added
+  // under a goal-assigned parent), so grouping each task by its own goal split
+  // children away from their parents into a different list, where they
+  // rendered as detached top-level rows.
+  const sectionTaskIds = useMemo(
+    () => new Set(sectionTasks.map((t) => t.id)),
+    [sectionTasks],
+  );
+
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const task of sectionTasks) {
+      const parentId = getTaskParentId(task);
+      if (!parentId || !sectionTaskIds.has(parentId)) continue;
+      const siblings = map.get(parentId);
+      if (siblings) siblings.push(task);
+      else map.set(parentId, [task]);
+    }
+    return map;
+  }, [sectionTasks, sectionTaskIds]);
+
+  /** A task whose parent is outside this section renders as a root here. */
+  const isRootInSection = (task: Task) => {
+    const parentId = getTaskParentId(task);
+    return !parentId || !sectionTaskIds.has(parentId);
+  };
+
+  const withDescendants = (roots: Task[]): Task[] => {
+    const out: Task[] = [];
+    const walk = (task: Task) => {
+      out.push(task);
+      for (const child of childrenByParent.get(task.id) || []) walk(child);
+    };
+    roots.forEach(walk);
+    return out;
+  };
+
   // When goals exist, split them out of the flat list; otherwise every task
   // renders in the single ungrouped list (unchanged behavior).
   const goalLessTasks = useMemo(
     () =>
       goalsForSection.length > 0
-        ? sectionTasks.filter((task) => !getTaskGoalId(task))
+        ? withDescendants(
+            sectionTasks.filter(
+              (task) => isRootInSection(task) && !getTaskGoalId(task),
+            ),
+          )
         : sectionTasks,
     [goalsForSection.length, sectionTasks],
   );
@@ -223,8 +268,10 @@ export function SectionView({
   // Recursively render a goal and everything nested inside it: its tasks, its
   // owned task lists (sections with goal_id), and its sub-goals.
   const renderGoalNode = (goal: Goal): React.ReactNode => {
-    const goalTasks = sectionTasks.filter(
-      (task) => getTaskGoalId(task) === goal.id,
+    const goalTasks = withDescendants(
+      sectionTasks.filter(
+        (task) => isRootInSection(task) && getTaskGoalId(task) === goal.id,
+      ),
     );
     const completedCount = goalTasks.filter(
       (task) => task.completed || optimisticCompletedIds?.has(task.id),
@@ -416,6 +463,13 @@ export function SectionView({
               a step larger than everything it sits above. */}
           <span className="text-sm font-medium text-white">{section.name}</span>
           <span className="text-xs text-zinc-500">({sectionTasks.length})</span>
+          {/* Supplies subtotal for this section, in the heading rather than on
+              a row of its own. Covers every task filed under it, including
+              those grouped into goals; child sections carry their own. */}
+          <SupplyTotal
+            items={sectionTasks as SupplyLike[]}
+            variant="inline"
+          />
         </div>
 
         <div className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 flex items-center gap-1 transition-opacity">
@@ -547,10 +601,6 @@ export function SectionView({
             />
           ))}
 
-          {/* Supplies subtotal for this section. Covers every task filed under
-              it (including those grouped into goals); child sections carry
-              their own subtotal. Renders nothing when there are no supplies. */}
-          <SupplyTotal items={sectionTasks as SupplyLike[]} className="mt-2" />
         </div>
       )}
     </div>
