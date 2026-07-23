@@ -95,7 +95,10 @@ import type {
 } from "@/lib/types";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { logEmailAction } from "@/lib/email-inbox/action-log";
-import { getContactAddressesForUser } from "./contacts";
+import {
+  createPersonalContact,
+  getContactAddressesForUser,
+} from "./contacts";
 import { getLocalDateString } from "@/lib/date-utils";
 import { retrieveRelevantAIMemory } from "@/lib/ai-memory/retrieval";
 import { getLatestActivePlaybook } from "@/lib/ai-memory/playbook";
@@ -4691,6 +4694,35 @@ export async function scheduleOutboundDraft(params: {
   });
 }
 
+/**
+ * Best-effort: save every To/Cc/Bcc recipient of a sent draft as a personal
+ * contact so future composes autocomplete them. createPersonalContact is
+ * idempotent (returns the existing row on a repeat email), and a failure here
+ * must never fail — or delay reporting — the send itself.
+ */
+async function saveOutboundRecipientsAsContacts(userId: string, draft: any) {
+  const recipients = [
+    ...mapReplyAddressList(draft.to_json),
+    ...mapReplyAddressList(draft.cc_json),
+    ...mapReplyAddressList(draft.bcc_json),
+  ];
+  for (const recipient of recipients) {
+    if (!recipient?.email || !recipient.email.includes("@")) continue;
+    try {
+      await createPersonalContact({
+        userId,
+        input: {
+          email: recipient.email,
+          displayName: recipient.name || null,
+          source: "outbound",
+        },
+      });
+    } catch {
+      // Best-effort only.
+    }
+  }
+}
+
 export async function sendOutboundDraftNow(params: {
   userId: string;
   draftId: string;
@@ -4708,7 +4740,11 @@ export async function sendOutboundDraftNow(params: {
     .eq("id", draft.id);
 
   try {
-    return await executeOutboundDraftSend(draft);
+    const sent = await executeOutboundDraftSend(draft);
+    // Fire-and-forget: recipients become Contacts without delaying the send
+    // response.
+    void saveOutboundRecipientsAsContacts(params.userId, draft).catch(() => {});
+    return sent;
   } catch (error) {
     await admin
       .from("email_outbound_drafts")
@@ -5223,6 +5259,14 @@ export async function processScheduledOutboundDrafts() {
 
     try {
       await executeOutboundDraftSend(row);
+      // Scheduled sends save recipients as contacts too (see the immediate
+      // path in sendOutboundDraftNow).
+      if (row.created_by_user_id) {
+        void saveOutboundRecipientsAsContacts(
+          String(row.created_by_user_id),
+          row,
+        ).catch(() => {});
+      }
       sentCount += 1;
     } catch (error) {
       failedCount += 1;

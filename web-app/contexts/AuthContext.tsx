@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
 import { applyTheme, readStoredThemePreference } from '@/lib/theme-utils'
+import { clearCachedDatabase } from '@/lib/database-cache'
 
 interface AuthContextType {
   user: User | null
@@ -131,6 +132,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     const supabase = createClient()
+    // The database snapshot lives in localStorage (it outlives the session),
+    // so an explicit sign-out must drop it.
+    clearCachedDatabase(user?.id)
+    clearCachedDatabase(null)
     await supabase.auth.signOut()
   }
 

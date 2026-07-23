@@ -34,6 +34,10 @@ import {
   collectThreadAttachments,
   type ThreadAttachment,
 } from "@/lib/email-inbox/attachments";
+import {
+  getInboxItemGroupLabel,
+  type InboxGroupBy,
+} from "@/lib/email-inbox/group-inbox-items";
 import { Tooltip } from "@/components/tooltip";
 import { EmailHtmlContent } from "@/components/ui/email-html-content";
 import { stripQuotedAndSignature } from "@/lib/email-inbox/strip-quoted";
@@ -84,6 +88,10 @@ type EmailWorkListProps = {
   /** Thread id to blink with a red border — set when the user clicks "Show the
    *  email" on a failed-delete alert so they can find the row that stayed put. */
   erroredThreadId?: string | null;
+  /** Active grouping (Filters-row quick toggle). When set, rows are already
+   *  clustered by the parent; this renders a separator at each group start
+   *  and suppresses the day separators (the two would fight visually). */
+  groupBy?: InboxGroupBy;
   /** Thread ids whose delete request is in flight: row shows a strike-through
    *  on its text plus a small "Deleting…" spinner (optimistic state). */
   deletingIds?: Set<string>;
@@ -797,7 +805,12 @@ export function getEmailWorkVisualUnreadState(params: {
   isSelected: boolean;
   isUnread?: boolean;
 }) {
-  return Boolean(params.isUnread) && !params.isSelected;
+  // Read-state styling follows the DATA only. Selection must not restyle a row
+  // as read: the inbox auto-selects the first visible email on load, so tying
+  // unread styling to selection made the top email always look read even
+  // though nothing marked it read (the reported "first email is always read"
+  // bug). The selected row keeps its own distinct highlight.
+  return Boolean(params.isUnread);
 }
 
 export async function parseLinkedTasksResponse(response: Response) {
@@ -842,6 +855,7 @@ export function EmailWorkList({
   selectedId,
   freshlyUpdatedIds,
   erroredThreadId,
+  groupBy = "none",
   deletingIds,
   removingIds,
   alwaysShowSummary = false,
@@ -1063,18 +1077,42 @@ export function EmailWorkList({
     <>
       <div className="space-y-2">
         {items.map((item, itemIndex) => {
-        // Day-group separator: emit a full-width "Today"/"Yesterday" divider
-        // before the first row whose relative day differs from the row above.
-        // Inbox rows are ordered newest-first, so each bucket is contiguous.
-        const relativeDay = getRelativeDayLabel(
-          getInboxItemDayBucketInstant(item),
-        );
-        const previousRelativeDay =
-          itemIndex > 0
-            ? getRelativeDayLabel(
-                getInboxItemDayBucketInstant(items[itemIndex - 1]),
-              )
+        // Group separators. With a grouping active (Sender / Project /
+        // Project›Sender) the group label replaces the day separator; without
+        // one, the "Today"/"Yesterday" day divider behaves as before.
+        const getGroupLabel = (candidate: InboxItem) =>
+          getInboxItemGroupLabel(
+            candidate,
+            groupBy,
+            (entry) =>
+              formatParticipantName(
+                getPrimarySenderParticipant(entry.participants, [
+                  entry.mailboxEmailAddress,
+                ]),
+              ),
+            (projectId) =>
+              projectId
+                ? (projects.find((project) => project.id === projectId)?.name ??
+                  null)
+                : null,
+          );
+        const groupLabel = groupBy !== "none" ? getGroupLabel(item) : null;
+        const previousGroupLabel =
+          groupBy !== "none" && itemIndex > 0
+            ? getGroupLabel(items[itemIndex - 1])
             : null;
+        const relativeDay =
+          groupBy !== "none"
+            ? groupLabel
+            : getRelativeDayLabel(getInboxItemDayBucketInstant(item));
+        const previousRelativeDay =
+          groupBy !== "none"
+            ? previousGroupLabel
+            : itemIndex > 0
+              ? getRelativeDayLabel(
+                  getInboxItemDayBucketInstant(items[itemIndex - 1]),
+                )
+              : null;
         const showDaySeparator =
           relativeDay !== null && relativeDay !== previousRelativeDay;
         const isSelected = selectedId === item.id;
