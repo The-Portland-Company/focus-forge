@@ -1078,6 +1078,38 @@ export function EmailWorkList({
     );
   }
 
+  // Group label for an item (Sender / Project / Project›Sender). Hoisted so we
+  // can precompute each row's index within its group for the stagger animation.
+  const getGroupLabel = (candidate: InboxItem) =>
+    getInboxItemGroupLabel(
+      candidate,
+      groupBy,
+      (entry) =>
+        formatParticipantName(
+          getPrimarySenderParticipant(entry.participants, [
+            entry.mailboxEmailAddress,
+          ]),
+        ),
+      (projectId) =>
+        projectId
+          ? (projects.find((project) => project.id === projectId)?.name ?? null)
+          : null,
+    );
+
+  // Position of each row within its current group (0-based). Drives the
+  // staggered "letters onto a table" animation when a grouping is active.
+  const groupPositions: number[] = [];
+  if (groupBy !== "none") {
+    let pos = 0;
+    let prevLabel: string | null = null;
+    items.forEach((it, i) => {
+      const label = getGroupLabel(it);
+      pos = i > 0 && label === prevLabel ? pos + 1 : 0;
+      prevLabel = label;
+      groupPositions.push(pos);
+    });
+  }
+
   return (
     <>
       <div className="space-y-2">
@@ -1085,22 +1117,6 @@ export function EmailWorkList({
         // Group separators. With a grouping active (Sender / Project /
         // Project›Sender) the group label replaces the day separator; without
         // one, the "Today"/"Yesterday" day divider behaves as before.
-        const getGroupLabel = (candidate: InboxItem) =>
-          getInboxItemGroupLabel(
-            candidate,
-            groupBy,
-            (entry) =>
-              formatParticipantName(
-                getPrimarySenderParticipant(entry.participants, [
-                  entry.mailboxEmailAddress,
-                ]),
-              ),
-            (projectId) =>
-              projectId
-                ? (projects.find((project) => project.id === projectId)?.name ??
-                  null)
-                : null,
-          );
         const groupLabel = groupBy !== "none" ? getGroupLabel(item) : null;
         const previousGroupLabel =
           groupBy !== "none" && itemIndex > 0
@@ -1185,8 +1201,14 @@ export function EmailWorkList({
           item.previewText,
         );
 
+        // When a grouping is active, stack rows in like letters on a table:
+        // stagger each row's entrance by its position within the group. The
+        // group value is folded into the key so toggling grouping remounts the
+        // rows and replays the animation.
+        const isGrouped = groupBy !== "none";
+        const groupPosition = isGrouped ? (groupPositions[itemIndex] ?? 0) : 0;
         return (
-          <Fragment key={item.id}>
+          <Fragment key={isGrouped ? `${item.id}-${groupBy}` : item.id}>
           {showDaySeparator && relativeDay ? (
             <InboxDaySeparator label={relativeDay} />
           ) : null}
@@ -1207,15 +1229,24 @@ export function EmailWorkList({
                 isSelected,
                 isUnread: isVisuallyUnread,
               }),
+              isGrouped ? "email-letter-stack" : "",
               erroredThreadId === item.id ? "email-row-blink-error" : "",
               isRemoving ? "animate-email-row-removing" : "",
             )}
             data-email-thread-id={item.id}
             aria-busy={isDeleting || isRemoving}
-            style={getEmailWorkItemStyle({
-              isSelected,
-              isUnread: isVisuallyUnread,
-            })}
+            style={{
+              ...getEmailWorkItemStyle({
+                isSelected,
+                isUnread: isVisuallyUnread,
+              }),
+              ...(isGrouped
+                ? {
+                    animationDelay: `${Math.min(groupPosition, 14) * 45}ms`,
+                  }
+                : {}),
+            }}
+            data-group-position={isGrouped ? groupPosition : undefined}
           >
             <div
               className={cn(
