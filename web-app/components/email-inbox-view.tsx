@@ -2603,11 +2603,16 @@ export function EmailInboxView({
     // Don't auto-reopen a thread right after the user deleted the open one —
     // the panel should stay closed until they pick another email.
     if (suppressInboxAutoSelectRef.current) return;
+    // Never auto-open an email on load/refresh — the reading pane opens only
+    // when the user picks a row (or via the ?thread= deep-link below). If the
+    // currently-selected thread scrolls out of the visible set, just clear it
+    // rather than jumping to the newest email.
     if (
-      !selectedThreadId ||
+      selectedThreadId &&
       !visibleInboxItems.some((item) => item.id === selectedThreadId)
     ) {
-      setSelectedThreadId(visibleInboxItems[0].id);
+      setSelectedThreadId(null);
+      setSelectedThread(null);
     }
   }, [selectedThreadId, view, visibleInboxItems]);
 

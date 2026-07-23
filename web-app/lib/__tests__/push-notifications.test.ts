@@ -73,7 +73,6 @@ function makeInboxItem(
   overrides: Partial<InboxItem> & Pick<InboxItem, "id">,
 ): InboxItem {
   return {
-    id: overrides.id,
     mailboxId: "mailbox-1",
     mailboxName: "Client Mailbox",
     mailboxEmailAddress: "client@example.com",

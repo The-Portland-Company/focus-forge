@@ -62,6 +62,9 @@ function isAlphanumericMix(value: string): boolean {
 function isPlausibleStandaloneCode(value: string): boolean {
   if (value.length < 4 || value.length > 8) return false;
   if (looksLikeYear(value)) return false;
+  // Reject the fractional-seconds tail of an ISO 8601 timestamp — e.g. the
+  // "281Z" in "2026-07-23T19:01:45.281Z" is not a verification code.
+  if (/^\d+Z$/i.test(value)) return false;
   if (isAllDigits(value)) return true;
   // 6-char alphanumeric-style codes must mix letters and digits to qualify.
   return isAlphanumericMix(value);

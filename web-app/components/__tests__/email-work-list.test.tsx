@@ -658,15 +658,15 @@ test("getEmailWorkItemClassName keeps unread threads brand-accented", () => {
 
   assert.match(
     unreadClasses,
-    /transition-\[background-color,background-image,border-color\]/,
+    /transition-\[filter,border-color,background-color,background-image\]/,
   );
   assert.match(
     selectedUnreadClasses,
-    /transition-\[background-color,background-image,border-color\]/,
+    /transition-\[filter,border-color,background-color,background-image\]/,
   );
   assert.match(
     readClasses,
-    /transition-\[background-color,background-image,border-color\]/,
+    /transition-\[filter,border-color,background-color,background-image\]/,
   );
 });
 

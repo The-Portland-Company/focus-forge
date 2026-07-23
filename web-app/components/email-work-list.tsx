@@ -15,6 +15,7 @@ import {
   Copy,
   FolderSearch,
   Loader2,
+  BellDot,
   Mail,
   MessageSquare,
   MessagesSquare,
@@ -39,6 +40,7 @@ import {
   type InboxGroupBy,
 } from "@/lib/email-inbox/group-inbox-items";
 import { Tooltip } from "@/components/tooltip";
+import { getEmailActorGradient } from "@/lib/email-thread-ui";
 import { EmailHtmlContent } from "@/components/ui/email-html-content";
 import { stripQuotedAndSignature } from "@/lib/email-inbox/strip-quoted";
 import { selectPrimarySender } from "@/lib/email-inbox/parse-sender";
@@ -759,7 +761,10 @@ export function getEmailWorkItemClassName(params: {
   isUnread?: boolean;
 }) {
   return cn(
-    "w-full min-w-0 rounded-xl border px-4 py-3 text-left transition-[background-color,background-image,border-color] duration-200",
+    // Row backgrounds are set via inline style, so a hover:bg-* class is
+    // overridden; a brightness filter + border lift reliably brightens and
+    // highlights the row on hover in both themes.
+    "w-full min-w-0 rounded-xl border px-4 py-3 text-left cursor-pointer transition-[filter,border-color,background-color,background-image] duration-200 hover:brightness-125 hover:border-zinc-500/80",
     params.isSelected
       ? "border-zinc-600/80 shadow-none"
       : "border-zinc-800/80 shadow-none",
@@ -1202,9 +1207,6 @@ export function EmailWorkList({
                 isSelected,
                 isUnread: isVisuallyUnread,
               }),
-              freshlyUpdatedIds?.has(item.id) && !isSelected
-                ? "fresh-data-highlight"
-                : "",
               erroredThreadId === item.id ? "email-row-blink-error" : "",
               isRemoving ? "animate-email-row-removing" : "",
             )}
@@ -1443,15 +1445,30 @@ export function EmailWorkList({
                   // timestamp — no inline Today/Yesterday pill.
                   const tsSource = getInboxItemTimestampSource(item);
                   const ts = formatThreadTimestamp(tsSource);
+                  // Second line: when the thread has earlier messages, show the
+                  // date the thread started (first send) under the most-recent
+                  // received date. Only shown when it falls on a different day.
+                  const firstSource = item.createdAt;
+                  const firstTs = formatThreadTimestamp(firstSource);
+                  const showFirst =
+                    (item.messageCount ?? 0) > 1 && firstTs && firstTs !== ts;
                   return ts ? (
                     <span
                       className={cn(
-                        "inline-flex items-center gap-1.5 whitespace-nowrap text-xs sm:text-[11px] tabular-nums",
+                        "inline-flex flex-col items-end whitespace-nowrap text-xs sm:text-[11px] tabular-nums leading-tight",
                         isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
                       )}
                       title={tsSource ?? undefined}
                     >
-                      {ts}
+                      <span>{ts}</span>
+                      {showFirst ? (
+                        <span
+                          className="text-[10px] font-normal text-zinc-600"
+                          title={`Thread started ${firstSource}`}
+                        >
+                          started {firstTs}
+                        </span>
+                      ) : null}
                     </span>
                   ) : null;
                 })()}
@@ -1474,6 +1491,24 @@ export function EmailWorkList({
                     )}
                   >
                     <span>From:</span>
+                    {/* Sender avatar: initials on a per-sender gradient. Emails
+                        carry no sender photo, so this initials circle is the
+                        fallback shown for every sender. */}
+                    <span
+                      className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-xs sm:text-[9px] font-semibold uppercase leading-none text-white"
+                      style={{
+                        background: getEmailActorGradient(
+                          senderName,
+                          sender.emailAddress,
+                        ),
+                      }}
+                      aria-hidden
+                    >
+                      {getRecipientAvatarInitials(
+                        senderName,
+                        sender.emailAddress,
+                      )}
+                    </span>
                     {(() => {
                       const senderEmailTooltip = getSenderEmailTooltip(
                         sender,
@@ -1642,6 +1677,19 @@ export function EmailWorkList({
                   {item.derivedTaskCount} linked task
                   {item.derivedTaskCount === 1 ? "" : "s"}
                 </button>
+                {/* New activity: an unread thread that already has more than
+                    one message means a new email landed in an existing thread. */}
+                {isVisuallyUnread && (item.messageCount ?? 1) > 1 ? (
+                  <Tooltip
+                    content="New reply in this thread"
+                    className="w-auto"
+                    side="top"
+                  >
+                    <span className="inline-flex items-center text-amber-400">
+                      <BellDot className="h-3.5 w-3.5" />
+                    </span>
+                  </Tooltip>
+                ) : null}
                 {/* Conversation length: number of email messages in this
                     thread. Always >= 1 (server defaults to 1). */}
                 {(() => {
