@@ -35,16 +35,7 @@ jobs:
         run: npm ci
 
       - name: Typecheck
-        # Two test files carry pre-existing errors unrelated to app code; they
-        # are excluded here rather than left to mask real regressions.
-        run: |
-          npx tsc --noEmit 2>&1 | tee /tmp/tsc.log || true
-          if grep -vE 'lib/__tests__/(auth-urls|push-notifications)\.test\.ts' /tmp/tsc.log | grep -q 'error TS'; then
-            echo "::error::Typecheck failed"
-            grep -vE 'lib/__tests__/(auth-urls|push-notifications)\.test\.ts' /tmp/tsc.log | grep 'error TS'
-            exit 1
-          fi
-          echo "Typecheck clean"
+        run: npx tsc --noEmit
 
       - name: Tests
         run: npm test
