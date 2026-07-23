@@ -1026,6 +1026,48 @@ input[type="datetime-local"].themed-date-input {
   animation: fresh-data-highlight-fade 2.5s ease-out forwards;
 }
 
+/* Failed-delete locator. Clicking "Show the email" in the deletion alert scrolls
+   the row into view and blinks a red border three times; the third blink fades
+   out over a longer tail instead of snapping off. Only the outline/tint is
+   animated (never the row's opacity) so the email stays readable throughout.
+   Total run: 2.2s — blinks peak at 10% / 33% / 56%, then a slow fade to 100%. */
+@keyframes email-row-blink-error {
+  0% {
+    outline-color: rgb(244 63 94 / 0);
+    background-color: rgb(244 63 94 / 0);
+  }
+  10% {
+    outline-color: rgb(244 63 94 / 0.95);
+    background-color: rgb(244 63 94 / 0.14);
+  }
+  22% {
+    outline-color: rgb(244 63 94 / 0);
+    background-color: rgb(244 63 94 / 0);
+  }
+  33% {
+    outline-color: rgb(244 63 94 / 0.95);
+    background-color: rgb(244 63 94 / 0.14);
+  }
+  45% {
+    outline-color: rgb(244 63 94 / 0);
+    background-color: rgb(244 63 94 / 0);
+  }
+  56% {
+    outline-color: rgb(244 63 94 / 0.95);
+    background-color: rgb(244 63 94 / 0.14);
+  }
+  100% {
+    outline-color: rgb(244 63 94 / 0);
+    background-color: rgb(244 63 94 / 0);
+  }
+}
+
+.email-row-blink-error {
+  outline: 2px solid rgb(244 63 94 / 0);
+  outline-offset: -2px;
+  animation: email-row-blink-error 2.2s ease-in-out forwards;
+}
+
 /* Drag-to-link dependency affordance. While a link drag is in progress the
    hovered target row is outlined with the theme colour; the source row dims
    slightly. On a successful link both rows flash green briefly. */
