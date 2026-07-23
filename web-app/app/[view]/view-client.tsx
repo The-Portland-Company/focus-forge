@@ -128,6 +128,12 @@ import { mergeDatabasePayload } from "@/lib/database-state";
 import { diffFreshTaskIds, diffFreshInboxItemIds } from "@/lib/fresh-data-diff";
 import { DailyPlanCard } from "@/components/daily-plan-card";
 import type { DominoTaskSummary } from "@/lib/daily-plan/types";
+import {
+  clearCachedDatabase,
+  readCachedDatabase,
+  writeCachedDatabase,
+} from "@/lib/database-cache";
+import { AlertBellButton } from "@/components/alert-center";
 
 // How often the app asks the server to pull new mail (POST /sync-due). The
 // server enforces its own per-mailbox poll floor, so these only bound how
@@ -136,71 +142,13 @@ import type { DominoTaskSummary } from "@/lib/daily-plan/types";
 // hidden to avoid needless round-trips and provider pressure.
 const EMAIL_BACKGROUND_SYNC_INTERVAL_VISIBLE_MS = 15 * 1000;
 const EMAIL_BACKGROUND_SYNC_INTERVAL_HIDDEN_MS = 60 * 1000;
-const DATABASE_CORE_CACHE_VERSION = 1;
-const DATABASE_CORE_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 const PROJECT_SECTION_LAYOUT_STORAGE_KEY = "focus-forge:project-section-layout";
 
-const getDatabaseCoreCacheKey = (userId?: string | null) =>
-  `focus-forge:database-core:v${DATABASE_CORE_CACHE_VERSION}:${userId || "anonymous"}`;
-
 // Whether the project view should hydrate its header (name + color) from the
-// sessionStorage core snapshot on mount / view change. Scoped to project views
-// so a repeat visit paints the real title + color at 0ms instead of a skeleton
-// while the server data (loadDatabaseForUser) is still gating. This does NOT
-// affect the fetch — inbox items are always included below so the sidebar
-// Email badges never go to 0.
+// cached snapshot on mount / view change, painting the real title + color at
+// 0ms instead of a skeleton while the server data is still gating.
 const shouldHydrateProjectHeaderFromCache = (view: string) =>
   view.startsWith("project-");
-
-const readCachedDatabaseCore = (userId?: string | null): Database | null => {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const raw = window.sessionStorage.getItem(getDatabaseCoreCacheKey(userId));
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw) as {
-      cachedAt?: number;
-      data?: Database;
-    };
-    if (
-      !parsed.cachedAt ||
-      !parsed.data ||
-      Date.now() - parsed.cachedAt > DATABASE_CORE_CACHE_MAX_AGE_MS
-    ) {
-      window.sessionStorage.removeItem(getDatabaseCoreCacheKey(userId));
-      return null;
-    }
-
-    return parsed.data;
-  } catch {
-    return null;
-  }
-};
-
-const writeCachedDatabaseCore = (
-  userId: string | null | undefined,
-  data: Database,
-) => {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.sessionStorage.setItem(
-      getDatabaseCoreCacheKey(userId),
-      JSON.stringify({
-        cachedAt: Date.now(),
-        data: {
-          ...data,
-          inboxItems: [],
-          quarantineCount: 0,
-          sentCount: 0,
-        },
-      }),
-    );
-  } catch {
-    // Session storage is a best-effort cache.
-  }
-};
 
 const BulkEditModal = dynamic(
   () => import("@/components/bulk-edit-modal").then((mod) => mod.BulkEditModal),
@@ -633,14 +581,41 @@ export default function ViewPage({
     settings: { showCompletedTasks: true },
   });
 
-  // Seed from server-streamed initial data when present. Run the payload
-  // through the same merge path the client fetch uses so the shape matches
-  // exactly (timeBlocks, etc.). The first client fetch is then skipped.
-  const [databaseState, setDatabase] = useState<Database | null>(() =>
-    initialData ? mergeDatabasePayload(null, initialData as any, {}) : null,
+  // Seed priority: server-streamed initial data (freshest) → localStorage
+  // snapshot (previous session's data, including inbox items — paints at 0ms
+  // and turns the initial fetches into background revalidates) → null (true
+  // first visit: skeletons). Server payloads run through the same merge path
+  // the client fetch uses so the shape matches exactly.
+  // Read the snapshot exactly once for the first render (both initializers
+  // below consume it). undefined = not read yet; null = no usable snapshot.
+  const initialCacheRef = useRef<ReturnType<typeof readCachedDatabase> | undefined>(
+    undefined,
   );
-  // When seeded from the server, skip the very first client fetch.
+  if (initialCacheRef.current === undefined) {
+    initialCacheRef.current =
+      !initialData && !chromeOnly ? readCachedDatabase(user?.id) : null;
+  }
+  const [databaseState, setDatabase] = useState<Database | null>(() => {
+    if (initialData) {
+      return mergeDatabasePayload(null, initialData as any, {});
+    }
+    return initialCacheRef.current?.data ?? null;
+  });
+  // When seeded from the server, skip the very first client fetch. A cache
+  // seed does NOT skip it — cached data must still revalidate.
   const skipInitialFetchRef = useRef<boolean>(initialData != null);
+  // Whether an inbox-items read has completed this session (fetch resolved or
+  // cache hydrated with items). Until then, an empty inbox list means "still
+  // loading", never "no emails" — this kills the several-second
+  // "No inbox work yet." flash while the email pass is in flight.
+  const [hasLoadedInboxItems, setHasLoadedInboxItems] = useState<boolean>(() => {
+    if (initialData) {
+      return Array.isArray((initialData as { inboxItems?: unknown[] }).inboxItems)
+        ? ((initialData as { inboxItems: unknown[] }).inboxItems.length > 0)
+        : false;
+    }
+    return (initialCacheRef.current?.data.inboxItems.length ?? 0) > 0;
+  });
 
   // Stable empty database used to render real chrome instantly while the real
   // data is still loading. Identity is stable across renders so memoized
@@ -660,6 +635,21 @@ export default function ViewPage({
   const databaseStateRef = useRef<Database | null>(null);
   databaseStateRef.current = databaseState;
 
+  // Late cache hydration: on a hard refresh the auth user resolves a beat
+  // after first render, so the synchronous initializer above read the cache
+  // under the anonymous key and missed the per-user snapshot. Hydrate the
+  // moment the id arrives — still well before any network fetch resolves.
+  useEffect(() => {
+    if (chromeOnly || !user?.id) return;
+    if (databaseStateRef.current !== null) return;
+    const cached = readCachedDatabase(user.id);
+    if (!cached) return;
+    setDatabase((previous) => previous ?? cached.data);
+    if (cached.data.inboxItems.length > 0) {
+      setHasLoadedInboxItems(true);
+    }
+  }, [chromeOnly, user?.id]);
+
   // On a repeat visit the real project data streams in ~5s late (server
   // `loadDatabaseForUser` gate), so the header title/color would otherwise
   // flash a skeleton. Read the sessionStorage core snapshot synchronously so
@@ -675,7 +665,7 @@ export default function ViewPage({
       return null;
     }
     const cachedProjectId = view.replace("project-", "");
-    const cached = readCachedDatabaseCore(user?.id);
+    const cached = readCachedDatabase(user?.id)?.data ?? null;
     const cachedProject = cached?.projects.find(
       (project) => project.id === cachedProjectId,
     );
@@ -1161,8 +1151,8 @@ export default function ViewPage({
 
         // Validate that the data has the expected structure
         if (data && data.tasks && data.projects && data.organizations) {
-          if (!includeEmailData) {
-            writeCachedDatabaseCore(user?.id, data as Database);
+          if (includeInboxItems) {
+            setHasLoadedInboxItems(true);
           }
 
           setDatabase((previous) => {
@@ -1220,6 +1210,10 @@ export default function ViewPage({
               }
             }
 
+            // Persist the merged snapshot (both passes: the email pass is the
+            // one that carries inbox items) so the next load paints at 0ms.
+            writeCachedDatabase(user?.id, merged as Database);
+
             return merged;
           });
 
@@ -1265,7 +1259,7 @@ export default function ViewPage({
     // the sidebar badges until the fetch below completes).
     if (shouldHydrateProjectHeaderFromCache(view)) {
       const cachedProjectId = view.replace("project-", "");
-      const cachedDatabase = readCachedDatabaseCore(user?.id);
+      const cachedDatabase = readCachedDatabase(user?.id)?.data ?? null;
       const cachedProject = cachedDatabase?.projects.find(
         (project) => project.id === cachedProjectId,
       );
@@ -4592,6 +4586,7 @@ export default function ViewPage({
           view={view}
           data={database}
           isDataLoading={isDataLoading}
+          hasLoadedInboxItems={hasLoadedInboxItems}
           isRefreshing={isRefreshing}
           freshlyUpdatedInboxIds={freshlyUpdatedInboxIds}
           onRefresh={fetchData}
@@ -6674,6 +6669,7 @@ export default function ViewPage({
                   immediately), not the late-arriving `project` object, so the
                   buttons paint at 0ms. Handlers that truly need the loaded
                   project are disabled until it arrives. */}
+              <AlertBellButton />
               <Tooltip
                 content="Project notes"
                 side="bottom"

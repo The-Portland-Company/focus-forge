@@ -66,9 +66,11 @@ import {
   shouldShowSecondaryActionTitle,
 } from "@/components/email-work-list";
 import {
-  EmailDeleteTray,
+  describeDeletionError,
+  describeDeletionHeadline,
   type PendingDeletion,
-} from "@/components/email-delete-tray";
+} from "@/lib/email-inbox/deletion-alerts";
+import { AlertBellButton } from "@/components/alert-center";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
 import { EmailContactsView } from "@/components/email-contacts-view";
 import AiRulesTabs from "@/components/ai-rules-tabs";
@@ -160,6 +162,14 @@ import {
   type PendingRemovals,
 } from "@/lib/email-inbox/pending-removals";
 import { createSnapshotSequence } from "@/lib/email-inbox/snapshot-sequence";
+import { invalidateCachedThreadDetail } from "@/lib/email-inbox/thread-detail-cache";
+import {
+  INBOX_GROUP_BY_OPTIONS,
+  INBOX_GROUP_BY_STORAGE_KEY,
+  groupInboxItems,
+  normalizeInboxGroupBy,
+  type InboxGroupBy,
+} from "@/lib/email-inbox/group-inbox-items";
 import {
   formatReplyAttachmentSize,
   isInlineAttachmentEligible,
@@ -230,6 +240,10 @@ type EmailInboxViewProps = {
   onRefresh: () => Promise<void> | void;
   currentUserId?: string;
   isDataLoading?: boolean;
+  /** Whether an inbox-items read has completed (fetch resolved or cache
+   *  hydrated). While false, an empty list means "still loading" and renders
+   *  the skeleton, never the "No inbox work yet." empty label. */
+  hasLoadedInboxItems?: boolean;
   isRefreshing?: boolean;
   freshlyUpdatedInboxIds?: Set<string>;
   onEditTask?: (taskId: string) => void;
@@ -1413,13 +1427,18 @@ export function EmailInboxView({
   onRefresh,
   currentUserId,
   isDataLoading = false,
+  hasLoadedInboxItems = true,
   isRefreshing = false,
   freshlyUpdatedInboxIds,
   onEditTask,
 }: EmailInboxViewProps) {
   const router = useRouter();
-  const { showSuccess: showContactsSuccess, showError: showContactsError } =
-    useToast();
+  const {
+    showSuccess: showContactsSuccess,
+    showError: showContactsError,
+    upsertAlert,
+    dismissAlert,
+  } = useToast();
   const isInboxView = view === "email-inbox";
   const isSentView = view === "email-sent";
   const isTrashView = view === "email-trash";
@@ -1483,7 +1502,7 @@ export function EmailInboxView({
   const [signatureSearchQuery, setSignatureSearchQuery] = useState("");
   const [isSignaturePickerOpen, setIsSignaturePickerOpen] = useState(false);
   const [busyState, setBusyState] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
   const [pendingConfirmAction, setPendingConfirmAction] =
     useState<ThreadAction | null>(null);
   const [isEmptyTrashConfirmVisible, setIsEmptyTrashConfirmVisible] =
@@ -1557,6 +1576,7 @@ export function EmailInboxView({
     string | null
   >(null);
   const [isFilterBarCollapsed, setIsFilterBarCollapsed] = useState(true);
+  const [inboxGroupBy, setInboxGroupBy] = useState<InboxGroupBy>("none");
   // Client-side date-range filter (YYYY-MM-DD strings from <input type="date">).
   // Applied near-instantly over the already-loaded items in the filter pipeline.
   const [searchDateFrom, setSearchDateFrom] = useState("");
@@ -1608,12 +1628,6 @@ export function EmailInboxView({
   // three-blink red border on the row (see .email-row-blink-error).
   const [erroredThreadId, setErroredThreadId] = useState<string | null>(null);
   const erroredThreadTimerRef = useRef<number | null>(null);
-  const [pendingDeletions, setPendingDeletions] = useState<PendingDeletion[]>(
-    [],
-  );
-  const [reportingDeletionIds, setReportingDeletionIds] = useState<Set<string>>(
-    () => new Set(),
-  );
   // When the user deletes the currently-open thread we close the detail panel
   // and keep it closed — without this the "auto-select first visible thread"
   // effect would immediately re-open another thread. Reset whenever the user
@@ -1852,9 +1866,30 @@ export function EmailInboxView({
     () => clampEmailInboxPage(currentPage, pageCount),
     [currentPage, pageCount],
   );
+  // Cluster by the active grouping BEFORE paginating so groups stay
+  // contiguous instead of being split across pages.
+  const groupedInboxItems = useMemo(
+    () =>
+      groupInboxItems(
+        visibleInboxItems,
+        inboxGroupBy,
+        (item) =>
+          formatParticipantName(
+            getPrimarySenderParticipant(item.participants, [
+              item.mailboxEmailAddress,
+            ]),
+          ),
+        (projectId) =>
+          projectId
+            ? (data.projects.find((project) => project.id === projectId)
+                ?.name ?? null)
+            : null,
+      ),
+    [data.projects, inboxGroupBy, visibleInboxItems],
+  );
   const pagedInboxItems = useMemo(
-    () => getEmailInboxPageItems(visibleInboxItems, safeCurrentPage, perPage),
-    [visibleInboxItems, safeCurrentPage, perPage],
+    () => getEmailInboxPageItems(groupedInboxItems, safeCurrentPage, perPage),
+    [groupedInboxItems, safeCurrentPage, perPage],
   );
 
   const visibleSyncError = useMemo(
@@ -2273,7 +2308,7 @@ export function EmailInboxView({
         setCopiedSearchHelpValue(null);
       }, 1200);
     } catch {
-      setStatusMessage("Could not copy search syntax.");
+      updateStatus("Could not copy search syntax.");
     }
   };
 
@@ -2320,7 +2355,7 @@ export function EmailInboxView({
         throw new Error(payload.error || "Failed to mark thread as read");
       })
       .catch((error) => {
-        setStatusMessage(
+        updateStatus(
           error instanceof Error
             ? error.message
             : "Failed to mark thread as read",
@@ -2471,7 +2506,7 @@ export function EmailInboxView({
     }
 
     void refreshInboxState().catch((error) => {
-      setStatusMessage(
+      updateStatus(
         error instanceof Error ? error.message : "Failed to load inbox",
       );
     });
@@ -2486,6 +2521,26 @@ export function EmailInboxView({
       window.localStorage.getItem(EMAIL_INBOX_FILTER_BAR_STORAGE_KEY) === "1",
     );
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setInboxGroupBy(
+      normalizeInboxGroupBy(
+        window.localStorage.getItem(INBOX_GROUP_BY_STORAGE_KEY),
+      ),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(INBOX_GROUP_BY_STORAGE_KEY, inboxGroupBy);
+  }, [inboxGroupBy]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -2521,7 +2576,7 @@ export function EmailInboxView({
 
   useEffect(() => {
     void refreshReplyDraftState().catch((error) => {
-      setStatusMessage(
+      updateStatus(
         error instanceof Error ? error.message : "Failed to load reply queue",
       );
     });
@@ -2608,7 +2663,7 @@ export function EmailInboxView({
       })
       .catch((error) => {
         if (!cancelled) {
-          setStatusMessage(
+          updateStatus(
             error instanceof Error ? error.message : "Failed to load thread",
           );
         }
@@ -2671,9 +2726,17 @@ export function EmailInboxView({
     };
   }, [isProjectPickerOpen]);
 
+  // Transient statuses ("Synced N messages…", minor failures) surface as
+  // short-lived info alerts in the top-right alert center — the old
+  // bottom-centre pill piled up with the other bottom-anchored toasts.
+  const statusAlertSeqRef = useRef(0);
   const updateStatus = (message: string) => {
-    setStatusMessage(message);
-    window.setTimeout(() => setStatusMessage(null), 2400);
+    upsertAlert({
+      id: `email-status-${++statusAlertSeqRef.current}`,
+      type: "info",
+      title: message,
+      duration: 3000,
+    });
   };
 
   // Persistent intro hint ("Email threads are pre-processed …") rendered as a
@@ -2701,21 +2764,7 @@ export function EmailInboxView({
     </div>
   ) : null;
 
-  // Transient status ("Synced N messages …") rendered as a fixed, bottom-center
-  // floating pill so it never participates in document flow (no layout shift).
-  // Raised above the intro badge when both are visible so they don't overlap.
-  const statusToast = statusMessage ? (
-    <div
-      role="status"
-      aria-live="polite"
-      className={cn(
-        "pointer-events-none fixed left-1/2 z-[61] -translate-x-1/2 rounded-full border border-zinc-700/70 bg-zinc-900/95 px-4 py-2 text-sm text-zinc-200 shadow-lg backdrop-blur",
-        introBadgeVisible ? "bottom-20" : "bottom-6",
-      )}
-    >
-      {statusMessage}
-    </div>
-  ) : null;
+
 
   const applyInboxItemUpdate = (nextItem: InboxItem) => {
     setInboxItems((current) => {
@@ -2870,6 +2919,11 @@ export function EmailInboxView({
       (typeof change.new?.id === "string" && change.new.id) ||
       (typeof change.old?.id === "string" && change.old.id) ||
       null;
+    // The stored thread-detail payload is now behind this row change (new
+    // message / row update) — the next modal open must revalidate.
+    if (changedThreadId) {
+      invalidateCachedThreadDetail(changedThreadId);
+    }
     if (changedThreadId && isThreadRecentlyRemoved(changedThreadId)) {
       beaconEmailAction({
         phase: "realtime_event",
@@ -3339,22 +3393,55 @@ export function EmailInboxView({
   // while the request is in flight, 3) on success slide the row off to the
   // right (remaining rows shift up) before dropping it from state, 4) on
   // failure revert the optimistic state and surface the error.
-  const removePendingDeletion = (pendingId: string) => {
-    setPendingDeletions((current) =>
-      current.filter((entry) => entry.id !== pendingId),
-    );
-  };
-
-  const handleDismissPendingDeletion = (pendingId: string) => {
-    removePendingDeletion(pendingId);
+  // Publish a deletion's current state ("Deleting…" / "Deleted …" / failure
+  // with Retry / Report / Show-the-email actions) into the alert center.
+  // Upserting under the stable pendingId keeps one card per delete whose state
+  // flips in place; success cards auto-dismiss after 3s.
+  const publishDeletionAlert = (
+    entry: PendingDeletion,
+    options?: { reporting?: boolean },
+  ) => {
+    const detail =
+      entry.status === "failed" ? describeDeletionError(entry.error) : null;
+    upsertAlert({
+      id: entry.id,
+      type:
+        entry.status === "failed"
+          ? "error"
+          : entry.status === "succeeded"
+            ? "success"
+            : "progress",
+      title: describeDeletionHeadline(entry),
+      message: detail?.summary,
+      hint: detail?.hint,
+      duration: entry.status === "succeeded" ? 3000 : 0,
+      actions:
+        entry.status === "failed"
+          ? [
+              {
+                id: "locate",
+                label: "Show the email",
+                variant: "link" as const,
+                onClick: () => handleLocateFailedDeletion(entry),
+              },
+              {
+                id: "retry",
+                label: "Retry",
+                onClick: () => handleRetryPendingDeletion(entry),
+              },
+              {
+                id: "report",
+                label: options?.reporting ? "Reporting…" : "Report bug",
+                disabled: Boolean(options?.reporting),
+                onClick: () => void handleReportDeletionBug(entry),
+              },
+            ]
+          : undefined,
+    });
   };
 
   const handleReportDeletionBug = async (entry: PendingDeletion) => {
-    setReportingDeletionIds((current) => {
-      const next = new Set(current);
-      next.add(entry.id);
-      return next;
-    });
+    publishDeletionAlert(entry, { reporting: true });
     try {
       const response = await fetch("/api/email/report-bug", {
         method: "POST",
@@ -3381,11 +3468,7 @@ export function EmailInboxView({
           : "Couldn't send bug report.",
       );
     } finally {
-      setReportingDeletionIds((current) => {
-        const next = new Set(current);
-        next.delete(entry.id);
-        return next;
-      });
+      publishDeletionAlert(entry, { reporting: false });
     }
   };
 
@@ -3443,11 +3526,17 @@ export function EmailInboxView({
       );
     }
 
-    // 3. Track the in-flight delete in the bottom-left deletion tray.
-    setPendingDeletions((current) => [
-      ...current.filter((entry) => entry.id !== pendingId),
-      { id: pendingId, threadId, action, sender, subject, status: "deleting" },
-    ]);
+    // 3. Announce the in-flight delete in the alert center ("Deleting
+    //    {Subject} from {Who}", in the order the user triggered them).
+    const pendingEntry: PendingDeletion = {
+      id: pendingId,
+      threadId,
+      action,
+      sender,
+      subject,
+      status: "deleting",
+    };
+    publishDeletionAlert(pendingEntry);
     setBusyState(action);
 
     try {
@@ -3462,22 +3551,13 @@ export function EmailInboxView({
         throw new Error(payload.error || "Failed to apply thread action");
       }
 
-      // 4. Success → flip the alert to its green "Deleted …" state. The alert
-      //    itself owns the 3s visible window and the slide-down exit, then
-      //    calls back to drop the entry; the stack hides once empty.
-      setPendingDeletions((current) =>
-        current.map((entry) =>
-          entry.id === pendingId
-            ? { ...entry, status: "succeeded", error: undefined }
-            : entry,
-        ),
-      );
+      // 4. Success → flip the alert card to its green "Deleted …" state; it
+      //    auto-dismisses after 3s with the slide-out animation.
+      publishDeletionAlert({ ...pendingEntry, status: "succeeded" });
 
       void refreshInboxState({ skipMailboxes: true }).catch(() => {
         // Keep the optimistic removal instead of blocking on a slow refresh.
       });
-
-      updateStatus(`Applied ${action.replace(/_/g, " ")}.`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to apply action";
@@ -3500,13 +3580,7 @@ export function EmailInboxView({
       // Reconcile ordering/state from the server (the thread still exists).
       void refreshInboxState({ skipMailboxes: true }).catch(() => {});
 
-      setPendingDeletions((current) =>
-        current.map((entry) =>
-          entry.id === pendingId
-            ? { ...entry, status: "failed", error: message }
-            : entry,
-        ),
-      );
+      publishDeletionAlert({ ...pendingEntry, status: "failed", error: message });
 
       if (
         shouldUpdateSelectedThread &&
@@ -3518,8 +3592,6 @@ export function EmailInboxView({
         setSelectedThread(previousSelectedThread);
         setIsThreadModalOpen(wasThreadModalOpen);
       }
-
-      updateStatus(message);
     } finally {
       setBusyState(null);
     }
@@ -3547,7 +3619,7 @@ export function EmailInboxView({
   };
 
   const handleRetryPendingDeletion = (entry: PendingDeletion) => {
-    removePendingDeletion(entry.id);
+    dismissAlert(entry.id);
     void handleDeleteThreadWithAnimation(
       entry.action as ThreadAction,
       entry.threadId,
@@ -3846,7 +3918,7 @@ export function EmailInboxView({
     setPendingConfirmAction(null);
     setQueuedAction(action);
     setIsQueuedActionNoticeVisible(true);
-    setStatusMessage(getQueuedThreadActionMessage(action, undoSeconds));
+    updateStatus(getQueuedThreadActionMessage(action, undoSeconds));
     queuedActionTimeoutRef.current = window.setTimeout(() => {
       queuedActionTimeoutRef.current = null;
       setQueuedAction(null);
@@ -4697,7 +4769,6 @@ export function EmailInboxView({
             </div>
           </div>
         </div>
-        {statusToast}
       </div>
     );
   }
@@ -4720,14 +4791,6 @@ export function EmailInboxView({
 
   return (
     <div className="min-w-0 space-y-6">
-      <EmailDeleteTray
-        items={pendingDeletions}
-        onRetry={handleRetryPendingDeletion}
-        onReportBug={handleReportDeletionBug}
-        onDismiss={handleDismissPendingDeletion}
-        onLocate={handleLocateFailedDeletion}
-        reportingIds={reportingDeletionIds}
-      />
       <div className="flex flex-nowrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
@@ -4787,6 +4850,7 @@ export function EmailInboxView({
           )}
         </div>
         <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
+          <AlertBellButton />
           {visibleInboxItems.length > 0 ? (
             <div className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-1.5 text-sm text-zinc-400">
               <Tooltip content="Previous page" className="w-auto" side="bottom">
@@ -4993,10 +5057,14 @@ export function EmailInboxView({
                 }
               }}
               className={cn(
-                "relative inline-flex h-9 w-9 items-center justify-center rounded-lg border bg-zinc-900 text-sm text-zinc-200 transition-colors hover:text-white",
+                "relative inline-flex h-9 w-9 items-center justify-center text-sm text-zinc-200 transition-colors hover:text-white",
+                // Collapsed: a regular toolbar button. Expanded: THIS button
+                // becomes the tab of the search/filters panel below — square
+                // bottom corners, the panel's border/bg, no bottom border —
+                // instead of rendering a second, duplicate tab in the panel.
                 isFilterBarCollapsed
-                  ? "border-zinc-700 hover:border-zinc-600"
-                  : "border-[rgb(var(--theme-primary-rgb))]/45 text-white",
+                  ? "rounded-lg border border-zinc-700 bg-zinc-900 hover:border-zinc-600"
+                  : "-mb-px rounded-t-lg rounded-b-none border border-b-0 border-zinc-800 bg-zinc-950/60 pb-2 text-white",
               )}
               aria-expanded={!isFilterBarCollapsed}
               aria-label={
@@ -5331,24 +5399,6 @@ export function EmailInboxView({
                   </div>
                 </div>
               ) : null}
-              {/* Connected tab: sits flush on the top-right edge of the filter
-                  panel so the expanded search/filters reads as one surface with
-                  its own tab. Rendered outside the animated (overflow-hidden)
-                  grid so it isn't clipped; the -mb-px overlap + matching bg hide
-                  the seam with the panel border below. */}
-              {!isFilterBarCollapsed ? (
-                <div className="mt-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setIsFilterBarCollapsed(true)}
-                    className="relative z-10 -mb-px inline-flex items-center gap-1.5 rounded-t-lg border border-b-transparent border-zinc-800 bg-zinc-950/60 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:text-white"
-                    aria-label="Hide search and filters"
-                  >
-                    <SlidersHorizontal className="h-3.5 w-3.5" />
-                    Search &amp; filters
-                  </button>
-                </div>
-              ) : null}
               <div
                 className={cn(
                   "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
@@ -5359,7 +5409,7 @@ export function EmailInboxView({
                 aria-hidden={isFilterBarCollapsed}
               >
                 <div className="overflow-hidden">
-                  <div className="rounded-2xl rounded-tr-none border border-zinc-800 bg-zinc-950/60 p-3">
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
                     {inboxSearchQuery.trim() ||
                     searchDateFrom ||
                     searchDateTo ? (
@@ -5627,7 +5677,7 @@ export function EmailInboxView({
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
                         {isInboxView ? (
-                          <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
+                          <div className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
                             {[
                               { id: "threads", label: "Threads" },
                               { id: "reply_queue", label: "Reply Queue" },
@@ -5640,8 +5690,8 @@ export function EmailInboxView({
                                 }
                                 className={
                                   replyQueueTab === tab.id
-                                    ? "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
-                                    : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
+                                    ? "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
+                                    : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
                                 }
                               >
                                 {tab.label}
@@ -5650,7 +5700,8 @@ export function EmailInboxView({
                           </div>
                         ) : null}
                         {!isInboxView || replyQueueTab === "threads" ? (
-                          <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
+                          <>
+                          <div className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
                             {[
                               { id: "all", label: "All" },
                               { id: "unread", label: "Unread" },
@@ -5670,21 +5721,41 @@ export function EmailInboxView({
                                 className={
                                   inboxFilterTab === tab.id
                                     ? tab.id === "unread"
-                                      ? "rounded-lg border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-3 py-1.5 text-sm font-medium text-[rgb(var(--theme-primary-rgb))]"
+                                      ? "rounded-md border border-[rgb(var(--theme-primary-rgb))]/40 bg-[rgb(var(--theme-primary-rgb))]/12 px-2 py-1 text-xs font-medium text-[rgb(var(--theme-primary-rgb))]"
                                       : tab.id === "spam"
-                                        ? "rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-1.5 text-sm font-medium text-red-200"
+                                        ? "rounded-md border border-red-900/60 bg-red-950/40 px-2 py-1 text-xs font-medium text-red-200"
                                         : tab.id === "read"
-                                          ? "rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-sm font-medium text-zinc-200"
-                                          : "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
-                                    : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
+                                          ? "rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-1 text-xs font-medium text-zinc-200"
+                                          : "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
+                                    : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
                                 }
                               >
                                 {tab.label}
                               </button>
                             ))}
                           </div>
+                          <div className="inline-flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
+                            <span className="pl-1.5 pr-0.5 text-[10px] uppercase tracking-wide text-zinc-600">
+                              Group
+                            </span>
+                            {INBOX_GROUP_BY_OPTIONS.map((option) => (
+                              <button
+                                key={option.id}
+                                type="button"
+                                onClick={() => setInboxGroupBy(option.id)}
+                                className={
+                                  inboxGroupBy === option.id
+                                    ? "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
+                                    : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
+                                }
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                          </>
                         ) : (
-                          <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950/70 p-1">
+                          <div className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
                             {[
                               { id: "draft", label: "Draft" },
                               { id: "scheduled", label: "Scheduled" },
@@ -5702,8 +5773,8 @@ export function EmailInboxView({
                                 }
                                 className={
                                   replyQueueFilter === tab.id
-                                    ? "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white"
-                                    : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
+                                    ? "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
+                                    : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
                                 }
                               >
                                 {tab.label}
@@ -5867,7 +5938,8 @@ export function EmailInboxView({
                 </div>
               </div>
             ) : null}
-            {isDataLoading ? (
+            {isDataLoading ||
+            (!hasLoadedInboxItems && pagedInboxItems.length === 0) ? (
               <div className="space-y-2">
                 {Array.from({ length: 7 }).map((_, i) => (
                   <SkeletonEmailRow key={i} />
@@ -5884,6 +5956,7 @@ export function EmailInboxView({
                 selectedId={selectedThreadId}
                 freshlyUpdatedIds={freshlyUpdatedInboxIds}
                 erroredThreadId={erroredThreadId}
+                groupBy={inboxGroupBy}
                 deletingIds={deletingThreadIds}
                 removingIds={removingThreadIds}
                 alwaysShowSummary={alwaysShowSummary}
@@ -6022,7 +6095,6 @@ export function EmailInboxView({
       </div>
 
       {introBadge}
-      {statusToast}
 
       <Dialog
         open={isSearchHelpDialogOpen}
@@ -6218,6 +6290,11 @@ export function EmailInboxView({
         <EmailThreadModal
           open={threadModalShouldOpen}
           threadId={selectedThreadId}
+          freshnessSignal={
+            selectedThreadId
+              ? (inboxItems.find((item) => item.id === selectedThreadId) ?? null)
+              : null
+          }
           projects={data.projects}
           hideEmailSignatures={hideEmailSignatures}
           onRefresh={onRefresh}

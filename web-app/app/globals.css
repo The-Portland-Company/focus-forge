@@ -1026,6 +1026,51 @@ input[type="datetime-local"].themed-date-input {
   animation: fresh-data-highlight-fade 2.5s ease-out forwards;
 }
 
+/* Alert-center cards (top-right stack). Enter: fade in while sliding down
+   from just above; exit: reverse. Timing mirrors the old bottom toasts. */
+@keyframes alert-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes alert-card-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+.alert-card-enter {
+  animation: alert-card-enter 0.25s ease-out;
+}
+
+.alert-card-exit {
+  animation: alert-card-exit 0.22s ease-in forwards;
+}
+
+/* Collapsed stack truncation: the bottom of the stack (the 3rd visible card)
+   fades out to signal there may be more; hovering the stack removes the mask
+   and enables scrolling through every active alert. */
+.alert-stack-masked {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    black 0%,
+    black 62%,
+    transparent 98%
+  );
+  mask-image: linear-gradient(to bottom, black 0%, black 62%, transparent 98%);
+}
+
 /* Failed-delete locator. Clicking "Show the email" in the deletion alert scrolls
    the row into view and blinks a red border three times; the third blink fades
    out over a longer tail instead of snapping off. Only the outline/tint is

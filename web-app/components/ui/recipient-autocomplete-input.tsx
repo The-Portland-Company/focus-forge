@@ -154,6 +154,17 @@ export function RecipientAutocompleteInput({
     [chips, inputValue, onChange, buildValue]
   );
 
+  // Commit the trailing typed token as a chip (no trailing comma required —
+  // leaving the field or pressing Enter is enough).
+  const commitTrailingToken = React.useCallback(() => {
+    const trimmed = inputValue.trim();
+    if (!trimmed) return;
+    onChange(buildValue([...chips.map((c) => c.raw), trimmed], ""));
+    setOpen(false);
+    setSuggestions([]);
+    requestSeq.current++;
+  }, [buildValue, chips, inputValue, onChange]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Backspace on an empty token removes the last committed chip.
     if (
@@ -168,6 +179,13 @@ export function RecipientAutocompleteInput({
     }
 
     if (!open || suggestions.length === 0) {
+      // With no suggestion list open, Enter commits the typed address as a
+      // chip instead of doing nothing.
+      if (e.key === "Enter" && inputValue.trim()) {
+        e.preventDefault();
+        commitTrailingToken();
+        return;
+      }
       if (e.key === "Escape") setOpen(false);
       return;
     }
@@ -246,6 +264,10 @@ export function RecipientAutocompleteInput({
           onFocus={() => {
             if (suggestions.length > 0) setOpen(true);
           }}
+          // Exiting the field turns the typed address into a chip. Picking a
+          // suggestion is safe: the option uses onPointerDown+preventDefault,
+          // so the input never blurs on that path.
+          onBlur={commitTrailingToken}
           placeholder={chips.length === 0 ? placeholder : undefined}
           autoComplete="off"
           className="min-w-[8rem] flex-1 border-0 bg-transparent p-0.5 text-base text-white placeholder:text-zinc-400 focus:outline-none focus:ring-0 md:text-sm"

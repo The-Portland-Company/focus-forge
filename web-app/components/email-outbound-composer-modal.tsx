@@ -189,8 +189,13 @@ export function EmailOutboundComposerModal({
       return;
     }
 
-    // Prefer the explicitly-selected inbox; otherwise restore the user's last
-    // chosen inbox (persisted), validated against the mailboxes still available.
+    // Sending-mailbox default, in priority order: the explicitly-selected
+    // inbox → the user's saved default (persisted, validated against the
+    // mailboxes still available) → the first available mailbox. The last leg
+    // means a new email NEVER opens without a sender: with one mailbox it is
+    // that mailbox, and with several the system picks one automatically (the
+    // persist effect below then saves it as the default, which the user can
+    // change at any time via this select).
     const explicit = selectedMailboxId !== "all" ? selectedMailboxId : "";
     let nextMailboxId = explicit;
     if (!nextMailboxId) {
@@ -199,11 +204,27 @@ export function EmailOutboundComposerModal({
         nextMailboxId = stored;
       }
     }
+    if (!nextMailboxId && mailboxes.length > 0) {
+      nextMailboxId = mailboxes[0].id;
+    }
     setMailboxId(nextMailboxId);
     setSubject(initialDraft?.subject ?? "");
     setContent(initialDraft?.body ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectedMailboxId]);
+
+  // Late-arriving mailboxes: if the composer opened before the mailbox list
+  // loaded, fill the default in as soon as it arrives (same priority: saved
+  // default, else first mailbox). Never overrides an existing selection.
+  useEffect(() => {
+    if (!open || mailboxId || mailboxes.length === 0) return;
+    const stored = loadDefaultMailboxId(userId);
+    setMailboxId(
+      stored && mailboxes.some((mailbox) => mailbox.id === stored)
+        ? stored
+        : mailboxes[0].id,
+    );
+  }, [mailboxId, mailboxes, open, userId]);
 
   // Persist the chosen inbox as the default for future opens (skip the empty
   // "no selection yet" state and only while the composer is open).
@@ -332,6 +353,35 @@ export function EmailOutboundComposerModal({
     })),
   });
 
+  // Parse an API response, tolerating non-JSON bodies. When infrastructure
+  // fails (Cloudflare 524 timeout page, gateway 502, auth redirect), the body
+  // is an HTML page — response.json() then throws the cryptic
+  // "Unexpected token '<', \"<!DOCTYPE\"… is not valid JSON" the user saw on
+  // send. Surface a plain-language error carrying the real HTTP status
+  // instead, and never let the raw parser error escape to the UI.
+  const parseApiJson = async (response: Response, fallbackError: string) => {
+    let payload: any = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok) {
+      const serverMessage =
+        payload && typeof payload.error === "string" ? payload.error : null;
+      throw new Error(
+        serverMessage ||
+          `${fallbackError} — the server didn't respond (status ${response.status}). It may be overloaded; please try again shortly.`,
+      );
+    }
+    if (payload === null) {
+      throw new Error(
+        `${fallbackError} — the server returned an unreadable response. Please try again.`,
+      );
+    }
+    return payload;
+  };
+
   const ensureDraft = async () => {
     const payload = buildPayload();
     if (!payload.mailboxId) {
@@ -347,11 +397,10 @@ export function EmailOutboundComposerModal({
         body: JSON.stringify(payload),
       },
     );
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.error || "Failed to save outbound draft");
-    }
+    const result = await parseApiJson(
+      response,
+      "Failed to save outbound draft",
+    );
 
     setDraftId(result.id);
     return result as EmailOutboundDraft;
@@ -369,11 +418,10 @@ export function EmailOutboundComposerModal({
       body: formData,
       credentials: "include",
     });
-    const payload = await response.json();
-
-    if (!response.ok) {
-      throw new Error(payload.error || `Failed to upload ${file.name}`);
-    }
+    const payload = await parseApiJson(
+      response,
+      `Failed to upload ${file.name}`,
+    );
 
     return {
       id: payload.id,
@@ -463,11 +511,8 @@ export function EmailOutboundComposerModal({
         headers: { "Content-Type": "application/json" },
         credentials: "include",
       });
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to send email");
-      }
+      const payload = await parseApiJson(response, "Failed to send email");
+      void payload;
 
       setSendProgress({ label: "Sent", step: 3, total });
       onOpenChange(false);
@@ -515,11 +560,8 @@ export function EmailOutboundComposerModal({
           }),
         },
       );
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to schedule email");
-      }
+      const payload = await parseApiJson(response, "Failed to schedule email");
+      void payload;
 
       setSendProgress({ label: "Scheduled", step: 2, total });
       onOpenChange(false);
