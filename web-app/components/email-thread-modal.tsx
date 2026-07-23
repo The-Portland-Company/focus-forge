@@ -415,6 +415,9 @@ export function EmailThreadModal({
   // elapses, we flush this action so the delete is actually sent to the server
   // instead of being silently dropped when the pending setTimeout is cleared.
   const pendingQueuedActionRef = useRef<ThreadAction | null>(null);
+  // The thread a queued action targets, captured at queue time so a flush
+  // (timeout or unmount) never acts on whatever thread happens to be open then.
+  const pendingQueuedThreadIdRef = useRef<string | null>(null);
   const { profile, updateProfile } = useUserProfile();
   const { preferences } = useUserPreferences();
   // Per-user Conversation ordering. Persisted on the profiles row, but driven
@@ -1018,9 +1021,11 @@ export function EmailThreadModal({
       // the server. Without this, clearing the timeout above would silently
       // drop the delete and it would no-op.
       const pendingAction = pendingQueuedActionRef.current;
+      const pendingThreadId = pendingQueuedThreadIdRef.current;
       if (pendingAction) {
         pendingQueuedActionRef.current = null;
-        void executeThreadActionRef.current(pendingAction);
+        pendingQueuedThreadIdRef.current = null;
+        void executeThreadActionRef.current(pendingAction, pendingThreadId);
       }
     };
   }, []);
@@ -1058,6 +1063,7 @@ export function EmailThreadModal({
     // Explicit cancel (Undo) and re-queue both route through here, so drop the
     // pending action; only an unmount with an outstanding action should flush.
     pendingQueuedActionRef.current = null;
+    pendingQueuedThreadIdRef.current = null;
     setQueuedAction(null);
     setIsQueuedActionNoticeVisible(false);
   };
@@ -1509,18 +1515,28 @@ export function EmailThreadModal({
     }
   };
 
-  const executeThreadAction = async (action: ThreadAction) => {
-    if (!threadId) return;
+  const executeThreadAction = async (
+    action: ThreadAction,
+    // The thread this action targets. Defaults to the open thread, but a
+    // queued (undo-pending) action MUST carry the id it was queued against —
+    // the selection can move before the queue flushes, and executing against
+    // the live `threadId` would delete a different email than the user chose.
+    targetThreadId: string | null = threadId,
+  ) => {
+    if (!targetThreadId) return;
 
     setBusyState(action);
 
     try {
-      const response = await fetch(`/api/email/threads/${threadId}/actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ action }),
-      });
+      const response = await fetch(
+        `/api/email/threads/${targetThreadId}/actions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ action }),
+        },
+      );
 
       await parseApiResponse(response, "Failed to apply thread action");
       await refreshParent();
@@ -1530,7 +1546,7 @@ export function EmailThreadModal({
         return;
       }
 
-      await reloadThread(threadId);
+      await reloadThread(targetThreadId);
       updateStatus(`Applied ${action.replace(/_/g, " ")}.`);
     } catch (error) {
       updateStatus(
@@ -1555,16 +1571,19 @@ export function EmailThreadModal({
 
     clearQueuedAction();
     setPendingConfirmAction(null);
+    const targetThreadId = threadId;
     setQueuedAction(action);
     pendingQueuedActionRef.current = action;
+    pendingQueuedThreadIdRef.current = targetThreadId;
     setIsQueuedActionNoticeVisible(true);
     setStatusMessage(getQueuedThreadActionMessage(action, undoSeconds));
     queuedActionTimeoutRef.current = window.setTimeout(() => {
       queuedActionTimeoutRef.current = null;
       pendingQueuedActionRef.current = null;
+      pendingQueuedThreadIdRef.current = null;
       setQueuedAction(null);
       setIsQueuedActionNoticeVisible(false);
-      void executeThreadAction(action);
+      void executeThreadAction(action, targetThreadId);
     }, undoSeconds * 1000);
   };
 
