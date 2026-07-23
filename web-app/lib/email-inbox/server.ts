@@ -930,7 +930,16 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
     threadUpdate.subject = message.subject || "Untitled email";
     threadUpdate.normalized_subject = normalizeSubject(message.subject);
     threadUpdate.preview_text = extractPlainTextPreview(message.bodyText, 240);
-    threadUpdate.is_unread = message.isUnread;
+    // A genuinely newer inbound message on a thread we already knew about is a
+    // new reply in the thread — mark the thread unread even if the provider had
+    // already marked the message read (e.g. read in another client). Threads
+    // being seen for the first time have no prior latest_message_at and fall
+    // back to the provider's own read state, so a backfill isn't force-unread.
+    const isNewInboundReply =
+      Boolean(threadTimes?.latest_message_at) &&
+      new Date(incomingTs).getTime() >
+        new Date(threadTimes!.latest_message_at as string).getTime();
+    threadUpdate.is_unread = isNewInboundReply ? true : message.isUnread;
   }
 
   await admin.from("email_threads").update(threadUpdate).eq("id", threadId);
