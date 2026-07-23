@@ -1282,14 +1282,15 @@ export default function ViewPage({
       setCachedProjectHeader(null);
     }
 
-    // Core data first (no email) so the shell leaves skeletons quickly even when
-    // the email/inbox path is slow or hung. Email loads in a follow-up fetch.
-    void (async () => {
-      await fetchData({ includeEmailData: false, includeInboxItems: false });
-      if (!chromeOnly) {
-        void fetchData({ includeEmailData: true, includeInboxItems: true });
-      }
-    })();
+    // Two reads: a light core one (no email) that clears the shell skeletons
+    // fast, and the heavier email/inbox one. They are fired CONCURRENTLY, not
+    // chained — the email pass used to wait on the core pass, so the user sat
+    // through core-latency + email-latency back to back and watched the page
+    // fill in stage after stage. They hit different tables and
+    // mergeDatabasePayload keeps each pass to its own slice, so whichever
+    // returns first paints and the other fills in behind it.
+    void fetchData({ includeEmailData: false, includeInboxItems: false });
+    void fetchData({ includeEmailData: true, includeInboxItems: true });
   }, [fetchData, user?.id, view, chromeOnly]);
 
   // Refresh the in-memory database whenever something changes the data outside
@@ -1408,7 +1409,15 @@ export default function ViewPage({
       }
     };
 
-    void runBackgroundEmailSync();
+    // Defer the first provider sync. It is a slow IMAP/Graph round-trip that
+    // used to fire in the same tick as the initial /api/database reads, so it
+    // competed with them for connections and, when it found changes, kicked off
+    // yet another full refetch while the first paint was still settling. A
+    // short delay lets the app render from what's already in the DB first; new
+    // mail then arrives as one later update instead of another loading stage.
+    const initialSyncTimer = window.setTimeout(() => {
+      void runBackgroundEmailSync();
+    }, 1500);
 
     let interval: number | undefined;
 
@@ -1441,12 +1450,16 @@ export default function ViewPage({
 
     return () => {
       cancelled = true;
+      window.clearTimeout(initialSyncTimer);
       if (interval !== undefined) {
         window.clearInterval(interval);
       }
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [fetchData, isEmailThreadPopout, user, view]);
+    // `view` is intentionally not a dependency: the background sync is global,
+    // so re-running it on every navigation only re-issued the provider sync.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchData, isEmailThreadPopout, user]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -1461,7 +1474,9 @@ export default function ViewPage({
           setEmailSenderByTaskId(payload.senderByTaskId);
       })
       .catch(() => undefined);
-  }, [user?.id, view]);
+    // Links are user-scoped, not view-scoped — refetching them on every
+    // navigation added a request (and a late re-render) to each view change.
+  }, [user?.id]);
 
   const clearUndoTimers = () => {
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);

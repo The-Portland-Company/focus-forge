@@ -159,6 +159,7 @@ import {
   markPendingRemoval,
   type PendingRemovals,
 } from "@/lib/email-inbox/pending-removals";
+import { createSnapshotSequence } from "@/lib/email-inbox/snapshot-sequence";
 import {
   formatReplyAttachmentSize,
   isInlineAttachmentEligible,
@@ -252,10 +253,6 @@ const BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 30 * 1000;
 // When Supabase Realtime is connected it carries new-mail signals, so the
 // poll only needs to act as a slow safety net.
 const REALTIME_CONNECTED_POLL_INTERVAL_MS = 60 * 1000;
-// Duration of the row slide-off animation (keep in sync with the
-// `email-row-slide-off-right` keyframe in globals.css). After this delay the
-// deleted thread is dropped from the list state.
-const EMAIL_ROW_REMOVAL_ANIMATION_MS = 360;
 const EMAIL_DETAIL_PANEL_DEFAULT_WIDTH = 380;
 const EMAIL_DETAIL_PANEL_MIN_WIDTH = 320;
 const EMAIL_DETAIL_PANEL_MAX_WIDTH = 720;
@@ -1607,6 +1604,10 @@ export function EmailInboxView({
   );
   // Deletion tray: emails are removed from the list instantly on delete, and
   // their in-flight (and failed) status lives here until the server confirms.
+  // Thread the user asked to be shown after a delete failed. Drives the
+  // three-blink red border on the row (see .email-row-blink-error).
+  const [erroredThreadId, setErroredThreadId] = useState<string | null>(null);
+  const erroredThreadTimerRef = useRef<number | null>(null);
   const [pendingDeletions, setPendingDeletions] = useState<PendingDeletion[]>(
     [],
   );
@@ -1694,6 +1695,9 @@ export function EmailInboxView({
   const queuedActionTimeoutRef = useRef<number | null>(null);
   const copiedSearchHelpTimeoutRef = useRef<number | null>(null);
   const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
+  // Orders concurrent /api/email/inbox reads so a stale response can never
+  // overwrite a newer one (see lib/email-inbox/snapshot-sequence).
+  const inboxSnapshotSequenceRef = useRef(createSnapshotSequence());
   const mailboxesRef = useRef<Mailbox[]>(data.mailboxes);
   const refreshInboxStateRef = useRef<
     | ((options?: {
@@ -2376,7 +2380,24 @@ export function EmailInboxView({
     nextMailboxes: Mailbox[];
     nextItems: InboxItem[];
     allowBrowserNotifications?: boolean;
+    /** Monotonic id of the /api/email/inbox request this snapshot came from. */
+    requestSeq?: number;
   }) => {
+    // Out-of-order guard. Deleting several emails in quick succession fires a
+    // refresh per delete, so multiple /api/email/inbox reads are in flight at
+    // once and can resolve in any order. A response issued BEFORE a later
+    // delete still shows that thread as active; if it lands after the newer
+    // response (which already reached the terminal "deleted" status and
+    // therefore released the pending-removal pin), the stale rows are applied
+    // wholesale and the just-deleted emails pop back into the list. Applying
+    // only the newest issued read makes the last-writer the freshest one.
+    if (
+      params.requestSeq !== undefined &&
+      !inboxSnapshotSequenceRef.current.shouldApply(params.requestSeq)
+    ) {
+      return;
+    }
+
     // Reconcile just-actioned threads against this fresh read: rows the server
     // has now committed (or dropped) release their pin; rows still showing a
     // pre-commit status stay filtered out so a reconcile can't resurrect them.
@@ -2415,6 +2436,9 @@ export function EmailInboxView({
     return () => {
       if (queuedActionTimeoutRef.current !== null) {
         window.clearTimeout(queuedActionTimeoutRef.current);
+      }
+      if (erroredThreadTimerRef.current !== null) {
+        window.clearTimeout(erroredThreadTimerRef.current);
       }
       if (copiedSearchHelpTimeoutRef.current !== null) {
         window.clearTimeout(copiedSearchHelpTimeoutRef.current);
@@ -2719,6 +2743,8 @@ export function EmailInboxView({
     // mailbox-changing actions leave this false to refresh both.
     skipMailboxes?: boolean;
   }) => {
+    const requestSeq = inboxSnapshotSequenceRef.current.next();
+
     if (options?.skipMailboxes) {
       const inboxResponse = await fetch("/api/email/inbox", {
         credentials: "include",
@@ -2734,6 +2760,7 @@ export function EmailInboxView({
         nextMailboxes: mailboxesRef.current,
         nextItems: Array.isArray(inboxPayload) ? inboxPayload : [],
         allowBrowserNotifications: options?.allowBrowserNotifications,
+        requestSeq,
       });
       return;
     }
@@ -2761,6 +2788,7 @@ export function EmailInboxView({
       nextMailboxes: Array.isArray(mailboxesPayload) ? mailboxesPayload : [],
       nextItems: Array.isArray(inboxPayload) ? inboxPayload : [],
       allowBrowserNotifications: options?.allowBrowserNotifications,
+      requestSeq,
     });
   };
 
@@ -3434,11 +3462,16 @@ export function EmailInboxView({
         throw new Error(payload.error || "Failed to apply thread action");
       }
 
-      // 4. Success → let the tray entry linger briefly so the user sees it
-      //    complete, then fade it out. The tray hides itself once empty.
-      window.setTimeout(() => {
-        removePendingDeletion(pendingId);
-      }, EMAIL_ROW_REMOVAL_ANIMATION_MS + 600);
+      // 4. Success → flip the alert to its green "Deleted …" state. The alert
+      //    itself owns the 3s visible window and the slide-down exit, then
+      //    calls back to drop the entry; the stack hides once empty.
+      setPendingDeletions((current) =>
+        current.map((entry) =>
+          entry.id === pendingId
+            ? { ...entry, status: "succeeded", error: undefined }
+            : entry,
+        ),
+      );
 
       void refreshInboxState({ skipMailboxes: true }).catch(() => {
         // Keep the optimistic removal instead of blocking on a slow refresh.
@@ -3490,6 +3523,27 @@ export function EmailInboxView({
     } finally {
       setBusyState(null);
     }
+  };
+
+  // "Show the email" on a failed-delete alert: scroll the row that stayed put
+  // into view and blink it red so the user can find it in a long list.
+  const handleLocateFailedDeletion = (entry: PendingDeletion) => {
+    setErroredThreadId(entry.threadId);
+    if (erroredThreadTimerRef.current !== null) {
+      window.clearTimeout(erroredThreadTimerRef.current);
+    }
+    // Matches the 2.2s .email-row-blink-error run, then clears so the same row
+    // can be flashed again on a later failure.
+    erroredThreadTimerRef.current = window.setTimeout(() => {
+      setErroredThreadId(null);
+      erroredThreadTimerRef.current = null;
+    }, 2400);
+
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-email-thread-id="${entry.threadId}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   };
 
   const handleRetryPendingDeletion = (entry: PendingDeletion) => {
@@ -4671,6 +4725,7 @@ export function EmailInboxView({
         onRetry={handleRetryPendingDeletion}
         onReportBug={handleReportDeletionBug}
         onDismiss={handleDismissPendingDeletion}
+        onLocate={handleLocateFailedDeletion}
         reportingIds={reportingDeletionIds}
       />
       <div className="flex flex-nowrap items-start justify-between gap-4">
@@ -5828,6 +5883,7 @@ export function EmailInboxView({
                 onEditAiProfile={() => router.push("/email-ai-lab")}
                 selectedId={selectedThreadId}
                 freshlyUpdatedIds={freshlyUpdatedInboxIds}
+                erroredThreadId={erroredThreadId}
                 deletingIds={deletingThreadIds}
                 removingIds={removingThreadIds}
                 alwaysShowSummary={alwaysShowSummary}

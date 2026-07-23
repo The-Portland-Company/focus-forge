@@ -81,6 +81,9 @@ type EmailWorkListProps = {
   onEditAiProfile?: () => void;
   selectedId?: string | null;
   freshlyUpdatedIds?: Set<string>; // ids new/changed via background refetch (green flash)
+  /** Thread id to blink with a red border — set when the user clicks "Show the
+   *  email" on a failed-delete alert so they can find the row that stayed put. */
+  erroredThreadId?: string | null;
   /** Thread ids whose delete request is in flight: row shows a strike-through
    *  on its text plus a small "Deleting…" spinner (optimistic state). */
   deletingIds?: Set<string>;
@@ -838,6 +841,7 @@ export function EmailWorkList({
   onEditAiProfile,
   selectedId,
   freshlyUpdatedIds,
+  erroredThreadId,
   deletingIds,
   removingIds,
   alwaysShowSummary = false,
@@ -1163,8 +1167,10 @@ export function EmailWorkList({
               freshlyUpdatedIds?.has(item.id) && !isSelected
                 ? "fresh-data-highlight"
                 : "",
+              erroredThreadId === item.id ? "email-row-blink-error" : "",
               isRemoving ? "animate-email-row-removing" : "",
             )}
+            data-email-thread-id={item.id}
             aria-busy={isDeleting || isRemoving}
             style={getEmailWorkItemStyle({
               isSelected,
@@ -1621,46 +1627,71 @@ export function EmailWorkList({
                     </Tooltip>
                   );
                 })()}
-                {item.actionConfidence ? (
-                  <span className="inline-flex items-center gap-0.5">
-                    {/* Spam-confidence indicator: shows just the rounded percent
-                        (the "confidence" word was removed). Hovering reveals the
-                        native tooltip "{pct}% Chance this is spam"; clicking opens
-                        the explainability modal describing how the score was
-                        derived (rules → AI classifier → training sources). */}
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setExplainItem(item);
-                      }}
-                      className="inline-flex cursor-pointer items-center gap-1 break-words rounded-md px-1 py-0.5 transition-colors hover:bg-zinc-800/70 hover:text-white"
-                      aria-label={`${Math.round(
-                        item.actionConfidence * 100,
-                      )}% Chance this is spam. Show how this was determined.`}
-                      title={`${Math.round(
-                        item.actionConfidence * 100,
-                      )}% Chance this is spam`}
-                    >
-                      <Sparkles className="h-3.5 w-3.5" />
-                      {Math.round(item.actionConfidence * 100)}%
-                    </button>
-                    {item.status !== "quarantine" ? (
+                {(() => {
+                  // Spam-confidence indicator. The score is written by an async
+                  // AI backfill, so a freshly-synced thread has no
+                  // actionConfidence yet. Previously the whole group (score +
+                  // quarantine button) was hidden until then, so rows silently
+                  // lacked their spam affordances. Now the group always renders
+                  // and only the DIGITS become a breathing placeholder while the
+                  // score is pending — the layout never shifts when it arrives.
+                  // Note `?? null`, not a truthiness check: a legitimate 0%
+                  // score must render as "0%", not as a permanent placeholder.
+                  const confidence = item.actionConfidence ?? null;
+                  const percent =
+                    confidence === null ? null : Math.round(confidence * 100);
+                  const scoreLabel =
+                    percent === null
+                      ? "Spam score is still being calculated"
+                      : `${percent}% Chance this is spam`;
+                  return (
+                    <span className="inline-flex items-center gap-0.5">
+                      {/* Clicking a scored value opens the explainability modal
+                          describing how it was derived (rules → AI classifier →
+                          training sources). */}
                       <button
                         type="button"
+                        disabled={percent === null}
                         onClick={(event) => {
                           event.stopPropagation();
-                          void onThreadAction?.(item, "quarantine");
+                          setExplainItem(item);
                         }}
-                        className="inline-flex items-center justify-center rounded-md px-1 py-0.5 text-zinc-400 transition-colors hover:bg-rose-500/10 hover:text-rose-300"
-                        aria-label="Quarantine"
-                        title="Quarantine"
+                        className="inline-flex cursor-pointer items-center gap-1 break-words rounded-md px-1 py-0.5 transition-colors hover:bg-zinc-800/70 hover:text-white disabled:cursor-default disabled:hover:bg-transparent"
+                        aria-label={
+                          percent === null
+                            ? scoreLabel
+                            : `${scoreLabel}. Show how this was determined.`
+                        }
+                        title={scoreLabel}
                       >
-                        <ShieldBan className="h-3.5 w-3.5" />
+                        <Sparkles className="h-3.5 w-3.5" />
+                        {percent === null ? (
+                          <span
+                            aria-hidden="true"
+                            data-testid="spam-score-placeholder"
+                            className="inline-block h-3 w-6 animate-pulse rounded bg-zinc-700/70"
+                          />
+                        ) : (
+                          `${percent}%`
+                        )}
                       </button>
-                    ) : null}
-                  </span>
-                ) : null}
+                      {item.status !== "quarantine" ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void onThreadAction?.(item, "quarantine");
+                          }}
+                          className="inline-flex items-center justify-center rounded-md px-1 py-0.5 text-zinc-400 transition-colors hover:bg-rose-500/10 hover:text-rose-300"
+                          aria-label="Quarantine"
+                          title="Quarantine"
+                        >
+                          <ShieldBan className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </span>
+                  );
+                })()}
                 {verificationCode ? (
                   <VerificationCodePill code={verificationCode} />
                 ) : null}
