@@ -1,6 +1,8 @@
 export function getAppBaseUrl(options?: {
   requestUrl?: string | null;
-  env?: NodeJS.ProcessEnv;
+  // Only a couple keys are read; accept a partial env so callers/tests can
+  // pass a minimal object without the full ProcessEnv (e.g. NODE_ENV).
+  env?: Partial<NodeJS.ProcessEnv>;
 }) {
   const env = options?.env ?? process.env;
   const configuredUrl =
@@ -23,7 +25,9 @@ export function getAppBaseUrl(options?: {
 
 export function getResetPasswordUrl(options?: {
   requestUrl?: string | null;
-  env?: NodeJS.ProcessEnv;
+  // Only a couple keys are read; accept a partial env so callers/tests can
+  // pass a minimal object without the full ProcessEnv (e.g. NODE_ENV).
+  env?: Partial<NodeJS.ProcessEnv>;
 }) {
   return `${getAppBaseUrl(options)}/auth/reset-password`;
 }
