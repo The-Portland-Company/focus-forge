@@ -112,6 +112,10 @@ import {
   type ThreadExpandState,
 } from "@/lib/email-inbox/thread-expand-state";
 import { stripQuotedAndSignature } from "@/lib/email-inbox/strip-quoted";
+import {
+  isThreadDetailFresh,
+  sharedThreadDetailCache,
+} from "@/lib/email-inbox/thread-detail-cache";
 import { useUserPreferences, useUserProfile } from "@/lib/supabase/hooks";
 import {
   DEFAULT_EMAIL_REPLY_SETTINGS,
@@ -166,6 +170,9 @@ type EmailThreadModalProps = {
    * linked task is hidden.
    */
   onEditTask?: (taskId: string) => void | Promise<void>;
+  /** The (realtime-updated) inbox row's freshness signal for the open thread.
+   *  When it matches the cached detail, reopening skips the network entirely. */
+  freshnessSignal?: { updatedAt?: string; messageCount?: number } | null;
 };
 
 export function shouldCloseEmailThreadModalAfterAction(action: ThreadAction) {
@@ -307,8 +314,12 @@ export function EmailThreadModal({
   onOpenChange,
   onRefresh,
   onEditTask,
+  freshnessSignal = null,
 }: EmailThreadModalProps) {
   const [thread, setThread] = useState<EmailThreadDetail | null>(null);
+  // Read inside the open effect without re-firing it on every realtime tick.
+  const freshnessSignalRef = useRef(freshnessSignal);
+  freshnessSignalRef.current = freshnessSignal;
   const [loadingThread, setLoadingThread] = useState(false);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
@@ -899,39 +910,65 @@ export function EmailThreadModal({
     }
 
     let cancelled = false;
-    setLoadingThread(true);
     setStatusMessage(null);
+
+    const applyThreadPayload = (payload: EmailThreadDetail) => {
+      setThread(payload);
+      setLastRefreshedAt(new Date());
+      if (payload.activeReplyDraft) {
+        setSelectedReplyDraftId(payload.activeReplyDraft.id);
+        setReplyMode(payload.activeReplyDraft.replyMode);
+        const draftContent =
+          payload.activeReplyDraft.contentHtml ||
+          payload.activeReplyDraft.contentText ||
+          "";
+        setReplyContent(draftContent);
+        // Reveal the composer when a draft already has content so the
+        // in-progress reply isn't hidden behind the collapsed button.
+        if (draftContent.replace(/<[^>]*>/g, "").trim().length > 0) {
+          setIsComposerOpen(true);
+        }
+        setScheduledReplyAt(
+          payload.activeReplyDraft.scheduledFor
+            ? new Date(payload.activeReplyDraft.scheduledFor)
+                .toISOString()
+                .slice(0, 16)
+            : "",
+        );
+      }
+    };
+
+    // Cache-first open: a previously-loaded thread renders instantly with no
+    // spinner. When the inbox row's freshness signal matches the cached
+    // payload (no new message, no row update), skip the network entirely;
+    // otherwise revalidate silently behind the already-rendered content.
+    const cached = sharedThreadDetailCache.get(
+      threadId,
+    ) as EmailThreadDetail | null;
+    if (cached) {
+      applyThreadPayload(cached);
+      setLoadingThread(false);
+      if (isThreadDetailFresh(cached, freshnessSignalRef.current)) {
+        return () => {
+          cancelled = true;
+        };
+      }
+    } else {
+      setLoadingThread(true);
+    }
 
     fetchThreadDetail(threadId)
       .then((payload) => {
+        sharedThreadDetailCache.set(threadId, payload);
         if (!cancelled) {
-          setThread(payload);
-          setLastRefreshedAt(new Date());
-          if (payload.activeReplyDraft) {
-            setSelectedReplyDraftId(payload.activeReplyDraft.id);
-            setReplyMode(payload.activeReplyDraft.replyMode);
-            const draftContent =
-              payload.activeReplyDraft.contentHtml ||
-              payload.activeReplyDraft.contentText ||
-              "";
-            setReplyContent(draftContent);
-            // Reveal the composer when a draft already has content so the
-            // in-progress reply isn't hidden behind the collapsed button.
-            if (draftContent.replace(/<[^>]*>/g, "").trim().length > 0) {
-              setIsComposerOpen(true);
-            }
-            setScheduledReplyAt(
-              payload.activeReplyDraft.scheduledFor
-                ? new Date(payload.activeReplyDraft.scheduledFor)
-                    .toISOString()
-                    .slice(0, 16)
-                : "",
-            );
-          }
+          applyThreadPayload(payload);
         }
       })
       .catch((error) => {
-        if (!cancelled) {
+        if (cancelled) return;
+        // A failed silent revalidate must not blank out already-rendered
+        // cached content — only a cache-miss load surfaces the failure.
+        if (!cached) {
           setThread(null);
           setStatusMessage(
             error instanceof Error ? error.message : "Failed to load thread",
@@ -1040,6 +1077,7 @@ export function EmailThreadModal({
 
     try {
       const payload = await fetchThreadDetail(targetThreadId);
+      sharedThreadDetailCache.set(targetThreadId, payload);
       setThread(payload);
       setLastRefreshedAt(new Date());
       if (payload.activeReplyDraft) {
@@ -1671,7 +1709,11 @@ export function EmailThreadModal({
               "inset-x-0 top-0 bottom-0 h-full w-full border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top sm:inset-x-3 sm:bottom-auto sm:top-3 sm:h-[50vh] sm:w-auto sm:rounded-2xl sm:border",
             displayMode === "centered" &&
               // Full-screen sheet on small phones; centered card at sm+.
-              "inset-0 h-full w-full max-w-full rounded-none border-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[92vh] sm:w-[min(96vw,52rem)] sm:max-w-none sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border",
+              // Pure fade only: the old zoom-in-95, fighting the -translate
+              // centering during the animation, made the panel appear to fly
+              // in from the bottom-right corner instead of just appearing
+              // front-and-center.
+              "inset-0 h-full w-full max-w-full rounded-none border-0 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[92vh] sm:w-[min(96vw,52rem)] sm:max-w-none sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border",
           )}
         >
           {/* Drag bumper on the LEFT edge of the docked-right panel,

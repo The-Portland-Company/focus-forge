@@ -735,7 +735,9 @@ test("getRelativeDayLabel buckets today, yesterday, and neither in local time", 
   assert.equal(getRelativeDayLabel("not-a-date"), null);
 });
 
-test("getEmailWorkVisualUnreadState treats selected unread threads as visually read", () => {
+test("getEmailWorkVisualUnreadState follows the data, ignoring selection", () => {
+  // Selection must NOT restyle an unread row as read — the inbox auto-selects
+  // the first visible email, which made it always look read (reported bug).
   assert.equal(
     getEmailWorkVisualUnreadState({
       isSelected: false,
@@ -748,11 +750,18 @@ test("getEmailWorkVisualUnreadState treats selected unread threads as visually r
       isSelected: true,
       isUnread: true,
     }),
-    false,
+    true,
   );
   assert.equal(
     getEmailWorkVisualUnreadState({
       isSelected: false,
+      isUnread: false,
+    }),
+    false,
+  );
+  assert.equal(
+    getEmailWorkVisualUnreadState({
+      isSelected: true,
       isUnread: false,
     }),
     false,
