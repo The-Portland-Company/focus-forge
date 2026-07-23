@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-  AlertTriangle,
   Bug,
+  CheckCircle2,
   Loader2,
   RotateCcw,
   Trash2,
@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type PendingDeletionStatus = "deleting" | "failed";
+export type PendingDeletionStatus = "deleting" | "succeeded" | "failed";
 
 export interface PendingDeletion {
   /** Stable key for this pending delete (threadId + action). */
@@ -24,6 +24,11 @@ export interface PendingDeletion {
   /** Raw server/network error message (only when status === "failed"). */
   error?: string;
 }
+
+/** Matches the .animate-slide-down-out duration in globals.css. */
+const TOAST_EXIT_MS = 250;
+/** How long a successful delete stays on screen before sliding away. */
+export const DELETE_SUCCESS_VISIBLE_MS = 3000;
 
 /**
  * Maps a raw error message to a plain-language explanation plus a short hint
@@ -106,155 +111,193 @@ export function describeDeletionError(error?: string): {
   };
 }
 
+/** Headline copy per state — "{verb} {Subject} from {Who}". */
+export function describeDeletionHeadline(item: PendingDeletion): string {
+  const subject = item.subject || "(no subject)";
+  const sender = item.sender || "Unknown sender";
+  if (item.status === "succeeded") return `Deleted ${subject} from ${sender}`;
+  if (item.status === "failed")
+    return `Couldn't delete ${subject} from ${sender}`;
+  return `Deleting ${subject} from ${sender}`;
+}
+
 interface EmailDeleteTrayProps {
   items: PendingDeletion[];
   onRetry: (item: PendingDeletion) => void;
   onReportBug: (item: PendingDeletion) => void;
   onDismiss: (id: string) => void;
+  /** Scroll to + flash the email a failed delete belongs to. */
+  onLocate?: (item: PendingDeletion) => void;
   /** ids that currently have a bug report in flight */
   reportingIds: Set<string>;
 }
 
+function DeletionToast({
+  item,
+  onRetry,
+  onReportBug,
+  onDismiss,
+  onLocate,
+  isReporting,
+}: {
+  item: PendingDeletion;
+  onRetry: (item: PendingDeletion) => void;
+  onReportBug: (item: PendingDeletion) => void;
+  onDismiss: (id: string) => void;
+  onLocate?: (item: PendingDeletion) => void;
+  isReporting: boolean;
+}) {
+  const [isLeaving, setIsLeaving] = useState(false);
+
+  // Play the slide-down/fade-out before unmounting. Removing on the timer
+  // directly would yank the card out of the DOM mid-animation so it would
+  // vanish rather than slide away.
+  const requestClose = useCallback(() => {
+    setIsLeaving((already) => {
+      if (already) return already;
+      window.setTimeout(() => onDismiss(item.id), TOAST_EXIT_MS);
+      return true;
+    });
+  }, [item.id, onDismiss]);
+
+  // Success auto-dismisses after 3s. "deleting" and "failed" persist: the first
+  // is still running, the second needs a decision from the user.
+  useEffect(() => {
+    if (item.status !== "succeeded") return;
+    const timer = window.setTimeout(requestClose, DELETE_SUCCESS_VISIBLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [item.status, requestClose]);
+
+  const detail = item.status === "failed" ? describeDeletionError(item.error) : null;
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={cn(
+        "pointer-events-auto flex items-start gap-2.5 rounded-xl border px-3 py-2.5 shadow-xl backdrop-blur",
+        item.status === "succeeded"
+          ? "border-emerald-500/30 bg-emerald-950/80"
+          : item.status === "failed"
+            ? "border-rose-500/40 bg-rose-950/80"
+            : "border-zinc-700/70 bg-zinc-950/90",
+        isLeaving ? "animate-slide-down-out" : "animate-slide-up-in",
+      )}
+    >
+      <span className="mt-0.5 shrink-0">
+        {item.status === "succeeded" ? (
+          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+        ) : item.status === "failed" ? (
+          <Trash2 className="h-4 w-4 text-rose-400" />
+        ) : (
+          <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
+        )}
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <p
+          className={cn(
+            "truncate text-xs font-medium",
+            item.status === "succeeded"
+              ? "text-emerald-200"
+              : item.status === "failed"
+                ? "text-rose-200"
+                : "text-zinc-200",
+          )}
+        >
+          {describeDeletionHeadline(item)}
+        </p>
+
+        {detail ? (
+          <>
+            <p className="mt-1 text-[11px] leading-snug text-rose-200/85">
+              {detail.summary}
+            </p>
+            <p className="mt-0.5 text-[11px] leading-snug text-zinc-400">
+              {detail.hint}
+            </p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {onLocate ? (
+                <button
+                  type="button"
+                  onClick={() => onLocate(item)}
+                  className="rounded-md text-[11px] font-medium text-rose-200 underline decoration-rose-400/60 underline-offset-4 transition-colors hover:text-white"
+                >
+                  Show the email
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => onRetry(item)}
+                className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-800"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Retry
+              </button>
+              <button
+                type="button"
+                disabled={isReporting}
+                onClick={() => onReportBug(item)}
+                className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {isReporting ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Bug className="h-3 w-3" />
+                )}
+                Report bug
+              </button>
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      <button
+        type="button"
+        onClick={requestClose}
+        aria-label="Dismiss"
+        title="Dismiss"
+        className="-mr-0.5 shrink-0 rounded-md p-1 text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-200"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Bottom-centre alert stack for email deletions.
+ *
+ * One card per delete, listed in the order the user triggered them, so a rapid
+ * burst of deletes reads as a queue rather than a single collapsed counter.
+ * Cards fade in and slide up, then (on success) slide down and fade out after
+ * 3s; every card can be dismissed manually.
+ */
 export function EmailDeleteTray({
   items,
   onRetry,
   onReportBug,
   onDismiss,
+  onLocate,
   reportingIds,
 }: EmailDeleteTrayProps) {
-  const [isOpen, setIsOpen] = useState(false);
-
   if (items.length === 0) {
     return null;
   }
 
-  const failedCount = items.filter((item) => item.status === "failed").length;
-  const deletingCount = items.length - failedCount;
-  const hasFailures = failedCount > 0;
-
   return (
-    <div
-      className="fixed bottom-6 left-6 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200"
-      onMouseEnter={() => setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
-    >
-      {isOpen ? (
-        <div className="mb-2 w-80 max-w-[calc(100vw-3rem)] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/95 shadow-xl backdrop-blur">
-          <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
-            <span className="text-xs font-medium text-zinc-300">
-              {hasFailures
-                ? `${failedCount} delete${failedCount === 1 ? "" : "s"} failed`
-                : `Deleting ${deletingCount} email${deletingCount === 1 ? "" : "s"}`}
-            </span>
-            {deletingCount > 0 ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
-            ) : null}
-          </div>
-          <ul className="max-h-72 divide-y divide-zinc-800 overflow-y-auto">
-            {items.map((item) => {
-              const detail =
-                item.status === "failed"
-                  ? describeDeletionError(item.error)
-                  : null;
-              const isReporting = reportingIds.has(item.id);
-              return (
-                <li key={item.id} className="px-3 py-2.5">
-                  <div className="flex items-start gap-2">
-                    <span className="mt-0.5 shrink-0">
-                      {item.status === "failed" ? (
-                        <AlertTriangle className="h-4 w-4 text-amber-400" />
-                      ) : (
-                        <Loader2 className="h-4 w-4 animate-spin text-zinc-500" />
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-medium text-zinc-200">
-                        {item.sender || "Unknown sender"}
-                      </div>
-                      <div className="truncate text-xs text-zinc-500">
-                        {item.subject || "(no subject)"}
-                      </div>
-                      {detail ? (
-                        <div className="mt-1.5 rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1.5">
-                          <p className="text-[11px] leading-snug text-amber-200/90">
-                            {detail.summary}
-                          </p>
-                          <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
-                            {detail.hint}
-                          </p>
-                          <div className="mt-1.5 flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => onRetry(item)}
-                              className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-800"
-                            >
-                              <RotateCcw className="h-3 w-3" />
-                              Retry
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isReporting}
-                              onClick={() => onReportBug(item)}
-                              className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-800 disabled:opacity-50"
-                            >
-                              {isReporting ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <Bug className="h-3 w-3" />
-                              )}
-                              Report bug
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDismiss(item.id)}
-                              className="ml-auto inline-flex items-center rounded-md p-1 text-zinc-500 transition-colors hover:text-zinc-300"
-                              aria-label="Dismiss"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ) : null}
-
-      <button
-        type="button"
-        onClick={() => setIsOpen((open) => !open)}
-        className={cn(
-          "relative flex h-11 w-11 items-center justify-center rounded-full border shadow-lg transition-colors",
-          hasFailures
-            ? "border-amber-500/40 bg-amber-950/40 text-amber-300 hover:bg-amber-900/40"
-            : "border-zinc-700 bg-zinc-900/90 text-zinc-300 hover:bg-zinc-800",
-        )}
-        aria-label={
-          hasFailures
-            ? `${failedCount} email delete${failedCount === 1 ? "" : "s"} failed`
-            : `Deleting ${deletingCount} email${deletingCount === 1 ? "" : "s"}`
-        }
-      >
-        <Trash2 className="h-5 w-5" />
-        {deletingCount > 0 ? (
-          <Loader2 className="absolute -right-1 -top-1 h-4 w-4 animate-spin rounded-full bg-zinc-950 text-[rgb(var(--theme-primary-rgb))]" />
-        ) : null}
-        {hasFailures ? (
-          <AlertTriangle className="absolute -right-1 -top-1 h-4 w-4 rounded-full bg-zinc-950 text-amber-400" />
-        ) : null}
-        <span
-          className={cn(
-            "absolute -bottom-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white",
-            hasFailures ? "bg-amber-500" : "bg-[rgb(var(--theme-primary-rgb))]",
-          )}
-        >
-          {items.length}
-        </span>
-      </button>
+    <div className="pointer-events-none fixed bottom-6 left-1/2 z-[70] flex w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 flex-col justify-end gap-2">
+      {items.map((item) => (
+        <DeletionToast
+          key={item.id}
+          item={item}
+          onRetry={onRetry}
+          onReportBug={onReportBug}
+          onDismiss={onDismiss}
+          onLocate={onLocate}
+          isReporting={reportingIds.has(item.id)}
+        />
+      ))}
     </div>
   );
 }
