@@ -168,7 +168,7 @@ export function Tooltip({
           id={tooltipId}
           role="tooltip"
           className={
-            "fixed z-50 rounded-md px-2 py-1 text-xs shadow-lg pointer-events-none border border-white/10 bg-[image:var(--user-profile-gradient)] " +
+            "fixed z-50 rounded-md px-2 py-1 text-xs shadow-lg pointer-events-none border border-white/10 " +
             (side === "right"
               ? "max-w-[320px] whitespace-normal break-words"
               : "whitespace-nowrap")
@@ -179,6 +179,8 @@ export function Tooltip({
             // color inline (instead of the `text-white` utility) because the
             // global light-mode remap flips `.text-white` to near-black, which
             // made tooltips illegible (dark text on the dark pill) in Light Mode.
+            // Neutral dark pill in both themes (not the brand gradient), light
+            // text — a standard black/white tooltip.
             color: "#fafafa", // zinc-50
             top: `${position.top}px`,
             left: `${position.left}px`,
@@ -196,18 +198,17 @@ export function Tooltip({
                       ? "translate(-100%, -100%)"
                       : "translate(-50%, -100%)"
                   : "translateY(-50%)",
-            backgroundColor: "rgba(10, 10, 11, 0.9)",
-            backgroundBlendMode: "overlay",
+            backgroundColor: "rgba(10, 10, 11, 0.97)",
           }}
         >
           {content}
           <div
             className={
               side === "bottom"
-                ? "absolute h-0 w-0 border-b-4 border-l-4 border-r-4 border-b-[rgb(var(--theme-primary-rgb))] border-l-transparent border-r-transparent"
+                ? "absolute h-0 w-0 border-b-4 border-l-4 border-r-4 border-b-[#0a0a0b] border-l-transparent border-r-transparent"
                 : side === "top"
-                  ? "absolute h-0 w-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[rgb(var(--theme-primary-rgb))]"
-                  : "absolute h-0 w-0 border-b-4 border-r-4 border-t-4 border-b-transparent border-r-[rgb(var(--theme-primary-rgb))] border-t-transparent"
+                  ? "absolute h-0 w-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[#0a0a0b]"
+                  : "absolute h-0 w-0 border-b-4 border-r-4 border-t-4 border-b-transparent border-r-[#0a0a0b] border-t-transparent"
             }
             style={{
               ...(side === "bottom"
