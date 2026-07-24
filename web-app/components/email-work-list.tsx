@@ -1229,7 +1229,7 @@ export function EmailWorkList({
                 isSelected,
                 isUnread: isVisuallyUnread,
               }),
-              isGrouped ? "email-letter-stack" : "",
+              isGrouped ? "email-letter-stack email-stack-card" : "",
               erroredThreadId === item.id ? "email-row-blink-error" : "",
               isRemoving ? "animate-email-row-removing" : "",
             )}
@@ -1243,6 +1243,16 @@ export function EmailWorkList({
               ...(isGrouped
                 ? {
                     animationDelay: `${Math.min(groupPosition, 14) * 45}ms`,
+                    position: "relative",
+                    // Later cards in a group sit on top of earlier ones.
+                    zIndex: groupPosition + 1,
+                    // Overlap every card after the group's first so a group
+                    // reads as a physical stack; the first card keeps the
+                    // normal gap from the group separator above it.
+                    ...(groupPosition > 0
+                      ? { marginTop: "-2.25rem" }
+                      : {}),
+                    boxShadow: "0 -8px 18px -10px rgba(0,0,0,0.7)",
                   }
                 : {}),
             }}

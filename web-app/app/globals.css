@@ -1094,7 +1094,10 @@ input[type="datetime-local"].themed-date-input {
   }
 }
 .email-letter-stack {
-  animation: email-letter-stack 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  /* `backwards` hides the card during its stagger delay (first keyframe) but
+     does NOT fill forwards, so once it lands the :hover transform can take
+     over. The final keyframe matches the resting state, so nothing jumps. */
+  animation: email-letter-stack 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
   transform-origin: center top;
   will-change: transform, opacity;
 }
@@ -1102,6 +1105,23 @@ input[type="datetime-local"].themed-date-input {
   .email-letter-stack {
     animation: none;
   }
+}
+
+/* Overlapping card stack (grouped inbox). Hovering a card lifts it clear of the
+   ones below so it can be read, and raises it above its neighbours. */
+.email-stack-card {
+  transition:
+    margin 0.18s ease,
+    transform 0.18s ease,
+    filter 0.2s ease,
+    border-color 0.2s ease;
+}
+.email-stack-card:hover {
+  /* Bring the hovered card above the one overlapping it (revealing its lower
+     content) and lift it slightly — no margin change, so the stack doesn't
+     reflow. */
+  z-index: 60 !important;
+  transform: translateY(-4px);
 }
 
 @keyframes email-row-blink-error {
