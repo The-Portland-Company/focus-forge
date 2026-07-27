@@ -5365,11 +5365,25 @@ export async function applyThreadAction(params: {
 
     // Keep status consistent with the chosen category. Categorizing as spam
     // re-marks the thread as spam; categorizing as anything else pulls it back
-    // out of spam/quarantine into the normal triage queue. (Provider folders
-    // are not touched here — classification is the app's triage signal; the
-    // dedicated "spam" action remains responsible for provider-side moves.)
+    // out of spam/quarantine into the normal triage queue.
     if (nextClassification === "spam") {
       update.status = "spam";
+      // Mirror the classification into the provider so the message actually
+      // lands in Gmail/IMAP's Junk folder — otherwise "mark as spam" here only
+      // moves it in Focus. Best-effort: a provider hiccup must not fail the
+      // in-app categorization.
+      try {
+        await applyMailboxThreadAction({
+          mailbox,
+          providerMessageIds,
+          action: "spam",
+        });
+      } catch (providerError) {
+        console.error(
+          "[email] categorize→spam provider move failed:",
+          providerError,
+        );
+      }
     } else if (
       thread.status === "spam" ||
       thread.status === "quarantine" ||
