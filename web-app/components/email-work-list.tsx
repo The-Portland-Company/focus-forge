@@ -894,6 +894,9 @@ export function EmailWorkList({
   // Thread whose spam-confidence explainability modal is open (set by clicking
   // the confidence indicator on a row). null when the modal is closed.
   const [explainItem, setExplainItem] = useState<InboxItem | null>(null);
+  // Which grouped stack is currently hovered — that group expands and lists its
+  // overlapped cards out; other groups stay stacked.
+  const [hoveredGroupKey, setHoveredGroupKey] = useState<string | null>(null);
   // Task C: rendered hover popover showing a mini preview of the actual email
   // message — real HTML (images, formatting, links) reused from the same safe
   // renderer used in the thread modal. The inbox payload only carries
@@ -1112,7 +1115,10 @@ export function EmailWorkList({
 
   return (
     <>
-      <div className="space-y-2">
+      <div
+        className="space-y-2"
+        onMouseLeave={() => setHoveredGroupKey(null)}
+      >
         {items.map((item, itemIndex) => {
         // Group separators. With a grouping active (Sender / Project /
         // Project›Sender) the group label replaces the day separator; without
@@ -1215,7 +1221,10 @@ export function EmailWorkList({
           <div
             role="button"
             tabIndex={0}
-            onMouseEnter={() => ensureThreadAttachments(item.id)}
+            onMouseEnter={() => {
+              ensureThreadAttachments(item.id);
+              if (isGrouped) setHoveredGroupKey(groupLabel ?? "");
+            }}
             onFocus={() => ensureThreadAttachments(item.id)}
             onClick={() => onSelect?.(item)}
             onKeyDown={(event) => {
@@ -1229,7 +1238,7 @@ export function EmailWorkList({
                 isSelected,
                 isUnread: isVisuallyUnread,
               }),
-              isGrouped ? "email-letter-stack" : "",
+              isGrouped ? "email-letter-stack email-stack-card" : "",
               erroredThreadId === item.id ? "email-row-blink-error" : "",
               isRemoving ? "animate-email-row-removing" : "",
             )}
@@ -1243,6 +1252,21 @@ export function EmailWorkList({
               ...(isGrouped
                 ? {
                     animationDelay: `${Math.min(groupPosition, 14) * 45}ms`,
+                    position: "relative",
+                    // Later cards sit on top of earlier ones.
+                    zIndex: groupPosition + 1,
+                    // Overlap every card after a group's first into a stack.
+                    // When this group is hovered, the overlap releases so the
+                    // cards spread apart and list out; the first card and the
+                    // hovered group's cards keep their normal gap.
+                    ...(groupPosition > 0 &&
+                    hoveredGroupKey !== (groupLabel ?? "")
+                      ? { marginTop: "-2.5rem" }
+                      : {}),
+                    boxShadow:
+                      hoveredGroupKey === (groupLabel ?? "")
+                        ? "none"
+                        : "0 -8px 18px -10px rgba(0,0,0,0.7)",
                   }
                 : {}),
             }}
