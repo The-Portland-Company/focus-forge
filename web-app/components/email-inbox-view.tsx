@@ -2487,12 +2487,23 @@ export function EmailInboxView({
   }, []);
 
   useEffect(() => {
-    inboxSnapshotRef.current = data.inboxItems;
+    // Honor pending removals here too: a background email sync can push a fresh
+    // data.inboxItems that pre-dates the server committing a just-actioned
+    // thread (e.g. spam, whose provider move is awaited before the status
+    // write). Without this filter that stale payload resurrects the row —
+    // remove → reappears → disappears. applyPendingRemovals keeps the pinned id
+    // hidden until the fresh row actually reaches its terminal status.
+    const reconciled = applyPendingRemovals(
+      pendingRemovalsRef.current,
+      data.inboxItems,
+      Date.now(),
+    );
+    inboxSnapshotRef.current = reconciled;
     mailboxesRef.current = data.mailboxes;
     setMailboxes(data.mailboxes);
-    setInboxItems(data.inboxItems);
+    setInboxItems(reconciled);
     setQuarantineCount(
-      data.inboxItems.filter((item) => item.status === "quarantine").length,
+      reconciled.filter((item) => item.status === "quarantine").length,
     );
   }, [data.inboxItems, data.mailboxes]);
 
