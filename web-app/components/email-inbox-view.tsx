@@ -6315,6 +6315,14 @@ export function EmailInboxView({
           hideEmailSignatures={hideEmailSignatures}
           onRefresh={onRefresh}
           onEditTask={onEditTask}
+          onForward={(draft) => {
+            setOutboundComposerInitialDraft({
+              subject: draft.subject,
+              body: draft.body,
+            });
+            setIsThreadModalOpen(false);
+            setIsOutboundComposerOpen(true);
+          }}
           onOpenChange={setIsThreadModalOpen}
         />
       )}
