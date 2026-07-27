@@ -1094,9 +1094,26 @@ input[type="datetime-local"].themed-date-input {
   }
 }
 .email-letter-stack {
-  animation: email-letter-stack 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  /* `backwards` (not `both`) so the fill releases after landing and the hover
+     transform below can take over. */
+  animation: email-letter-stack 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
   transform-origin: center top;
   will-change: transform, opacity;
+}
+
+/* Overlapping card stack for grouped rows. Overlap (negative margin) and lift
+   are driven inline; this just gives the margin/transform a smooth transition
+   so the group expands and lists out fluidly on hover. */
+.email-stack-card {
+  transition:
+    margin-top 0.2s ease,
+    transform 0.18s ease,
+    filter 0.2s ease,
+    border-color 0.2s ease;
+}
+.email-stack-card:hover {
+  /* Hovered card rises above the one overlapping it. */
+  z-index: 60 !important;
 }
 @media (prefers-reduced-motion: reduce) {
   .email-letter-stack {
