@@ -1702,8 +1702,11 @@ export async function suggestRecipients(params: {
   const MESSAGE_CAP = 2000;
   const [{ data: messageRows }, { data: draftRows }] = await Promise.all([
     admin
+      // Message recipients live inside metadata_json ({to,cc,from,bcc}); the
+      // old to_json/cc_json/from_json columns never existed here, so this query
+      // returned nothing and message-derived suggestions silently vanished.
       .from("email_messages")
-      .select("to_json,cc_json,from_json")
+      .select("metadata_json")
       .in("mailbox_id", mailboxIds)
       .order("created_at", { ascending: false })
       .limit(MESSAGE_CAP),
@@ -1743,9 +1746,10 @@ export async function suggestRecipients(params: {
   };
 
   for (const row of (messageRows || []) as any[]) {
-    ingestAddressList(row.to_json);
-    ingestAddressList(row.cc_json);
-    ingestAddressList(row.from_json);
+    const meta = row.metadata_json || {};
+    ingestAddressList(meta.to);
+    ingestAddressList(meta.cc);
+    ingestAddressList(meta.from);
   }
   for (const row of (draftRows || []) as any[]) {
     ingestAddressList(row.to_json);
