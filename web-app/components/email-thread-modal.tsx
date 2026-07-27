@@ -171,8 +171,19 @@ type EmailThreadModalProps = {
    */
   onEditTask?: (taskId: string) => void | Promise<void>;
   /** The (realtime-updated) inbox row's freshness signal for the open thread.
-   *  When it matches the cached detail, reopening skips the network entirely. */
-  freshnessSignal?: { updatedAt?: string; messageCount?: number } | null;
+   *  When it matches the cached detail, reopening skips the network entirely.
+   *  The display fields (subject/preview/…) also seed instant content while the
+   *  full thread hydrates, so opening never shows a bare spinner. */
+  freshnessSignal?:
+    | {
+        updatedAt?: string;
+        messageCount?: number;
+        subject?: string | null;
+        summaryText?: string | null;
+        previewText?: string | null;
+        actionTitle?: string | null;
+      }
+    | null;
 };
 
 export function shouldCloseEmailThreadModalAfterAction(action: ThreadAction) {
@@ -1839,7 +1850,9 @@ export function EmailThreadModal({
                 <span className="text-zinc-600">Subject: </span>
                 {thread?.subject
                   ? formatEmailSubject(thread.subject)
-                  : "Email thread"}
+                  : freshnessSignal?.subject
+                    ? formatEmailSubject(freshnessSignal.subject)
+                    : "Email thread"}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
@@ -2081,8 +2094,35 @@ export function EmailThreadModal({
 
           <div ref={scrollBodyRef} className="flex-1 overflow-y-auto p-6">
           {loadingThread ? (
-            <div className="flex min-h-[420px] items-center justify-center text-zinc-500">
-              <Loader2 className="h-5 w-5 animate-spin" />
+            // Instant open: show the subject + preview we already have from the
+            // inbox row, with a subtle "loading full conversation" line, instead
+            // of a bare spinner while the heavy thread detail hydrates.
+            <div className="min-h-[420px] space-y-4">
+              {freshnessSignal?.subject ? (
+                <h2 className="text-base font-semibold text-zinc-100">
+                  {formatEmailSubject(freshnessSignal.subject)}
+                </h2>
+              ) : null}
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
+                {freshnessSignal?.summaryText ||
+                freshnessSignal?.previewText ||
+                freshnessSignal?.actionTitle ? (
+                  <p className="whitespace-pre-line text-zinc-300">
+                    {freshnessSignal.summaryText ||
+                      freshnessSignal.previewText ||
+                      freshnessSignal.actionTitle}
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="h-3 w-3/4 animate-pulse rounded bg-zinc-800" />
+                    <div className="h-3 w-1/2 animate-pulse rounded bg-zinc-800" />
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-xs text-zinc-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading full conversation…
+              </div>
             </div>
           ) : thread ? (
             <div className="space-y-5">
