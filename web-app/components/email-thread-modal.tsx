@@ -39,6 +39,7 @@ import {
   Pencil,
   RefreshCw,
   Reply,
+  Forward,
   Search,
   SendHorizontal,
   ShieldAlert,
@@ -184,6 +185,8 @@ type EmailThreadModalProps = {
         actionTitle?: string | null;
       }
     | null;
+  /** Open the outbound composer pre-filled to forward this thread. */
+  onForward?: (draft: { subject: string; body: string }) => void;
 };
 
 export function shouldCloseEmailThreadModalAfterAction(action: ThreadAction) {
@@ -326,6 +329,7 @@ export function EmailThreadModal({
   onRefresh,
   onEditTask,
   freshnessSignal = null,
+  onForward,
 }: EmailThreadModalProps) {
   const [thread, setThread] = useState<EmailThreadDetail | null>(null);
   // Read inside the open effect without re-firing it on every realtime tick.
@@ -1833,6 +1837,25 @@ export function EmailThreadModal({
                   ) : null}
                 </div>
               ) : null}
+              {/* To: the mailbox that received this email, shown under From. The
+                  left spacer keeps the "To" label aligned under "From". */}
+              {thread?.mailboxEmailAddress ? (
+                <div className="flex min-w-0 items-center gap-2">
+                  <span aria-hidden className="h-5 w-5 shrink-0" />
+                  <span className="text-[10px] uppercase tracking-wide text-zinc-500">
+                    To
+                  </span>
+                  <span className="truncate text-sm text-zinc-300">
+                    {thread.mailboxName || thread.mailboxEmailAddress}
+                  </span>
+                  {thread.mailboxName &&
+                  thread.mailboxEmailAddress !== thread.mailboxName ? (
+                    <span className="truncate text-xs text-zinc-500">
+                      {thread.mailboxEmailAddress}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               {aiSummaryText ? (
                 <div className="min-w-0 truncate text-sm font-medium text-zinc-200">
                   <span className="text-zinc-500">Summary: </span>
@@ -2812,17 +2835,51 @@ export function EmailThreadModal({
           {thread && !loadingThread ? (
             <div className="shrink-0 border-t border-zinc-800 bg-zinc-950 px-6 py-4">
               {!isComposerOpen ? (
-                // Compose is hidden by default behind this full-width button.
-                // Clicking it reveals the editor below; sending or dismissing
-                // collapses back to this button.
-                <button
-                  type="button"
-                  onClick={() => setIsComposerOpen(true)}
-                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-theme-gradient px-4 text-sm font-medium text-white shadow-lg transition-opacity hover:opacity-90"
-                >
-                  <Reply className="h-4 w-4" />
-                  <span>Reply</span>
-                </button>
+                // Reply reveals the inline editor; Forward opens the outbound
+                // composer pre-filled with the quoted message.
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsComposerOpen(true)}
+                    className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-theme-gradient px-4 text-sm font-medium text-white shadow-lg transition-opacity hover:opacity-90"
+                  >
+                    <Reply className="h-4 w-4" />
+                    <span>Reply</span>
+                  </button>
+                  {onForward ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const rawSubject = thread?.subject || "";
+                        const subject = /^\s*fwd?:/i.test(rawSubject)
+                          ? rawSubject
+                          : `Fwd: ${rawSubject}`;
+                        const from = primaryThreadEntry
+                          ? getEmailActorName(
+                              primaryThreadEntry.authorName,
+                              primaryThreadEntry.authorEmail,
+                            )
+                          : "";
+                        const original =
+                          primaryThreadEntry?.contentHtml ||
+                          (primaryThreadEntry?.content
+                            ? `<p>${primaryThreadEntry.content}</p>`
+                            : "");
+                        onForward({
+                          subject,
+                          body:
+                            `<p></p><p>---------- Forwarded message ----------</p>` +
+                            `<p>From: ${from}<br>Subject: ${rawSubject}</p>` +
+                            original,
+                        });
+                      }}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+                    >
+                      <Forward className="h-4 w-4" />
+                      <span>Forward</span>
+                    </button>
+                  ) : null}
+                </div>
               ) : (
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
                 <div className="mb-3 flex items-center justify-between gap-2">
