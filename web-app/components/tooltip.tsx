@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 
 interface TooltipProps {
   children: React.ReactNode;
@@ -163,7 +164,13 @@ export function Tooltip({
       >
         {children}
       </div>
-      {isVisible && (
+      {isVisible &&
+        typeof document !== "undefined" &&
+        createPortal(
+        // Portaled to <body> so the fixed-position tooltip is placed relative
+        // to the viewport, not a transformed ancestor. Rows in a grouped inbox
+        // carry a transform (stacked-card animation), which would otherwise
+        // make position:fixed resolve against the row and displace the tooltip.
         <div
           id={tooltipId}
           role="tooltip"
@@ -242,8 +249,9 @@ export function Tooltip({
                     }),
             }}
           />
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
     </>
   );
 }
