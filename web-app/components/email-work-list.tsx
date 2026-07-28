@@ -21,6 +21,7 @@ import {
   MessagesSquare,
   Plus,
   Search,
+  Send,
   ShieldBan,
   Skull,
   Sparkles,
@@ -30,6 +31,7 @@ import {
 } from "lucide-react";
 import { Paperclip } from "lucide-react";
 import { SnoozePopover } from "@/components/snooze-popover";
+import { BoomerangPopover } from "@/components/boomerang-popover";
 import { EmailAttachmentLightbox } from "@/components/email-attachment-lightbox";
 import {
   collectThreadAttachments,
@@ -119,7 +121,11 @@ type EmailWorkListProps = {
   onThreadAction?: (
     item: InboxItem,
     action: ThreadAction,
-    options?: { snoozedUntil?: string },
+    options?: {
+      snoozedUntil?: string;
+      boomerangUntil?: string;
+      boomerangTaskId?: string;
+    },
   ) => Promise<void> | void;
   showTodayTriageActions?: boolean;
   emptyLabel?: string;
@@ -1463,6 +1469,24 @@ export function EmailWorkList({
                           title="Snooze"
                         >
                           <Clock className="h-3.5 w-3.5" />
+                        </button>
+                      }
+                    />
+                    <BoomerangPopover
+                      threadId={item.id}
+                      hasLinkedTasks={item.derivedTaskCount > 0}
+                      onSelect={(result) =>
+                        onThreadAction?.(item, "boomerang", result)
+                      }
+                      trigger={
+                        <button
+                          type="button"
+                          onClick={(event) => event.stopPropagation()}
+                          className="inline-flex h-11 w-11 sm:h-7 sm:w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-amber-300"
+                          aria-label="Boomerang email"
+                          title="Boomerang — remove until a date or task is done"
+                        >
+                          <Send className="h-3.5 w-3.5" />
                         </button>
                       }
                     />

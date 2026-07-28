@@ -28,6 +28,8 @@ export async function POST(
       threadId: params.id,
       action: body.action,
       snoozedUntil: body.snoozedUntil ?? null,
+      boomerangUntil: body.boomerangUntil ?? null,
+      boomerangTaskId: body.boomerangTaskId ?? null,
       projectId: body.projectId ?? null,
       classification: body.classification ?? null,
     });

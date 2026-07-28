@@ -824,11 +824,25 @@ export function filterInboxItemsForView(params: {
   retainedSpamThreadIds: string[];
   view: string;
 }) {
+  const nowMs = Date.now();
   const base = params.inboxItems.filter((item) => {
     if (
       params.selectedMailboxId !== "all" &&
       item.mailboxId !== params.selectedMailboxId
     ) {
+      return false;
+    }
+
+    // Boomeranged threads leave the inbox until their time passes / task done.
+    // The server already excludes them; this also hides one the instant it's
+    // boomeranged, before the next refetch.
+    if (
+      item.boomerangUntil &&
+      new Date(item.boomerangUntil).getTime() > nowMs
+    ) {
+      return false;
+    }
+    if (item.boomerangTaskId) {
       return false;
     }
 
@@ -3648,12 +3662,39 @@ export function EmailInboxView({
     options?: {
       threadId?: string | null;
       updateSelectedThread?: boolean;
+      snoozedUntil?: string;
+      boomerangUntil?: string;
+      boomerangTaskId?: string;
     },
   ) => {
     const threadId = options?.threadId ?? selectedThreadId;
     if (!threadId) return;
 
     const shouldUpdateSelectedThread = options?.updateSelectedThread ?? true;
+
+    // Boomerang optimistically hides the row (the client filter drops any item
+    // with a future boomerangUntil or a boomerangTaskId) so it leaves the inbox
+    // the instant it's clicked; the server persists and keeps it out on refetch.
+    if (
+      action === "boomerang" &&
+      (options?.boomerangUntil || options?.boomerangTaskId)
+    ) {
+      setInboxItems((prev) =>
+        prev.map((it) =>
+          it.id === threadId
+            ? {
+                ...it,
+                boomerangUntil: options?.boomerangUntil ?? null,
+                boomerangTaskId: options?.boomerangTaskId ?? null,
+              }
+            : it,
+        ),
+      );
+      if (shouldUpdateSelectedThread) {
+        setSelectedThreadId(null);
+        setSelectedThread(null);
+      }
+    }
 
     if (action === "delete" || action === "always_delete_sender") {
       await handleDeleteThreadWithAnimation(
@@ -3712,7 +3753,12 @@ export function EmailInboxView({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({
+          action,
+          snoozedUntil: options?.snoozedUntil,
+          boomerangUntil: options?.boomerangUntil,
+          boomerangTaskId: options?.boomerangTaskId,
+        }),
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -3770,10 +3816,16 @@ export function EmailInboxView({
   const handleInboxItemThreadAction = async (
     item: InboxItem,
     action: ThreadAction,
+    actionOptions?: {
+      snoozedUntil?: string;
+      boomerangUntil?: string;
+      boomerangTaskId?: string;
+    },
   ) => {
     await handleThreadAction(action, {
       threadId: item.id,
       updateSelectedThread: selectedThreadId === item.id,
+      ...actionOptions,
     });
   };
 
@@ -6019,8 +6071,8 @@ export function EmailInboxView({
                   });
                   setIsOutboundComposerOpen(true);
                 }}
-                onThreadAction={(item, action) =>
-                  handleInboxItemThreadAction(item, action)
+                onThreadAction={(item, action, options) =>
+                  handleInboxItemThreadAction(item, action, options)
                 }
                 emptyLabel={
                   isQuarantineView
