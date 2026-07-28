@@ -3793,6 +3793,40 @@ export function EmailInboxView({
       });
     }
 
+    // Spam: surface a loading alert docked to the bell with an Undo affordance
+    // while the action commits. The row already vanished (optimistic spam
+    // status); Undo restores it via "approve" (= not spam).
+    const spamAlertId = `spam:${threadId}`;
+    const undoSpam = () => {
+      dismissAlert(spamAlertId);
+      clearThreadRecentlyRemoved(threadId);
+      void handleThreadAction("approve", {
+        threadId,
+        updateSelectedThread: false,
+      });
+    };
+    if (action === "spam") {
+      const spamTargetItem =
+        previousItems.find((it) => it.id === threadId) ?? null;
+      const spamSender = spamTargetItem
+        ? formatParticipantName(
+            getPrimarySenderParticipant(spamTargetItem.participants, [
+              spamTargetItem.mailboxEmailAddress,
+            ]),
+          )
+        : null;
+      upsertAlert({
+        id: spamAlertId,
+        type: "progress",
+        title: "Marking as spam…",
+        message: spamSender ? `From ${spamSender}` : undefined,
+        duration: 0,
+        actions: [
+          { id: "undo", label: "Undo", variant: "button", onClick: undoSpam },
+        ],
+      });
+    }
+
     setBusyState(action);
     try {
       const response = await fetch(`/api/email/threads/${threadId}/actions`, {
@@ -3831,8 +3865,33 @@ export function EmailInboxView({
         // Keep the optimistic state instead of blocking the UI on a slow refresh.
       });
 
+      if (action === "spam") {
+        // Commit landed — flip the bell alert to a confirmed state that keeps
+        // Undo available for a short window before auto-dismissing.
+        upsertAlert({
+          id: spamAlertId,
+          type: "success",
+          title: "Marked as spam",
+          duration: 5000,
+          actions: [
+            { id: "undo", label: "Undo", variant: "button", onClick: undoSpam },
+          ],
+        });
+      }
+
       updateStatus(`Applied ${action.replace(/_/g, " ")}.`);
     } catch (error) {
+      if (action === "spam") {
+        const message =
+          error instanceof Error ? error.message : "Failed to mark as spam";
+        upsertAlert({
+          id: spamAlertId,
+          type: "error",
+          title: "Couldn't mark as spam",
+          message,
+          duration: 0,
+        });
+      }
       if (changedOptimistically) {
         // Drop the pin first so the reverted (active) row isn't re-suppressed.
         clearThreadRecentlyRemoved(threadId);

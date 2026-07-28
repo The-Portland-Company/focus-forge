@@ -5604,12 +5604,13 @@ export async function applyThreadAction(params: {
     detail: { targetStatus: terminalStatus, fromStatus: thread.status },
   });
 
-  await applyMailboxThreadAction({
-    mailbox,
-    providerMessageIds,
-    action: effectiveAction as "archive" | "spam" | "delete",
-  });
-
+  // Commit the terminal status to the DB FIRST — the inbox list is segmented
+  // from `email_threads.status`, so writing it up front means any refetch that
+  // lands during the (slow) provider move already sees the committed status and
+  // can't resurrect the row into the inbox. The old order (provider move → DB
+  // write) left a commit-gap that flashed spam/archive/delete rows back in, and
+  // if the provider move stalled past the client's 60s suppression ceiling the
+  // row reappeared for good. Writing the DB first closes both windows.
   const { error: statusUpdateError } = await admin
     .from("email_threads")
     .update({
@@ -5619,6 +5620,26 @@ export async function applyThreadAction(params: {
       updated_at: new Date().toISOString(),
     })
     .eq("id", params.threadId);
+
+  // Provider-side move (IMAP/Graph) is best-effort AFTER the DB commit: a
+  // provider hiccup must not 500 the action (which would make the client revert
+  // the optimistic removal and flash the row back). The mailbox sync reconciles
+  // any drift on its next pass.
+  let providerMoveError: string | null = null;
+  try {
+    await applyMailboxThreadAction({
+      mailbox,
+      providerMessageIds,
+      action: effectiveAction as "archive" | "spam" | "delete",
+    });
+  } catch (moveError) {
+    providerMoveError =
+      moveError instanceof Error ? moveError.message : String(moveError);
+    console.error(
+      `Provider ${effectiveAction} move failed for thread ${params.threadId} (DB status already committed):`,
+      moveError,
+    );
+  }
 
   void logEmailAction({
     userId: params.userId,
@@ -5631,6 +5652,7 @@ export async function applyThreadAction(params: {
       resultingStatus: terminalStatus,
       providerMessageCount: providerMessageIds.length,
       error: statusUpdateError?.message ?? null,
+      providerMoveError,
     },
   });
 
