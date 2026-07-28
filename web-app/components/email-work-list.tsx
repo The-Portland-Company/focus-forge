@@ -1255,6 +1255,23 @@ export function EmailWorkList({
                     position: "relative",
                     // Later cards sit on top of earlier ones.
                     zIndex: groupPosition + 1,
+                    // Stacked cards must be opaque so the card underneath does
+                    // not show through the overlap. Selected/unread keep their
+                    // accent (unread's tint gradient layers over this solid
+                    // base); everything else gets a solid card surface.
+                    backgroundColor: isSelected
+                      ? "rgb(46 46 52)"
+                      : "rgb(24 24 27)",
+                    // Fan each card gradually to the right so the stack reads as
+                    // an offset deck. The card is narrowed by the same amount so
+                    // it never overflows the list. Released to 0/full width when
+                    // the group is expanded on hover.
+                    ...(hoveredGroupKey === (groupLabel ?? "")
+                      ? { marginLeft: 0 }
+                      : {
+                          marginLeft: `${Math.min(groupPosition, 12) * 8}px`,
+                          width: `calc(100% - ${Math.min(groupPosition, 12) * 8}px)`,
+                        }),
                     // Overlap every card after a group's first into a stack.
                     // When this group is hovered, the overlap releases so the
                     // cards spread apart and list out; the first card and the
