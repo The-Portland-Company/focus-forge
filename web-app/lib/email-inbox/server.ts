@@ -1158,6 +1158,8 @@ function mapThreadToInboxItem(params: {
     isUnread: Boolean(params.row.is_unread),
     isStarred: Boolean(params.row.is_starred),
     workDueDate: params.row.work_due_date ?? null,
+    boomerangUntil: params.row.boomerang_until ?? null,
+    boomerangTaskId: params.row.boomerang_task_id ?? null,
     workDueTime: params.row.work_due_time ?? null,
     needsProject: Boolean(params.row.needs_project),
     alwaysDelete: Boolean(params.row.always_delete),
@@ -2139,6 +2141,7 @@ export async function listInboxItemsForUser(
     "summary_text,preview_text,action_confidence,action_reason," +
     "latest_message_at,latest_inbound_at,latest_outbound_at,origin,is_unread," +
     "is_starred,work_due_date,work_due_time,needs_project,always_delete," +
+    "boomerang_until,boomerang_task_id," +
     "analysis_json,task_suggestions_json,created_at,updated_at";
 
   let query = admin
@@ -2167,9 +2170,53 @@ export async function listInboxItemsForUser(
     query = query.eq("project_id", options.projectId);
   }
 
-  const { data: threads } = await query;
+  let threads = (await query).data as any[] | null;
   if (!threads || threads.length === 0) {
     return [];
+  }
+
+  // Boomerang: hide threads that are still boomeranged — until their date/time
+  // passes, or until their linked task is completed. Expired date-boomerangs are
+  // cleared lazily so the thread returns cleanly.
+  {
+    const nowMs = Date.now();
+    const boomerangTaskIds = Array.from(
+      new Set(
+        threads
+          .map((t: any) => t.boomerang_task_id)
+          .filter((id: any): id is string => Boolean(id)),
+      ),
+    );
+    const completedTaskIds = new Set<string>();
+    if (boomerangTaskIds.length > 0) {
+      const { data: taskRows } = await admin
+        .from("tasks")
+        .select("id,completed")
+        .in("id", boomerangTaskIds);
+      for (const row of (taskRows || []) as any[]) {
+        if (row.completed) completedTaskIds.add(String(row.id));
+      }
+    }
+    const expiredDateThreadIds: string[] = [];
+    const completedTaskThreadIds: string[] = [];
+    threads = threads.filter((t: any) => {
+      if (t.boomerang_until) {
+        if (new Date(t.boomerang_until).getTime() > nowMs) return false; // still hidden
+        expiredDateThreadIds.push(t.id); // due — reveal + clear below
+      }
+      if (t.boomerang_task_id) {
+        if (!completedTaskIds.has(String(t.boomerang_task_id))) return false; // task not done
+        completedTaskThreadIds.push(t.id); // done — reveal + clear below
+      }
+      return true;
+    });
+    const toClear = [...expiredDateThreadIds, ...completedTaskThreadIds];
+    if (toClear.length > 0) {
+      void admin
+        .from("email_threads")
+        .update({ boomerang_until: null, boomerang_task_id: null })
+        .in("id", toClear);
+    }
   }
 
   const threadIds = threads.map((thread: any) => thread.id);
@@ -5317,9 +5364,12 @@ export async function applyThreadAction(params: {
     | "delete"
     | "always_delete_sender"
     | "snooze"
+    | "boomerang"
     | "set_classification"
     | "to_task";
   snoozedUntil?: string | null;
+  boomerangUntil?: string | null;
+  boomerangTaskId?: string | null;
   projectId?: string | null;
   classification?: string | null;
 }) {
@@ -5420,6 +5470,31 @@ export async function applyThreadAction(params: {
       })
       .eq("id", params.threadId);
     return { success: true, snoozedUntil: snoozedIso };
+  }
+
+  if (effectiveAction === "boomerang") {
+    // Hide the thread from the inbox until a date/time OR until a linked task
+    // is completed. Exactly one of the two must be provided.
+    const boomerangIso = params.boomerangUntil
+      ? new Date(params.boomerangUntil).toISOString()
+      : null;
+    const boomerangTaskId = params.boomerangTaskId || null;
+    if (!boomerangIso && !boomerangTaskId) {
+      throw new Error("Boomerang needs a date/time or a task");
+    }
+    if (boomerangIso && Number.isNaN(new Date(boomerangIso).getTime())) {
+      throw new Error("Invalid boomerang timestamp");
+    }
+    await admin
+      .from("email_threads")
+      .update({
+        boomerang_until: boomerangIso,
+        boomerang_task_id: boomerangTaskId,
+        is_unread: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", params.threadId);
+    return { success: true, boomerangUntil: boomerangIso, boomerangTaskId };
   }
 
   if (effectiveAction === "to_task") {

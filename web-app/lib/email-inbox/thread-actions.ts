@@ -8,6 +8,7 @@ export type ThreadAction =
   | "delete"
   | "always_delete_sender"
   | "snooze"
+  | "boomerang"
   | "to_task";
 
 const CONFIRMATION_REQUIRED_ACTIONS = new Set<ThreadAction>([
@@ -28,6 +29,7 @@ const ACTION_LABELS: Record<ThreadAction, string> = {
   delete: "Delete",
   always_delete_sender: "Always Delete Sender",
   snooze: "Snooze",
+  boomerang: "Boomerang",
   to_task: "Convert to task",
 };
 
