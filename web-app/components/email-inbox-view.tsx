@@ -40,6 +40,7 @@ import {
   MailOpen,
   Paperclip,
   Plus,
+  Pencil,
   Radar,
   RefreshCw,
   Search,
@@ -72,6 +73,11 @@ import {
 } from "@/lib/email-inbox/deletion-alerts";
 import { AlertBellButton } from "@/components/alert-center";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
+import { InboxTabModal } from "@/components/inbox-tab-modal";
+import {
+  matchInboxTab,
+  type EmailInboxTab,
+} from "@/lib/email-inbox/inbox-tabs";
 import { EmailContactsView } from "@/components/email-contacts-view";
 import AiRulesTabs from "@/components/ai-rules-tabs";
 import { type EmailComposerInitialDraft } from "@/components/email-outbound-composer-modal";
@@ -1533,6 +1539,16 @@ export function EmailInboxView({
     useState<EmailRule | null>(null);
   const [inboxFilterTab, setInboxFilterTab] =
     useState<EmailInboxFilterTab>("all");
+  // Custom rule-based inbox tabs. `selectedInboxTabId` is null for "All"; the
+  // first tab (Known Contacts) is selected once tabs load.
+  const [inboxTabs, setInboxTabs] = useState<EmailInboxTab[]>([]);
+  const [selectedInboxTabId, setSelectedInboxTabId] = useState<string | null>(
+    null,
+  );
+  const [inboxTabModalOpen, setInboxTabModalOpen] = useState(false);
+  const [editingInboxTab, setEditingInboxTab] = useState<EmailInboxTab | null>(
+    null,
+  );
   const [showContactsView, setShowContactsView] = useState(false);
 
   // Returning from the Google contacts OAuth flow lands back on the inbox URL
@@ -1849,15 +1865,45 @@ export function EmailInboxView({
       (item) => item.classification !== "spam",
     );
   }, [filteredInboxItems, inboxFilterTab, showSpamInInbox, view]);
+  // Load the user's custom inbox tabs (seeds defaults on first use) and select
+  // the first tab (Known Contacts) by default.
+  useEffect(() => {
+    if (view !== "email-inbox") return;
+    let cancelled = false;
+    fetch("/api/email/inbox-tabs", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { tabs: [] }))
+      .then((d) => {
+        if (cancelled) return;
+        const tabs: EmailInboxTab[] = d.tabs || [];
+        setInboxTabs(tabs);
+        setSelectedInboxTabId((prev) =>
+          prev ?? (tabs.length > 0 ? tabs[0].id : null),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [view]);
+
+  // Apply the selected custom tab's rules (null = "All").
+  const tabFilteredInboxItems = useMemo(() => {
+    const tab = inboxTabs.find((t) => t.id === selectedInboxTabId);
+    if (!tab) return spamGatedInboxItems;
+    return spamGatedInboxItems.filter((item) =>
+      matchInboxTab(item, tab.rules),
+    );
+  }, [spamGatedInboxItems, inboxTabs, selectedInboxTabId]);
+
   const searchedInboxItems = useMemo(
     () =>
       filterInboxItemsBySearchQuery({
-        items: spamGatedInboxItems,
+        items: tabFilteredInboxItems,
         query: inboxSearchQuery,
         mailboxes,
         projects: data.projects,
       }),
-    [data.projects, spamGatedInboxItems, inboxSearchQuery, mailboxes],
+    [data.projects, tabFilteredInboxItems, inboxSearchQuery, mailboxes],
   );
   const dateFilteredInboxItems = useMemo(
     () =>
@@ -5802,6 +5848,65 @@ export function EmailInboxView({
                               </button>
                             ))}
                           </div>
+                          {isInboxView ? (
+                            <div className="inline-flex items-center gap-0.5 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedInboxTabId(null)}
+                                className={
+                                  selectedInboxTabId === null
+                                    ? "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
+                                    : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
+                                }
+                              >
+                                All
+                              </button>
+                              {inboxTabs.map((tab) => (
+                                <span
+                                  key={tab.id}
+                                  className="inline-flex items-center"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedInboxTabId(tab.id)}
+                                    className={
+                                      selectedInboxTabId === tab.id
+                                        ? "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
+                                        : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
+                                    }
+                                  >
+                                    {tab.name}
+                                  </button>
+                                  {selectedInboxTabId === tab.id ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingInboxTab(tab);
+                                        setInboxTabModalOpen(true);
+                                      }}
+                                      title="Edit tab"
+                                      aria-label={`Edit ${tab.name} tab`}
+                                      className="rounded-md px-1 py-1 text-zinc-500 hover:text-white"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </button>
+                                  ) : null}
+                                </span>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingInboxTab(null);
+                                  setInboxTabModalOpen(true);
+                                }}
+                                title="New tab"
+                                aria-label="New inbox tab"
+                                className="rounded-md px-1.5 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : null}
                           <div className="inline-flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
                             <span className="pl-1.5 pr-0.5 text-[10px] uppercase tracking-wide text-zinc-600">
                               Group
@@ -6287,6 +6392,24 @@ export function EmailInboxView({
         />
       )}
 
+      <InboxTabModal
+        isOpen={inboxTabModalOpen}
+        tab={editingInboxTab}
+        onClose={() => setInboxTabModalOpen(false)}
+        onSaved={(saved) => {
+          setInboxTabs((prev) => {
+            const exists = prev.some((t) => t.id === saved.id);
+            return exists
+              ? prev.map((t) => (t.id === saved.id ? saved : t))
+              : [...prev, saved];
+          });
+          setSelectedInboxTabId(saved.id);
+        }}
+        onDeleted={(tabId) => {
+          setInboxTabs((prev) => prev.filter((t) => t.id !== tabId));
+          setSelectedInboxTabId((cur) => (cur === tabId ? null : cur));
+        }}
+      />
       {outboundComposerLoaded && (
         <EmailOutboundComposerModal
           open={isOutboundComposerOpen}
