@@ -65,7 +65,20 @@ export async function PUT(
         }
         return createErrorResponse(error.message, 500)
       }
-      
+
+      // Boomerang: an email boomeranged "until this task is completed" returns
+      // to the inbox now that the task is done. Best-effort.
+      if (body.completed === true) {
+        try {
+          await supabase
+            .from('email_threads')
+            .update({ boomerang_until: null, boomerang_task_id: null } as never)
+            .eq('boomerang_task_id', id)
+        } catch {
+          /* non-fatal */
+        }
+      }
+
       return createApiResponse(task)
     } catch (error) {
       return createErrorResponse('Invalid request body', 400)
@@ -124,14 +137,24 @@ export async function POST(
       .eq('id', id)
       .select()
       .single()
-    
+
     if (error) {
       if (error.code === 'PGRST116') {
         return createErrorResponse('Task not found', 404)
       }
       return createErrorResponse(error.message, 500)
     }
-    
+
+    // Return any email boomeranged until this task was completed.
+    try {
+      await supabase
+        .from('email_threads')
+        .update({ boomerang_until: null, boomerang_task_id: null } as never)
+        .eq('boomerang_task_id', id)
+    } catch {
+      /* non-fatal */
+    }
+
     return createApiResponse(task)
   })
 }

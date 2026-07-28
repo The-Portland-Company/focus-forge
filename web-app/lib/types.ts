@@ -457,6 +457,10 @@ export interface InboxItem {
    *  email_threads.is_starred. Powers the Starred sidebar view. */
   isStarred?: boolean;
   workDueDate?: string | null;
+  // Boomerang: hidden from the inbox until this time passes, or until the
+  // linked task is completed.
+  boomerangUntil?: string | null;
+  boomerangTaskId?: string | null;
   workDueTime?: string | null;
   needsProject: boolean;
   alwaysDelete: boolean;
