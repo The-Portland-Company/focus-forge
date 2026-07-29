@@ -1173,6 +1173,7 @@ function mapThreadToInboxItem(params: {
           .map((value: unknown) => String(value || "").trim())
           .filter(Boolean)
       : [],
+    inboxTabId: params.row.inbox_tab_id ?? null,
     participants: params.participants,
     taskSuggestions: Array.isArray(params.row.task_suggestions_json)
       ? params.row.task_suggestions_json
@@ -2141,7 +2142,7 @@ export async function listInboxItemsForUser(
     "summary_text,preview_text,action_confidence,action_reason," +
     "latest_message_at,latest_inbound_at,latest_outbound_at,origin,is_unread," +
     "is_starred,work_due_date,work_due_time,needs_project,always_delete," +
-    "boomerang_until,boomerang_task_id," +
+    "boomerang_until,boomerang_task_id,inbox_tab_id," +
     "analysis_json,task_suggestions_json,created_at,updated_at";
 
   let query = admin
@@ -5508,6 +5509,27 @@ export async function processScheduledOutboundDrafts() {
     sentCount,
     failedCount,
   };
+}
+
+/**
+ * Explicitly "move" a thread into an inbox tab (or clear the assignment with
+ * null). An assigned thread renders ONLY under that tab — the client filter
+ * hides it from other category tabs and from "All".
+ */
+export async function setThreadInboxTab(params: {
+  userId: string;
+  threadId: string;
+  tabId: string | null;
+}) {
+  const admin = getAdminClient();
+  const thread = await ensureThreadAccess(params.userId, params.threadId);
+  await ensureMailboxManage(params.userId, String(thread.mailbox_id));
+  const { error } = await admin
+    .from("email_threads")
+    .update({ inbox_tab_id: params.tabId, updated_at: new Date().toISOString() })
+    .eq("id", params.threadId);
+  if (error) throw new Error(error.message);
+  return { ok: true };
 }
 
 export async function applyThreadAction(params: {
