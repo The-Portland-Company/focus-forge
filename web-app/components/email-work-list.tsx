@@ -1392,6 +1392,10 @@ export function EmailWorkList({
                   <div
                     className="min-w-0"
                     onMouseEnter={(event) => {
+                      // Don't pop the row body preview while a thread is open in
+                      // the detail pane — the fixed popover would overlap the
+                      // reading pane.
+                      if (selectedId) return;
                       const rect =
                         event.currentTarget.getBoundingClientRect();
                       // Clamp horizontally so a wide card near the right edge
@@ -2060,7 +2064,7 @@ export function EmailWorkList({
         })}
       </div>
 
-      {hoverPreview
+      {hoverPreview && !selectedId
         ? (() => {
             const entry = bodyCacheRef.current.get(hoverPreview.threadId);
             return (
