@@ -29,6 +29,7 @@ import {
   Mail,
   MailCheck,
   MailPlus,
+  MailX,
   Maximize2,
   MoreHorizontal,
   Move,
@@ -187,6 +188,12 @@ type EmailThreadModalProps = {
     | null;
   /** Open the outbound composer pre-filled to forward this thread. */
   onForward?: (draft: { subject: string; body: string }) => void;
+  /**
+   * One-click unsubscribe: visit the sender's List-Unsubscribe link, reply
+   * "unsubscribe", then delete. The parent owns the optimistic removal + the
+   * per-step bell alerts, so the modal just closes and delegates.
+   */
+  onUnsubscribe?: (threadId: string) => void | Promise<void>;
 };
 
 export function shouldCloseEmailThreadModalAfterAction(action: ThreadAction) {
@@ -330,6 +337,7 @@ export function EmailThreadModal({
   onEditTask,
   freshnessSignal = null,
   onForward,
+  onUnsubscribe,
 }: EmailThreadModalProps) {
   const [thread, setThread] = useState<EmailThreadDetail | null>(null);
   // Read inside the open effect without re-firing it on every realtime tick.
@@ -2022,6 +2030,30 @@ export function EmailThreadModal({
                   {renderThreadActionButton("archive", {
                     icon: <Archive className="h-4 w-4" />,
                   })}
+                  {onUnsubscribe ? (
+                    <Tooltip
+                      content="Unsubscribe (link + reply, then delete)"
+                      className="w-auto"
+                      side="bottom"
+                      align="end"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!threadId) return;
+                          const target = threadId;
+                          onOpenChange(false);
+                          void onUnsubscribe(target);
+                        }}
+                        disabled={Boolean(busyState) || Boolean(queuedAction)}
+                        aria-label="Unsubscribe"
+                        title="Unsubscribe"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                      >
+                        <MailX className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
+                  ) : null}
                   {renderThreadActionButton("spam", {
                     icon: <Ban className="h-4 w-4" />,
                     destructive: true,

@@ -3918,6 +3918,140 @@ export function EmailInboxView({
     }
   };
 
+  // Unsubscribe: a one-click flow that (1) visits the sender's unsubscribe
+  // link, (2) replies "unsubscribe", and (3) deletes the thread — each step
+  // publishing its own bell alert. The row is removed optimistically the instant
+  // it's clicked and only restored if the delete step fails.
+  const handleUnsubscribe = async (threadIdArg?: string | null) => {
+    const threadId = threadIdArg ?? selectedThreadId;
+    if (!threadId) return;
+
+    const previousItems = inboxSnapshotRef.current;
+    const targetItem = previousItems.find((it) => it.id === threadId) ?? null;
+    const sender = targetItem
+      ? formatParticipantName(
+          getPrimarySenderParticipant(targetItem.participants, [
+            targetItem.mailboxEmailAddress,
+          ]),
+        )
+      : null;
+    const from = sender ? `From ${sender}` : undefined;
+
+    // Optimistically remove the row (pin so a mid-flight refetch can't flash it
+    // back) and clear the open thread if it's the target.
+    const optimisticItems = previousItems.filter((it) => it.id !== threadId);
+    inboxSnapshotRef.current = optimisticItems;
+    setInboxItems(optimisticItems);
+    markThreadRecentlyRemoved(threadId, "delete");
+    const previousSelectedThread = selectedThread;
+    if (selectedThreadId === threadId) {
+      setSelectedThreadId(null);
+      setSelectedThread(null);
+    }
+
+    const linkAlertId = `unsub-link:${threadId}`;
+    const replyAlertId = `unsub-reply:${threadId}`;
+    const deleteAlertId = `unsub-delete:${threadId}`;
+
+    upsertAlert({
+      id: linkAlertId,
+      type: "progress",
+      title: "Unsubscribing…",
+      message: from,
+      duration: 0,
+    });
+    upsertAlert({
+      id: replyAlertId,
+      type: "progress",
+      title: "Replying “unsubscribe”…",
+      message: from,
+      duration: 0,
+    });
+    upsertAlert({
+      id: deleteAlertId,
+      type: "progress",
+      title: "Removing email…",
+      message: from,
+      duration: 0,
+    });
+
+    try {
+      const response = await fetch(
+        `/api/email/threads/${threadId}/unsubscribe`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+        },
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to unsubscribe");
+      }
+
+      const link = payload.link ?? { attempted: false, ok: false };
+      const reply = payload.reply ?? { attempted: false, ok: false };
+      const removed = payload.removed ?? { attempted: false, ok: false };
+
+      upsertAlert({
+        id: linkAlertId,
+        type: link.ok ? "success" : link.attempted ? "error" : "info",
+        title: link.ok
+          ? "Unsubscribe link completed"
+          : link.attempted
+            ? "Unsubscribe link failed"
+            : "No unsubscribe link",
+        message: link.detail || from,
+        duration: link.ok ? 5000 : 0,
+      });
+      upsertAlert({
+        id: replyAlertId,
+        type: reply.ok ? "success" : "error",
+        title: reply.ok
+          ? "Sent “unsubscribe” reply"
+          : "Couldn’t send unsubscribe reply",
+        message: reply.detail || from,
+        duration: reply.ok ? 5000 : 0,
+      });
+      upsertAlert({
+        id: deleteAlertId,
+        type: removed.ok ? "success" : "error",
+        title: removed.ok ? "Email removed" : "Couldn’t remove email",
+        message: removed.detail || from,
+        duration: removed.ok ? 5000 : 0,
+      });
+
+      if (!removed.ok) {
+        // Delete failed — bring the row back.
+        clearThreadRecentlyRemoved(threadId);
+        inboxSnapshotRef.current = previousItems;
+        setInboxItems(previousItems);
+      }
+
+      void refreshInboxState({ skipMailboxes: true }).catch(() => {});
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to unsubscribe";
+      upsertAlert({
+        id: linkAlertId,
+        type: "error",
+        title: "Unsubscribe failed",
+        message,
+        duration: 0,
+      });
+      dismissAlert(replyAlertId);
+      dismissAlert(deleteAlertId);
+      // Whole request failed — restore the row.
+      clearThreadRecentlyRemoved(threadId);
+      inboxSnapshotRef.current = previousItems;
+      setInboxItems(previousItems);
+      if (selectedThreadId === threadId && previousSelectedThread) {
+        setSelectedThread(previousSelectedThread);
+        setSelectedThreadId(threadId);
+      }
+    }
+  };
+
   const handleInboxItemThreadAction = async (
     item: InboxItem,
     action: ThreadAction,
@@ -6557,6 +6691,7 @@ export function EmailInboxView({
             setIsThreadModalOpen(false);
             setIsOutboundComposerOpen(true);
           }}
+          onUnsubscribe={handleUnsubscribe}
           onOpenChange={setIsThreadModalOpen}
         />
       )}
