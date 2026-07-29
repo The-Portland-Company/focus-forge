@@ -6372,6 +6372,7 @@ export function EmailInboxView({
                 onThreadAction={(item, action, options) =>
                   handleInboxItemThreadAction(item, action, options)
                 }
+                onUnsubscribe={(item) => void handleUnsubscribe(item.id)}
                 emptyLabel={
                   isQuarantineView
                     ? "No suspicious email is waiting for review."

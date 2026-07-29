@@ -64,6 +64,7 @@ import type {
 } from "@/lib/types";
 import type { ThreadAction } from "@/lib/email-inbox/thread-actions";
 import { EmailSpamExplainabilityModal } from "@/components/email-spam-explainability-modal";
+import { EmailContextMenu } from "@/components/email-context-menu";
 import { cn } from "@/lib/utils";
 
 type LinkedTaskSummary = {
@@ -129,6 +130,9 @@ type EmailWorkListProps = {
   ) => Promise<void> | void;
   showTodayTriageActions?: boolean;
   emptyLabel?: string;
+  /** One-click unsubscribe for a row (right-click menu). When omitted the
+   *  Unsubscribe item is hidden. Wired by email-inbox-view. */
+  onUnsubscribe?: (item: InboxItem) => void;
   /**
    * Forward a single attachment from the lightbox. Optional — when omitted the
    * Forward action is hidden. The compose/forward pipeline lives in
@@ -888,7 +892,14 @@ export function EmailWorkList({
   showTodayTriageActions = false,
   emptyLabel = "No email work yet.",
   onForwardAttachment,
+  onUnsubscribe,
 }: EmailWorkListProps) {
+  // Cursor-anchored right-click menu target (null when closed).
+  const [contextMenu, setContextMenu] = useState<{
+    item: InboxItem;
+    x: number;
+    y: number;
+  } | null>(null);
   const [linkedTasksThreadTitle, setLinkedTasksThreadTitle] = useState("");
   const [linkedTasks, setLinkedTasks] = useState<LinkedTaskSummary[]>([]);
   const [isLinkedTasksModalOpen, setIsLinkedTasksModalOpen] = useState(false);
@@ -1233,6 +1244,10 @@ export function EmailWorkList({
             }}
             onFocus={() => ensureThreadAttachments(item.id)}
             onClick={() => onSelect?.(item)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              setContextMenu({ item, x: event.clientX, y: event.clientY });
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
@@ -2265,6 +2280,20 @@ export function EmailWorkList({
             );
           })()
         : null}
+
+      {contextMenu ? (
+        <EmailContextMenu
+          item={contextMenu.item}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          projects={projects}
+          onClose={() => setContextMenu(null)}
+          onOpen={onSelect}
+          onThreadAction={onThreadAction}
+          onUnsubscribe={onUnsubscribe}
+          onMoveToProject={onProjectPickerSelect}
+        />
+      ) : null}
     </>
   );
 }
