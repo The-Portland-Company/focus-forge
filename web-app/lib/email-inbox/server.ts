@@ -4214,6 +4214,151 @@ export async function replyToThread(params: {
   });
 }
 
+export type UnsubscribeStepResult = {
+  attempted: boolean;
+  ok: boolean;
+  detail: string | null;
+};
+
+export type UnsubscribeResult = {
+  link: UnsubscribeStepResult;
+  reply: UnsubscribeStepResult;
+  removed: UnsubscribeStepResult;
+};
+
+/**
+ * Parse an RFC 2369 `List-Unsubscribe` header into its http(s) and mailto
+ * targets. The header is a comma-separated list of angle-bracketed URIs, e.g.
+ * `<https://ex.com/u?x=1>, <mailto:unsub@ex.com?subject=unsubscribe>`.
+ */
+function parseListUnsubscribe(headerValue: string | undefined | null): {
+  httpUrl: string | null;
+  mailto: string | null;
+} {
+  if (!headerValue) return { httpUrl: null, mailto: null };
+  let httpUrl: string | null = null;
+  let mailto: string | null = null;
+  const matches = headerValue.match(/<([^>]+)>/g) || [];
+  for (const raw of matches) {
+    const value = raw.slice(1, -1).trim();
+    if (/^https?:\/\//i.test(value)) {
+      if (!httpUrl) httpUrl = value;
+    } else if (/^mailto:/i.test(value)) {
+      if (!mailto) mailto = value;
+    }
+  }
+  return { httpUrl, mailto };
+}
+
+/**
+ * One-shot "unsubscribe" for a thread. Runs three independent steps and reports
+ * each one's outcome so the caller can surface a separate alert per step:
+ *   1. link   — visit / POST the sender's List-Unsubscribe URL (one-click when
+ *               the message advertises `List-Unsubscribe-Post`).
+ *   2. reply  — send a reply with subject + body "unsubscribe" to the sender.
+ *   3. removed— delete the thread from the inbox.
+ * A failure in one step never blocks the others; each result is returned so the
+ * UI can revert its optimistic removal only when the delete step fails.
+ */
+export async function unsubscribeThread(params: {
+  userId: string;
+  threadId: string;
+}): Promise<UnsubscribeResult> {
+  const admin = getAdminClient();
+  const thread = await ensureThreadAccess(params.userId, params.threadId);
+  const mailbox = (await ensureMailboxAccess(
+    params.userId,
+    String(thread.mailbox_id),
+  )) as MailboxTransportRow;
+
+  const { data: messages } = await admin
+    .from("email_messages")
+    .select("direction,raw_headers")
+    .eq("thread_id", params.threadId);
+
+  // Prefer the List-Unsubscribe from an inbound message; fall back to any.
+  let httpUrl: string | null = null;
+  let oneClick = false;
+  const ordered = [...(messages || [])].sort((a: any, b: any) =>
+    a?.direction === "inbound" ? -1 : b?.direction === "inbound" ? 1 : 0,
+  );
+  for (const message of ordered) {
+    const headers = (message?.raw_headers || {}) as Record<string, string>;
+    const parsed = parseListUnsubscribe(headers["list-unsubscribe"]);
+    if (parsed.httpUrl || parsed.mailto) {
+      httpUrl = parsed.httpUrl;
+      oneClick = /one-click/i.test(headers["list-unsubscribe-post"] || "");
+      break;
+    }
+  }
+
+  // Step 1 — visit / POST the unsubscribe link.
+  const link: UnsubscribeStepResult = {
+    attempted: false,
+    ok: false,
+    detail: null,
+  };
+  if (httpUrl) {
+    link.attempted = true;
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15_000);
+      const response = oneClick
+        ? await fetch(httpUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "List-Unsubscribe=One-Click",
+            signal: controller.signal,
+          })
+        : await fetch(httpUrl, { method: "GET", signal: controller.signal });
+      clearTimeout(timeout);
+      link.ok = response.ok;
+      link.detail = response.ok ? null : `HTTP ${response.status}`;
+    } catch (error) {
+      link.detail = error instanceof Error ? error.message : String(error);
+    }
+  } else {
+    link.detail = "No unsubscribe link in this email";
+  }
+
+  // Step 2 — reply "unsubscribe" (subject + body) to the sender.
+  const reply: UnsubscribeStepResult = {
+    attempted: true,
+    ok: false,
+    detail: null,
+  };
+  try {
+    await sendThreadReplyMessage({
+      threadId: params.threadId,
+      mailbox,
+      subject: "unsubscribe",
+      contentHtml: "<p>unsubscribe</p>",
+    });
+    reply.ok = true;
+  } catch (error) {
+    reply.detail = error instanceof Error ? error.message : String(error);
+  }
+
+  // Step 3 — delete the thread.
+  const removed: UnsubscribeStepResult = {
+    attempted: true,
+    ok: false,
+    detail: null,
+  };
+  try {
+    await applyThreadAction({
+      userId: params.userId,
+      threadId: params.threadId,
+      action: "delete",
+    });
+    removed.ok = true;
+  } catch (error) {
+    removed.detail = error instanceof Error ? error.message : String(error);
+  }
+
+  return { link, reply, removed };
+}
+
 export async function createReplyDraft(params: {
   userId: string;
   threadId: string;
