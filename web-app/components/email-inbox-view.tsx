@@ -6691,15 +6691,37 @@ export function EmailInboxView({
             inboxSnapshotRef.current = inboxSnapshotRef.current.map((it) =>
               it.id === movedThreadId ? { ...it, inboxTabId: saved.id } : it,
             );
-            void fetch(`/api/email/threads/${movedThreadId}/inbox-tab`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({ tabId: saved.id }),
-            }).catch(() => {});
             setSelectedInboxTabId(saved.id);
             setDragToTab(null);
-            void refreshInboxState({ skipMailboxes: true }).catch(() => {});
+            // Persist the move, THEN refresh. If the assignment fails, surface
+            // it instead of silently letting the row snap back on refetch.
+            void (async () => {
+              try {
+                const res = await fetch(
+                  `/api/email/threads/${movedThreadId}/inbox-tab`,
+                  {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ tabId: saved.id }),
+                  },
+                );
+                if (!res.ok) {
+                  const data = await res.json().catch(() => ({}));
+                  throw new Error(data?.error || "Failed to move email");
+                }
+              } catch (error) {
+                upsertAlert({
+                  id: `move:${movedThreadId}`,
+                  type: "error",
+                  title: "Couldn't move the email",
+                  message:
+                    error instanceof Error ? error.message : undefined,
+                  duration: 6000,
+                });
+              }
+              void refreshInboxState({ skipMailboxes: true }).catch(() => {});
+            })();
           }}
           onEditTab={(tab) => {
             setDragToTab(null);
