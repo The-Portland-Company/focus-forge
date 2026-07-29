@@ -6728,6 +6728,11 @@ export function EmailInboxView({
             setEditingInboxTab(tab);
             setInboxTabModalOpen(true);
           }}
+          onTabsChanged={(saved) => {
+            setInboxTabs((prev) =>
+              prev.map((t) => (t.id === saved.id ? saved : t)),
+            );
+          }}
         />
       ) : null}
       {quarantineModalItem ? (

@@ -1,7 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, Pencil, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Eye,
+  Loader2,
+  Pencil,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   INBOX_TAB_FIELD_OPTIONS,
   INBOX_TAB_OPERATOR_OPTIONS,
@@ -33,6 +41,9 @@ interface DragToTabModalProps {
   /** Open the full tab editor for an overlapping tab so the user can expand or
    *  narrow its rule. */
   onEditTab: (tab: EmailInboxTab) => void;
+  /** Notified when an overlapping tab's rules change (delete), so the parent
+   *  can keep its own tab list in sync. */
+  onTabsChanged?: (tab: EmailInboxTab) => void;
 }
 
 /**
@@ -49,6 +60,7 @@ export function DragToTabModal({
   onClose,
   onSaved,
   onEditTab,
+  onTabsChanged,
 }: DragToTabModalProps) {
   const initial = useMemo(
     () =>
@@ -62,11 +74,23 @@ export function DragToTabModal({
   const [condition, setCondition] = useState<InboxTabCondition>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Local editable copy of the tabs so deleting an overlapping rule updates the
+  // list in place without waiting on the parent to refetch.
+  const [localTabs, setLocalTabs] = useState<EmailInboxTab[]>(allTabs);
+  const [deletingKey, setDeletingKey] = useState<string | null>(null);
+  // An overlapping rule the user chose to view in a layered modal on top.
+  const [viewing, setViewing] = useState<{
+    tab: EmailInboxTab;
+    condition: InboxTabCondition;
+  } | null>(null);
+
+  const overlapKey = (tabId: string, c: InboxTabCondition) =>
+    `${tabId}:${c.field}:${c.operator}:${c.value}`;
 
   // Existing conditions (across ALL tabs) that already match this item.
   const overlaps = useMemo(() => {
     const out: { tab: EmailInboxTab; condition: InboxTabCondition }[] = [];
-    for (const tab of allTabs) {
+    for (const tab of localTabs) {
       for (const cond of tab.rules?.conditions || []) {
         if (conditionMatchesItem(item, cond)) {
           out.push({ tab, condition: cond });
@@ -74,7 +98,48 @@ export function DragToTabModal({
       }
     }
     return out;
-  }, [allTabs, item]);
+  }, [localTabs, item]);
+
+  // Delete an overlapping rule: drop that condition from its tab and persist.
+  const deleteOverlap = async (
+    tab: EmailInboxTab,
+    cond: InboxTabCondition,
+  ) => {
+    const key = overlapKey(tab.id, cond);
+    setDeletingKey(key);
+    try {
+      const nextConditions = (tab.rules?.conditions || []).filter(
+        (c) =>
+          !(
+            c.field === cond.field &&
+            c.operator === cond.operator &&
+            c.value === cond.value
+          ),
+      );
+      const res = await fetch(`/api/email/inbox-tabs/${tab.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          rules: {
+            matchMode: tab.rules?.matchMode ?? "any",
+            conditions: nextConditions,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || "Failed to delete rule");
+      }
+      const saved = (await res.json()).tab as EmailInboxTab;
+      setLocalTabs((prev) => prev.map((t) => (t.id === saved.id ? saved : t)));
+      onTabsChanged?.(saved);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete rule");
+    } finally {
+      setDeletingKey(null);
+    }
+  };
 
   const update = (patch: Partial<InboxTabCondition>) =>
     setCondition((c) => ({ ...c, ...patch }));
@@ -256,14 +321,43 @@ export function DragToTabModal({
                       </span>{" "}
                       — {describeCondition(c)}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => onEditTab(tab)}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:text-white"
-                    >
-                      <Pencil className="h-3 w-3" />
-                      Edit rule
-                    </button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setViewing({ tab, condition: c })}
+                        title="View rule"
+                        aria-label="View rule"
+                        className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:text-white"
+                      >
+                        <Eye className="h-3 w-3" />
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onEditTab(tab)}
+                        title="Edit rule"
+                        aria-label="Edit rule"
+                        className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:text-white"
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void deleteOverlap(tab, c)}
+                        disabled={deletingKey === overlapKey(tab.id, c)}
+                        title="Delete rule"
+                        aria-label="Delete rule"
+                        className="inline-flex items-center gap-1 rounded-md border border-red-900/60 bg-red-950/40 px-2 py-1 text-xs text-red-200 hover:text-white disabled:opacity-50"
+                      >
+                        {deletingKey === overlapKey(tab.id, c) ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3 w-3" />
+                        )}
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -293,6 +387,83 @@ export function DragToTabModal({
           </button>
         </div>
       </div>
+
+      {viewing ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3.5">
+              <h3 className="text-sm font-semibold text-white">
+                {viewing.tab.name} — rule
+              </h3>
+              <button
+                onClick={() => setViewing(null)}
+                className="rounded p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3 p-5">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">
+                Matches{" "}
+                {viewing.tab.rules?.matchMode === "all" ? "all of" : "any of"}
+              </div>
+              <ul className="space-y-1.5">
+                {(viewing.tab.rules?.conditions || []).map((c, idx) => {
+                  const isMatch =
+                    c.field === viewing.condition.field &&
+                    c.operator === viewing.condition.operator &&
+                    c.value === viewing.condition.value;
+                  return (
+                    <li
+                      key={idx}
+                      className={`rounded-md border px-3 py-2 text-sm ${
+                        isMatch
+                          ? "border-amber-700/60 bg-amber-950/30 text-amber-100"
+                          : "border-zinc-800 bg-zinc-950/50 text-zinc-300"
+                      }`}
+                    >
+                      {describeCondition(c)}
+                      {isMatch ? (
+                        <span className="ml-2 text-[10px] uppercase text-amber-300">
+                          matches this email
+                        </span>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t border-zinc-800 px-5 py-3.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const tab = viewing.tab;
+                  const cond = viewing.condition;
+                  setViewing(null);
+                  void deleteOverlap(tab, cond);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-red-900/60 bg-red-950/40 px-3 py-1.5 text-xs text-red-200 hover:text-white"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete rule
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const tab = viewing.tab;
+                  setViewing(null);
+                  onEditTab(tab);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:text-white"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit rule
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
