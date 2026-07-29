@@ -5522,8 +5522,10 @@ export async function setThreadInboxTab(params: {
   tabId: string | null;
 }) {
   const admin = getAdminClient();
-  const thread = await ensureThreadAccess(params.userId, params.threadId);
-  await ensureMailboxManage(params.userId, String(thread.mailbox_id));
+  // Access (not manage) is the right bar: assigning a thread to one of the
+  // user's inbox tabs is a personal view preference, and manage would wrongly
+  // 403 on shared/org mailboxes the user can read but not administer.
+  await ensureThreadAccess(params.userId, params.threadId);
   const { error } = await admin
     .from("email_threads")
     .update({ inbox_tab_id: params.tabId, updated_at: new Date().toISOString() })
