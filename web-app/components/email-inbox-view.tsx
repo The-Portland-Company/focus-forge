@@ -74,6 +74,7 @@ import {
 import { AlertBellButton } from "@/components/alert-center";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
 import { InboxTabModal } from "@/components/inbox-tab-modal";
+import { DragToTabModal } from "@/components/drag-to-tab-modal";
 import {
   matchInboxTab,
   type EmailInboxTab,
@@ -1549,6 +1550,13 @@ export function EmailInboxView({
   const [editingInboxTab, setEditingInboxTab] = useState<EmailInboxTab | null>(
     null,
   );
+  // Tab currently under a dragged email (drop-target highlight).
+  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
+  // Pending "drag email → tab" confirmation (rule verification modal).
+  const [dragToTab, setDragToTab] = useState<{
+    item: InboxItem;
+    targetTab: EmailInboxTab;
+  } | null>(null);
   const [showContactsView, setShowContactsView] = useState(false);
 
   // Returning from the Google contacts OAuth flow lands back on the inbox URL
@@ -6062,8 +6070,37 @@ export function EmailInboxView({
                                   <button
                                     type="button"
                                     onClick={() => setSelectedInboxTabId(tab.id)}
+                                    onDragOver={(e) => {
+                                      e.preventDefault();
+                                      e.dataTransfer.dropEffect = "move";
+                                      if (dragOverTabId !== tab.id)
+                                        setDragOverTabId(tab.id);
+                                    }}
+                                    onDragLeave={() => {
+                                      if (dragOverTabId === tab.id)
+                                        setDragOverTabId(null);
+                                    }}
+                                    onDrop={(e) => {
+                                      e.preventDefault();
+                                      setDragOverTabId(null);
+                                      const threadId =
+                                        e.dataTransfer.getData(
+                                          "application/x-thread-id",
+                                        ) ||
+                                        e.dataTransfer.getData("text/plain");
+                                      const dropped = inboxItems.find(
+                                        (it) => it.id === threadId,
+                                      );
+                                      if (dropped)
+                                        setDragToTab({
+                                          item: dropped,
+                                          targetTab: tab,
+                                        });
+                                    }}
                                     className={
-                                      selectedInboxTabId === tab.id
+                                      dragOverTabId === tab.id
+                                        ? "rounded-md bg-theme-gradient px-2 py-1 text-xs font-medium text-white ring-2 ring-white/40"
+                                        : selectedInboxTabId === tab.id
                                         ? "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
                                         : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
                                     }
@@ -6604,6 +6641,30 @@ export function EmailInboxView({
           setSelectedInboxTabId((cur) => (cur === tabId ? null : cur));
         }}
       />
+      {dragToTab ? (
+        <DragToTabModal
+          item={dragToTab.item}
+          sourceTab={
+            inboxTabs.find((t) => t.id === selectedInboxTabId) ?? null
+          }
+          targetTab={dragToTab.targetTab}
+          allTabs={inboxTabs}
+          onClose={() => setDragToTab(null)}
+          onSaved={(saved) => {
+            setInboxTabs((prev) =>
+              prev.map((t) => (t.id === saved.id ? saved : t)),
+            );
+            setSelectedInboxTabId(saved.id);
+            setDragToTab(null);
+            void refreshInboxState({ skipMailboxes: true }).catch(() => {});
+          }}
+          onEditTab={(tab) => {
+            setDragToTab(null);
+            setEditingInboxTab(tab);
+            setInboxTabModalOpen(true);
+          }}
+        />
+      ) : null}
       {outboundComposerLoaded && (
         <EmailOutboundComposerModal
           open={isOutboundComposerOpen}

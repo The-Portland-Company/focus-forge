@@ -1238,6 +1238,12 @@ export function EmailWorkList({
           <div
             role="button"
             tabIndex={0}
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.setData("application/x-thread-id", item.id);
+              event.dataTransfer.setData("text/plain", item.id);
+              event.dataTransfer.effectAllowed = "move";
+            }}
             onMouseEnter={() => {
               ensureThreadAttachments(item.id);
               if (isGrouped) setHoveredGroupKey(groupLabel ?? "");
