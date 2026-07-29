@@ -2592,7 +2592,11 @@ async function createTasksForThreadInternal(params: {
   return createdLinks;
 }
 
-export async function reprocessThread(threadId: string, actorUserId?: string) {
+export async function reprocessThread(
+  threadId: string,
+  actorUserId?: string,
+  options?: { manual?: boolean },
+) {
   const admin = getAdminClient();
   const { data: thread } = await admin
     .from("email_threads")
@@ -2665,7 +2669,17 @@ export async function reprocessThread(threadId: string, actorUserId?: string) {
   // never runs. The k-NN verdict (below) decides the spam axis when confident;
   // buildHeuristicAnalysis (local, no network) handles summary/routing/tasks for
   // everything else. In 'llm' mode the OpenAI backstop runs as before.
-  const forceHeuristicAnalysis = spamFallbackMode === "private";
+  // Credit-saving skip: when a user Rule already routes this email to spam or
+  // always-delete, the paid LLM verdict can't change the outcome — so skip it
+  // and let the local heuristic populate summary/routing (no network, no
+  // credits). A manual re-analysis (options.manual, e.g. the Reprocess action)
+  // always runs the full model.
+  const ruleForcesSpam =
+    appliedRules.actions.includes("spam") ||
+    appliedRules.actions.includes("always_delete");
+  const skipAiForSpamRule = ruleForcesSpam && !options?.manual;
+  const forceHeuristicAnalysis =
+    spamFallbackMode === "private" || skipAiForSpamRule;
   let spamVerdict: SpamClassification | null = null;
   if (!suppressContentSpam) {
     try {
@@ -5536,7 +5550,9 @@ export async function applyThreadAction(params: {
     params.action === "always_delete_sender" ? "delete" : params.action;
 
   if (effectiveAction === "reprocess") {
-    return reprocessThread(params.threadId, params.userId);
+    // Explicit user re-analysis — always run the full model, even for
+    // spam-ruled mail that auto-ingestion would skip to save credits.
+    return reprocessThread(params.threadId, params.userId, { manual: true });
   }
 
   if (effectiveAction === "set_classification") {
@@ -5692,7 +5708,9 @@ export async function applyThreadAction(params: {
       console.error("AI-memory email approve hook failed:", e);
     }
 
-    return reprocessThread(params.threadId, params.userId);
+    // Un-spam / approve is an explicit user rescue — run the full model even if
+    // a Rule would otherwise mark it spam and skip AI.
+    return reprocessThread(params.threadId, params.userId, { manual: true });
   }
 
   const statusUpdates: Record<string, string> = {
