@@ -2189,46 +2189,14 @@ export function EmailThreadModal({
                   <div className="min-w-0 flex-1 space-y-3">
                     <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
                       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                        <div
-                          role="tablist"
-                          aria-label="Summary panel"
-                          className="inline-flex items-center gap-0.5 rounded-lg border border-zinc-700 bg-zinc-900 p-0.5"
-                        >
-                          <button
-                            type="button"
-                            role="tab"
-                            aria-selected={summaryPanelTab === "summary"}
-                            onClick={() => setSummaryPanelTab("summary")}
-                            className={cn(
-                              "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors",
-                              summaryPanelTab === "summary"
-                                ? "bg-zinc-700 text-white"
-                                : "text-zinc-400 hover:text-white",
-                            )}
-                          >
-                            <Sparkles className="h-3.5 w-3.5" />
-                            <span>AI Summary</span>
-                          </button>
-                          <button
-                            type="button"
-                            role="tab"
-                            aria-selected={summaryPanelTab === "linked_tasks"}
-                            onClick={() => setSummaryPanelTab("linked_tasks")}
-                            className={cn(
-                              "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors",
-                              summaryPanelTab === "linked_tasks"
-                                ? "bg-zinc-700 text-white"
-                                : "text-zinc-400 hover:text-white",
-                            )}
-                          >
-                            <FolderSearch className="h-3.5 w-3.5" />
-                            <span>
-                              Linked Tasks
-                              {thread.linkedTasks?.length
-                                ? ` (${thread.linkedTasks.length})`
-                                : ""}
-                            </span>
-                          </button>
+                        <div className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white">
+                          <FolderSearch className="h-3.5 w-3.5" />
+                          <span>
+                            Linked Tasks
+                            {thread.linkedTasks?.length
+                              ? ` (${thread.linkedTasks.length})`
+                              : ""}
+                          </span>
                         </div>
                         {/* Project selector pinned to the top-right of the
                             AI Summary header, with the Generate Tasks AI icon
@@ -2383,15 +2351,7 @@ export function EmailThreadModal({
                         </Tooltip>
                         </div>
                       </div>
-                      {summaryPanelTab === "summary" ? (
-                        <div className="break-words text-sm leading-6 text-zinc-300">
-                          {aiSummaryText || (
-                            <span className="text-zinc-500">
-                              No AI summary available yet.
-                            </span>
-                          )}
-                        </div>
-                      ) : (
+                      {(
                         <div>
                           {thread.linkedTasks?.length ? (
                             <div className="space-y-2">
@@ -2831,27 +2791,6 @@ export function EmailThreadModal({
                     ? optimisticEntriesBlock
                     : null}
                 </div>
-                {/* Bottom-of-conversation refresh control + last-refreshed
-                    timestamp. Mirrors the top-right refresh button. */}
-                <div className="mt-3 flex items-center justify-center gap-2 border-t border-zinc-800/70 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => void handleManualRefresh()}
-                    disabled={isRefreshing}
-                    title={isRefreshing ? "Refreshing…" : "Refresh"}
-                    aria-label={isRefreshing ? "Refreshing…" : "Refresh"}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <RefreshCw
-                      className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")}
-                    />
-                  </button>
-                  {lastRefreshedAt ? (
-                    <span className="text-xs text-zinc-500">
-                      Last refreshed: {lastRefreshedAt.toLocaleString()}
-                    </span>
-                  ) : null}
-                </div>
               </div>
             </div>
           ) : (
@@ -2868,16 +2807,26 @@ export function EmailThreadModal({
             <div className="shrink-0 border-t border-zinc-800 bg-zinc-950 px-6 py-4">
               {!isComposerOpen ? (
                 // Reply reveals the inline editor; Forward opens the outbound
-                // composer pre-filled with the quoted message.
+                // composer pre-filled with the quoted message. The manual
+                // refresh + last-refreshed timestamp live inline on the left.
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsComposerOpen(true)}
-                    className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-theme-gradient px-4 text-sm font-medium text-white shadow-lg transition-opacity hover:opacity-90"
+                    onClick={() => void handleManualRefresh()}
+                    disabled={isRefreshing}
+                    title={isRefreshing ? "Refreshing…" : "Refresh"}
+                    aria-label={isRefreshing ? "Refreshing…" : "Refresh"}
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <Reply className="h-4 w-4" />
-                    <span>Reply</span>
+                    <RefreshCw
+                      className={cn("h-4 w-4", isRefreshing && "animate-spin")}
+                    />
                   </button>
+                  {lastRefreshedAt ? (
+                    <span className="hidden truncate text-xs text-zinc-500 sm:inline">
+                      Last refreshed: {lastRefreshedAt.toLocaleString()}
+                    </span>
+                  ) : null}
                   {onForward ? (
                     <button
                       type="button"
@@ -2905,12 +2854,23 @@ export function EmailThreadModal({
                             original,
                         });
                       }}
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+                      className="ml-auto inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
                     >
                       <Forward className="h-4 w-4" />
                       <span>Forward</span>
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setIsComposerOpen(true)}
+                    className={cn(
+                      "inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-theme-gradient px-4 text-sm font-medium text-white shadow-lg transition-opacity hover:opacity-90",
+                      onForward ? "flex-1" : "ml-auto flex-1",
+                    )}
+                  >
+                    <Reply className="h-4 w-4" />
+                    <span>Reply</span>
+                  </button>
                 </div>
               ) : (
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
