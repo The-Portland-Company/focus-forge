@@ -1898,12 +1898,20 @@ export function EmailInboxView({
     };
   }, [view]);
 
-  // Apply the selected custom tab's rules (null = "All").
+  // Apply the selected custom tab's rules (null = "All"). An explicit tab
+  // assignment (item.inboxTabId, set by dragging an email onto a tab) is a
+  // "move": that thread appears ONLY under its assigned tab — hidden from other
+  // category tabs and from "All" — overriding rule-based matching.
   const tabFilteredInboxItems = useMemo(() => {
     const tab = inboxTabs.find((t) => t.id === selectedInboxTabId);
-    if (!tab) return spamGatedInboxItems;
+    if (!tab) {
+      // "All": show only unassigned threads (moved items live under their tab).
+      return spamGatedInboxItems.filter((item) => !item.inboxTabId);
+    }
     return spamGatedInboxItems.filter((item) =>
-      matchInboxTab(item, tab.rules),
+      item.inboxTabId
+        ? item.inboxTabId === tab.id
+        : matchInboxTab(item, tab.rules),
     );
   }, [spamGatedInboxItems, inboxTabs, selectedInboxTabId]);
 
@@ -6667,9 +6675,28 @@ export function EmailInboxView({
           allTabs={inboxTabs}
           onClose={() => setDragToTab(null)}
           onSaved={(saved) => {
+            const movedThreadId = dragToTab.item.id;
             setInboxTabs((prev) =>
               prev.map((t) => (t.id === saved.id ? saved : t)),
             );
+            // Explicitly move the thread into the target tab so it leaves All
+            // and any other category tab (exclusive membership).
+            setInboxItems((prev) =>
+              prev.map((it) =>
+                it.id === movedThreadId
+                  ? { ...it, inboxTabId: saved.id }
+                  : it,
+              ),
+            );
+            inboxSnapshotRef.current = inboxSnapshotRef.current.map((it) =>
+              it.id === movedThreadId ? { ...it, inboxTabId: saved.id } : it,
+            );
+            void fetch(`/api/email/threads/${movedThreadId}/inbox-tab`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ tabId: saved.id }),
+            }).catch(() => {});
             setSelectedInboxTabId(saved.id);
             setDragToTab(null);
             void refreshInboxState({ skipMailboxes: true }).catch(() => {});
