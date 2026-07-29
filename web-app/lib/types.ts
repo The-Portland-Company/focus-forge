@@ -470,6 +470,9 @@ export interface InboxItem {
    *  from email_messages, not stored on the email_threads row. */
   messageCount: number;
   matchedRuleIds?: string[];
+  /** Explicit tab assignment (a "moved" thread). When set, the thread belongs
+   *  ONLY to this tab and is hidden from other category tabs and "All". */
+  inboxTabId?: string | null;
   participants?: InboxParticipant[];
   conversation?: ConversationEntry[];
   taskSuggestions?: InboxTaskSuggestion[];
