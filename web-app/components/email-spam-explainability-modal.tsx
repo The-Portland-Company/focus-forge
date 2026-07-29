@@ -293,25 +293,63 @@ export function EmailSpamExplainabilityModal({
               your data — instead, four inputs are assembled into its prompt at
               classification time:
             </p>
-            <ul className="ml-1 list-disc space-y-1 pl-4">
+            <ul className="ml-1 list-disc space-y-1.5 pl-4">
               <li>
                 <span className="text-zinc-200">A classifier system prompt</span>{" "}
                 — fixed instructions telling the model how to triage email into
-                actionable work vs. spam.
+                actionable work vs. spam.{" "}
+                <span className="text-zinc-500">
+                  Edited in app code: <CodeRef>lib/email-inbox/ai.ts</CodeRef>.
+                </span>
               </li>
               <li>
                 <span className="text-zinc-200">Your AI instruction profile</span>{" "}
                 — free-text guidance you write about how your email should be
-                handled.
+                handled.{" "}
+                <span className="text-zinc-500">
+                  <CodeRef>email_ai_profiles.instructionText</CodeRef>, edited in
+                  Email AI Lab.
+                </span>
+                {onEditAiProfile ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      onClick={onEditAiProfile}
+                      className="inline-flex items-center gap-1 font-medium text-amber-300 underline-offset-2 transition-colors hover:text-amber-200 hover:underline"
+                    >
+                      Open <ArrowRight className="h-3 w-3" />
+                    </button>
+                  </>
+                ) : null}
               </li>
               <li>
                 <span className="text-zinc-200">Your email Rules</span> — run
-                before the AI and can override its verdict (Step 1).
+                before the AI and can override its verdict (Step 1).{" "}
+                <span className="text-zinc-500">
+                  <CodeRef>email_rules</CodeRef>, edited in the Rules panel.
+                </span>
+                {onEditRules ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      onClick={onEditRules}
+                      className="inline-flex items-center gap-1 font-medium text-amber-300 underline-offset-2 transition-colors hover:text-amber-200 hover:underline"
+                    >
+                      Open <ArrowRight className="h-3 w-3" />
+                    </button>
+                  </>
+                ) : null}
               </li>
               <li>
                 <span className="text-zinc-200">AI memory</span> — a decision
                 playbook plus learned precedents distilled from how you&rsquo;ve
-                triaged past email.
+                triaged past email.{" "}
+                <span className="text-zinc-500">
+                  <CodeRef>components/ai-memory-tab.tsx</CodeRef> (AI Memory tab);
+                  shaped by correcting classifications.
+                </span>
               </li>
             </ul>
           </Step>
