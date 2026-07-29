@@ -80,6 +80,38 @@ function compare(op: InboxTabOperator, haystack: string, needle: string) {
   }
 }
 
+/** Public wrapper around a single condition test — used by the drag-to-tab
+ *  flow to detect which existing tab conditions already match a dragged item
+ *  (rule overlap). */
+export function conditionMatchesItem(
+  item: InboxItem,
+  cond: InboxTabCondition,
+): boolean {
+  return matchCondition(item, cond);
+}
+
+/** The most specific, stable rule that would file a dragged item under a tab:
+ *  the exact sender email when known, else the sender domain, else a subject
+ *  contains. Returns null when the item carries no usable signal. */
+export function deriveTabConditionForItem(
+  item: InboxItem,
+): InboxTabCondition | null {
+  const sender = senderParticipant(item);
+  const email = (sender?.emailAddress || "").trim().toLowerCase();
+  if (email && email.includes("@")) {
+    return { field: "sender_email", operator: "equals", value: email };
+  }
+  const domain = email.split("@")[1] || "";
+  if (domain) {
+    return { field: "sender_domain", operator: "equals", value: domain };
+  }
+  const subject = (item.subject || "").trim();
+  if (subject) {
+    return { field: "subject", operator: "contains", value: subject };
+  }
+  return null;
+}
+
 function matchCondition(item: InboxItem, cond: InboxTabCondition): boolean {
   const sender = senderParticipant(item);
   const senderEmail = sender?.emailAddress || "";
