@@ -75,6 +75,7 @@ import { AlertBellButton } from "@/components/alert-center";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
 import { InboxTabModal } from "@/components/inbox-tab-modal";
 import { DragToTabModal } from "@/components/drag-to-tab-modal";
+import { QuarantineRulesModal } from "@/components/quarantine-rules-modal";
 import {
   matchInboxTab,
   type EmailInboxTab,
@@ -1557,6 +1558,9 @@ export function EmailInboxView({
     item: InboxItem;
     targetTab: EmailInboxTab;
   } | null>(null);
+  // Email pending a quarantine-rules confirmation modal.
+  const [quarantineModalItem, setQuarantineModalItem] =
+    useState<InboxItem | null>(null);
   const [showContactsView, setShowContactsView] = useState(false);
 
   // Returning from the Google contacts OAuth flow lands back on the inbox URL
@@ -3719,10 +3723,22 @@ export function EmailInboxView({
       snoozedUntil?: string;
       boomerangUntil?: string;
       boomerangTaskId?: string;
+      skipQuarantinePrompt?: boolean;
     },
   ) => {
     const threadId = options?.threadId ?? selectedThreadId;
     if (!threadId) return;
+
+    // Quarantine opens a rules-review modal first (shows the rules applied and
+    // offers a quarantine rule); the modal re-invokes with skipQuarantinePrompt.
+    if (action === "quarantine" && !options?.skipQuarantinePrompt) {
+      const target =
+        inboxSnapshotRef.current.find((it) => it.id === threadId) ?? null;
+      if (target) {
+        setQuarantineModalItem(target);
+        return;
+      }
+    }
 
     const shouldUpdateSelectedThread = options?.updateSelectedThread ?? true;
 
@@ -6662,6 +6678,44 @@ export function EmailInboxView({
             setDragToTab(null);
             setEditingInboxTab(tab);
             setInboxTabModalOpen(true);
+          }}
+        />
+      ) : null}
+      {quarantineModalItem ? (
+        <QuarantineRulesModal
+          item={quarantineModalItem}
+          emailRules={data.emailRules}
+          onClose={() => setQuarantineModalItem(null)}
+          onConfirm={async (rule) => {
+            const target = quarantineModalItem;
+            setQuarantineModalItem(null);
+            if (!target) return;
+            if (rule) {
+              try {
+                await fetch("/api/email/rules", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  body: JSON.stringify({
+                    name: rule.name,
+                    matchMode: "all",
+                    conditions: [rule.condition],
+                    actions: [{ type: "quarantine" }],
+                  }),
+                });
+              } catch {
+                // Non-fatal — still quarantine the current email below.
+              }
+            }
+            void handleThreadAction("quarantine", {
+              threadId: target.id,
+              updateSelectedThread: selectedThreadId === target.id,
+              skipQuarantinePrompt: true,
+            });
+          }}
+          onEditRules={() => {
+            setQuarantineModalItem(null);
+            router.push("/email-rules");
           }}
         />
       ) : null}
