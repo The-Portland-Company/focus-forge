@@ -25,6 +25,7 @@ import {
   FolderSearch,
   GripVertical,
   LayoutTemplate,
+  FolderKanban,
   Loader2,
   Mail,
   MailCheck,
@@ -41,7 +42,6 @@ import {
   RefreshCw,
   Reply,
   Forward,
-  Search,
   SendHorizontal,
   ShieldAlert,
   Sparkles,
@@ -2198,158 +2198,6 @@ export function EmailThreadModal({
                               : ""}
                           </span>
                         </div>
-                        {/* Project selector pinned to the top-right of the
-                            AI Summary header, with the Generate Tasks AI icon
-                            floating to its right. */}
-                        <div className="flex w-full items-center gap-2 sm:w-auto">
-                        <div
-                          ref={projectPickerRef}
-                          className="relative w-full sm:w-[240px]"
-                        >
-                          <div className="relative flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 py-1 pl-3 pr-9 transition-colors focus-within:ring-2 ring-theme">
-                            <Search className="pointer-events-none h-4 w-4 shrink-0 text-zinc-500" />
-                            {/* Selected project chips render INSIDE the field,
-                                left of the typing cursor. */}
-                            {associatedProjects.map((project) => (
-                              <span
-                                key={project.id}
-                                className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-zinc-700/80 bg-zinc-900/70 py-0.5 pl-2 pr-1 text-xs text-zinc-200"
-                              >
-                                <span
-                                  className="h-2 w-2 shrink-0 rounded-full"
-                                  style={{ backgroundColor: project.color }}
-                                />
-                                <span className="truncate">{project.name}</span>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleRemoveProjectChip(project.id)
-                                  }
-                                  disabled={busyState === "project"}
-                                  aria-label={`Remove ${project.name}`}
-                                  title={`Remove ${project.name}`}
-                                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-white disabled:opacity-50"
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </span>
-                            ))}
-                            <input
-                              type="text"
-                              value={projectSearchQuery}
-                              onFocus={() => setIsProjectPickerOpen(true)}
-                              onChange={(event) => {
-                                setProjectSearchQuery(event.target.value);
-                                setIsProjectPickerOpen(true);
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === "Escape") {
-                                  event.preventDefault();
-                                  closeProjectPicker();
-                                  return;
-                                }
-
-                                if (
-                                  event.key === "Enter" &&
-                                  filteredInboxProjects.length > 0
-                                ) {
-                                  event.preventDefault();
-                                  handleProjectPickerSelect(
-                                    filteredInboxProjects[0].id,
-                                  );
-                                }
-                              }}
-                              placeholder={
-                                associatedProjects.length > 0
-                                  ? ""
-                                  : "Add project..."
-                              }
-                              disabled={busyState === "project"}
-                              className="h-6 min-w-[2rem] flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-zinc-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                            />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setIsProjectPickerOpen((current) => !current)
-                              }
-                              className="absolute inset-y-0 right-3 inline-flex items-center text-zinc-500 transition-colors hover:text-zinc-300"
-                              aria-label="Toggle project search"
-                            >
-                              {busyState === "project" ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <ChevronDown
-                                  className={`h-4 w-4 transition-transform ${
-                                    isProjectPickerOpen ? "rotate-180" : ""
-                                  }`}
-                                />
-                              )}
-                            </button>
-                          </div>
-                          {isProjectPickerOpen ? (
-                            <div className="absolute right-0 top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
-                              {filteredInboxProjects.length > 0 ? (
-                                filteredInboxProjects.map((project) => {
-                                  const isSelected =
-                                    associatedProjectIds.includes(project.id);
-
-                                  return (
-                                    <button
-                                      key={project.id}
-                                      type="button"
-                                      onClick={() =>
-                                        handleProjectPickerSelect(project.id)
-                                      }
-                                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                                        isSelected
-                                          ? "bg-[rgb(var(--theme-primary-rgb))]/15 text-white"
-                                          : "text-zinc-300 hover:bg-zinc-700 hover:text-white"
-                                      }`}
-                                    >
-                                      <div
-                                        className="h-3 w-3 flex-shrink-0 rounded-full"
-                                        style={{
-                                          backgroundColor: project.color,
-                                        }}
-                                      />
-                                      <span className="flex-1 truncate">
-                                        {project.name}
-                                      </span>
-                                      {isSelected ? (
-                                        <Check className="h-4 w-4 text-[rgb(var(--theme-primary-rgb))]" />
-                                      ) : null}
-                                    </button>
-                                  );
-                                })
-                              ) : (
-                                <div className="px-3 py-2 text-sm text-zinc-500">
-                                  No matching projects
-                                </div>
-                              )}
-                            </div>
-                          ) : null}
-                        </div>
-                        <Tooltip
-                          content="Generate tasks from this thread"
-                          className="w-auto"
-                          side="bottom"
-                          align="end"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => void handleGenerateTasks()}
-                            disabled={busyState === "tasks" || !threadId}
-                            aria-label="Generate tasks from this thread"
-                            className="mt-0 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-[rgb(var(--theme-primary-rgb))] transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {busyState === "tasks" ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Sparkles className="h-4 w-4" />
-                            )}
-                          </button>
-                        </Tooltip>
-                        </div>
                       </div>
                       {(
                         <div>
@@ -2541,7 +2389,156 @@ export function EmailThreadModal({
                       <Mail className="h-3.5 w-3.5" />
                       <span>Message</span>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                        <div className="flex min-w-0 items-center gap-2">
+                        <div
+                          ref={projectPickerRef}
+                          className="relative w-[150px] sm:w-[220px]"
+                        >
+                          <div className="relative flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 py-1 pl-3 pr-9 transition-colors focus-within:ring-2 ring-theme">
+                            <FolderKanban className="pointer-events-none h-4 w-4 shrink-0 text-zinc-500" />
+                            {/* Selected project chips render INSIDE the field,
+                                left of the typing cursor. */}
+                            {associatedProjects.map((project) => (
+                              <span
+                                key={project.id}
+                                className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-zinc-700/80 bg-zinc-900/70 py-0.5 pl-2 pr-1 text-xs text-zinc-200"
+                              >
+                                <span
+                                  className="h-2 w-2 shrink-0 rounded-full"
+                                  style={{ backgroundColor: project.color }}
+                                />
+                                <span className="truncate">{project.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleRemoveProjectChip(project.id)
+                                  }
+                                  disabled={busyState === "project"}
+                                  aria-label={`Remove ${project.name}`}
+                                  title={`Remove ${project.name}`}
+                                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-white disabled:opacity-50"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </span>
+                            ))}
+                            <input
+                              type="text"
+                              value={projectSearchQuery}
+                              onFocus={() => setIsProjectPickerOpen(true)}
+                              onChange={(event) => {
+                                setProjectSearchQuery(event.target.value);
+                                setIsProjectPickerOpen(true);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  closeProjectPicker();
+                                  return;
+                                }
+
+                                if (
+                                  event.key === "Enter" &&
+                                  filteredInboxProjects.length > 0
+                                ) {
+                                  event.preventDefault();
+                                  handleProjectPickerSelect(
+                                    filteredInboxProjects[0].id,
+                                  );
+                                }
+                              }}
+                              placeholder={
+                                associatedProjects.length > 0
+                                  ? ""
+                                  : "Add project..."
+                              }
+                              disabled={busyState === "project"}
+                              className="h-6 min-w-[2rem] flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-zinc-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setIsProjectPickerOpen((current) => !current)
+                              }
+                              className="absolute inset-y-0 right-3 inline-flex items-center text-zinc-500 transition-colors hover:text-zinc-300"
+                              aria-label="Toggle project search"
+                            >
+                              {busyState === "project" ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <ChevronDown
+                                  className={`h-4 w-4 transition-transform ${
+                                    isProjectPickerOpen ? "rotate-180" : ""
+                                  }`}
+                                />
+                              )}
+                            </button>
+                          </div>
+                          {isProjectPickerOpen ? (
+                            <div className="absolute right-0 top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
+                              {filteredInboxProjects.length > 0 ? (
+                                filteredInboxProjects.map((project) => {
+                                  const isSelected =
+                                    associatedProjectIds.includes(project.id);
+
+                                  return (
+                                    <button
+                                      key={project.id}
+                                      type="button"
+                                      onClick={() =>
+                                        handleProjectPickerSelect(project.id)
+                                      }
+                                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                        isSelected
+                                          ? "bg-[rgb(var(--theme-primary-rgb))]/15 text-white"
+                                          : "text-zinc-300 hover:bg-zinc-700 hover:text-white"
+                                      }`}
+                                    >
+                                      <div
+                                        className="h-3 w-3 flex-shrink-0 rounded-full"
+                                        style={{
+                                          backgroundColor: project.color,
+                                        }}
+                                      />
+                                      <span className="flex-1 truncate">
+                                        {project.name}
+                                      </span>
+                                      {isSelected ? (
+                                        <Check className="h-4 w-4 text-[rgb(var(--theme-primary-rgb))]" />
+                                      ) : null}
+                                    </button>
+                                  );
+                                })
+                              ) : (
+                                <div className="px-3 py-2 text-sm text-zinc-500">
+                                  No matching projects
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                        <Tooltip
+                          content="Generate tasks from this thread"
+                          className="w-auto"
+                          side="bottom"
+                          align="end"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => void handleGenerateTasks()}
+                            disabled={busyState === "tasks" || !threadId}
+                            aria-label="Generate tasks from this thread"
+                            className="mt-0 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-[rgb(var(--theme-primary-rgb))] transition-colors hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {busyState === "tasks" ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-4 w-4" />
+                            )}
+                          </button>
+                        </Tooltip>
+                        </div>
                       {conversationEntries.length > 1 ? (
                         <Tooltip
                           content={
@@ -2557,9 +2554,9 @@ export function EmailThreadModal({
                             type="button"
                             onClick={handleToggleConversationOrder}
                             aria-label="Toggle conversation order"
-                            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
                           >
-                            <ArrowDownUp className="h-3.5 w-3.5" />
+                            <ArrowDownUp className="h-5 w-5" />
                           </button>
                         </Tooltip>
                       ) : null}
@@ -2584,16 +2581,16 @@ export function EmailThreadModal({
                             emailHtmlRenderMode,
                           )}
                           className={cn(
-                            "inline-flex h-6 w-6 items-center justify-center rounded-md border bg-zinc-900/80 transition-colors",
+                            "inline-flex h-9 w-9 items-center justify-center rounded-md border bg-zinc-900/80 transition-colors",
                             emailHtmlRenderMode === "simplified"
                               ? "border-theme-primary text-white"
                               : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
                           )}
                         >
                           {emailHtmlRenderMode === "simplified" ? (
-                            <Sparkles className="h-3.5 w-3.5" />
+                            <Sparkles className="h-5 w-5" />
                           ) : (
-                            <LayoutTemplate className="h-3.5 w-3.5" />
+                            <LayoutTemplate className="h-5 w-5" />
                           )}
                         </button>
                       </Tooltip>
