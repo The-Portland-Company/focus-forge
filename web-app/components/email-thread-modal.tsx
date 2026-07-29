@@ -32,6 +32,7 @@ import {
   MailPlus,
   MailX,
   Maximize2,
+  Minimize2,
   MoreHorizontal,
   Move,
   PanelBottom,
@@ -51,6 +52,7 @@ import {
   X,
 } from "lucide-react";
 import { EmailThreadAttachments } from "@/components/email-thread-attachments";
+import { FloatingPanel } from "@/components/floating-panel";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Tooltip } from "@/components/tooltip";
 import { EmailSignatureContent } from "@/components/email-signature-content";
@@ -327,6 +329,85 @@ function EmailActorAvatar({
   );
 }
 
+/**
+ * Chrome around the Linked Tasks list. Docked (default) it is the inline card
+ * inside the thread body; popped out it becomes a draggable/dockable floating
+ * panel (shared `FloatingPanel`) so the task list can sit beside the email
+ * while you read it. The list itself is passed as children either way.
+ */
+function LinkedTasksHost({
+  popped,
+  onTogglePopped,
+  count,
+  children,
+}: {
+  popped: boolean;
+  onTogglePopped: () => void;
+  count: number;
+  children: ReactNode;
+}) {
+  const label = `Linked Tasks${count ? ` (${count})` : ""}`;
+  const badge = (
+    <div className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white">
+      <FolderSearch className="h-3.5 w-3.5" />
+      <span>{label}</span>
+    </div>
+  );
+
+  if (popped) {
+    return (
+      <>
+        <div className="rounded-2xl border border-dashed border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-500">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            {badge}
+            <Tooltip content="Dock back into the email" className="w-auto" side="bottom" align="end">
+              <button
+                type="button"
+                onClick={onTogglePopped}
+                aria-label="Dock Linked Tasks back into the email"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+              >
+                <Minimize2 className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+          </div>
+          <p className="text-xs">Open in a floating panel — drag it anywhere or dock it to a side.</p>
+        </div>
+        <FloatingPanel
+          open
+          dockable
+          initialDock="right"
+          onClose={onTogglePopped}
+          title={label}
+          icon={<FolderSearch className="h-4 w-4 shrink-0 text-zinc-400" />}
+          widthClassName="w-[min(28rem,92vw)]"
+        >
+          <div className="p-4 text-sm text-zinc-300">{children}</div>
+        </FloatingPanel>
+      </>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        {badge}
+        <Tooltip content="Pop out into a floating panel" className="w-auto" side="bottom" align="end">
+          <button
+            type="button"
+            onClick={onTogglePopped}
+            aria-label="Pop Linked Tasks out into a floating panel"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export function EmailThreadModal({
   open,
   threadId,
@@ -400,6 +481,8 @@ export function EmailThreadModal({
     null,
   );
   const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
+  // Linked Tasks popped out of the thread body into a floating panel.
+  const [isLinkedTasksPopped, setIsLinkedTasksPopped] = useState(false);
   // Session-local completion overrides keyed by task id. Falls back to the
   // task's own `completed` field. Lets the strikethrough toggle work visually
   // and persist for the session even if the server payload lacks the field.
@@ -2187,18 +2270,13 @@ export function EmailThreadModal({
               <div>
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0 flex-1 space-y-3">
-                    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
-                      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                        <div className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white">
-                          <FolderSearch className="h-3.5 w-3.5" />
-                          <span>
-                            Linked Tasks
-                            {thread.linkedTasks?.length
-                              ? ` (${thread.linkedTasks.length})`
-                              : ""}
-                          </span>
-                        </div>
-                      </div>
+                    <LinkedTasksHost
+                      popped={isLinkedTasksPopped}
+                      onTogglePopped={() =>
+                        setIsLinkedTasksPopped((popped) => !popped)
+                      }
+                      count={thread.linkedTasks?.length ?? 0}
+                    >
                       {(
                         <div>
                           {thread.linkedTasks?.length ? (
@@ -2341,7 +2419,7 @@ export function EmailThreadModal({
                           )}
                         </div>
                       )}
-                    </div>
+                    </LinkedTasksHost>
                   </div>
                 </div>
               </div>

@@ -1,19 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   ArrowRight,
   BrainCircuit,
   Database,
-  GripHorizontal,
   ListChecks,
-  Minus,
   Settings2,
   Sparkles,
-  Square,
-  X,
 } from "lucide-react";
+
+import { FloatingPanel } from "@/components/floating-panel";
 
 import type {
   EmailRule,
@@ -163,120 +159,19 @@ export function EmailSpamExplainabilityModal({
     ),
   );
 
-  // Draggable + minimizable floating panel. `pos === null` renders centered;
-  // once dragged it becomes absolute. No backdrop — it floats on top and the
-  // page stays usable.
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-  const [minimized, setMinimized] = useState(false);
-  const dragState = useRef<{
-    startX: number;
-    startY: number;
-    baseX: number;
-    baseY: number;
-    w: number;
-    h: number;
-  } | null>(null);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-
-  // Reset position/minimized each time a new thread opens the panel.
-  useEffect(() => {
-    if (item) {
-      setPos(null);
-      setMinimized(false);
-    }
-  }, [item?.id]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && item) onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [item, onClose]);
-
-  const onDragPointerDown = (e: React.PointerEvent) => {
-    const rect = panelRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    dragState.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      baseX: rect.left,
-      baseY: rect.top,
-      w: rect.width,
-      h: rect.height,
-    };
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-  };
-  const onDragPointerMove = (e: React.PointerEvent) => {
-    const d = dragState.current;
-    if (!d) return;
-    const nx = d.baseX + (e.clientX - d.startX);
-    const ny = d.baseY + (e.clientY - d.startY);
-    setPos({
-      x: Math.max(8, Math.min(nx, window.innerWidth - d.w - 8)),
-      y: Math.max(8, Math.min(ny, window.innerHeight - 40)),
-    });
-  };
-  const onDragPointerUp = (e: React.PointerEvent) => {
-    dragState.current = null;
-    (e.target as Element).releasePointerCapture?.(e.pointerId);
-  };
-
+  // Draggable + minimizable floating panel (shared with the Linked Tasks
+  // pop-out). No backdrop — it floats on top and the page stays usable.
   if (item === null) return null;
 
-  return createPortal(
-    <div className="pointer-events-none fixed inset-0 z-[100]">
-      <div
-        ref={panelRef}
-        style={
-          pos
-            ? { position: "fixed", left: pos.x, top: pos.y }
-            : {
-                position: "fixed",
-                left: "50%",
-                top: "50%",
-                transform: "translate(-50%, -50%)",
-              }
-        }
-        className="pointer-events-auto flex max-h-[85vh] w-[min(36rem,92vw)] flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl"
-      >
-        {/* Drag handle / header */}
-        <div
-          onPointerDown={onDragPointerDown}
-          onPointerMove={onDragPointerMove}
-          onPointerUp={onDragPointerUp}
-          className="flex cursor-grab touch-none items-center gap-2 border-b border-zinc-800 bg-zinc-900/60 px-4 py-3 active:cursor-grabbing"
-        >
-          <GripHorizontal className="h-4 w-4 shrink-0 text-zinc-600" />
-          <Sparkles className="h-4 w-4 shrink-0 text-amber-300" />
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-            How this spam score was determined
-          </span>
-          <button
-            type="button"
-            onClick={() => setMinimized((m) => !m)}
-            aria-label={minimized ? "Restore" : "Minimize"}
-            title={minimized ? "Restore" : "Minimize"}
-            className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
-          >
-            {minimized ? (
-              <Square className="h-3.5 w-3.5" />
-            ) : (
-              <Minus className="h-4 w-4" />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {minimized ? null : (
-        <div className="overflow-y-auto px-6 pb-6 pt-4">
+  return (
+    <FloatingPanel
+      open
+      onClose={onClose}
+      resetKey={item.id}
+      title="How this spam score was determined"
+      icon={<Sparkles className="h-4 w-4 shrink-0 text-amber-300" />}
+    >
+        <div className="px-6 pb-6 pt-4">
         <p className="text-sm text-zinc-400">
           {pct != null ? (
             <>
@@ -549,9 +444,6 @@ export function EmailSpamExplainabilityModal({
           </button>
         </div>
         </div>
-        )}
-      </div>
-    </div>,
-    document.body,
+    </FloatingPanel>
   );
 }
