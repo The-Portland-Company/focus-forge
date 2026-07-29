@@ -1739,6 +1739,23 @@ export function EmailInboxView({
   useEffect(() => {
     if (isOutboundComposerOpen) setOutboundComposerLoaded(true);
   }, [isOutboundComposerOpen]);
+  // Cmd/Ctrl+N composes a new email anywhere in the inbox and its sub-views.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        (event.key === "n" || event.key === "N")
+      ) {
+        event.preventDefault();
+        setOutboundComposerInitialDraft(null);
+        setIsOutboundComposerOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   useEffect(() => {
     if (senderHistory) setSenderHistoryLoaded(true);
   }, [senderHistory]);
