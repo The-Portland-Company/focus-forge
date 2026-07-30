@@ -78,6 +78,7 @@ import { DragToTabModal } from "@/components/drag-to-tab-modal";
 import { QuarantineRulesModal } from "@/components/quarantine-rules-modal";
 import {
   isUnfiledInboxItem,
+  listUnresolvedAiIntents,
   matchInboxTab,
   type EmailInboxTab,
 } from "@/lib/email-inbox/inbox-tabs";
@@ -1936,6 +1937,48 @@ export function EmailInboxView({
         : matchInboxTab(item, tab.rules),
     );
   }, [spamGatedInboxItems, inboxTabs, selectedInboxTabId]);
+
+  // "AI decides" tab conditions: ask the server for verdicts on threads that
+  // don't have one yet, a small batch at a time, and merge them into state so
+  // the rules can file the mail. Threads already judged cost nothing.
+  const aiEvaluationInFlightRef = useRef(false);
+  useEffect(() => {
+    if (view !== "email-inbox") return;
+    if (aiEvaluationInFlightRef.current) return;
+    const unresolved = listUnresolvedAiIntents(inboxItems, inboxTabs);
+    if (unresolved.length === 0) return;
+
+    const threadIds = Array.from(
+      new Set(unresolved.map((entry) => entry.threadId)),
+    ).slice(0, 12);
+    const prompts = Array.from(new Set(unresolved.map((e) => e.prompt)));
+
+    aiEvaluationInFlightRef.current = true;
+    void fetch("/api/email/inbox-tabs/ai-evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ threadIds, prompts }),
+    })
+      .then((r) => (r.ok ? r.json() : { verdicts: {} }))
+      .then((payload: { verdicts?: Record<string, Record<string, boolean>> }) => {
+        const verdicts = payload?.verdicts || {};
+        if (Object.keys(verdicts).length === 0) return;
+        setInboxItems((current) => {
+          const next = current.map((item) =>
+            verdicts[item.id]
+              ? { ...item, aiTabVerdicts: { ...item.aiTabVerdicts, ...verdicts[item.id] } }
+              : item,
+          );
+          inboxSnapshotRef.current = next;
+          return next;
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        aiEvaluationInFlightRef.current = false;
+      });
+  }, [view, inboxItems, inboxTabs]);
 
   const searchedInboxItems = useMemo(
     () =>
