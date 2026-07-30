@@ -766,6 +766,18 @@ export function shouldShowAiSummary(params: {
   return true;
 }
 
+/**
+ * Class list for the inbox rows container.
+ *
+ * `isolate` is load-bearing: hovering a grouped row raises it to `z-index: 60`
+ * (`.email-stack-card:hover`) so it rises above the cards overlapping it. Without
+ * its own stacking context that 60 competes with the whole page and beats the
+ * portal-rendered thread modal (`z-50`), so hovering an inbox row painted it on
+ * top of the open email. Isolating the list keeps the hover lift local to the
+ * list, where it belongs.
+ */
+export const EMAIL_WORK_LIST_CONTAINER_CLASS = "isolate space-y-2";
+
 export function getEmailWorkItemClassName(params: {
   isSelected: boolean;
   isUnread?: boolean;
@@ -1133,7 +1145,7 @@ export function EmailWorkList({
   return (
     <>
       <div
-        className="space-y-2"
+        className={EMAIL_WORK_LIST_CONTAINER_CLASS}
         onMouseLeave={() => setHoveredGroupKey(null)}
       >
         {items.map((item, itemIndex) => {
