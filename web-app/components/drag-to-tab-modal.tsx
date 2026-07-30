@@ -7,6 +7,7 @@ import {
   Eye,
   Loader2,
   Pencil,
+  Plus,
   Trash2,
   X,
 } from "lucide-react";
@@ -29,6 +30,29 @@ const CLASSIFICATIONS = [
   "spam",
   "unknown",
 ];
+
+/**
+ * Append newly-authored conditions to a tab's existing ones, trimming values
+ * and skipping exact duplicates (case-insensitive on value). Pure so the
+ * multi-condition merge can be tested without rendering the modal.
+ */
+export function mergeTabConditions(
+  existing: InboxTabCondition[],
+  added: InboxTabCondition[],
+): InboxTabCondition[] {
+  const next = [...existing];
+  for (const condition of added) {
+    const trimmed = { ...condition, value: condition.value.trim() };
+    const alreadyPresent = next.some(
+      (c) =>
+        c.field === trimmed.field &&
+        c.operator === trimmed.operator &&
+        c.value.trim().toLowerCase() === trimmed.value.toLowerCase(),
+    );
+    if (!alreadyPresent) next.push(trimmed);
+  }
+  return next;
+}
 
 interface DragToTabModalProps {
   item: InboxItem;
@@ -71,7 +95,14 @@ export function DragToTabModal({
       },
     [item],
   );
-  const [condition, setCondition] = useState<InboxTabCondition>(initial);
+  // The rule being created can have several conditions; `matchMode` is the
+  // and/or operator between them. It is a property of the whole tab rule set
+  // (the API stores one matchMode per tab), so changing it here also changes
+  // how the tab's pre-existing conditions combine — called out in the UI.
+  const [conditions, setConditions] = useState<InboxTabCondition[]>([initial]);
+  const [matchMode, setMatchMode] = useState<"all" | "any">(
+    targetTab.rules?.matchMode ?? "any",
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Local editable copy of the tabs so deleting an overlapping rule updates the
@@ -141,8 +172,21 @@ export function DragToTabModal({
     }
   };
 
-  const update = (patch: Partial<InboxTabCondition>) =>
-    setCondition((c) => ({ ...c, ...patch }));
+  const update = (index: number, patch: Partial<InboxTabCondition>) =>
+    setConditions((list) =>
+      list.map((c, i) => (i === index ? { ...c, ...patch } : c)),
+    );
+
+  const addCondition = () =>
+    setConditions((list) => [
+      ...list,
+      { field: "sender_domain", operator: "contains", value: "" },
+    ]);
+
+  const removeCondition = (index: number) =>
+    setConditions((list) =>
+      list.length === 1 ? list : list.filter((_, i) => i !== index),
+    );
 
   const describeCondition = (c: InboxTabCondition) => {
     const field =
@@ -155,31 +199,29 @@ export function DragToTabModal({
   };
 
   const save = async () => {
-    if (condition.field !== "known_contact" && !condition.value.trim()) {
-      setError("Give the rule a value.");
+    if (
+      conditions.some(
+        (c) => c.field !== "known_contact" && !c.value.trim(),
+      )
+    ) {
+      setError("Give every condition a value (or remove the empty one).");
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      const existing = targetTab.rules?.conditions || [];
-      const alreadyPresent = existing.some(
-        (c) =>
-          c.field === condition.field &&
-          c.operator === condition.operator &&
-          c.value.trim().toLowerCase() === condition.value.trim().toLowerCase(),
+      const nextConditions = mergeTabConditions(
+        targetTab.rules?.conditions || [],
+        conditions,
       );
-      const conditions = alreadyPresent
-        ? existing
-        : [...existing, { ...condition, value: condition.value.trim() }];
       const res = await fetch(`/api/email/inbox-tabs/${targetTab.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           rules: {
-            matchMode: targetTab.rules?.matchMode ?? "any",
-            conditions,
+            matchMode,
+            conditions: nextConditions,
           },
         }),
       });
@@ -194,8 +236,8 @@ export function DragToTabModal({
     }
   };
 
-  const isClassification = condition.field === "classification";
-  const isKnownContact = condition.field === "known_contact";
+  const existingCount = targetTab.rules?.conditions?.length ?? 0;
+  const matchModeChanged = matchMode !== (targetTab.rules?.matchMode ?? "any");
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
@@ -223,79 +265,153 @@ export function DragToTabModal({
           </p>
 
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
-              Rule to create
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <select
-                value={condition.field}
-                onChange={(e) =>
-                  update({
-                    field: e.target.value as InboxTabCondition["field"],
-                    operator:
-                      e.target.value === "classification" ||
-                      e.target.value === "known_contact"
-                        ? "is"
-                        : condition.operator,
-                    value: "",
-                  })
-                }
-                className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Rule to create
+              </div>
+              <button
+                type="button"
+                onClick={addCondition}
+                title="Add another condition"
+                aria-label="Add another condition"
+                className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
               >
-                {INBOX_TAB_FIELD_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              {isKnownContact ? (
-                <span className="px-2 text-xs text-zinc-500">
-                  sender is a saved contact
-                </span>
-              ) : isClassification ? (
-                <select
-                  value={condition.value}
-                  onChange={(e) =>
-                    update({ operator: "is", value: e.target.value })
-                  }
-                  className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
-                >
-                  <option value="">Choose…</option>
-                  {CLASSIFICATIONS.map((cl) => (
-                    <option key={cl} value={cl}>
-                      {cl}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <>
-                  <select
-                    value={condition.operator}
-                    onChange={(e) =>
-                      update({
-                        operator: e.target
-                          .value as InboxTabCondition["operator"],
-                      })
-                    }
-                    className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
-                  >
-                    {INBOX_TAB_OPERATOR_OPTIONS.filter(
-                      (o) => o.value !== "is",
-                    ).map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={condition.value}
-                    onChange={(e) => update({ value: e.target.value })}
-                    placeholder="value"
-                    className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
-                  />
-                </>
-              )}
+                <Plus className="h-3 w-3" />
+                Add condition
+              </button>
             </div>
+            <div className="space-y-1.5">
+              {conditions.map((condition, index) => {
+                const isClassification = condition.field === "classification";
+                const isKnownContact = condition.field === "known_contact";
+                return (
+                  <div key={index}>
+                    {index > 0 ? (
+                      // Operator between conditions. One matchMode governs the
+                      // whole tab, so every connector edits the same value.
+                      <div className="my-1.5 flex items-center gap-2">
+                        <span className="h-px flex-1 bg-zinc-800" />
+                        <select
+                          value={matchMode}
+                          onChange={(e) =>
+                            setMatchMode(e.target.value as "all" | "any")
+                          }
+                          aria-label="Operator between conditions"
+                          className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-white"
+                        >
+                          <option value="all">and</option>
+                          <option value="any">or</option>
+                        </select>
+                        <span className="h-px flex-1 bg-zinc-800" />
+                      </div>
+                    ) : null}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <select
+                        value={condition.field}
+                        onChange={(e) =>
+                          update(index, {
+                            field: e.target.value as InboxTabCondition["field"],
+                            operator:
+                              e.target.value === "classification" ||
+                              e.target.value === "known_contact"
+                                ? "is"
+                                : condition.operator,
+                            value: "",
+                          })
+                        }
+                        className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
+                      >
+                        {INBOX_TAB_FIELD_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      {isKnownContact ? (
+                        <span className="flex-1 px-2 text-xs text-zinc-500">
+                          sender is a saved contact
+                        </span>
+                      ) : isClassification ? (
+                        <select
+                          value={condition.value}
+                          onChange={(e) =>
+                            update(index, {
+                              operator: "is",
+                              value: e.target.value,
+                            })
+                          }
+                          className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
+                        >
+                          <option value="">Choose…</option>
+                          {CLASSIFICATIONS.map((cl) => (
+                            <option key={cl} value={cl}>
+                              {cl}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <>
+                          <select
+                            value={condition.operator}
+                            onChange={(e) =>
+                              update(index, {
+                                operator: e.target
+                                  .value as InboxTabCondition["operator"],
+                              })
+                            }
+                            className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
+                          >
+                            {INBOX_TAB_OPERATOR_OPTIONS.filter(
+                              (o) => o.value !== "is",
+                            ).map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            value={condition.value}
+                            onChange={(e) =>
+                              update(index, { value: e.target.value })
+                            }
+                            placeholder="value"
+                            className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
+                          />
+                        </>
+                      )}
+                      {conditions.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => removeCondition(index)}
+                          title="Remove this condition"
+                          aria-label="Remove this condition"
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-zinc-400 transition-colors hover:border-red-800 hover:text-red-200"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {conditions.length > 1 || matchModeChanged ? (
+              <p className="mt-2 text-[11px] text-zinc-500">
+                Email files under {targetTab.name} when{" "}
+                <span className="text-zinc-300">
+                  {matchMode === "all" ? "all" : "any"}
+                </span>{" "}
+                of its conditions match.
+                {existingCount > 0 ? (
+                  <>
+                    {" "}
+                    This tab already has {existingCount} condition
+                    {existingCount === 1 ? "" : "s"}, and that and/or applies to{" "}
+                    {matchModeChanged ? "them too" : "all of them"}.
+                  </>
+                ) : null}
+              </p>
+            ) : null}
           </div>
 
           {overlaps.length > 0 ? (
