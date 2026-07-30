@@ -150,6 +150,22 @@ export function matchInboxTab(item: InboxItem, rules: InboxTabRules): boolean {
     : conditions.some((c) => matchCondition(item, c));
 }
 
+/**
+ * True when a thread belongs in the "All" tab — i.e. it is *unfiled*.
+ *
+ * A thread is filed either explicitly (dragged onto a tab, `inboxTabId` set) or
+ * implicitly (it matches a tab's rules, e.g. a `support@npmjs.com` rule on
+ * Transactional). Both count: "All" is the leftovers, not a copy of everything,
+ * so filing a sender under a tab removes it from All rather than duplicating it.
+ */
+export function isUnfiledInboxItem(
+  item: InboxItem,
+  tabs: Array<{ id: string; rules: InboxTabRules }>,
+): boolean {
+  if (item.inboxTabId) return false;
+  return !tabs.some((tab) => matchInboxTab(item, tab.rules));
+}
+
 // The defaults pre-seeded for every user. "Known Contacts" is first (and the
 // UI selects it by default).
 export const DEFAULT_INBOX_TABS: Array<{ name: string; rules: InboxTabRules }> = [
