@@ -473,6 +473,8 @@ export interface InboxItem {
   /** Explicit tab assignment (a "moved" thread). When set, the thread belongs
    *  ONLY to this tab and is hidden from other category tabs and "All". */
   inboxTabId?: string | null;
+  /** Cached "AI decides" verdicts, keyed by `aiIntentKey(question)`. */
+  aiTabVerdicts?: Record<string, boolean>;
   participants?: InboxParticipant[];
   conversation?: ConversationEntry[];
   taskSuggestions?: InboxTaskSuggestion[];

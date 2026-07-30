@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { X, Plus, Trash2 } from "lucide-react";
 import {
+  MAX_AI_INTENT_PROMPT_LENGTH,
   INBOX_TAB_FIELD_OPTIONS,
   INBOX_TAB_OPERATOR_OPTIONS,
   type EmailInboxTab,
@@ -166,6 +167,17 @@ export function InboxTabModal({
                   <span className="flex-1 px-2 text-xs text-zinc-500">
                     sender is a saved contact
                   </span>
+                ) : c.field === "ai_intent" ? (
+                  // Free-text question answered by the AI, once per email.
+                  <input
+                    value={c.value}
+                    onChange={(e) =>
+                      update(i, { operator: "matches", value: e.target.value })
+                    }
+                    maxLength={MAX_AI_INTENT_PROMPT_LENGTH}
+                    placeholder="the email is about a client invoice"
+                    className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
+                  />
                 ) : c.field === "classification" ? (
                   <select
                     value={c.value}

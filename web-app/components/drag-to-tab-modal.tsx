@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  MAX_AI_INTENT_PROMPT_LENGTH,
   INBOX_TAB_FIELD_OPTIONS,
   INBOX_TAB_OPERATOR_OPTIONS,
   conditionMatchesItem,
@@ -284,6 +285,7 @@ export function DragToTabModal({
               {conditions.map((condition, index) => {
                 const isClassification = condition.field === "classification";
                 const isKnownContact = condition.field === "known_contact";
+                const isAiIntent = condition.field === "ai_intent";
                 return (
                   <div key={index}>
                     {index > 0 ? (
@@ -312,10 +314,12 @@ export function DragToTabModal({
                           update(index, {
                             field: e.target.value as InboxTabCondition["field"],
                             operator:
-                              e.target.value === "classification" ||
-                              e.target.value === "known_contact"
-                                ? "is"
-                                : condition.operator,
+                              e.target.value === "ai_intent"
+                                ? "matches"
+                                : e.target.value === "classification" ||
+                                    e.target.value === "known_contact"
+                                  ? "is"
+                                  : condition.operator,
                             value: "",
                           })
                         }
@@ -331,6 +335,20 @@ export function DragToTabModal({
                         <span className="flex-1 px-2 text-xs text-zinc-500">
                           sender is a saved contact
                         </span>
+                      ) : isAiIntent ? (
+                        // Plain-English question the AI answers per email.
+                        <input
+                          value={condition.value}
+                          onChange={(e) =>
+                            update(index, {
+                              operator: "matches",
+                              value: e.target.value,
+                            })
+                          }
+                          maxLength={MAX_AI_INTENT_PROMPT_LENGTH}
+                          placeholder="the email is about a client invoice"
+                          className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
+                        />
                       ) : isClassification ? (
                         <select
                           value={condition.value}

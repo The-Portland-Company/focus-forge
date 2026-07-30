@@ -1174,6 +1174,12 @@ function mapThreadToInboxItem(params: {
           .filter(Boolean)
       : [],
     inboxTabId: params.row.inbox_tab_id ?? null,
+    // Cached "AI decides" verdicts (see the ai_tab_verdicts_json migration).
+    aiTabVerdicts:
+      params.row.ai_tab_verdicts_json &&
+      typeof params.row.ai_tab_verdicts_json === "object"
+        ? (params.row.ai_tab_verdicts_json as Record<string, boolean>)
+        : {},
     participants: params.participants,
     taskSuggestions: Array.isArray(params.row.task_suggestions_json)
       ? params.row.task_suggestions_json
@@ -2142,7 +2148,7 @@ export async function listInboxItemsForUser(
     "summary_text,preview_text,action_confidence,action_reason," +
     "latest_message_at,latest_inbound_at,latest_outbound_at,origin,is_unread," +
     "is_starred,work_due_date,work_due_time,needs_project,always_delete," +
-    "boomerang_until,boomerang_task_id,inbox_tab_id," +
+    "boomerang_until,boomerang_task_id,inbox_tab_id,ai_tab_verdicts_json," +
     "analysis_json,task_suggestions_json,created_at,updated_at";
 
   let query = admin

@@ -7,9 +7,11 @@ export type InboxTabField =
   | "sender_email"
   | "sender_domain"
   | "subject"
-  | "preview";
+  | "preview"
+  | "ai_intent";
 
 export type InboxTabOperator =
+  | "matches"
   | "is"
   | "contains"
   | "equals"
@@ -45,6 +47,7 @@ export const INBOX_TAB_FIELD_OPTIONS: Array<{
   { value: "sender_domain", label: "Sender domain" },
   { value: "subject", label: "Subject" },
   { value: "preview", label: "Body preview" },
+  { value: "ai_intent", label: "AI decides" },
 ];
 
 export const INBOX_TAB_OPERATOR_OPTIONS: Array<{
@@ -56,6 +59,7 @@ export const INBOX_TAB_OPERATOR_OPTIONS: Array<{
   { value: "starts_with", label: "starts with" },
   { value: "ends_with", label: "ends with" },
   { value: "is", label: "is" },
+  { value: "matches", label: "matches" },
 ];
 
 function senderParticipant(item: InboxItem) {
@@ -112,6 +116,53 @@ export function deriveTabConditionForItem(
   return null;
 }
 
+/**
+ * Stable cache key for an "AI decides" question. Verdicts are stored per
+ * (thread, key) on `email_threads.ai_tab_verdicts_json`, so the key must be
+ * derived identically on the client and the server: trimmed, collapsed
+ * whitespace, lowercased, capped so a runaway paste can't bloat the JSONB.
+ */
+export const MAX_AI_INTENT_PROMPT_LENGTH = 200;
+
+export function aiIntentKey(prompt: string): string {
+  return prompt
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .slice(0, MAX_AI_INTENT_PROMPT_LENGTH);
+}
+
+/**
+ * Every (thread, AI question) pair that has no cached verdict yet. The inbox
+ * sends these to `/api/email/inbox-tabs/ai-evaluate`; until a verdict comes
+ * back the condition simply doesn't match, so mail stays where it is rather
+ * than flickering between tabs.
+ */
+export function listUnresolvedAiIntents(
+  items: InboxItem[],
+  tabs: Array<{ rules: InboxTabRules }>,
+): Array<{ threadId: string; prompt: string }> {
+  const prompts = new Set<string>();
+  for (const tab of tabs) {
+    for (const cond of tab.rules?.conditions || []) {
+      if (cond.field !== "ai_intent") continue;
+      const key = aiIntentKey(cond.value || "");
+      if (key) prompts.add(key);
+    }
+  }
+  if (prompts.size === 0) return [];
+
+  const out: Array<{ threadId: string; prompt: string }> = [];
+  for (const item of items) {
+    for (const prompt of prompts) {
+      if (item.aiTabVerdicts?.[prompt] === undefined) {
+        out.push({ threadId: item.id, prompt });
+      }
+    }
+  }
+  return out;
+}
+
 function matchCondition(item: InboxItem, cond: InboxTabCondition): boolean {
   const sender = senderParticipant(item);
   const senderEmail = sender?.emailAddress || "";
@@ -136,6 +187,13 @@ function matchCondition(item: InboxItem, cond: InboxTabCondition): boolean {
         `${item.previewText || ""} ${item.summaryText || ""}`,
         cond.value,
       );
+    case "ai_intent": {
+      // Read-only: matching never calls a model. The verdict was decided once
+      // by /api/email/inbox-tabs/ai-evaluate and cached on the thread.
+      const key = aiIntentKey(cond.value || "");
+      if (!key) return false;
+      return item.aiTabVerdicts?.[key] === true;
+    }
     default:
       return false;
   }
