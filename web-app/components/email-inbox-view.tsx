@@ -77,6 +77,7 @@ import { InboxTabModal } from "@/components/inbox-tab-modal";
 import { DragToTabModal } from "@/components/drag-to-tab-modal";
 import { QuarantineRulesModal } from "@/components/quarantine-rules-modal";
 import {
+  isUnfiledInboxItem,
   matchInboxTab,
   type EmailInboxTab,
 } from "@/lib/email-inbox/inbox-tabs";
@@ -1922,8 +1923,11 @@ export function EmailInboxView({
   const tabFilteredInboxItems = useMemo(() => {
     const tab = inboxTabs.find((t) => t.id === selectedInboxTabId);
     if (!tab) {
-      // "All": show only unassigned threads (moved items live under their tab).
-      return spamGatedInboxItems.filter((item) => !item.inboxTabId);
+      // "All": only unfiled threads — neither explicitly moved onto a tab nor
+      // matching any tab's rules. Filed mail lives under its tab, not both.
+      return spamGatedInboxItems.filter((item) =>
+        isUnfiledInboxItem(item, inboxTabs),
+      );
     }
     return spamGatedInboxItems.filter((item) =>
       item.inboxTabId
