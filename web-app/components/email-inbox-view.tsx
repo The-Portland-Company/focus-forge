@@ -158,6 +158,7 @@ import {
 import {
   clampEmailDeleteUndoSeconds,
   DEFAULT_THREAD_ACTION_QUEUE_SECONDS,
+  formatEmailDeleteUndoDuration,
   getQueuedThreadActionMessage,
   getThreadActionLabel,
   requiresThreadActionConfirmation,
@@ -3516,7 +3517,7 @@ export function EmailInboxView({
   // flips in place; success cards auto-dismiss after 3s.
   const publishDeletionAlert = (
     entry: PendingDeletion,
-    options?: { reporting?: boolean },
+    options?: { reporting?: boolean; undoSeconds?: number },
   ) => {
     const detail =
       entry.status === "failed" ? describeDeletionError(entry.error) : null;
@@ -3529,11 +3530,23 @@ export function EmailInboxView({
             ? "success"
             : "progress",
       title: describeDeletionHeadline(entry),
-      message: detail?.summary,
+      message:
+        detail?.summary ??
+        (options?.undoSeconds
+          ? `Undo within ${formatEmailDeleteUndoDuration(options.undoSeconds)}.`
+          : undefined),
       hint: detail?.hint,
       duration: entry.status === "succeeded" ? 3000 : 0,
       actions:
-        entry.status === "failed"
+        entry.status === "deleting" && options?.undoSeconds
+          ? [
+              {
+                id: "undo",
+                label: "Undo",
+                onClick: () => handleUndoPendingDeletion(entry.id),
+              },
+            ]
+          : entry.status === "failed"
           ? [
               {
                 id: "locate",
@@ -3588,6 +3601,42 @@ export function EmailInboxView({
       publishDeletionAlert(entry, { reporting: false });
     }
   };
+
+  /**
+   * Open undo windows, keyed by the deletion's pendingId. A row deleted from
+   * the inbox disappears optimistically but the server call is held for the
+   * user's undo window (profile `email_delete_undo_seconds`, default 60s) —
+   * clicking Undo in the alert resolves the waiter and nothing is ever sent.
+   */
+  const undoWindowsRef = useRef<
+    Map<string, { timer: number; resolve: (undone: boolean) => void }>
+  >(new Map());
+
+  const waitOutUndoWindow = (pendingId: string, seconds: number) =>
+    new Promise<boolean>((resolve) => {
+      const timer = window.setTimeout(() => {
+        undoWindowsRef.current.delete(pendingId);
+        resolve(false);
+      }, seconds * 1000);
+      undoWindowsRef.current.set(pendingId, { timer, resolve });
+    });
+
+  /** Undo clicked: cancel the pending send so the delete never happens. */
+  const handleUndoPendingDeletion = (pendingId: string) => {
+    const open = undoWindowsRef.current.get(pendingId);
+    if (!open) return;
+    window.clearTimeout(open.timer);
+    undoWindowsRef.current.delete(pendingId);
+    open.resolve(true);
+  };
+
+  useEffect(() => {
+    const windows = undoWindowsRef.current;
+    return () => {
+      windows.forEach(({ timer }) => window.clearTimeout(timer));
+      windows.clear();
+    };
+  }, []);
 
   const handleDeleteThreadWithAnimation = async (
     action: ThreadAction,
@@ -3653,8 +3702,36 @@ export function EmailInboxView({
       subject,
       status: "deleting",
     };
-    publishDeletionAlert(pendingEntry);
+    // A delete is held for the user's undo window before anything is sent, so
+    // the alert card carries an Undo button. Other actions commit immediately.
+    const undoSeconds = action === "delete" ? deleteUndoSeconds : 0;
+    publishDeletionAlert(pendingEntry, {
+      undoSeconds: undoSeconds > 0 ? undoSeconds : undefined,
+    });
     setBusyState(action);
+
+    if (undoSeconds > 0) {
+      const undone = await waitOutUndoWindow(pendingId, undoSeconds);
+      if (undone) {
+        // Nothing was ever sent: put the row back and drop the alert.
+        clearThreadRecentlyRemoved(threadId);
+        if (targetItem) {
+          setInboxItems((current) => {
+            if (current.some((item) => item.id === threadId)) return current;
+            const restored = [...current, targetItem];
+            inboxSnapshotRef.current = restored;
+            return restored;
+          });
+        }
+        void refreshInboxState({ skipMailboxes: true }).catch(() => {});
+        dismissAlert(pendingId);
+        updateStatus("Delete canceled.");
+        setBusyState(null);
+        return;
+      }
+      // Window elapsed — the card loses its Undo button while the send runs.
+      publishDeletionAlert(pendingEntry);
+    }
 
     try {
       const response = await fetch(`/api/email/threads/${threadId}/actions`, {
