@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  EMAIL_WORK_LIST_CONTAINER_CLASS,
   formatEmailSubject,
   formatInboxPreviewText,
   getInboxReviewBadgeLabel,
@@ -819,4 +820,10 @@ test("parseLinkedTasksResponse throws the api error message", async () => {
     () => parseLinkedTasksResponse(response),
     /Thread not found/,
   );
+});
+
+test("the inbox rows container isolates its stacking context so a hovered row cannot cover the thread modal", () => {
+  // `.email-stack-card:hover` sets `z-index: 60`, which outranks the Radix
+  // dialog's `z-50`. `isolate` confines that lift to the list.
+  assert.match(EMAIL_WORK_LIST_CONTAINER_CLASS, /\bisolate\b/);
 });
