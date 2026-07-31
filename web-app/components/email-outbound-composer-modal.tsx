@@ -7,7 +7,9 @@ import {
   ImageIcon,
   Loader2,
   MailPlus,
+  Minus,
   Paperclip,
+  Save,
   SendHorizontal,
   X,
 } from "lucide-react";
@@ -34,10 +36,13 @@ import {
   getDefaultEmailSignature,
 } from "@/lib/email-signatures";
 import {
+  loadComposerCloseAction,
   loadDefaultMailboxId,
   loadMailboxSignatureId,
+  saveComposerCloseAction,
   saveDefaultMailboxId,
   saveMailboxSignatureId,
+  type ComposerCloseAction,
 } from "@/lib/email-composer-prefs";
 import { formatReplyAttachmentSize } from "@/lib/email-reply";
 import { hasRichTextContent, richTextToPlainText } from "@/lib/rich-text";
@@ -83,6 +88,7 @@ type EmailOutboundComposerModalProps = {
   onOpenChange: (open: boolean) => void;
   onSent?: (result: { mailboxId: string; threadId?: string | null }) => void;
   onScheduled?: (draft: EmailOutboundDraft) => void;
+  onDraftSaved?: (draft: EmailOutboundDraft) => void;
   initialDraft?: EmailComposerInitialDraft | null;
 };
 
@@ -121,6 +127,7 @@ export function EmailOutboundComposerModal({
   onOpenChange,
   onSent,
   onScheduled,
+  onDraftSaved,
   initialDraft,
 }: EmailOutboundComposerModalProps) {
   const [draftId, setDraftId] = useState<string | null>(null);
@@ -156,6 +163,19 @@ export function EmailOutboundComposerModal({
   const [importingAttachment, setImportingAttachment] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Minimizing keeps this component mounted (and therefore every field intact)
+  // while hiding the dialog behind a restore bar — closing it would wipe the
+  // draft state, which is exactly what minimize is meant to avoid.
+  const [minimized, setMinimized] = useState(false);
+  // What closing an unsent composer does; "ask" shows the confirm layer below.
+  const [closeAction, setCloseAction] =
+    useState<ComposerCloseAction>("ask");
+  const [closePromptOpen, setClosePromptOpen] = useState(false);
+  // The two toggles inside the confirm layer: which action, and whether it
+  // should become the saved default (also editable in Settings → Email).
+  const [closeChoice, setCloseChoice] = useState<"draft" | "discard">("draft");
+  const [rememberCloseChoice, setRememberCloseChoice] = useState(false);
+
   const applicableSignatures = useMemo(
     () => getApplicableEmailSignatures(signatures, mailboxId || null),
     [mailboxId, signatures],
@@ -186,8 +206,13 @@ export function EmailOutboundComposerModal({
       setStatusMessage(null);
       setSendProgress(null);
       setImportingAttachment(false);
+      setMinimized(false);
+      setClosePromptOpen(false);
+      setRememberCloseChoice(false);
       return;
     }
+
+    setCloseAction(loadComposerCloseAction(userId));
 
     // Sending-mailbox default, in priority order: the explicitly-selected
     // inbox → the user's saved default (persisted, validated against the
@@ -494,6 +519,91 @@ export function EmailOutboundComposerModal({
     );
   };
 
+  // Anything worth keeping? An untouched composer closes silently — the prompt
+  // only makes sense once the user has actually typed or attached something.
+  const hasComposerContent =
+    hasRichTextContent(content) ||
+    subject.trim().length > 0 ||
+    toInput.trim().length > 0 ||
+    ccInput.trim().length > 0 ||
+    bccInput.trim().length > 0 ||
+    attachments.length > 0;
+
+  const saveDraftAndClose = async () => {
+    if (busyState) return;
+    setBusyState("draft");
+    setErrorMessage(null);
+    try {
+      const draft = await ensureDraft();
+      setClosePromptOpen(false);
+      onOpenChange(false);
+      onDraftSaved?.(draft);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to save draft",
+      );
+    } finally {
+      setBusyState(null);
+    }
+  };
+
+  // Discard also removes any draft row already created for this composer (an
+  // earlier "Save as draft", or a draft left behind by a failed send).
+  const discardAndClose = async () => {
+    if (busyState) return;
+    setClosePromptOpen(false);
+
+    if (draftId) {
+      setBusyState("discard");
+      try {
+        await fetch(`/api/email/outbound-drafts/${draftId}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+      } catch {
+        // Closing should never be blocked by a failed cleanup; the draft just
+        // stays in Drafts where the user can delete it.
+      } finally {
+        setBusyState(null);
+      }
+    }
+
+    onOpenChange(false);
+  };
+
+  // Every close path (X button, Escape, click outside, Discard button) funnels
+  // through here so the save-as-draft policy applies consistently.
+  const requestClose = () => {
+    if (busyState) return;
+    if (!hasComposerContent) {
+      onOpenChange(false);
+      return;
+    }
+    if (closeAction === "draft") {
+      void saveDraftAndClose();
+      return;
+    }
+    if (closeAction === "discard") {
+      void discardAndClose();
+      return;
+    }
+    setCloseChoice("draft");
+    setRememberCloseChoice(false);
+    setClosePromptOpen(true);
+  };
+
+  const confirmClosePrompt = () => {
+    if (rememberCloseChoice) {
+      setCloseAction(closeChoice);
+      saveComposerCloseAction(userId, closeChoice);
+    }
+    if (closeChoice === "draft") {
+      void saveDraftAndClose();
+    } else {
+      void discardAndClose();
+    }
+  };
+
   const handleSend = async () => {
     if (busyState) return;
 
@@ -581,8 +691,27 @@ export function EmailOutboundComposerModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog
+      open={open && !minimized}
+      onOpenChange={(next) => {
+        if (next) {
+          onOpenChange(true);
+          return;
+        }
+        requestClose();
+      }}
+    >
       <DialogContent className="border-zinc-800 bg-zinc-950 text-zinc-100 sm:max-w-4xl">
+        <button
+          type="button"
+          onClick={() => setMinimized(true)}
+          aria-label="Minimize"
+          title="Minimize"
+          className="absolute right-11 top-4 rounded-sm text-zinc-400 opacity-70 transition-opacity hover:text-white hover:opacity-100 focus:outline-none"
+        >
+          <Minus className="h-4 w-4" />
+        </button>
         <DialogTitle>New Email</DialogTitle>
         <DialogDescription className="text-zinc-400">
           Create a new outbound email from a connected mailbox.
@@ -724,6 +853,19 @@ export function EmailOutboundComposerModal({
                   className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-white"
                 />
               </div>
+              <button
+                type="button"
+                onClick={() => void saveDraftAndClose()}
+                disabled={Boolean(busyState) || !mailboxId || !hasComposerContent}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+              >
+                {busyState === "draft" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                <span>Save as draft</span>
+              </button>
               <button
                 type="button"
                 onClick={() => void handleSchedule()}
@@ -883,7 +1025,106 @@ export function EmailOutboundComposerModal({
           multiple
           onChange={(event) => void handleFileInputChange(event)}
         />
+
+        {closePromptOpen ? (
+          <div className="absolute inset-0 z-30 flex items-center justify-center rounded-lg bg-zinc-950/80 p-4">
+            <div className="w-full max-w-sm space-y-4 rounded-xl border border-zinc-800 bg-zinc-900 p-4 shadow-xl">
+              <div>
+                <div className="text-sm font-medium text-white">
+                  Keep this email?
+                </div>
+                <p className="mt-1 text-xs text-zinc-400">
+                  It hasn&apos;t been sent yet.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    { value: "draft" as const, label: "Save as draft" },
+                    { value: "discard" as const, label: "Discard" },
+                  ]
+                ).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setCloseChoice(option.value)}
+                    className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
+                      closeChoice === option.value
+                        ? "border-theme-primary bg-zinc-800 text-white"
+                        : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:border-zinc-500"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={rememberCloseChoice}
+                  onChange={(event) =>
+                    setRememberCloseChoice(event.target.checked)
+                  }
+                  className="h-4 w-4 rounded border-zinc-600 bg-zinc-900"
+                />
+                <span>
+                  Always do this and stop asking (changeable in Settings →
+                  Email)
+                </span>
+              </label>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setClosePromptOpen(false)}
+                  className="h-9 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                >
+                  Keep editing
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmClosePrompt}
+                  disabled={Boolean(busyState)}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-theme-gradient px-3 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {busyState ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  <span>Confirm</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
+
+    {open && minimized ? (
+      <div className="fixed bottom-4 right-4 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 shadow-xl">
+        <MailPlus className="h-4 w-4 shrink-0 text-zinc-400" />
+        <button
+          type="button"
+          onClick={() => setMinimized(false)}
+          className="min-w-0 truncate text-sm text-zinc-100 hover:text-white"
+        >
+          {subject.trim() || "New Email"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMinimized(false);
+            requestClose();
+          }}
+          aria-label="Close composer"
+          title="Close composer"
+          className="shrink-0 rounded-md border border-zinc-700 bg-zinc-950 p-1 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    ) : null}
+    </>
   );
 }
