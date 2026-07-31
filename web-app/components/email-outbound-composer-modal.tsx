@@ -73,9 +73,27 @@ type InitialDraftAttachment = {
 };
 
 export type EmailComposerInitialDraft = {
+  /**
+   * Set when reopening an outbound draft that already exists server-side (from
+   * the Drafts folder). Saves and sends then PATCH that row instead of creating
+   * a second one.
+   */
+  draftId?: string;
+  mailboxId?: string;
+  projectId?: string | null;
+  to?: string;
+  cc?: string;
+  bcc?: string;
   subject?: string;
   body?: string;
+  /** `datetime-local` value, i.e. "YYYY-MM-DDTHH:mm". */
+  scheduledFor?: string;
   attachments?: InitialDraftAttachment[];
+  /**
+   * Attachments already stored for the draft — reused as-is (no re-upload),
+   * unlike `attachments`, which are fetched and uploaded fresh.
+   */
+  existingAttachments?: EmailReplyDraftAttachment[];
 };
 
 type EmailOutboundComposerModalProps = {
@@ -221,7 +239,9 @@ export function EmailOutboundComposerModal({
     // that mailbox, and with several the system picks one automatically (the
     // persist effect below then saves it as the default, which the user can
     // change at any time via this select).
-    const explicit = selectedMailboxId !== "all" ? selectedMailboxId : "";
+    const explicit =
+      initialDraft?.mailboxId ||
+      (selectedMailboxId !== "all" ? selectedMailboxId : "");
     let nextMailboxId = explicit;
     if (!nextMailboxId) {
       const stored = loadDefaultMailboxId(userId);
@@ -235,6 +255,21 @@ export function EmailOutboundComposerModal({
     setMailboxId(nextMailboxId);
     setSubject(initialDraft?.subject ?? "");
     setContent(initialDraft?.body ?? "");
+    // Reopening an existing draft: restore its identity, recipients, project,
+    // schedule and stored attachments so saving updates that row in place.
+    setDraftId(initialDraft?.draftId ?? null);
+    setProjectId(initialDraft?.projectId ?? "");
+    setToInput(initialDraft?.to ?? "");
+    setCcInput(initialDraft?.cc ?? "");
+    setBccInput(initialDraft?.bcc ?? "");
+    setScheduledFor(initialDraft?.scheduledFor ?? "");
+    setAttachments(
+      (initialDraft?.existingAttachments ?? []).map((attachment) => ({
+        ...attachment,
+        isImage: Boolean(attachment.mimeType?.startsWith("image/")),
+        previewUrl: null,
+      })),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectedMailboxId]);
 
@@ -826,6 +861,29 @@ export function EmailOutboundComposerModal({
               minHeightClassName="min-h-[240px]"
               contentClassName="resize-y overflow-auto min-h-[240px] max-h-[70vh]"
             />
+            <div className="border-t border-zinc-800 px-3 pb-1 pt-3">
+              <div className="relative pt-2">
+                <FloatingFieldLabel label="Signature" />
+                <Select
+                  value={selectedSignatureId || "__none__"}
+                  onValueChange={(value) =>
+                    setSelectedSignatureId(value === "__none__" ? null : value)
+                  }
+                >
+                  <SelectTrigger className="border-zinc-700 bg-zinc-900 text-zinc-100">
+                    <SelectValue placeholder="No signature" />
+                  </SelectTrigger>
+                  <SelectContent className="border-zinc-800 bg-zinc-950 text-zinc-100">
+                    <SelectItem value="__none__">No signature</SelectItem>
+                    {applicableSignatures.map((signature) => (
+                      <SelectItem key={signature.id} value={signature.id}>
+                        {signature.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 px-3 py-3">
               <Tooltip content="Add attachments" className="w-auto">
                 <button
@@ -841,10 +899,7 @@ export function EmailOutboundComposerModal({
                   )}
                 </button>
               </Tooltip>
-              <div className="text-xs text-zinc-500">
-                Attach files, then send now or schedule later.
-              </div>
-              <div className="relative ml-auto min-w-[220px] flex-1 pt-2 sm:max-w-[280px]">
+              <div className="relative ml-auto w-full min-w-[180px] pt-2 sm:w-[190px]">
                 <FloatingFieldLabel label="Send Later" />
                 <input
                   type="datetime-local"
@@ -964,27 +1019,6 @@ export function EmailOutboundComposerModal({
             </div>
           ) : null}
 
-          <div className="relative pt-2">
-            <FloatingFieldLabel label="Signature" />
-            <Select
-              value={selectedSignatureId || "__none__"}
-              onValueChange={(value) =>
-                setSelectedSignatureId(value === "__none__" ? null : value)
-              }
-            >
-              <SelectTrigger className="border-zinc-700 bg-zinc-900 text-zinc-100">
-                <SelectValue placeholder="No signature" />
-              </SelectTrigger>
-              <SelectContent className="border-zinc-800 bg-zinc-950 text-zinc-100">
-                <SelectItem value="__none__">No signature</SelectItem>
-                {applicableSignatures.map((signature) => (
-                  <SelectItem key={signature.id} value={signature.id}>
-                    {signature.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
 
           {sendProgress ? (
             <div className="space-y-1.5">
