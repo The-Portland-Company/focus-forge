@@ -5902,7 +5902,7 @@ export function EmailInboxView({
                     ) : null}
                     <div className="space-y-3">
                   <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.8fr)_minmax(240px,0.9fr)]">
-                    <div className="relative">
+                    <div className="relative pt-2">
                       <FloatingFieldLabel label="Search inbox" />
                       <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                       <div className="pointer-events-none absolute left-9 top-1/2 z-10 h-5 w-px -translate-y-1/2 bg-zinc-700" />
@@ -6065,7 +6065,7 @@ export function EmailInboxView({
                         </div>
                       </div>
                     ) : null}
-                    <div className="relative">
+                    <div className="relative pt-2">
                       <FloatingFieldLabel label="Mailbox" />
                       <Mail className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                       <div className="pointer-events-none absolute left-9 top-1/2 z-10 h-5 w-px -translate-y-1/2 bg-zinc-700" />
@@ -6086,7 +6086,7 @@ export function EmailInboxView({
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="relative">
+                    <div className="relative pt-2">
                       <FloatingFieldLabel label="Sort by" />
                       <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                       <div className="pointer-events-none absolute left-9 top-1/2 z-10 h-5 w-px -translate-y-1/2 bg-zinc-700" />
@@ -6110,7 +6110,7 @@ export function EmailInboxView({
                     </div>
                   </div>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                    <div className="relative">
+                    <div className="relative pt-2">
                       <FloatingFieldLabel label="From date" />
                       <input
                         type="date"
@@ -6123,7 +6123,7 @@ export function EmailInboxView({
                         aria-label="Filter from date"
                       />
                     </div>
-                    <div className="relative">
+                    <div className="relative pt-2">
                       <FloatingFieldLabel label="To date" />
                       <input
                         type="date"

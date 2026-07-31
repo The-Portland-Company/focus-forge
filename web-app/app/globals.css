@@ -213,6 +213,15 @@ input[type="checkbox"]:focus {
   padding-left: 1.25rem;
 }
 
+/* Nested lists sit inside a list item that already provides the row spacing —
+   the outer 0.75rem margin would double the gap before/after nested bullets. */
+.focus-forge-editor .ProseMirror li > ul,
+.focus-forge-editor .ProseMirror li > ol,
+.focus-forge-rich-content li > ul,
+.focus-forge-rich-content li > ol {
+  margin: 0;
+}
+
 .focus-forge-editor .ProseMirror ul,
 .focus-forge-rich-content ul {
   list-style: disc;
