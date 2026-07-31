@@ -3185,6 +3185,12 @@ export function EmailInboxView({
     updateStatus("Email scheduled.");
   };
 
+  const handleOutboundComposerDraftSaved = async () => {
+    await refreshInboxState({ skipMailboxes: true });
+    await onRefresh?.();
+    updateStatus("Saved to Drafts.");
+  };
+
   const applyDraftToComposer = (draft: EmailReplyDraft | null) => {
     if (!draft) {
       return;
@@ -6932,6 +6938,9 @@ export function EmailInboxView({
           }}
           onScheduled={() => {
             void handleOutboundComposerScheduled();
+          }}
+          onDraftSaved={() => {
+            void handleOutboundComposerDraftSaved();
           }}
         />
       )}

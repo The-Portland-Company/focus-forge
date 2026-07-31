@@ -5315,6 +5315,32 @@ export async function updateOutboundDraft(params: {
   });
 }
 
+/**
+ * Hard-deletes an unsent outbound draft. Used when the composer is closed with
+ * "discard" so a draft row created by an earlier save/failed send doesn't linger
+ * in Drafts. Sent drafts are left alone — they are the record of the send.
+ */
+export async function deleteOutboundDraft(params: {
+  userId: string;
+  draftId: string;
+}) {
+  const admin = getAdminClient();
+  const draft = await ensureOutboundDraftAccess(params.userId, params.draftId);
+
+  if (draft.status === "sent") {
+    throw new Error("A sent email can't be discarded.");
+  }
+
+  const { error } = await admin
+    .from("email_outbound_drafts")
+    .delete()
+    .eq("id", params.draftId);
+
+  if (error) throw error;
+
+  return { id: params.draftId };
+}
+
 export async function generateAiReplyForThread(params: {
   userId: string;
   threadId: string;

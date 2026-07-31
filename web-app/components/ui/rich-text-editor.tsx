@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { EditorContent, useEditor } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Link from "@tiptap/extension-link"
@@ -77,6 +77,10 @@ export function RichTextEditor({
   contentClassName,
   disabled = false,
 }: RichTextEditorProps) {
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [linkValue, setLinkValue] = useState("")
+  const linkInputRef = useRef<HTMLInputElement | null>(null)
+
   const editor = useEditor({
     immediatelyRender: false,
     editable: !disabled,
@@ -119,14 +123,31 @@ export function RichTextEditor({
     editor.setEditable(!disabled)
   }, [disabled, editor, value])
 
-  const setLink = () => {
+  useEffect(() => {
+    if (!linkOpen) return
+    const input = linkInputRef.current
+    if (!input) return
+    input.focus()
+    input.select()
+  }, [linkOpen])
+
+  // Link editing uses an inline row rather than window.prompt: a native prompt
+  // is swallowed inside the composer's modal (the dialog's focus trap reclaims
+  // focus and the editor selection is gone by the time it returns), so the
+  // Link button appeared to do nothing.
+  const openLinkEditor = () => {
     if (!editor) return
-
     const previousUrl = editor.getAttributes("link").href as string | undefined
-    const url = window.prompt("Enter a URL", previousUrl || "https://")
+    setLinkValue(previousUrl || "https://")
+    setLinkOpen(true)
+  }
 
-    if (url === null) return
-    if (url.trim() === "") {
+  const applyLink = () => {
+    if (!editor) return
+    const url = linkValue.trim()
+    setLinkOpen(false)
+
+    if (!url || url === "https://") {
       editor.chain().focus().extendMarkRange("link").unsetLink().run()
       return
     }
@@ -135,7 +156,7 @@ export function RichTextEditor({
       .chain()
       .focus()
       .extendMarkRange("link")
-      .setLink({ href: url.trim(), target: "_blank", rel: "noopener noreferrer" })
+      .setLink({ href: url, target: "_blank", rel: "noopener noreferrer" })
       .run()
   }
 
@@ -221,7 +242,7 @@ export function RichTextEditor({
         <ToolbarButton
           label="Add Link"
           active={editor.isActive("link")}
-          onClick={setLink}
+          onClick={openLinkEditor}
         >
           <LinkIcon className="h-4 w-4" />
         </ToolbarButton>
@@ -233,6 +254,44 @@ export function RichTextEditor({
           <Unlink className="h-4 w-4" />
         </ToolbarButton>
       </div>
+
+      {linkOpen ? (
+        <div className="flex items-center gap-2 border-b border-zinc-700 bg-zinc-950/40 px-3 py-2">
+          <input
+            ref={linkInputRef}
+            type="url"
+            value={linkValue}
+            onChange={(event) => setLinkValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                applyLink()
+              }
+              if (event.key === "Escape") {
+                event.preventDefault()
+                setLinkOpen(false)
+              }
+            }}
+            placeholder="https://example.com"
+            aria-label="Link URL"
+            className="h-8 min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={applyLink}
+            className="h-8 rounded-md bg-theme-gradient px-3 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          >
+            Apply
+          </button>
+          <button
+            type="button"
+            onClick={() => setLinkOpen(false)}
+            className="h-8 rounded-md border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : null}
 
       <EditorContent editor={editor} className={contentClassName} />
     </div>
