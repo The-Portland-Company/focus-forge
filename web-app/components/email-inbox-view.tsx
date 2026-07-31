@@ -2802,9 +2802,16 @@ export function EmailInboxView({
     );
     if (!draftParam) return;
 
-    const url = new URL(window.location.href);
-    url.searchParams.delete("composeDraft");
-    window.history.replaceState(window.history.state, "", url.toString());
+    // The param is stripped only once the composer is actually open. A tab
+    // that was loaded before a deploy can hit a stale-bundle ChunkLoadError
+    // while the composer's chunk loads, and ChunkErrorReloader reloads the
+    // page; stripping up front would drop the draft on that reload.
+    const clearParam = () => {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has("composeDraft")) return;
+      url.searchParams.delete("composeDraft");
+      window.history.replaceState(window.history.state, "", url.toString());
+    };
 
     let cancelled = false;
     (async () => {
@@ -2818,6 +2825,7 @@ export function EmailInboxView({
           ? drafts.find((entry) => entry.id === draftParam)
           : null;
         if (!draft || cancelled) return;
+        clearParam();
 
         setOutboundComposerInitialDraft({
           draftId: draft.id,
@@ -2834,14 +2842,16 @@ export function EmailInboxView({
         setIsOutboundComposerOpen(true);
       } catch {
         // A missing or unreadable draft just means no composer opens; the
-        // Drafts list still shows the row.
+        // Drafts list still shows the row — and the param is dropped so a
+        // refresh doesn't retry forever.
+        clearParam();
       }
     })();
 
     return () => {
       cancelled = true;
     };
-    // Run once on mount — the param is stripped immediately above.
+    // Run once on mount; the param is cleared once the composer opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
