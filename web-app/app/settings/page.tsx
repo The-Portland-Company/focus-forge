@@ -38,6 +38,12 @@ import { useToast } from "@/contexts/ToastContext";
 import { MEMOJI_OPTIONS } from "@/lib/memoji";
 import { ALLOWED_API_SCOPES, type ApiKeyMeta } from "@/lib/api/keys/types";
 import {
+  COMPOSER_CLOSE_ACTION_OPTIONS,
+  loadComposerCloseAction,
+  saveComposerCloseAction,
+  type ComposerCloseAction,
+} from "@/lib/email-composer-prefs";
+import {
   createEmptyEmailSignature,
   deleteEmailSignature,
   loadEmailSignatures,
@@ -176,6 +182,8 @@ export default function SettingsPage() {
   const [calendarCopied, setCalendarCopied] = useState(false);
   const [emailSignatures, setEmailSignatures] = useState<EmailSignature[]>([]);
   const [hideEmailSignatures, setHideEmailSignatures] = useState(true);
+  const [composerCloseAction, setComposerCloseAction] =
+    useState<ComposerCloseAction>("ask");
   const [editingSignatureId, setEditingSignatureId] = useState<string | null>(
     null,
   );
@@ -277,6 +285,8 @@ export default function SettingsPage() {
     const loadedSignatures = loadEmailSignatures(profile.id);
     setEmailSignatures(loadedSignatures);
     setHideEmailSignatures(loadHideEmailSignaturesPreference(profile.id));
+    setComposerCloseAction(loadComposerCloseAction(profile.id));
+    setComposerCloseAction(loadComposerCloseAction(profile.id));
 
     if (loadedSignatures[0]) {
       setEditingSignatureId(loadedSignatures[0].id);
@@ -1033,6 +1043,48 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <div className="mb-6">
+                  <h3 className="text-lg font-medium mb-2 flex items-center gap-2">
+                    <Edit className="w-5 h-5" />
+                    Email Composer
+                  </h3>
+                  <p className="text-sm text-zinc-400">
+                    What happens when you close a new email that hasn&apos;t been
+                    sent — via the X, Escape, or clicking outside the window.
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {COMPOSER_CLOSE_ACTION_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => {
+                          setComposerCloseAction(option.value);
+                          saveComposerCloseAction(profile?.id, option.value);
+                        }}
+                        className={cn(
+                          "rounded-full border px-3 py-2 text-sm transition-colors",
+                          composerCloseAction === option.value
+                            ? "border-theme-primary bg-zinc-800 text-white"
+                            : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:border-zinc-500",
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-zinc-500">
+                    {
+                      COMPOSER_CLOSE_ACTION_OPTIONS.find(
+                        (option) => option.value === composerCloseAction,
+                      )?.description
+                    }
+                  </p>
+                </div>
+              </div>
+
               <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
                 <div className="mb-6 flex items-start justify-between gap-4">
                   <div>
