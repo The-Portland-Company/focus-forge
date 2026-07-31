@@ -2151,34 +2151,62 @@ export async function listInboxItemsForUser(
     "boomerang_until,boomerang_task_id,inbox_tab_id,ai_tab_verdicts_json," +
     "analysis_json,task_suggestions_json,created_at,updated_at";
 
-  let query = admin
-    .from("email_threads")
-    .select(LIST_THREAD_COLUMNS)
-    .in("mailbox_id", mailboxIds)
-    .order("latest_message_at", { ascending: false })
-    // Cap the result set: the UI paginates client-side at 50/page, so 200 keeps
-    // several pages of the most-recent threads without dragging full history.
-    // When searching, this caps the matched set (newest 200 matches) instead.
-    .limit(200);
+  // Cap the result set: the UI paginates client-side at 50/page, so 200 keeps
+  // several pages of the most-recent threads without dragging full history.
+  // When searching, this caps the matched set (newest 200 matches) instead.
+  const buildThreadQuery = () => {
+    let query = admin
+      .from("email_threads")
+      .select(LIST_THREAD_COLUMNS)
+      .in("mailbox_id", mailboxIds)
+      .order("latest_message_at", { ascending: false })
+      .limit(200);
 
-  // When searching, restrict to the matched thread ids (resolved across the
-  // full mailbox above). The mailbox scope + ordering + 200 cap still apply.
-  if (isSearching) {
-    query = query.in("id", searchThreadIds);
+    // When searching, restrict to the matched thread ids (resolved across the
+    // full mailbox above). The mailbox scope + ordering + 200 cap still apply.
+    if (isSearching) {
+      query = query.in("id", searchThreadIds);
+    }
+
+    if (options.status) {
+      query = query.eq("status", options.status);
+    }
+    if (options.mailboxId) {
+      query = query.eq("mailbox_id", options.mailboxId);
+    }
+    if (options.projectId) {
+      query = query.eq("project_id", options.projectId);
+    }
+    return query;
+  };
+
+  // The Sent folder filters this same snapshot down to outbound/mixed threads
+  // client-side. Sent mail is a small slice of a busy mailbox, so the general
+  // 200-thread window buried nearly all of it — 50 sent threads existed but
+  // only the 10 newer than the window's cutoff were reachable. A second window
+  // scoped to outbound/mixed gives Sent its own depth; the merge is by id, so
+  // threads in both windows appear once and every other folder is unchanged.
+  const [generalResult, outboundResult] = await Promise.all([
+    buildThreadQuery(),
+    buildThreadQuery().in("origin", ["outbound", "mixed"]),
+  ]);
+
+  const threadsById = new Map<string, any>();
+  for (const row of [
+    ...((generalResult.data as any[] | null) || []),
+    ...((outboundResult.data as any[] | null) || []),
+  ]) {
+    if (row?.id && !threadsById.has(String(row.id))) {
+      threadsById.set(String(row.id), row);
+    }
   }
 
-  if (options.status) {
-    query = query.eq("status", options.status);
-  }
-  if (options.mailboxId) {
-    query = query.eq("mailbox_id", options.mailboxId);
-  }
-  if (options.projectId) {
-    query = query.eq("project_id", options.projectId);
-  }
-
-  let threads = (await query).data as any[] | null;
-  if (!threads || threads.length === 0) {
+  let threads = Array.from(threadsById.values()).sort((left, right) =>
+    String(right.latest_message_at || "").localeCompare(
+      String(left.latest_message_at || ""),
+    ),
+  );
+  if (threads.length === 0) {
     return [];
   }
 
