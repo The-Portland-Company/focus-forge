@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type RecipientAutocompleteInputProps = {
@@ -58,6 +58,9 @@ export function RecipientAutocompleteInput({
   className,
 }: RecipientAutocompleteInputProps) {
   const [suggestions, setSuggestions] = React.useState<ContactSuggestion[]>([]);
+  // True from the first keystroke until the matching /suggest response lands,
+  // so the field shows a spinner instead of looking idle while searching.
+  const [searching, setSearching] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [highlight, setHighlight] = React.useState(0);
 
@@ -94,6 +97,7 @@ export function RecipientAutocompleteInput({
     if (trimmed.length < 1) {
       abortRef.current?.abort();
       setSuggestions([]);
+      setSearching(false);
       setOpen(false);
       return;
     }
@@ -102,6 +106,7 @@ export function RecipientAutocompleteInput({
     const controller = new AbortController();
     abortRef.current = controller;
     const seq = ++requestSeq.current;
+    setSearching(true);
 
     fetch(
       `/api/email/contacts/suggest?q=${encodeURIComponent(trimmed)}&limit=8`,
@@ -117,11 +122,13 @@ export function RecipientAutocompleteInput({
         setSuggestions(next);
         setHighlight(0);
         setOpen(next.length > 0);
+        setSearching(false);
       })
       .catch(() => {
         if (seq !== requestSeq.current) return;
         setSuggestions([]);
         setOpen(false);
+        setSearching(false);
       });
   }, []);
 
@@ -129,6 +136,7 @@ export function RecipientAutocompleteInput({
     const nextToken = e.target.value;
     onChange(buildValue(chips.map((c) => c.raw), nextToken));
 
+    setSearching(nextToken.trim().length > 0);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => runFetch(nextToken), 200);
   };
@@ -139,6 +147,7 @@ export function RecipientAutocompleteInput({
       onChange(buildValue([...chips.map((c) => c.raw), formatRecipient(s)], ""));
       setOpen(false);
       setSuggestions([]);
+      setSearching(false);
       requestSeq.current++;
       inputRef.current?.focus();
     },
@@ -162,6 +171,7 @@ export function RecipientAutocompleteInput({
     onChange(buildValue([...chips.map((c) => c.raw), trimmed], ""));
     setOpen(false);
     setSuggestions([]);
+    setSearching(false);
     requestSeq.current++;
   }, [buildValue, chips, inputValue, onChange]);
 
@@ -272,6 +282,13 @@ export function RecipientAutocompleteInput({
           autoComplete="off"
           className="min-w-[8rem] flex-1 border-0 bg-transparent p-0.5 text-base text-white placeholder:text-zinc-400 focus:outline-none focus:ring-0 md:text-sm"
         />
+        {searching ? (
+          <Loader2
+            aria-label="Searching contacts"
+            role="status"
+            className="h-4 w-4 shrink-0 animate-spin text-zinc-400"
+          />
+        ) : null}
       </div>
       {open && suggestions.length > 0 && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-lg">

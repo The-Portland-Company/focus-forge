@@ -222,6 +222,15 @@ input[type="checkbox"]:focus {
   margin: 0;
 }
 
+/* TipTap wraps every list item's text in a <p>. Its 0.5rem block margin only
+   collapses away when the paragraph is both the first and last child, so a
+   list item that also contains a nested list kept a trailing margin and sat
+   further from its nested bullets than flat bullets do. */
+.focus-forge-editor .ProseMirror li > p,
+.focus-forge-rich-content li > p {
+  margin: 0;
+}
+
 .focus-forge-editor .ProseMirror ul,
 .focus-forge-rich-content ul {
   list-style: disc;

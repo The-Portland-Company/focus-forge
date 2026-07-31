@@ -52,6 +52,9 @@ function ToolbarButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      // Keep the toolbar out of the tab order so Tab from the previous field
+      // (e.g. Subject) lands in the writing area rather than on Bold.
+      tabIndex={-1}
       className={cn(
         "inline-flex h-8 w-8 items-center justify-center rounded-md border text-zinc-300 transition-colors",
         active

@@ -4,6 +4,10 @@ import Image from "next/image";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
+  formatComposerRecipients,
+  toDateTimeLocalValue,
+} from "@/lib/email-draft-link";
+import {
   type ChangeEvent,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
@@ -107,6 +111,7 @@ import {
 } from "@/components/ui/select";
 import type {
   Database,
+  EmailOutboundDraft,
   EmailReplyDraft,
   EmailSignature,
   EmailRule,
@@ -2784,6 +2789,59 @@ export function EmailInboxView({
     setSelectedThreadId(threadParam);
     setIsThreadModalOpen(true);
     // Run once on mount only; later selection drives the URL (effect below).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Deep-link support for the Drafts folder: ?composeDraft=<id> reopens that
+  // outbound draft in the composer, fields and attachments intact, so saving
+  // or sending updates the same row instead of creating a duplicate.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const draftParam = new URLSearchParams(window.location.search).get(
+      "composeDraft",
+    );
+    if (!draftParam) return;
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("composeDraft");
+    window.history.replaceState(window.history.state, "", url.toString());
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch("/api/email/outbound-drafts", {
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error("Failed to load draft");
+        const drafts = (await response.json()) as EmailOutboundDraft[];
+        const draft = Array.isArray(drafts)
+          ? drafts.find((entry) => entry.id === draftParam)
+          : null;
+        if (!draft || cancelled) return;
+
+        setOutboundComposerInitialDraft({
+          draftId: draft.id,
+          mailboxId: draft.mailboxId,
+          projectId: draft.projectId ?? null,
+          subject: draft.subject || "",
+          body: draft.contentHtml || draft.contentText || "",
+          to: formatComposerRecipients(draft.to),
+          cc: formatComposerRecipients(draft.cc),
+          bcc: formatComposerRecipients(draft.bcc),
+          scheduledFor: toDateTimeLocalValue(draft.scheduledFor),
+          existingAttachments: draft.attachments || [],
+        });
+        setIsOutboundComposerOpen(true);
+      } catch {
+        // A missing or unreadable draft just means no composer opens; the
+        // Drafts list still shows the row.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Run once on mount — the param is stripped immediately above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
