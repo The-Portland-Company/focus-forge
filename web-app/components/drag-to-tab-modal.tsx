@@ -16,7 +16,9 @@ import {
   INBOX_TAB_FIELD_OPTIONS,
   INBOX_TAB_OPERATOR_OPTIONS,
   conditionMatchesItem,
+  defaultOperatorForField,
   deriveTabConditionForItem,
+  deriveTabConditionValueForField,
   type EmailInboxTab,
   type InboxTabCondition,
 } from "@/lib/email-inbox/inbox-tabs";
@@ -186,10 +188,16 @@ export function DragToTabModal({
       list.map((c, i) => (i === index ? { ...c, ...patch } : c)),
     );
 
+  // A new row starts on the same footing as a switched field: prefilled from
+  // this email so it can be saved or edited, not typed from scratch.
   const addCondition = () =>
     setConditions((list) => [
       ...list,
-      { field: "sender_domain", operator: "contains", value: "" },
+      {
+        field: "sender_domain",
+        operator: defaultOperatorForField("sender_domain"),
+        value: deriveTabConditionValueForField(item, "sender_domain"),
+      },
     ]);
 
   const removeCondition = (index: number) =>
@@ -332,19 +340,30 @@ export function DragToTabModal({
                     <div className="flex flex-wrap items-center gap-1.5">
                       <select
                         value={condition.field}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          // Switching the field refills the value from the email
+                          // being filed (its subject, sender, domain, …) so the
+                          // rule is ready to save without retyping what is
+                          // already on screen. Fields with no per-email value
+                          // (AI decides, known contact) still start blank.
+                          const nextField = e.target
+                            .value as InboxTabCondition["field"];
+                          const nextValue = deriveTabConditionValueForField(
+                            item,
+                            nextField,
+                          );
                           update(index, {
-                            field: e.target.value as InboxTabCondition["field"],
+                            field: nextField,
                             operator:
-                              e.target.value === "ai_intent"
+                              nextField === "ai_intent"
                                 ? "matches"
-                                : e.target.value === "classification" ||
-                                    e.target.value === "known_contact"
+                                : nextField === "classification" ||
+                                    nextField === "known_contact"
                                   ? "is"
-                                  : condition.operator,
-                            value: "",
-                          })
-                        }
+                                  : defaultOperatorForField(nextField),
+                            value: nextValue,
+                          });
+                        }}
                         className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
                       >
                         {INBOX_TAB_FIELD_OPTIONS.map((o) => (
