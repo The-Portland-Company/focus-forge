@@ -117,6 +117,57 @@ export function deriveTabConditionForItem(
 }
 
 /**
+ * The value this email would supply for a given rule field. Used by the
+ * drag-to-tab modal so switching the field dropdown refills the value from the
+ * email in hand instead of leaving the user to retype it. Returns "" for fields
+ * that have no sensible per-email value (`known_contact` is a boolean-ish match
+ * and `ai_intent` is a free-text question the user writes).
+ */
+export function deriveTabConditionValueForField(
+  item: InboxItem,
+  field: InboxTabField,
+): string {
+  const sender = senderParticipant(item);
+  const email = (sender?.emailAddress || "").trim().toLowerCase();
+
+  switch (field) {
+    case "sender_email":
+      return email;
+    case "sender_domain":
+      return email.split("@")[1] || "";
+    case "subject":
+      return (item.subject || "").trim();
+    case "preview":
+      return (item.previewText || item.summaryText || "").trim();
+    case "classification":
+      return (item.classification || "").trim();
+    default:
+      return "";
+  }
+}
+
+/**
+ * The operator that suits a field's autofilled value: an exact match for the
+ * short, canonical fields, and `contains` for free text where an exact match
+ * would almost never fire.
+ */
+export function defaultOperatorForField(
+  field: InboxTabField,
+): InboxTabOperator {
+  switch (field) {
+    case "sender_email":
+    case "sender_domain":
+    case "classification":
+      return "equals";
+    case "subject":
+    case "preview":
+      return "contains";
+    default:
+      return "is";
+  }
+}
+
+/**
  * Stable cache key for an "AI decides" question. Verdicts are stored per
  * (thread, key) on `email_threads.ai_tab_verdicts_json`, so the key must be
  * derived identically on the client and the server: trimmed, collapsed
