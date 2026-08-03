@@ -30,6 +30,7 @@ import {
   Mail,
   MailCheck,
   MailPlus,
+  Link2,
   MailX,
   Maximize2,
   Minimize2,
@@ -1721,6 +1722,42 @@ export function EmailThreadModal({
     void executeThreadAction(action);
   };
 
+  // "Share email link" — copies a deep link to this thread. Anyone with access
+  // to the mailbox lands directly on this email; the inbox already resolves
+  // ?thread=<id> on load. Nothing is made public by copying it.
+  const [copiedThreadLink, setCopiedThreadLink] = useState(false);
+  const copiedThreadLinkTimeoutRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copiedThreadLinkTimeoutRef.current !== null) {
+        window.clearTimeout(copiedThreadLinkTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  const handleCopyThreadLink = async () => {
+    if (!threadId || typeof window === "undefined") return;
+    const url = new URL("/email-inbox", window.location.origin);
+    url.searchParams.set("thread", threadId);
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      setCopiedThreadLink(true);
+      if (copiedThreadLinkTimeoutRef.current !== null) {
+        window.clearTimeout(copiedThreadLinkTimeoutRef.current);
+      }
+      copiedThreadLinkTimeoutRef.current = window.setTimeout(
+        () => setCopiedThreadLink(false),
+        1500,
+      );
+    } catch {
+      // Clipboard blocked (permissions / insecure context): show the link so it
+      // can still be copied by hand rather than failing silently.
+      window.prompt("Copy this link to the email", url.toString());
+    }
+  };
+
   const renderThreadActionButton = (
     action: ThreadAction,
     options: {
@@ -2103,6 +2140,27 @@ export function EmailThreadModal({
                   </button>
                 </Tooltip>
               ) : null}
+              {thread && !loadingThread ? (
+                <Tooltip
+                  content={copiedThreadLink ? "Link copied" : "Share email link"}
+                  className="w-auto"
+                  side="bottom"
+                  align="end"
+                >
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyThreadLink()}
+                    aria-label="Share email link"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+                  >
+                    {copiedThreadLink ? (
+                      <Check className="h-4 w-4 text-emerald-400" />
+                    ) : (
+                      <Link2 className="h-4 w-4" />
+                    )}
+                  </button>
+                </Tooltip>
+              ) : null}
               {/* Destructive / triage cluster relocated into this toolbar
                   (Quarantine / Archive / Spam / Delete), top-right. */}
               {thread && !loadingThread ? (
@@ -2148,51 +2206,80 @@ export function EmailThreadModal({
                   })}
                 </div>
               ) : null}
-              {/* Combined docking control: collapses to the active mode's icon
-                  and slides left on hover to reveal all three options. */}
+              {/* Combined docking control: shows the active mode and slides
+                  DOWN on hover/focus to reveal the others. The list is absolutely
+                  positioned so opening it never reflows the toolbar beside it. */}
               <div
                 role="group"
                 aria-label="Thread display mode"
-                className="group inline-flex items-center justify-end gap-0.5 rounded-lg border border-zinc-700 bg-zinc-900 p-0.5"
+                className="group relative inline-flex items-center rounded-lg border border-zinc-700 bg-zinc-900 p-0.5"
               >
-                {EMAIL_THREAD_DISPLAY_MODE_OPTIONS.map((option) => {
-                  const isActive = displayMode === option.value;
-                  const Icon =
-                    option.value === "centered"
+                {(() => {
+                  const iconFor = (value: string) =>
+                    value === "centered"
                       ? Maximize2
-                      : option.value === "docked-right"
+                      : value === "docked-right"
                         ? PanelRight
-                        : option.value === "docked-left"
+                        : value === "docked-left"
                           ? PanelLeft
-                          : option.value === "docked-top"
+                          : value === "docked-top"
                             ? PanelTop
                             : PanelBottom;
+                  const activeOption =
+                    EMAIL_THREAD_DISPLAY_MODE_OPTIONS.find(
+                      (option) => option.value === displayMode,
+                    ) || EMAIL_THREAD_DISPLAY_MODE_OPTIONS[0];
+                  const ActiveIcon = iconFor(activeOption.value);
+                  const otherOptions = EMAIL_THREAD_DISPLAY_MODE_OPTIONS.filter(
+                    (option) => option.value !== activeOption.value,
+                  );
 
                   return (
-                    <Tooltip
-                      key={option.value}
-                      content={option.label}
-                      className="w-auto"
-                      side="bottom"
-                      align="end"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleSelectDisplayMode(option.value)}
-                        aria-label={option.label}
-                        aria-pressed={isActive}
-                        className={cn(
-                          "inline-flex h-7 items-center justify-center overflow-hidden rounded-md transition-all duration-200",
-                          isActive
-                            ? "w-7 bg-zinc-700 text-white"
-                            : "w-0 max-w-0 opacity-0 group-hover:w-7 group-hover:max-w-[28px] group-hover:opacity-100 text-zinc-400 hover:text-white",
-                        )}
+                    <>
+                      <Tooltip
+                        content={activeOption.label}
+                        className="w-auto"
+                        side="bottom"
+                        align="end"
                       >
-                        <Icon className="h-4 w-4 shrink-0" />
-                      </button>
-                    </Tooltip>
+                        <button
+                          type="button"
+                          aria-label={activeOption.label}
+                          aria-pressed
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-zinc-700 text-white"
+                        >
+                          <ActiveIcon className="h-4 w-4 shrink-0" />
+                        </button>
+                      </Tooltip>
+                      <div className="pointer-events-none absolute right-0 top-full z-30 flex flex-col items-center gap-0.5 overflow-hidden rounded-lg border border-transparent p-0 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:mt-1 group-hover:border-zinc-700 group-hover:bg-zinc-900 group-hover:p-0.5 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:mt-1 group-focus-within:border-zinc-700 group-focus-within:bg-zinc-900 group-focus-within:p-0.5 group-focus-within:opacity-100">
+                        {otherOptions.map((option) => {
+                          const Icon = iconFor(option.value);
+                          return (
+                            <Tooltip
+                              key={option.value}
+                              content={option.label}
+                              className="w-auto"
+                              side="bottom"
+                              align="end"
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleSelectDisplayMode(option.value)
+                                }
+                                aria-label={option.label}
+                                aria-pressed={false}
+                                className="inline-flex h-0 w-7 items-center justify-center overflow-hidden rounded-md text-zinc-400 transition-all duration-200 hover:text-white group-hover:h-7 group-focus-within:h-7"
+                              >
+                                <Icon className="h-4 w-4 shrink-0" />
+                              </button>
+                            </Tooltip>
+                          );
+                        })}
+                      </div>
+                    </>
                   );
-                })}
+                })()}
               </div>
                 </div>
               </div>
