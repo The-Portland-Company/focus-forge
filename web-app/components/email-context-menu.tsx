@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Clock,
   Filter,
+  Flag,
   FolderOpen,
   FolderSearch,
   Mail,
@@ -22,9 +23,14 @@ import {
   UserX,
 } from "lucide-react";
 import type { ThreadAction } from "@/lib/email-inbox/thread-actions";
+import {
+  PRIORITY_LABELS,
+  PRIORITY_LEVELS,
+  getPriorityFlagColors,
+} from "@/lib/priority-colors";
 import type { InboxItem, Project } from "@/lib/types";
 
-type Section = "root" | "snooze" | "project";
+type Section = "root" | "snooze" | "project" | "priority";
 
 export interface EmailContextMenuProps {
   item: InboxItem;
@@ -48,6 +54,10 @@ export interface EmailContextMenuProps {
   onAssignProject?: (item: InboxItem) => void;
   /** Opens the rule builder prefilled from this email. */
   onCreateRule?: (item: InboxItem) => void;
+  /** Sets (or clears, with null) this email's 1..4 priority. */
+  onSetPriority?: (item: InboxItem, priority: number | null) => void;
+  /** The signed-in user's custom priority hue, if they set one. */
+  priorityColor?: string | null;
 }
 
 /**
@@ -68,7 +78,13 @@ export function EmailContextMenu({
   onMoveToProject,
   onAssignProject,
   onCreateRule,
+  onSetPriority,
+  priorityColor,
 }: EmailContextMenuProps) {
+  const priorityColors = useMemo(
+    () => getPriorityFlagColors(priorityColor),
+    [priorityColor],
+  );
   const [section, setSection] = useState<Section>("root");
   const [query, setQuery] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -186,6 +202,53 @@ export function EmailContextMenu({
         </>
       );
     }
+    if (section === "priority") {
+      return (
+        <>
+          <SectionHeader
+            label="Priority"
+            onBack={() => setSection("root")}
+          />
+          <div className="px-1 pb-1">
+            {PRIORITY_LEVELS.map((level) => (
+              <button
+                key={level}
+                type="button"
+                className={item_}
+                onClick={() => {
+                  onSetPriority?.(item, level);
+                  onClose();
+                }}
+              >
+                <Flag
+                  className="h-4 w-4 shrink-0"
+                  style={{ color: priorityColors[level] }}
+                />
+                <span>
+                  P{level} · {PRIORITY_LABELS[level]}
+                </span>
+                {item.priority === level ? (
+                  <Check className="ml-auto h-4 w-4 shrink-0 text-zinc-400" />
+                ) : null}
+              </button>
+            ))}
+            {item.priority ? (
+              <button
+                type="button"
+                className={item_}
+                onClick={() => {
+                  onSetPriority?.(item, null);
+                  onClose();
+                }}
+              >
+                <Flag className={iconCls} />
+                <span>Clear priority</span>
+              </button>
+            ) : null}
+          </div>
+        </>
+      );
+    }
     if (section === "project") {
       return (
         <>
@@ -269,6 +332,26 @@ export function EmailContextMenu({
           <SquareCheckBig className={iconCls} />
           <span>Convert to task</span>
         </button>
+        {onSetPriority ? (
+          <SubmenuButton
+            icon={
+              <Flag
+                className="h-4 w-4 shrink-0"
+                style={{
+                  color: item.priority
+                    ? priorityColors[item.priority]
+                    : undefined,
+                }}
+              />
+            }
+            label={
+              item.priority
+                ? `Priority: P${item.priority} · ${PRIORITY_LABELS[item.priority]}`
+                : "Priority"
+            }
+            onClick={() => setSection("priority")}
+          />
+        ) : null}
         <SubmenuButton
           icon={<Clock className={iconCls} />}
           label="Snooze"
