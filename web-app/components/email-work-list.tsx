@@ -3,6 +3,7 @@
 import * as Popover from "@radix-ui/react-popover";
 import {
   Fragment,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -17,6 +18,7 @@ import {
   Loader2,
   BellDot,
   Mail,
+  Flag,
   ListChecks,
   MessagesSquare,
   Plus,
@@ -30,6 +32,10 @@ import {
   Wand2,
 } from "lucide-react";
 import { Paperclip } from "lucide-react";
+import {
+  PRIORITY_LABELS,
+  getPriorityFlagColors,
+} from "@/lib/priority-colors";
 import { SnoozePopover } from "@/components/snooze-popover";
 import { BoomerangPopover } from "@/components/boomerang-popover";
 import { EmailAttachmentLightbox } from "@/components/email-attachment-lightbox";
@@ -121,6 +127,10 @@ type EmailWorkListProps = {
   onAssignProject?: (item: InboxItem) => void;
   /** Opens the rule builder prefilled from an email. */
   onCreateRule?: (item: InboxItem) => void;
+  /** Sets (or clears) an email's 1..4 priority. */
+  onSetPriority?: (item: InboxItem, priority: number | null) => void;
+  /** The signed-in user's custom priority hue, if they set one. */
+  priorityColor?: string | null;
   onProjectCreate?: (item: InboxItem) => void;
   onProjectPickerClose?: () => void;
   onThreadAction?: (
@@ -904,6 +914,8 @@ export function EmailWorkList({
   onProjectPickerSelect,
   onAssignProject,
   onCreateRule,
+  onSetPriority,
+  priorityColor,
   onProjectCreate,
   onProjectPickerClose,
   onThreadAction,
@@ -912,6 +924,12 @@ export function EmailWorkList({
   onForwardAttachment,
   onUnsubscribe,
 }: EmailWorkListProps) {
+  // Row priority flags follow the user's own priority hue, exactly as task
+  // rows do, so the two lists read as one system.
+  const rowPriorityColors = useMemo(
+    () => getPriorityFlagColors(priorityColor),
+    [priorityColor],
+  );
   // Cursor-anchored right-click menu target (null when closed).
   const [contextMenu, setContextMenu] = useState<{
     item: InboxItem;
@@ -1798,6 +1816,28 @@ export function EmailWorkList({
                     </>
                   )}
                 </button>
+                {item.priority ? (
+                  <Tooltip
+                    content={`Priority P${item.priority} · ${
+                      PRIORITY_LABELS[item.priority]
+                    }`}
+                    className="w-auto"
+                    side="top"
+                  >
+                    <span
+                      aria-label={`Priority P${item.priority}`}
+                      className="inline-flex cursor-help items-center rounded-md px-1 py-0.5"
+                    >
+                      <Flag
+                        className="h-3.5 w-3.5"
+                        style={{
+                          color: rowPriorityColors[item.priority],
+                          fill: rowPriorityColors[item.priority],
+                        }}
+                      />
+                    </span>
+                  </Tooltip>
+                ) : null}
                 {(() => {
                   // Linked tasks: count only, with the wording in the tooltip —
                   // matching the message-count control below. The icon is a
@@ -2340,6 +2380,8 @@ export function EmailWorkList({
           onMoveToProject={onProjectPickerSelect}
           onAssignProject={onAssignProject}
           onCreateRule={onCreateRule}
+          onSetPriority={onSetPriority}
+          priorityColor={priorityColor}
         />
       ) : null}
     </>

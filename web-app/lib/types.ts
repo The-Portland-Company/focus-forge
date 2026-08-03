@@ -442,6 +442,8 @@ export interface InboxItem {
     | "transactional";
   resolutionState: "open" | "taskified" | "resolved";
   actionTitle: string;
+  /** Triage priority, same 1..4 scale as tasks (null = unset). */
+  priority?: 1 | 2 | 3 | 4 | null;
   subject: string;
   normalizedSubject?: string | null;
   summaryText?: string | null;
