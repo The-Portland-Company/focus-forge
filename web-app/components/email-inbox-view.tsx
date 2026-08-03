@@ -6906,7 +6906,9 @@ export function EmailInboxView({
             inboxSnapshotRef.current = inboxSnapshotRef.current.map((it) =>
               it.id === movedThreadId ? { ...it, inboxTabId: saved.id } : it,
             );
-            setSelectedInboxTabId(saved.id);
+            // Stay on the tab the user is working in. Filing an email is a
+            // triage action on the current list, so jumping to the destination
+            // tab pulled them away from the queue they were working through.
             setDragToTab(null);
             // Persist the move, THEN refresh. If the assignment fails, surface
             // it instead of silently letting the row snap back on refetch.
