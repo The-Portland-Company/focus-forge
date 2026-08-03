@@ -1451,6 +1451,27 @@ function getThreadActionButtonIcon(action: ThreadAction) {
   }
 }
 
+/**
+ * "unread/total" badge for an inbox category tab — same shape as the sidebar
+ * folder counts: unread in the theme colour, total muted behind a slash. The
+ * unread half is dropped when there is nothing unread, so a quiet tab stays
+ * visually calm.
+ */
+function InboxTabCount({ unread, total }: { unread: number; total: number }) {
+  if (total === 0) return null;
+  return (
+    <span className="ml-1 text-[10px] tabular-nums">
+      {unread > 0 ? (
+        <span className="font-medium text-[rgb(var(--theme-primary-rgb))]">
+          {unread}
+        </span>
+      ) : null}
+      {unread > 0 ? <span className="text-zinc-600">/</span> : null}
+      <span className="text-zinc-500">{total}</span>
+    </span>
+  );
+}
+
 export function EmailInboxView({
   view,
   data,
@@ -1942,6 +1963,49 @@ export function EmailInboxView({
         : matchInboxTab(item, tab.rules),
     );
   }, [spamGatedInboxItems, inboxTabs, selectedInboxTabId]);
+
+  // Per-tab counts shown as "unread/total", mirroring the sidebar folders. Both
+  // tab rows count from the same set the tabs themselves filter, so a badge can
+  // never disagree with the list it opens.
+  const inboxTabCounts = useMemo(() => {
+    const countOf = (items: InboxItem[]) => ({
+      total: items.length,
+      unread: items.filter((item) => item.isUnread).length,
+    });
+    return {
+      all: countOf(
+        spamGatedInboxItems.filter((item) =>
+          isUnfiledInboxItem(item, inboxTabs),
+        ),
+      ),
+      byTabId: new Map(
+        inboxTabs.map((tab) => [
+          tab.id,
+          countOf(
+            spamGatedInboxItems.filter((item) =>
+              item.inboxTabId
+                ? item.inboxTabId === tab.id
+                : matchInboxTab(item, tab.rules),
+            ),
+          ),
+        ]),
+      ),
+    };
+  }, [inboxTabs, spamGatedInboxItems]);
+
+  // Read/unread/spam counts for the filter row. These count the tab-filtered
+  // set, so they describe what each filter would actually show right now.
+  const inboxFilterCounts = useMemo(() => {
+    const items = tabFilteredInboxItems;
+    return {
+      all: items.length,
+      unread: items.filter((item) => item.isUnread).length,
+      read: items.filter((item) => !item.isUnread).length,
+      spam: items.filter(
+        (item) => item.status === "spam" || item.classification === "spam",
+      ).length,
+    };
+  }, [tabFilteredInboxItems]);
 
   // "AI decides" tab conditions: ask the server for verdicts on threads that
   // don't have one yet, a small batch at a time, and merge them into state so
@@ -6228,10 +6292,14 @@ export function EmailInboxView({
                     </button>
                   </div>
                   {!isQuarantineView ? (
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
+                    // One-row toolbar on wide screens: each control group keeps
+                    // its width and the category-tab group absorbs any overflow
+                    // by scrolling, so nothing wraps to a second line until the
+                    // viewport is genuinely too narrow.
+                    <div className="flex flex-wrap items-center justify-between gap-2 xl:flex-nowrap">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2 xl:flex-nowrap">
                         {isInboxView ? (
-                          <div className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
+                          <div className="inline-flex shrink-0 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
                             {[
                               { id: "threads", label: "Threads" },
                               { id: "reply_queue", label: "Reply Queue" },
@@ -6255,7 +6323,7 @@ export function EmailInboxView({
                         ) : null}
                         {!isInboxView || replyQueueTab === "threads" ? (
                           <>
-                          <div className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
+                          <div className="inline-flex shrink-0 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
                             {[
                               { id: "all", label: "All" },
                               { id: "unread", label: "Unread" },
@@ -6263,9 +6331,21 @@ export function EmailInboxView({
                               ...(!isTrashView && !isSentView
                                 ? [{ id: "spam", label: "Spam" }]
                                 : []),
-                            ].map((tab) => (
-                              <button
+                            ].map((tab) => {
+                              const count =
+                                inboxFilterCounts[
+                                  tab.id as keyof typeof inboxFilterCounts
+                                ] ?? 0;
+                              return (
+                              <Tooltip
                                 key={tab.id}
+                                content={`${count} ${tab.label.toLowerCase()} ${
+                                  count === 1 ? "email" : "emails"
+                                }`}
+                                className="w-auto"
+                                side="top"
+                              >
+                              <button
                                 type="button"
                                 onClick={() =>
                                   setInboxFilterTab(
@@ -6285,26 +6365,46 @@ export function EmailInboxView({
                                 }
                               >
                                 {tab.label}
+                                <span className="ml-1 text-[10px] text-zinc-500">
+                                  {count}
+                                </span>
                               </button>
-                            ))}
+                              </Tooltip>
+                              );
+                            })}
                           </div>
                           {isInboxView ? (
-                            <div className="inline-flex items-center gap-0.5 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
-                              <button
-                                type="button"
-                                onClick={() => setSelectedInboxTabId(null)}
-                                className={
-                                  selectedInboxTabId === null
-                                    ? "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
-                                    : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
-                                }
+                            <div className="inline-flex min-w-0 max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                              <Tooltip
+                                content={`${inboxTabCounts.all.unread} unread of ${inboxTabCounts.all.total} in All`}
+                                className="w-auto"
+                                side="top"
                               >
-                                All
-                              </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedInboxTabId(null)}
+                                  className={
+                                    selectedInboxTabId === null
+                                      ? "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
+                                      : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
+                                  }
+                                >
+                                  All
+                                  <InboxTabCount
+                                    unread={inboxTabCounts.all.unread}
+                                    total={inboxTabCounts.all.total}
+                                  />
+                                </button>
+                              </Tooltip>
                               {inboxTabs.map((tab) => (
                                 <span
                                   key={tab.id}
                                   className="inline-flex items-center"
+                                  title={`${
+                                    inboxTabCounts.byTabId.get(tab.id)?.unread ?? 0
+                                  } unread of ${
+                                    inboxTabCounts.byTabId.get(tab.id)?.total ?? 0
+                                  } in ${tab.name}`}
                                 >
                                   <button
                                     type="button"
@@ -6345,6 +6445,16 @@ export function EmailInboxView({
                                     }
                                   >
                                     {tab.name}
+                                    <InboxTabCount
+                                      unread={
+                                        inboxTabCounts.byTabId.get(tab.id)
+                                          ?.unread ?? 0
+                                      }
+                                      total={
+                                        inboxTabCounts.byTabId.get(tab.id)
+                                          ?.total ?? 0
+                                      }
+                                    />
                                   </button>
                                   {selectedInboxTabId === tab.id ? (
                                     <button
@@ -6376,7 +6486,7 @@ export function EmailInboxView({
                               </button>
                             </div>
                           ) : null}
-                          <div className="inline-flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
+                          <div className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
                             <span className="pl-1.5 pr-0.5 text-[10px] uppercase tracking-wide text-zinc-600">
                               Group
                             </span>
@@ -6397,7 +6507,7 @@ export function EmailInboxView({
                           </div>
                           </>
                         ) : (
-                          <div className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
+                          <div className="inline-flex shrink-0 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
                             {[
                               { id: "draft", label: "Draft" },
                               { id: "scheduled", label: "Scheduled" },
@@ -6425,7 +6535,7 @@ export function EmailInboxView({
                           </div>
                         )}
                       </div>
-                      <div className="inline-flex items-center gap-2">
+                      <div className="inline-flex shrink-0 items-center gap-2">
                         <Tooltip
                           content="Search help"
                           className="w-auto"
