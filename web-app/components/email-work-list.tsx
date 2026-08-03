@@ -17,7 +17,7 @@ import {
   Loader2,
   BellDot,
   Mail,
-  MessageSquare,
+  ListChecks,
   MessagesSquare,
   Plus,
   Search,
@@ -1792,24 +1792,42 @@ export function EmailWorkList({
                     </>
                   )}
                 </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void handleOpenLinkedTasks(item);
-                  }}
-                  disabled={item.derivedTaskCount === 0}
-                  className={cn(
-                    "inline-flex items-center gap-1 break-words rounded-md px-1 py-0.5 text-left transition-colors",
-                    item.derivedTaskCount > 0
-                      ? "hover:bg-zinc-800/70 hover:text-white"
-                      : "cursor-default opacity-70",
-                  )}
-                >
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  {item.derivedTaskCount} linked task
-                  {item.derivedTaskCount === 1 ? "" : "s"}
-                </button>
+                {(() => {
+                  // Linked tasks: count only, with the wording in the tooltip —
+                  // matching the message-count control below. The icon is a
+                  // checklist, not the speech bubble it used to share with the
+                  // conversation-length control.
+                  const taskCount = item.derivedTaskCount;
+                  const tooltipContent = `${taskCount} linked task${
+                    taskCount === 1 ? "" : "s"
+                  }`;
+                  return (
+                    <Tooltip
+                      content={tooltipContent}
+                      className="w-auto"
+                      side="top"
+                    >
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleOpenLinkedTasks(item);
+                        }}
+                        disabled={taskCount === 0}
+                        aria-label={tooltipContent}
+                        className={cn(
+                          "inline-flex items-center gap-1 break-words rounded-md px-1 py-0.5 text-left transition-colors",
+                          taskCount > 0
+                            ? "hover:bg-zinc-800/70 hover:text-white"
+                            : "cursor-default opacity-70",
+                        )}
+                      >
+                        <ListChecks className="h-3.5 w-3.5" />
+                        {taskCount}
+                      </button>
+                    </Tooltip>
+                  );
+                })()}
                 {/* New activity: an unread thread that already has more than
                     one message means a new email landed in an existing thread. */}
                 {isVisuallyUnread && (item.messageCount ?? 1) > 1 ? (
