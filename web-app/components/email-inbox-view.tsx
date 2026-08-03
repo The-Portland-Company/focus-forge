@@ -4762,6 +4762,47 @@ export function EmailInboxView({
     setInlineProjectSearchQuery("");
   };
 
+  // Priority is a triage marker, so it flips instantly and reconciles after —
+  // the row must not wait on a round trip. A failed write rolls the row back
+  // and says so rather than leaving a flag that isn't really saved.
+  const handleSetThreadPriority = async (
+    item: InboxItem,
+    priority: number | null,
+  ) => {
+    const previous = item.priority ?? null;
+    const next = (priority ?? null) as InboxItem["priority"];
+    const apply = (value: InboxItem["priority"]) => {
+      setInboxItems((current) =>
+        current.map((entry) =>
+          entry.id === item.id ? { ...entry, priority: value } : entry,
+        ),
+      );
+      inboxSnapshotRef.current = inboxSnapshotRef.current.map((entry) =>
+        entry.id === item.id ? { ...entry, priority: value } : entry,
+      );
+    };
+
+    apply(next);
+
+    try {
+      const response = await fetch(`/api/email/threads/${item.id}/priority`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ priority }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error || "Failed to set priority");
+      }
+    } catch (error) {
+      apply(previous as InboxItem["priority"]);
+      updateStatus(
+        error instanceof Error ? error.message : "Failed to set priority",
+      );
+    }
+  };
+
   const handleInlineProjectPickerSelect = (
     item: InboxItem,
     projectId: string,
@@ -6733,6 +6774,10 @@ export function EmailInboxView({
                 onProjectSearchQueryChange={setInlineProjectSearchQuery}
                 onProjectPickerSelect={handleInlineProjectPickerSelect}
                 onAssignProject={(item) => setAssignProjectItem(item)}
+                onSetPriority={(item, priority) =>
+                  void handleSetThreadPriority(item, priority)
+                }
+                priorityColor={currentUser?.priorityColor}
                 onCreateRule={(item) => {
                   // Rules live on a category tab, so the builder opens against
                   // the tab in view — or the first one when browsing All — and

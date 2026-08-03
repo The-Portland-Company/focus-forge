@@ -1174,6 +1174,7 @@ function mapThreadToInboxItem(params: {
           .filter(Boolean)
       : [],
     inboxTabId: params.row.inbox_tab_id ?? null,
+    priority: (params.row.priority ?? null) as 1 | 2 | 3 | 4 | null,
     // Cached "AI decides" verdicts (see the ai_tab_verdicts_json migration).
     aiTabVerdicts:
       params.row.ai_tab_verdicts_json &&
@@ -2149,6 +2150,7 @@ export async function listInboxItemsForUser(
     "latest_message_at,latest_inbound_at,latest_outbound_at,origin,is_unread," +
     "is_starred,work_due_date,work_due_time,needs_project,always_delete," +
     "boomerang_until,boomerang_task_id,inbox_tab_id,ai_tab_verdicts_json," +
+    "priority," +
     "analysis_json,task_suggestions_json,created_at,updated_at";
 
   // Cap the result set: the UI paginates client-side at 50/page, so 200 keeps
@@ -5592,6 +5594,32 @@ export async function setThreadInboxTab(params: {
     .eq("id", params.threadId);
   if (error) throw new Error(error.message);
   return { ok: true };
+}
+
+/**
+ * Set (or clear, with null) an email's priority — same 1..4 scale as tasks.
+ * Access, not manage: priority is a triage marker on a thread the user can
+ * read, so it must work on shared mailboxes they don't administer.
+ */
+export async function setThreadPriority(params: {
+  userId: string;
+  threadId: string;
+  priority: number | null;
+}) {
+  const admin = getAdminClient();
+  await ensureThreadAccess(params.userId, params.threadId);
+
+  const priority =
+    params.priority === null
+      ? null
+      : Math.min(4, Math.max(1, Math.round(params.priority)));
+
+  const { error } = await admin
+    .from("email_threads")
+    .update({ priority, updated_at: new Date().toISOString() })
+    .eq("id", params.threadId);
+  if (error) throw new Error(error.message);
+  return { ok: true, priority };
 }
 
 export async function applyThreadAction(params: {
