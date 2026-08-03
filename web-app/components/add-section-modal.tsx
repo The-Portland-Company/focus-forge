@@ -9,6 +9,10 @@ import {
   getSectionIcon,
   resolveSectionIconKey,
 } from '@/lib/section-icons'
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 interface AddSectionModalProps {
   isOpen: boolean
@@ -44,6 +48,10 @@ const colorOptions = [
 ]
 
 export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, goalId, order, section }: AddSectionModalProps) {
+  const modalWindow = useModalWindow({
+    title: "Add section",
+    onRequestClose: onClose,
+  });
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [color, setColor] = useState(colorOptions[0])
@@ -97,9 +105,21 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
     })
   }
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-zinc-900 rounded-lg p-6 w-full max-w-md">
+      <div
+        style={{ ...modalWindow.panelStyle, position: "relative" }} className="bg-zinc-900 rounded-lg p-6 w-full max-w-md">
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold text-white">{title}</h2>
           <button

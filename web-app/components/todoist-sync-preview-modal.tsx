@@ -13,6 +13,10 @@ import {
   CheckSquare,
   AlertCircle
 } from 'lucide-react'
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 interface SyncPreviewModalProps {
   isOpen: boolean
@@ -60,6 +64,10 @@ export function TodoistSyncPreviewModal({
   onConfirm,
   userId
 }: SyncPreviewModalProps) {
+  const modalWindow = useModalWindow({
+    title: "Todoist preview",
+    onRequestClose: onClose,
+  });
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<PreviewData | null>(null)
@@ -102,9 +110,21 @@ export function TodoistSyncPreviewModal({
     preview.summary.deletedTasks > 0
   )
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-zinc-900 rounded-xl w-full max-w-4xl max-h-[80vh] flex flex-col border border-zinc-700">
+      <div
+        style={{ ...modalWindow.panelStyle, position: "relative" }} className="bg-zinc-900 rounded-xl w-full max-w-4xl max-h-[80vh] flex flex-col border border-zinc-700">
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-zinc-800">
           <h2 className="text-lg font-semibold flex items-center gap-2">

@@ -6,6 +6,10 @@ import { Organization } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 interface AddOrganizationModalProps {
   isOpen: boolean
@@ -33,6 +37,10 @@ const organizationColors = [
 ]
 
 export function AddOrganizationModal({ isOpen, onClose, onAddOrganization }: AddOrganizationModalProps) {
+  const modalWindow = useModalWindow({
+    title: "Add organization",
+    onRequestClose: onClose,
+  });
   const [name, setName] = useState('')
   const [selectedColor, setSelectedColor] = useState(organizationColors[Math.floor(Math.random() * organizationColors.length)])
 
@@ -54,9 +62,21 @@ export function AddOrganizationModal({ isOpen, onClose, onAddOrganization }: Add
 
   if (!isOpen) return null
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-zinc-900 rounded-lg w-full max-w-md">
+      <div
+        style={{ ...modalWindow.panelStyle, position: "relative" }} className="bg-zinc-900 rounded-lg w-full max-w-md">
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         <div className="border-b border-zinc-800 p-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">New Organization</h2>
           <button

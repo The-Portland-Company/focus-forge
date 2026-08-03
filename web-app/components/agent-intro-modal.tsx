@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { Bot, Copy, Check, X } from "lucide-react";
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 interface AgentIntroModalProps {
   isOpen: boolean;
@@ -10,6 +14,10 @@ interface AgentIntroModalProps {
 }
 
 export function AgentIntroModal({ isOpen, onClose, prompt }: AgentIntroModalProps) {
+  const modalWindow = useModalWindow({
+    title: "Agents",
+    onRequestClose: onClose,
+  });
   const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
@@ -31,13 +39,27 @@ export function AgentIntroModal({ isOpen, onClose, prompt }: AgentIntroModalProp
     window.setTimeout(() => setCopied(false), 2000);
   };
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-2xl rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
+      <div
+        style={modalWindow.panelStyle}
+        className="relative z-10 w-full max-w-2xl rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl"
+      >
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         <button
           type="button"
           onClick={onClose}

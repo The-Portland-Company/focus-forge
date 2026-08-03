@@ -9,6 +9,10 @@ import {
   type EmailInboxTab,
   type InboxTabCondition,
 } from "@/lib/email-inbox/inbox-tabs";
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 interface InboxTabModalProps {
   isOpen: boolean;
@@ -35,6 +39,10 @@ export function InboxTabModal({
   onSaved,
   onDeleted,
 }: InboxTabModalProps) {
+  const modalWindow = useModalWindow({
+    title: "Inbox tab",
+    onRequestClose: onClose,
+  });
   const [name, setName] = useState("");
   const [matchMode, setMatchMode] = useState<"all" | "any">("any");
   const [conditions, setConditions] = useState<InboxTabCondition[]>([]);
@@ -105,9 +113,21 @@ export function InboxTabModal({
     onClose();
   };
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+      <div
+        style={{ ...modalWindow.panelStyle, position: "relative" }} className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
           <h2 className="text-lg font-semibold text-white">
             {tab ? "Edit tab" : "New tab"}
