@@ -79,6 +79,7 @@ import { AlertBellButton } from "@/components/alert-center";
 import { EmailRulesPanel } from "@/components/email-rules-panel";
 import { InboxTabModal } from "@/components/inbox-tab-modal";
 import { DragToTabModal } from "@/components/drag-to-tab-modal";
+import { EmailAssignProjectModal } from "@/components/email-assign-project-modal";
 import { QuarantineRulesModal } from "@/components/quarantine-rules-modal";
 import {
   isUnfiledInboxItem,
@@ -1586,6 +1587,9 @@ export function EmailInboxView({
   const [dragToTab, setDragToTab] = useState<{
     item: InboxItem;
     targetTab: EmailInboxTab;
+    /** Opened from the context menu rather than a drop: let the user pick the
+     *  destination tab inside the modal. */
+    retarget?: boolean;
   } | null>(null);
   // Email pending a quarantine-rules confirmation modal.
   const [quarantineModalItem, setQuarantineModalItem] =
@@ -1705,6 +1709,10 @@ export function EmailInboxView({
   // manually selects a thread.
   const suppressInboxAutoSelectRef = useRef(false);
   const [isReplyDragActive, setIsReplyDragActive] = useState(false);
+  // Email whose project picker (type-to-search + suggestions) is open.
+  const [assignProjectItem, setAssignProjectItem] = useState<InboxItem | null>(
+    null,
+  );
   const [isOutboundComposerOpen, setIsOutboundComposerOpen] = useState(false);
   const [outboundComposerInitialDraft, setOutboundComposerInitialDraft] =
     useState<EmailComposerInitialDraft | null>(null);
@@ -6724,6 +6732,17 @@ export function EmailInboxView({
                 onProjectClick={handleProjectPickerOpenForItem}
                 onProjectSearchQueryChange={setInlineProjectSearchQuery}
                 onProjectPickerSelect={handleInlineProjectPickerSelect}
+                onAssignProject={(item) => setAssignProjectItem(item)}
+                onCreateRule={(item) => {
+                  // Rules live on a category tab, so the builder opens against
+                  // the tab in view — or the first one when browsing All — and
+                  // the destination can be changed inside the modal.
+                  const target =
+                    inboxTabs.find((tab) => tab.id === selectedInboxTabId) ||
+                    inboxTabs[0];
+                  if (!target) return;
+                  setDragToTab({ item, targetTab: target, retarget: true });
+                }}
                 onProjectCreate={(item) =>
                   void handleCreateProject({
                     threadId: item.id,
@@ -6990,6 +7009,17 @@ export function EmailInboxView({
           setSelectedInboxTabId((cur) => (cur === tabId ? null : cur));
         }}
       />
+      <EmailAssignProjectModal
+        open={Boolean(assignProjectItem)}
+        item={assignProjectItem}
+        projects={data.projects}
+        onOpenChange={(open) => {
+          if (!open) setAssignProjectItem(null);
+        }}
+        onAssign={(item, projectId) => {
+          handleInlineProjectPickerSelect(item, projectId ?? "");
+        }}
+      />
       {dragToTab ? (
         <DragToTabModal
           item={dragToTab.item}
@@ -6997,6 +7027,7 @@ export function EmailInboxView({
             inboxTabs.find((t) => t.id === selectedInboxTabId) ?? null
           }
           targetTab={dragToTab.targetTab}
+          allowRetarget={dragToTab.retarget}
           allTabs={inboxTabs}
           onClose={() => setDragToTab(null)}
           onSaved={(saved) => {

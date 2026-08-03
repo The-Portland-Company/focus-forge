@@ -8,7 +8,9 @@ import {
   Check,
   ChevronRight,
   Clock,
+  Filter,
   FolderOpen,
+  FolderSearch,
   Mail,
   MailOpen,
   MailX,
@@ -42,6 +44,10 @@ export interface EmailContextMenuProps {
   ) => Promise<void> | void;
   onUnsubscribe?: (item: InboxItem) => void;
   onMoveToProject?: (item: InboxItem, projectId: string) => void;
+  /** Opens the full type-to-search project picker (with suggestions). */
+  onAssignProject?: (item: InboxItem) => void;
+  /** Opens the rule builder prefilled from this email. */
+  onCreateRule?: (item: InboxItem) => void;
 }
 
 /**
@@ -60,6 +66,8 @@ export function EmailContextMenu({
   onThreadAction,
   onUnsubscribe,
   onMoveToProject,
+  onAssignProject,
+  onCreateRule,
 }: EmailContextMenuProps) {
   const [section, setSection] = useState<Section>("root");
   const [query, setQuery] = useState("");
@@ -275,6 +283,32 @@ export function EmailContextMenu({
               setSection("project");
             }}
           />
+        ) : null}
+        {onAssignProject ? (
+          <button
+            type="button"
+            className={item_}
+            onClick={() => {
+              onAssignProject(item);
+              onClose();
+            }}
+          >
+            <FolderSearch className={iconCls} />
+            <span>Assign to project…</span>
+          </button>
+        ) : null}
+        {onCreateRule ? (
+          <button
+            type="button"
+            className={item_}
+            onClick={() => {
+              onCreateRule(item);
+              onClose();
+            }}
+          >
+            <Filter className={iconCls} />
+            <span>Create rule…</span>
+          </button>
         ) : null}
 
         <div className="my-1 h-px bg-zinc-800" />
