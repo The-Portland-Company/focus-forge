@@ -67,6 +67,9 @@ interface DragToTabModalProps {
   targetTab: EmailInboxTab;
   /** All tabs, used to detect overlapping rules that already match this item. */
   allTabs: EmailInboxTab[];
+  /** Opened from the context menu (not a drop): show a destination picker so
+   *  the user chooses which category the rule files into. */
+  allowRetarget?: boolean;
   onClose: () => void;
   onSaved: (tab: EmailInboxTab) => void;
   /** Open the full tab editor for an overlapping tab so the user can expand or
@@ -88,13 +91,20 @@ export function DragToTabModal({
   sourceTab,
   targetTab,
   allTabs,
+  allowRetarget = false,
   onClose,
   onSaved,
   onEditTab,
   onTabsChanged,
 }: DragToTabModalProps) {
+  // The category this rule files into. Fixed when the modal came from a drop
+  // (the tab you dropped on); selectable when opened from the context menu.
+  const [activeTargetId, setActiveTargetId] = useState(targetTab.id);
+  const activeTarget =
+    allTabs.find((tab) => tab.id === activeTargetId) || targetTab;
+
   const modalWindow = useModalWindow({
-    title: `Move to ${targetTab.name}`,
+    title: `Move to ${activeTarget.name}`,
     onRequestClose: onClose,
   });
   const initial = useMemo(
@@ -228,10 +238,10 @@ export function DragToTabModal({
     setError(null);
     try {
       const nextConditions = mergeTabConditions(
-        targetTab.rules?.conditions || [],
+        activeTarget.rules?.conditions || [],
         conditions,
       );
-      const res = await fetch(`/api/email/inbox-tabs/${targetTab.id}`, {
+      const res = await fetch(`/api/email/inbox-tabs/${activeTarget.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -253,8 +263,9 @@ export function DragToTabModal({
     }
   };
 
-  const existingCount = targetTab.rules?.conditions?.length ?? 0;
-  const matchModeChanged = matchMode !== (targetTab.rules?.matchMode ?? "any");
+  const existingCount = activeTarget.rules?.conditions?.length ?? 0;
+  const matchModeChanged =
+    matchMode !== (activeTarget.rules?.matchMode ?? "any");
 
   if (modalWindow.minimized) return null;
 
@@ -271,7 +282,22 @@ export function DragToTabModal({
           <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
             <span className="text-zinc-400">{sourceTab?.name ?? "Inbox"}</span>
             <ArrowRight className="h-4 w-4 text-zinc-500" />
-            <span>{targetTab.name}</span>
+            {allowRetarget ? (
+              <select
+                value={activeTargetId}
+                onChange={(event) => setActiveTargetId(event.target.value)}
+                aria-label="Category this rule files into"
+                className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-white"
+              >
+                {allTabs.map((tab) => (
+                  <option key={tab.id} value={tab.id}>
+                    {tab.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span>{activeTarget.name}</span>
+            )}
           </h2>
           <div className="flex items-center gap-1">
             <ModalMinimizeButton
@@ -291,7 +317,7 @@ export function DragToTabModal({
         <div className="space-y-4 overflow-y-auto p-5">
           <p className="text-sm text-zinc-400">
             This creates a rule so this email — and future mail like it — files
-            under <span className="text-zinc-200">{targetTab.name}</span>.
+            under <span className="text-zinc-200">{activeTarget.name}</span>.
             Verify the rule before it runs.
           </p>
 
@@ -456,7 +482,7 @@ export function DragToTabModal({
             </div>
             {conditions.length > 1 || matchModeChanged ? (
               <p className="mt-2 text-[11px] text-zinc-500">
-                Email files under {targetTab.name} when{" "}
+                Email files under {activeTarget.name} when{" "}
                 <span className="text-zinc-300">
                   {matchMode === "all" ? "all" : "any"}
                 </span>{" "}
