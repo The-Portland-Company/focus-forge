@@ -6,6 +6,10 @@ import { Tag } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 interface AddTagModalProps {
   isOpen: boolean
@@ -44,6 +48,10 @@ export function AddTagModal({
   stackStyle,
   stackZIndex
 }: AddTagModalProps) {
+  const modalWindow = useModalWindow({
+    title: "New tag",
+    onRequestClose: onClose,
+  });
   const [name, setName] = useState(initialName || '')
   const [selectedColor, setSelectedColor] = useState(tagColors[Math.floor(Math.random() * tagColors.length)])
 
@@ -67,12 +75,23 @@ export function AddTagModal({
     ? 'absolute inset-0 flex items-center justify-center pointer-events-none'
     : 'fixed inset-0 bg-black/50 flex items-center justify-center z-50'
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className={wrapperClass} style={renderInStack ? { zIndex: stackZIndex } : undefined}>
       <div
         className="bg-zinc-900 rounded-lg w-full max-w-md border border-zinc-800 pointer-events-auto"
-        style={stackStyle}
+        style={{ ...stackStyle, ...modalWindow.panelStyle, position: "relative" }}
       >
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         <div className="border-b border-zinc-800 p-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">New Tag</h2>
           <button

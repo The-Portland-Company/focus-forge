@@ -78,6 +78,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { nullableEditFieldValue } from "@/lib/task-modal-payload";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { StakeEditor } from "@/components/stake-editor";
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 interface PendingSubtask {
   name: string;
@@ -239,6 +243,10 @@ export function TaskModal({
   onRequestSaveForExpand,
   stackHeaderExtra,
 }: TaskModalProps) {
+  const modalWindow = useModalWindow({
+    title: "Task",
+    onRequestClose: onClose,
+  });
   const isEditMode = !!task;
   const { user: authUser } = useAuth();
   const titleInputId = useId();
@@ -1944,6 +1952,8 @@ export function TaskModal({
         ? "text-[rgb(var(--theme-primary-rgb))]"
         : "";
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
@@ -1951,8 +1961,18 @@ export function TaskModal({
     >
       <div
         ref={modalRef}
+        style={{ ...modalWindow.panelStyle, position: "relative" }}
         className="bg-zinc-900 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto border border-zinc-800"
       >
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         <div className="sticky top-0 bg-zinc-900 border-b border-zinc-800 px-6 py-4 flex items-center justify-between z-10">
           <h2 className="text-xl font-semibold text-white">
             {isEditMode ? "Edit Task" : "Add Task"}

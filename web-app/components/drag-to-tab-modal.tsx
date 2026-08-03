@@ -21,6 +21,10 @@ import {
   type InboxTabCondition,
 } from "@/lib/email-inbox/inbox-tabs";
 import type { InboxItem } from "@/lib/types";
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 const CLASSIFICATIONS = [
   "actionable",
@@ -87,6 +91,10 @@ export function DragToTabModal({
   onEditTab,
   onTabsChanged,
 }: DragToTabModalProps) {
+  const modalWindow = useModalWindow({
+    title: `Move to ${targetTab.name}`,
+    onRequestClose: onClose,
+  });
   const initial = useMemo(
     () =>
       deriveTabConditionForItem(item) ?? {
@@ -240,22 +248,36 @@ export function DragToTabModal({
   const existingCount = targetTab.rules?.conditions?.length ?? 0;
   const matchModeChanged = matchMode !== (targetTab.rules?.matchMode ?? "any");
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+      <div
+        style={modalWindow.panelStyle}
+        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl"
+      >
+        <div
+          {...modalWindow.dragHandleProps}
+          className="flex items-center justify-between border-b border-zinc-800 px-5 py-4"
+        >
           <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
             <span className="text-zinc-400">{sourceTab?.name ?? "Inbox"}</span>
             <ArrowRight className="h-4 w-4 text-zinc-500" />
             <span>{targetTab.name}</span>
           </h2>
-          <button
-            onClick={onClose}
-            className="rounded p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <ModalMinimizeButton
+              onMinimize={modalWindow.minimize}
+              className="p-1.5 hover:bg-zinc-800"
+            />
+            <button
+              onClick={onClose}
+              className="rounded p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div className="space-y-4 overflow-y-auto p-5">

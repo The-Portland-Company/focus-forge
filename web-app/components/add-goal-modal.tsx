@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 export interface AddGoalPayload {
   name: string
@@ -21,6 +25,10 @@ interface AddGoalModalProps {
 }
 
 export function AddGoalModal({ isOpen, onClose, onSave, projectId, sectionId, order }: AddGoalModalProps) {
+  const modalWindow = useModalWindow({
+    title: "Add goal",
+    onRequestClose: onClose,
+  });
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
 
@@ -48,9 +56,21 @@ export function AddGoalModal({ isOpen, onClose, onSave, projectId, sectionId, or
     })
   }
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-zinc-900 rounded-lg p-6 w-full max-w-md">
+      <div
+        style={{ ...modalWindow.panelStyle, position: "relative" }} className="bg-zinc-900 rounded-lg p-6 w-full max-w-md">
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold text-white">{title}</h2>
           <button

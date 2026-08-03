@@ -11,6 +11,10 @@ import { KeyRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ExistingMemberPicker, filterAvailableMembers } from '@/components/existing-member-picker'
 import { FocusTimeOrganizationPanel } from '@/components/focus-time-organization-panel'
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 export interface OrganizationInviteResult {
   userId?: string
@@ -129,6 +133,10 @@ export function OrganizationSettingsModal({
   onResendInvite,
   onCancelInvite
 }: OrganizationSettingsModalProps) {
+  const modalWindow = useModalWindow({
+    title: "Organization settings",
+    onRequestClose: onClose,
+  });
   const [name, setName] = useState(organization.name)
   const [description, setDescription] = useState(organization.description || '')
   const [color, setColor] = useState(organization.color)
@@ -548,9 +556,23 @@ export function OrganizationSettingsModal({
     onClose()
   }
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-zinc-900 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <div
+        style={{ ...modalWindow.panelStyle, position: "relative" }}
+        className="bg-zinc-900 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+      >
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-zinc-800">
           <h2 className="text-xl font-semibold flex items-center gap-2">
