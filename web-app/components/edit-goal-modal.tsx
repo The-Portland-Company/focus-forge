@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { Goal } from "@/lib/types";
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 export interface GoalEdits {
   name: string;
@@ -25,6 +29,10 @@ export function EditGoalModal({
   onClose: () => void;
   onSave: (goalId: string, edits: GoalEdits) => void;
 }) {
+  const modalWindow = useModalWindow({
+    title: "Edit goal",
+    onRequestClose: onClose,
+  });
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [completed, setCompleted] = useState(false);
@@ -51,9 +59,21 @@ export function EditGoalModal({
     onClose();
   };
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-zinc-900 p-6">
+      <div
+        style={{ ...modalWindow.panelStyle, position: "relative" }} className="w-full max-w-md rounded-lg bg-zinc-900 p-6">
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">Edit Goal</h2>
           <button

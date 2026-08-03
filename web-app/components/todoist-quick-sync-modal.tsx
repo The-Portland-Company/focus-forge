@@ -12,6 +12,10 @@ import {
   Folder,
   CheckSquare
 } from 'lucide-react'
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 interface TodoistQuickSyncModalProps {
   isOpen: boolean
@@ -45,6 +49,10 @@ export function TodoistQuickSyncModal({
   onSync,
   userId
 }: TodoistQuickSyncModalProps) {
+  const modalWindow = useModalWindow({
+    title: "Todoist sync",
+    onRequestClose: onClose,
+  });
   const [syncing, setSyncing] = useState(false)
   const [selectedMode, setSelectedMode] = useState<'merge' | 'overwrite'>('merge')
   const [progress, setProgress] = useState<SyncProgress | null>(null)
@@ -173,9 +181,21 @@ export function TodoistQuickSyncModal({
     return Math.round((completedItems / totalItems) * 100)
   }
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-zinc-900 rounded-xl w-full max-w-lg border border-zinc-700">
+      <div
+        style={{ ...modalWindow.panelStyle, position: "relative" }} className="bg-zinc-900 rounded-xl w-full max-w-lg border border-zinc-700">
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-zinc-800">
           <h2 className="text-lg font-semibold flex items-center gap-2">

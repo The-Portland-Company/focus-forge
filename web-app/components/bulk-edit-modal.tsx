@@ -5,6 +5,10 @@ import { X, Calendar, Flag, User, Folder, Repeat2, Trash2, Plus, Mail, Loader2, 
 import { Task, Project, Database, RecurringConfig } from '@/lib/types'
 import { RecurringPicker } from '@/components/recurring-picker'
 import { serializeRecurringConfig } from '@/lib/recurring-utils'
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 interface BulkEditModalProps {
   isOpen: boolean
@@ -19,6 +23,10 @@ interface BulkEditModalProps {
 }
 
 export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onApply, onDelete, onMerge, onCreateAndMerge, onInviteUser }: BulkEditModalProps) {
+  const modalWindow = useModalWindow({
+    title: "Bulk edit",
+    onRequestClose: onClose,
+  });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [assignedTo, setAssignedTo] = useState<string>('')
   const [assignedToName, setAssignedToName] = useState<string>('')
@@ -225,9 +233,21 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
     endDate ||
     isMergeReady
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-zinc-900 rounded-xl border border-zinc-800 w-full max-w-md mx-4 shadow-2xl flex flex-col max-h-[90vh]">
+      <div
+        style={{ ...modalWindow.panelStyle, position: "relative" }} className="bg-zinc-900 rounded-xl border border-zinc-800 w-full max-w-md mx-4 shadow-2xl flex flex-col max-h-[90vh]">
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         <div className="flex items-center justify-between p-4 border-b border-zinc-800 flex-shrink-0">
           <h2 className="text-lg font-semibold text-white">
             Bulk Edit {selectedTaskIds.size} Task{selectedTaskIds.size > 1 ? 's' : ''}

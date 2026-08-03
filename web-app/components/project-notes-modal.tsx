@@ -7,6 +7,10 @@ import { UserAvatar } from "@/components/user-avatar";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { hasRichTextContent } from "@/lib/rich-text";
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 type ProjectNote = {
   id: string;
@@ -35,6 +39,10 @@ export function ProjectNotesModal({
   onClose,
   onSaveDescription,
 }: ProjectNotesModalProps) {
+  const modalWindow = useModalWindow({
+    title: "Project notes",
+    onRequestClose: onClose,
+  });
   const [description, setDescription] = useState(initialDescription || "");
   const [savingDescription, setSavingDescription] = useState(false);
   const [notes, setNotes] = useState<ProjectNote[]>([]);
@@ -162,9 +170,21 @@ export function ProjectNotesModal({
 
   if (!isOpen) return null;
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-3xl rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+      <div
+        style={{ ...modalWindow.panelStyle, position: "relative" }} className="w-full max-w-3xl rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold text-white">{projectName}</h2>

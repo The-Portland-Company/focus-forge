@@ -3,6 +3,10 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Pencil, ShieldAlert, X } from "lucide-react";
 import type { EmailRule, EmailRuleCondition, InboxItem } from "@/lib/types";
+import {
+  ModalMinimizeButton,
+  useModalWindow,
+} from "@/components/ui/modal-window";
 
 const FIELD_OPTIONS: Array<{ value: EmailRuleCondition["field"]; label: string }> =
   [
@@ -78,6 +82,10 @@ export function QuarantineRulesModal({
   onConfirm,
   onEditRules,
 }: QuarantineRulesModalProps) {
+  const modalWindow = useModalWindow({
+    title: "Quarantine rules",
+    onRequestClose: onClose,
+  });
   const sender = senderEmailOf(item);
   const [createRule, setCreateRule] = useState(true);
   const [condition, setCondition] = useState<EmailRuleCondition>(
@@ -112,9 +120,21 @@ export function QuarantineRulesModal({
     }
   };
 
+  if (modalWindow.minimized) return null;
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+      <div
+        style={{ ...modalWindow.panelStyle, position: "relative" }} className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+        <div
+          {...modalWindow.dragHandleProps}
+          aria-hidden
+          className="absolute inset-x-0 top-0 z-0 h-12 rounded-t-xl"
+        />
+        <ModalMinimizeButton
+          onMinimize={modalWindow.minimize}
+          className="absolute right-12 top-4 z-20"
+        />
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
             <ShieldAlert className="h-5 w-5 text-amber-300" />
