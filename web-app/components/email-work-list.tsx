@@ -117,6 +117,10 @@ type EmailWorkListProps = {
   isCreatingProject?: boolean;
   onProjectSearchQueryChange?: (value: string) => void;
   onProjectPickerSelect?: (item: InboxItem, projectId: string) => void;
+  /** Opens the type-to-search project picker (with suggestions) for an email. */
+  onAssignProject?: (item: InboxItem) => void;
+  /** Opens the rule builder prefilled from an email. */
+  onCreateRule?: (item: InboxItem) => void;
   onProjectCreate?: (item: InboxItem) => void;
   onProjectPickerClose?: () => void;
   onThreadAction?: (
@@ -898,6 +902,8 @@ export function EmailWorkList({
   isCreatingProject = false,
   onProjectSearchQueryChange,
   onProjectPickerSelect,
+  onAssignProject,
+  onCreateRule,
   onProjectCreate,
   onProjectPickerClose,
   onThreadAction,
@@ -2332,6 +2338,8 @@ export function EmailWorkList({
           onThreadAction={onThreadAction}
           onUnsubscribe={onUnsubscribe}
           onMoveToProject={onProjectPickerSelect}
+          onAssignProject={onAssignProject}
+          onCreateRule={onCreateRule}
         />
       ) : null}
     </>
