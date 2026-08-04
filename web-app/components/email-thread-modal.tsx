@@ -2560,14 +2560,19 @@ export function EmailThreadModal({
                           ref={projectPickerRef}
                           className="relative w-[150px] sm:w-[220px]"
                         >
-                          <div className="relative flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 py-1 pl-3 pr-9 transition-colors focus-within:ring-2 ring-theme">
+                          {/* One line, always: the field used to wrap, so a
+                              single project chip pushed the text cursor onto a
+                              second row and the control grew to twice the
+                              height of the buttons beside it. Chips truncate
+                              and the row scrolls instead. */}
+                          <div className="relative flex h-9 w-full flex-nowrap items-center gap-1.5 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-800 pl-3 pr-9 transition-colors focus-within:ring-2 ring-theme">
                             <FolderKanban className="pointer-events-none h-4 w-4 shrink-0 text-zinc-500" />
                             {/* Selected project chips render INSIDE the field,
                                 left of the typing cursor. */}
                             {associatedProjects.map((project) => (
                               <span
                                 key={project.id}
-                                className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-zinc-700/80 bg-zinc-900/70 py-0.5 pl-2 pr-1 text-xs text-zinc-200"
+                                className="inline-flex min-w-0 max-w-[60%] shrink items-center gap-1.5 rounded-full border border-zinc-700/80 bg-zinc-900/70 py-0.5 pl-2 pr-1 text-xs text-zinc-200"
                               >
                                 <span
                                   className="h-2 w-2 shrink-0 rounded-full"
@@ -2619,7 +2624,7 @@ export function EmailThreadModal({
                                   : "Add project..."
                               }
                               disabled={busyState === "project"}
-                              className="h-6 min-w-[2rem] flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-zinc-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                              className="h-6 w-full min-w-[2rem] flex-1 shrink border-0 bg-transparent text-sm text-white outline-none placeholder:text-zinc-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                             />
                             <button
                               type="button"
