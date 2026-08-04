@@ -1979,6 +1979,52 @@ export default function ViewPage({
     setShowEditTask(true);
   };
 
+  // Deep links: ?task=<id> opens the task's modal, ?goal=<id> scrolls to and
+  // briefly highlights the goal group. Consumed once per page load, after the
+  // database has hydrated (goal anchors render with the data).
+  const consumedDeepLinkRef = useRef(false);
+  useEffect(() => {
+    if (consumedDeepLinkRef.current || isDataLoading) return;
+    const taskId = searchParams.get("task");
+    const goalId = searchParams.get("goal");
+    if (!taskId && !goalId) return;
+    consumedDeepLinkRef.current = true;
+    if (taskId) {
+      const task = database.tasks.find((t) => t.id === taskId);
+      if (task) {
+        setEditingTask(task);
+        setShowEditTask(true);
+      }
+    }
+    if (goalId) {
+      // Goal groups mount a beat after hydration; retry briefly.
+      let attempts = 0;
+      const tryScroll = () => {
+        const el = document.querySelector<HTMLElement>(
+          `[data-goal-id="${CSS.escape(goalId)}"]`,
+        );
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+          el.classList.add(
+            "ring-2",
+            "ring-[rgb(var(--theme-primary-rgb))]",
+          );
+          setTimeout(
+            () =>
+              el.classList.remove(
+                "ring-2",
+                "ring-[rgb(var(--theme-primary-rgb))]",
+              ),
+            2500,
+          );
+        } else if (attempts++ < 20) {
+          setTimeout(tryScroll, 150);
+        }
+      };
+      tryScroll();
+    }
+  }, [isDataLoading, searchParams, database.tasks]);
+
   // Persist a drag-created dependency edge: the source task becomes blocked by
   // the target (source.dependsOn gains targetId). Optimistically patches the
   // in-memory task so the "Blocked" indicator updates instantly, then writes
