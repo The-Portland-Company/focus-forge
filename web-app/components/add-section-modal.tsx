@@ -24,6 +24,12 @@ interface AddSectionModalProps {
   order: number
   /** When set, the modal edits this section instead of creating a new one. */
   section?: Section | null
+  /** Existing task lists in this project, used to catch duplicate names. */
+  existingSections?: Section[]
+  /** Whether a given list is currently hidden for being empty. */
+  isSectionHiddenWhenEmpty?: (sectionId: string) => boolean
+  /** Pin a hidden empty list back into view instead of creating a duplicate. */
+  onShowHiddenSection?: (sectionId: string) => void
 }
 
 const colorOptions = [
@@ -47,7 +53,7 @@ const colorOptions = [
   '#6b7280'  // gray
 ]
 
-export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, goalId, order, section }: AddSectionModalProps) {
+export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, goalId, order, section, existingSections, isSectionHiddenWhenEmpty, onShowHiddenSection }: AddSectionModalProps) {
   const modalWindow = useModalWindow({
     title: "Add section",
     onRequestClose: onClose,
@@ -87,6 +93,24 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
       ? 'Add Sub-Section'
       : 'Add Task List'
   const submitLabel = isEditing ? 'Save Changes' : title
+
+  // A list with this name already in the project. Creating a second one is
+  // almost never what the user wants — most often the original is simply hidden
+  // for being empty, so we offer to bring it back instead of duplicating it.
+  const duplicate = (() => {
+    const trimmed = name.trim().toLowerCase()
+    if (!trimmed) return null
+    return (
+      (existingSections || []).find(
+        (candidate) =>
+          candidate.id !== section?.id &&
+          candidate.name.trim().toLowerCase() === trimmed,
+      ) || null
+    )
+  })()
+  const duplicateIsHidden = Boolean(
+    duplicate && isSectionHiddenWhenEmpty?.(duplicate.id),
+  )
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -145,6 +169,29 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
                 className="w-full bg-zinc-800 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 ring-theme transition-all"
                 autoFocus
               />
+              {duplicate ? (
+                <div className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+                  <div>
+                    &ldquo;{duplicate.name}&rdquo; already exists in this
+                    project
+                    {duplicateIsHidden
+                      ? " — it is hidden because it has no tasks."
+                      : "."}
+                  </div>
+                  {duplicateIsHidden && onShowHiddenSection ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onShowHiddenSection(duplicate.id)
+                        onClose()
+                      }}
+                      className="mt-2 inline-flex items-center rounded-md border border-amber-700/60 bg-amber-900/40 px-2.5 py-1 font-medium text-amber-100 transition-colors hover:bg-amber-900/70"
+                    >
+                      Make visible instead
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             {/* Description */}
