@@ -41,6 +41,8 @@ import {
   FolderKanban,
   LayoutGrid,
   Columns3,
+  Eye,
+  EyeOff,
   LayoutList,
   History,
   ChevronRight,
@@ -73,6 +75,13 @@ import {
   Goal,
 } from "@/lib/types";
 import { SectionView } from "@/components/section-view";
+import {
+  forgetOverridesForFilledSections,
+  loadHideEmptySections,
+  loadVisibleSectionOverrides,
+  saveHideEmptySections,
+  saveVisibleSectionOverrides,
+} from "@/lib/empty-section-prefs";
 import { SupplyTotal } from "@/components/supply-total";
 import { OnHandSuppliesCard } from "@/components/on-hand-supplies-card";
 import { hasSupplies, isSupply, type SupplyLike } from "@/lib/supply";
@@ -852,6 +861,12 @@ export default function ViewPage({
   const [projectSectionLayout, setProjectSectionLayout] = useState<
     "list" | "board"
   >("list");
+  // Empty task lists are hidden by default; individual lists can be pinned back
+  // into view until they next go empty (see lib/empty-section-prefs).
+  const [hideEmptySections, setHideEmptySections] = useState(true);
+  const [visibleSectionOverrides, setVisibleSectionOverrides] = useState<
+    string[]
+  >([]);
   const [dueDateLayout, setDueDateLayout] = useState<
     "inline" | "below" | "right"
   >("inline");
@@ -1008,6 +1023,53 @@ export default function ViewPage({
   const resolvedCurrentUser =
     currentUserProfile || database?.users?.[0] || null;
   const currentUserId = resolvedCurrentUser?.id || user?.id || undefined;
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    setHideEmptySections(loadHideEmptySections(currentUserId));
+    setVisibleSectionOverrides(loadVisibleSectionOverrides(currentUserId));
+  }, [currentUserId]);
+
+  const toggleHideEmptySections = () => {
+    setHideEmptySections((current) => {
+      const next = !current;
+      saveHideEmptySections(currentUserId, next);
+      return next;
+    });
+  };
+
+  // An override lasts only while the list stays empty: once it has tasks again
+  // the pin is dropped, so the list re-hides the next time it empties out.
+  useEffect(() => {
+    if (!currentUserId || visibleSectionOverrides.length === 0) return;
+    const occupied = new Set<string>();
+    for (const task of database?.tasks || []) {
+      const direct = task.sectionId || (task as any).section_id;
+      if (direct) occupied.add(String(direct));
+    }
+    for (const link of (database as any)?.taskSections || []) {
+      if (link?.sectionId) occupied.add(String(link.sectionId));
+    }
+    const next = forgetOverridesForFilledSections(
+      visibleSectionOverrides,
+      (sectionId) => !occupied.has(sectionId),
+    );
+    if (next.length !== visibleSectionOverrides.length) {
+      setVisibleSectionOverrides(next);
+      saveVisibleSectionOverrides(currentUserId, next);
+    }
+  }, [currentUserId, database, visibleSectionOverrides]);
+
+  // Pin one empty list back into view. The override is dropped once the list
+  // has tasks again, so it re-hides the next time it empties out.
+  const showEmptySection = (sectionId: string) => {
+    setVisibleSectionOverrides((current) => {
+      if (current.includes(sectionId)) return current;
+      const next = [...current, sectionId];
+      saveVisibleSectionOverrides(currentUserId, next);
+      return next;
+    });
+  };
   const currentUserRole = resolvedCurrentUser?.role || null;
   const currentUserDisplayName =
     resolvedCurrentUser?.name ||
@@ -6510,10 +6572,25 @@ export default function ViewPage({
         );
       };
 
+      // Empty task lists are hidden unless the user turned the preference off,
+      // or pinned this one back into view. Hiding them keeps a project that has
+      // accumulated cleared-out lists focused on the ones holding work.
+      const hiddenEmptyProjectSections = projectSections.filter(
+        (section) =>
+          !(section.goalId || (section as any).goal_id) &&
+          sectionIsEmpty(section.id) &&
+          hideEmptySections &&
+          !visibleSectionOverrides.includes(section.id),
+      );
+      const hiddenEmptySectionIds = new Set(
+        hiddenEmptyProjectSections.map((section) => section.id),
+      );
+
       const visibleProjectSections = projectSections.filter(
         (section) =>
           // Sections nested inside a goal render within that goal, not here.
           !(section.goalId || (section as any).goal_id) &&
+          !hiddenEmptySectionIds.has(section.id) &&
           (sectionHasVisibleTasks(section.id) || sectionIsEmpty(section.id)),
       );
       const projectCreatorIds = Array.from(
@@ -6824,6 +6901,38 @@ export default function ViewPage({
                       <div className="text-xs text-zinc-500">
                         {visibleProjectTasks.length} visible
                       </div>
+                      <button
+                        type="button"
+                        onClick={toggleHideEmptySections}
+                        aria-pressed={hideEmptySections}
+                        title={
+                          hideEmptySections
+                            ? `Empty task lists are hidden${
+                                hiddenEmptyProjectSections.length > 0
+                                  ? ` (${hiddenEmptyProjectSections.length})`
+                                  : ""
+                              } — click to show them`
+                            : "Empty task lists are shown — click to hide them"
+                        }
+                        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+                          hideEmptySections
+                            ? "border-zinc-700 bg-zinc-800 text-zinc-300 hover:text-white"
+                            : "border-zinc-700 bg-zinc-900 text-zinc-500 hover:text-white"
+                        }`}
+                      >
+                        {hideEmptySections ? (
+                          <EyeOff className="h-3.5 w-3.5" />
+                        ) : (
+                          <Eye className="h-3.5 w-3.5" />
+                        )}
+                        <span>
+                          Empty
+                          {hideEmptySections &&
+                          hiddenEmptyProjectSections.length > 0
+                            ? ` (${hiddenEmptyProjectSections.length})`
+                            : ""}
+                        </span>
+                      </button>
                       <div
                         className="inline-flex rounded-lg border border-zinc-700 bg-zinc-800 p-1"
                         aria-label="Project section layout"
@@ -8212,6 +8321,15 @@ export default function ViewPage({
           goalId={sectionGoalId}
           order={sectionOrder}
           section={editingSection}
+          existingSections={(database?.sections || []).filter(
+            (candidate) =>
+              candidate.projectId ===
+              (sectionProjectId || view.replace("project-", "")),
+          )}
+          isSectionHiddenWhenEmpty={(sectionId) =>
+            hideEmptySections && !visibleSectionOverrides.includes(sectionId)
+          }
+          onShowHiddenSection={showEmptySection}
         />
       )}
 
