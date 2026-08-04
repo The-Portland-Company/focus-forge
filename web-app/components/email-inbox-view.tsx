@@ -1804,6 +1804,8 @@ export function EmailInboxView({
   const hasUserResizedPanelRef = useRef(false);
   const queuedActionTimeoutRef = useRef<number | null>(null);
   const copiedSearchHelpTimeoutRef = useRef<number | null>(null);
+  // Last-loaded conversation per thread, so reopening one is instant.
+  const threadDetailCacheRef = useRef<Map<string, any>>(new Map());
   const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
   // Orders concurrent /api/email/inbox reads so a stale response can never
   // overwrite a newer one (see lib/email-inbox/snapshot-sequence).
@@ -2664,6 +2666,26 @@ export function EmailInboxView({
       Date.now(),
     );
 
+    // Drop the cached conversation for any thread that changed — a new message
+    // landed, or its message count moved. That is the "only reload when the
+    // IMAP check found something" half of the cache: unchanged threads reopen
+    // instantly, changed ones refetch.
+    {
+      const previousById = new Map(
+        inboxSnapshotRef.current.map((entry) => [entry.id, entry]),
+      );
+      for (const item of nextItems) {
+        const previous = previousById.get(item.id);
+        if (!previous) continue;
+        if (
+          previous.latestMessageAt !== item.latestMessageAt ||
+          (previous.messageCount ?? 1) !== (item.messageCount ?? 1)
+        ) {
+          threadDetailCacheRef.current.delete(item.id);
+        }
+      }
+    }
+
     if (
       params.allowBrowserNotifications &&
       browserNotificationPermission === "granted"
@@ -2943,7 +2965,20 @@ export function EmailInboxView({
   useEffect(() => {
     if (!selectedThreadId || !isEmailInboxView(view)) return;
     let cancelled = false;
-    setLoadingThread(true);
+
+    // Reopening a conversation renders from the last copy immediately and
+    // revalidates behind it, instead of showing "Loading full conversation…"
+    // again. Nothing is served stale for long: the fetch below still runs and
+    // replaces the cached copy, and realtime/polling drops the entry when new
+    // mail lands on the thread.
+    const cached = threadDetailCacheRef.current.get(selectedThreadId);
+    if (cached) {
+      setSelectedThread(cached);
+      setLoadingThread(false);
+    } else {
+      setLoadingThread(true);
+    }
+
     fetch(`/api/email/threads/${selectedThreadId}`, {
       credentials: "include",
     })
@@ -2953,6 +2988,7 @@ export function EmailInboxView({
           throw new Error(payload.error || "Failed to load thread");
         }
         if (!cancelled) {
+          threadDetailCacheRef.current.set(selectedThreadId, payload);
           setSelectedThread(payload);
           if (payload?.activeReplyDraft) {
             applyDraftToComposer(payload.activeReplyDraft);
