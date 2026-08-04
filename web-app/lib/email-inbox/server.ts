@@ -165,6 +165,10 @@ function messageLikelyHasAttachments(row: any) {
 // Strong refs to in-flight attachment-metadata backfills, so an un-awaited
 // promise on the persistent Railway Node server isn't GC'd before it settles.
 const pendingAttachmentBackfills = new Set<Promise<void>>();
+// Threads whose attachment metadata was checked recently, so reopening one does
+// not re-run an IMAP fetch for messages that simply have no attachments.
+const attachmentBackfillCheckedAt = new Map<string, number>();
+const ATTACHMENT_BACKFILL_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Returns the subset of message rows that still need their attachment metadata
@@ -194,16 +198,44 @@ function messageRowsNeedingAttachmentBackfill(messageRows: any[]): any[] {
  */
 function backfillMessageAttachmentMetadataInBackground(
   mailbox: MailboxTransportRow,
+  threadId: string,
   messageRows: any[],
 ): void {
-  const pending = messageRowsNeedingAttachmentBackfill(messageRows);
-  if (pending.length === 0) {
+  // Cheap pre-check on data the read path already has: if every message has
+  // stored attachment metadata there is nothing to do and no query to run.
+  const missing = (messageRows || []).filter(
+    (row) => row?.provider_message_id && !hasStoredMessageAttachments(row),
+  );
+  if (missing.length === 0) {
     return;
   }
+
+  // Opening the same thread repeatedly used to re-run this IMAP fetch every
+  // time for messages that legitimately have no attachments. Once a thread has
+  // been checked, skip it for a while.
+  const lastChecked = attachmentBackfillCheckedAt.get(threadId) || 0;
+  if (Date.now() - lastChecked < ATTACHMENT_BACKFILL_COOLDOWN_MS) {
+    return;
+  }
+  attachmentBackfillCheckedAt.set(threadId, Date.now());
 
   const task = (async () => {
     try {
       const admin = getAdminClient();
+      // Headers are excluded from the read path, so fetch them for the handful
+      // of candidate rows to decide which really need an IMAP round trip.
+      const { data: headerRows } = await admin
+        .from("email_messages")
+        .select("id,provider_message_id,metadata_json,raw_headers")
+        .in(
+          "id",
+          missing.map((row) => row.id),
+        );
+      const pending = messageRowsNeedingAttachmentBackfill(headerRows || []);
+      if (pending.length === 0) {
+        return;
+      }
+
       const fetched = await fetchMailboxMessagesByProviderMessageIds(
         mailbox,
         pending.map((row) => String(row.provider_message_id)),
@@ -3626,9 +3658,17 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
     activeReplyDraft,
   ] = await Promise.all([
     listMailboxesForUser(userId),
+    // Only the columns the conversation actually renders. `raw_headers` alone
+    // is ~10KB per message (58-message threads exist), so `select("*")` was
+    // shipping most of a megabyte of headers the UI never reads. The backfill
+    // check below re-reads headers for the few candidate rows instead.
     admin
       .from("email_messages")
-      .select("*")
+      .select(
+        "id,thread_id,mailbox_id,direction,provider_message_id," +
+          "internet_message_id,subject,body_text,body_html,sent_at," +
+          "received_at,metadata_json,created_at",
+      )
       .eq("thread_id", threadId)
       .order("received_at", { ascending: true })
       .order("sent_at", { ascending: true }),
@@ -3654,7 +3694,7 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
   // Backfill any missing attachment metadata OUT of the read path (single IMAP
   // connection, fire-and-forget). The conversation renders immediately from
   // stored data; attachment chips appear on the next open once persisted.
-  backfillMessageAttachmentMetadataInBackground(mailbox, messageRows);
+  backfillMessageAttachmentMetadataInBackground(mailbox, threadId, messageRows);
 
   const participants =
     (
