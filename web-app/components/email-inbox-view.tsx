@@ -6345,8 +6345,13 @@ export function EmailInboxView({
                     // its width and the category-tab group absorbs any overflow
                     // by scrolling, so nothing wraps to a second line until the
                     // viewport is genuinely too narrow.
-                    <div className="flex flex-wrap items-center justify-between gap-2 xl:flex-nowrap">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2 xl:flex-nowrap">
+                    // Two rows at any width: the compact controls (mode, read filter,
+                    // grouping) on one non-wrapping line that scrolls if needed, and the
+                    // category tabs on their own line below — they grow with the number
+                    // of tabs, so keeping them here stopped the rest from stacking.
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                         {isInboxView ? (
                           <div className="inline-flex shrink-0 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
                             {[
@@ -6422,119 +6427,6 @@ export function EmailInboxView({
                               );
                             })}
                           </div>
-                          {isInboxView ? (
-                            <div className="inline-flex min-w-0 max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                              <Tooltip
-                                content={`${inboxTabCounts.all.unread} unread of ${inboxTabCounts.all.total} in All`}
-                                className="w-auto"
-                                side="top"
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedInboxTabId(null)}
-                                  className={
-                                    selectedInboxTabId === null
-                                      ? "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
-                                      : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
-                                  }
-                                >
-                                  All
-                                  <InboxTabCount
-                                    unread={inboxTabCounts.all.unread}
-                                    total={inboxTabCounts.all.total}
-                                  />
-                                </button>
-                              </Tooltip>
-                              {inboxTabs.map((tab) => (
-                                <span
-                                  key={tab.id}
-                                  className="inline-flex items-center"
-                                  title={`${
-                                    inboxTabCounts.byTabId.get(tab.id)?.unread ?? 0
-                                  } unread of ${
-                                    inboxTabCounts.byTabId.get(tab.id)?.total ?? 0
-                                  } in ${tab.name}`}
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedInboxTabId(tab.id)}
-                                    onDragOver={(e) => {
-                                      e.preventDefault();
-                                      e.dataTransfer.dropEffect = "move";
-                                      if (dragOverTabId !== tab.id)
-                                        setDragOverTabId(tab.id);
-                                    }}
-                                    onDragLeave={() => {
-                                      if (dragOverTabId === tab.id)
-                                        setDragOverTabId(null);
-                                    }}
-                                    onDrop={(e) => {
-                                      e.preventDefault();
-                                      setDragOverTabId(null);
-                                      const threadId =
-                                        e.dataTransfer.getData(
-                                          "application/x-thread-id",
-                                        ) ||
-                                        e.dataTransfer.getData("text/plain");
-                                      const dropped = inboxItems.find(
-                                        (it) => it.id === threadId,
-                                      );
-                                      if (dropped)
-                                        setDragToTab({
-                                          item: dropped,
-                                          targetTab: tab,
-                                        });
-                                    }}
-                                    className={
-                                      dragOverTabId === tab.id
-                                        ? "rounded-md bg-theme-gradient px-2 py-1 text-xs font-medium text-white ring-2 ring-white/40"
-                                        : selectedInboxTabId === tab.id
-                                        ? "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
-                                        : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
-                                    }
-                                  >
-                                    {tab.name}
-                                    <InboxTabCount
-                                      unread={
-                                        inboxTabCounts.byTabId.get(tab.id)
-                                          ?.unread ?? 0
-                                      }
-                                      total={
-                                        inboxTabCounts.byTabId.get(tab.id)
-                                          ?.total ?? 0
-                                      }
-                                    />
-                                  </button>
-                                  {selectedInboxTabId === tab.id ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setEditingInboxTab(tab);
-                                        setInboxTabModalOpen(true);
-                                      }}
-                                      title="Edit tab"
-                                      aria-label={`Edit ${tab.name} tab`}
-                                      className="rounded-md px-1 py-1 text-zinc-500 hover:text-white"
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                    </button>
-                                  ) : null}
-                                </span>
-                              ))}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingInboxTab(null);
-                                  setInboxTabModalOpen(true);
-                                }}
-                                title="New tab"
-                                aria-label="New inbox tab"
-                                className="rounded-md px-1.5 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
-                              >
-                                <Plus className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          ) : null}
                           <div className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
                             <span className="pl-1.5 pr-0.5 text-[10px] uppercase tracking-wide text-zinc-600">
                               Group
@@ -6707,6 +6599,120 @@ export function EmailInboxView({
                           </button>
                         </Tooltip>
                       </div>
+                      </div>
+                          {isInboxView ? (
+                            <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                              <Tooltip
+                                content={`${inboxTabCounts.all.unread} unread of ${inboxTabCounts.all.total} in All`}
+                                className="w-auto"
+                                side="top"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedInboxTabId(null)}
+                                  className={
+                                    selectedInboxTabId === null
+                                      ? "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
+                                      : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
+                                  }
+                                >
+                                  All
+                                  <InboxTabCount
+                                    unread={inboxTabCounts.all.unread}
+                                    total={inboxTabCounts.all.total}
+                                  />
+                                </button>
+                              </Tooltip>
+                              {inboxTabs.map((tab) => (
+                                <span
+                                  key={tab.id}
+                                  className="inline-flex shrink-0 items-center"
+                                  title={`${
+                                    inboxTabCounts.byTabId.get(tab.id)?.unread ?? 0
+                                  } unread of ${
+                                    inboxTabCounts.byTabId.get(tab.id)?.total ?? 0
+                                  } in ${tab.name}`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedInboxTabId(tab.id)}
+                                    onDragOver={(e) => {
+                                      e.preventDefault();
+                                      e.dataTransfer.dropEffect = "move";
+                                      if (dragOverTabId !== tab.id)
+                                        setDragOverTabId(tab.id);
+                                    }}
+                                    onDragLeave={() => {
+                                      if (dragOverTabId === tab.id)
+                                        setDragOverTabId(null);
+                                    }}
+                                    onDrop={(e) => {
+                                      e.preventDefault();
+                                      setDragOverTabId(null);
+                                      const threadId =
+                                        e.dataTransfer.getData(
+                                          "application/x-thread-id",
+                                        ) ||
+                                        e.dataTransfer.getData("text/plain");
+                                      const dropped = inboxItems.find(
+                                        (it) => it.id === threadId,
+                                      );
+                                      if (dropped)
+                                        setDragToTab({
+                                          item: dropped,
+                                          targetTab: tab,
+                                        });
+                                    }}
+                                    className={
+                                      dragOverTabId === tab.id
+                                        ? "rounded-md bg-theme-gradient px-2 py-1 text-xs font-medium text-white ring-2 ring-white/40"
+                                        : selectedInboxTabId === tab.id
+                                        ? "rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-white"
+                                        : "rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
+                                    }
+                                  >
+                                    {tab.name}
+                                    <InboxTabCount
+                                      unread={
+                                        inboxTabCounts.byTabId.get(tab.id)
+                                          ?.unread ?? 0
+                                      }
+                                      total={
+                                        inboxTabCounts.byTabId.get(tab.id)
+                                          ?.total ?? 0
+                                      }
+                                    />
+                                  </button>
+                                  {selectedInboxTabId === tab.id ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingInboxTab(tab);
+                                        setInboxTabModalOpen(true);
+                                      }}
+                                      title="Edit tab"
+                                      aria-label={`Edit ${tab.name} tab`}
+                                      className="rounded-md px-1 py-1 text-zinc-500 hover:text-white"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </button>
+                                  ) : null}
+                                </span>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingInboxTab(null);
+                                  setInboxTabModalOpen(true);
+                                }}
+                                title="New tab"
+                                aria-label="New inbox tab"
+                                className="rounded-md px-1.5 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : null}
                     </div>
                   ) : null}
                     </div>
