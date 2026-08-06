@@ -128,6 +128,7 @@ import {
   normalizeMailboxPassword,
 } from "@/lib/email-inbox/shared";
 import {
+  claimDockBadgeLiveSource,
   computeUnreadBadgeCount,
   getDockBadgeDocumentTitle,
   normalizeDockBadgeCount,
@@ -2282,6 +2283,11 @@ export function EmailInboxView({
     publishDockBadgeCount(computeUnreadBadgeCount(inboxItems));
   }, [inboxItems]);
 
+  // Claim ownership of the badge / document title for as long as this view is
+  // mounted so the app-wide DockBadgeSync poller doesn't fight the effect above
+  // for `document.title`. Releasing on unmount hands the poller back its job.
+  useEffect(() => claimDockBadgeLiveSource(), []);
+
   useEffect(() => {
     if (!currentUserId) return;
     setEmailSignatures(loadEmailSignatures(currentUserId));
@@ -3439,6 +3445,9 @@ export function EmailInboxView({
           if (result.syncedMailboxCount > 0 || result.changedThreadCount > 0) {
             await refreshInboxStateRef.current?.({
               allowBrowserNotifications: true,
+              // Mailboxes change rarely; the interval branch was the only
+              // high-frequency caller still refetching /api/email/mailboxes.
+              skipMailboxes: true,
             });
           }
         } catch {
@@ -4717,8 +4726,16 @@ export function EmailInboxView({
         setSelectedThread(payload);
       }
       // Reconcile in the background without blocking the UI on the round-trip.
-      void refreshInboxState({ skipMailboxes: true }).catch(() => {
-        // Keep the optimistic state if the reconcile fetch fails.
+      // Only the assigned thread changed, so hydrate that ONE row rather than
+      // re-reading /api/email/inbox and replacing the whole list: a full
+      // snapshot hands every row a new object identity, re-renders the entire
+      // list, and — because the poll and the IMAP worker are writing
+      // concurrently — folds unrelated arrivals, re-sorts and day-group changes
+      // into the same frame, which is what made a single project assignment
+      // look like a cascade of reloads.
+      void hydrateThreadIntoInbox(threadId).catch(() => {
+        // Keep the optimistic state if the reconcile fetch fails; the low
+        // frequency poll below still self-heals any missed field.
       });
       updateStatus("Project assigned.");
     } catch (error) {

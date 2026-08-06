@@ -54,6 +54,33 @@ export function computeUnreadBadgeCount(items: InboxItem[]): number {
   }, 0);
 }
 
+/**
+ * Which surface currently owns the badge / document title.
+ *
+ * Two writers exist: the email inbox view, which publishes live from in-memory
+ * state on every `inboxItems` change, and `DockBadgeSync`, which polls
+ * `/api/email/unread-count` every 30s app-wide. When both are active they take
+ * turns writing `document.title`, so the tab title visibly flickers between
+ * counts (the "(61) → (32) → (30) → (29)" churn seen while triaging). The live
+ * in-memory count is strictly fresher, so while the inbox view is mounted it
+ * claims ownership and the poller stands down.
+ */
+let liveDockBadgeSourceCount = 0;
+
+export function claimDockBadgeLiveSource(): () => void {
+  liveDockBadgeSourceCount += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    liveDockBadgeSourceCount = Math.max(0, liveDockBadgeSourceCount - 1);
+  };
+}
+
+export function hasDockBadgeLiveSource(): boolean {
+  return liveDockBadgeSourceCount > 0;
+}
+
 export const DOCK_BADGE_PROMPT_STORAGE_KEY = "dockBadgeNotifPrompted";
 
 /**

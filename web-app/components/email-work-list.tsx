@@ -1792,26 +1792,32 @@ export function EmailWorkList({
                         ? `Project: ${project.name}. Change project assignment.`
                         : "Assign a project to this email"
                   }
-                  className="inline-flex items-center gap-1 break-words rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/70 hover:text-white focus-visible:outline-none focus-visible:ring-2 ring-theme disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-current"
+                  /* Height-stable across all three states. Assigning a project
+                     swaps "No Project" for a badge + project name, and a long
+                     name used to wrap the whole flex-wrap meta row onto a
+                     second line — growing the row and shoving every row below
+                     it down the instant the user picked a project. nowrap plus
+                     a truncated, width-capped name keeps the swap horizontal. */
+                  className="inline-flex max-w-[14rem] items-center gap-1 whitespace-nowrap rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/70 hover:text-white focus-visible:outline-none focus-visible:ring-2 ring-theme disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-current"
                 >
                   {isAssigningProject ? (
                     <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
+                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-500" />
                       <span className="text-zinc-500">Assigning…</span>
                     </>
                   ) : project ? (
                     <>
                       <span
-                        className="inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] px-1 text-xs sm:text-[9px] font-semibold uppercase tracking-wide text-black"
+                        className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-[4px] px-1 text-xs sm:text-[9px] font-semibold uppercase tracking-wide text-black"
                         style={{ backgroundColor: project.color }}
                       >
                         {getProjectBadgeLabel(project)}
                       </span>
-                      {project.name}
+                      <span className="min-w-0 truncate">{project.name}</span>
                     </>
                   ) : (
                     <>
-                      <FolderSearch className="h-3.5 w-3.5" />
+                      <FolderSearch className="h-3.5 w-3.5 shrink-0" />
                       <span className="text-zinc-500">No Project</span>
                     </>
                   )}
