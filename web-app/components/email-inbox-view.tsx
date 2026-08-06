@@ -85,6 +85,7 @@ import {
   isUnfiledInboxItem,
   listUnresolvedAiIntents,
   matchInboxTab,
+  selectTabFilteredInboxItems,
   type EmailInboxTab,
 } from "@/lib/email-inbox/inbox-tabs";
 import { EmailContactsView } from "@/components/email-contacts-view";
@@ -1934,6 +1935,12 @@ export function EmailInboxView({
       (item) => item.classification !== "spam",
     );
   }, [filteredInboxItems, inboxFilterTab, showSpamInInbox, view]);
+  // A search is in progress the moment the user has typed something, whether or
+  // not the debounced server search has come back yet. Category tabs stand down
+  // for the whole of it, so results never depend on which tab happened to be
+  // selected when the query was typed.
+  const isInboxSearchActive = inboxSearchQuery.trim().length > 0;
+
   // Load the user's custom inbox tabs (seeds defaults on first use) and select
   // the first tab (Known Contacts) by default.
   useEffect(() => {
@@ -1959,21 +1966,16 @@ export function EmailInboxView({
   // assignment (item.inboxTabId, set by dragging an email onto a tab) is a
   // "move": that thread appears ONLY under its assigned tab — hidden from other
   // category tabs and from "All" — overriding rule-based matching.
-  const tabFilteredInboxItems = useMemo(() => {
-    const tab = inboxTabs.find((t) => t.id === selectedInboxTabId);
-    if (!tab) {
-      // "All": only unfiled threads — neither explicitly moved onto a tab nor
-      // matching any tab's rules. Filed mail lives under its tab, not both.
-      return spamGatedInboxItems.filter((item) =>
-        isUnfiledInboxItem(item, inboxTabs),
-      );
-    }
-    return spamGatedInboxItems.filter((item) =>
-      item.inboxTabId
-        ? item.inboxTabId === tab.id
-        : matchInboxTab(item, tab.rules),
-    );
-  }, [spamGatedInboxItems, inboxTabs, selectedInboxTabId]);
+  const tabFilteredInboxItems = useMemo(
+    () =>
+      selectTabFilteredInboxItems({
+        items: spamGatedInboxItems,
+        tabs: inboxTabs,
+        selectedTabId: selectedInboxTabId,
+        isSearching: isInboxSearchActive,
+      }),
+    [spamGatedInboxItems, inboxTabs, selectedInboxTabId, isInboxSearchActive],
+  );
 
   // Per-tab counts shown as "unread/total", mirroring the sidebar folders. Both
   // tab rows count from the same set the tabs themselves filter, so a badge can
@@ -6653,7 +6655,7 @@ export function EmailInboxView({
                         </Tooltip>
                       </div>
                       </div>
-                          {isInboxView ? (
+                          {isInboxView && !isInboxSearchActive ? (
                             <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                               <Tooltip
                                 content={`${inboxTabCounts.all.unread} unread of ${inboxTabCounts.all.total} in All`}
@@ -6764,6 +6766,17 @@ export function EmailInboxView({
                               >
                                 <Plus className="h-3.5 w-3.5" />
                               </button>
+                            </div>
+                          ) : isInboxView ? (
+                            /* Tabs are inert during a search — showing them
+                               selected would imply the results were narrowed by
+                               the active category, which is exactly the
+                               confusion this replaces. */
+                            <div className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950/70 px-2 py-1 text-xs text-zinc-400">
+                              <Search className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                              <span className="truncate">
+                                Searching all tabs
+                              </span>
                             </div>
                           ) : null}
                     </div>

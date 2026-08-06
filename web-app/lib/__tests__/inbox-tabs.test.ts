@@ -5,6 +5,7 @@ import {
   aiIntentKey,
   isUnfiledInboxItem,
   listUnresolvedAiIntents,
+  selectTabFilteredInboxItems,
 } from "../email-inbox/inbox-tabs";
 import type { InboxItem, InboxParticipant } from "../types";
 
@@ -123,4 +124,73 @@ test("listUnresolvedAiIntents returns only pairs with no cached verdict", () => 
 
 test("listUnresolvedAiIntents is empty when no tab uses an AI condition", () => {
   assert.deepEqual(listUnresolvedAiIntents([item()], TABS), []);
+});
+
+// Regression: a Jul 24 email from a known sender was reported "missing" from
+// the inbox. It was never missing — its subject contained "invoice", so it was
+// filed under Receipts, and the search was run from the "All" (really
+// "unfiled") tab, which discarded it. Search must span every tab.
+const RECEIPTS_TAB = {
+  id: "tab-receipts",
+  rules: {
+    matchMode: "any" as const,
+    conditions: [
+      {
+        field: "subject" as const,
+        operator: "contains" as const,
+        value: "invoice",
+      },
+    ],
+  },
+};
+
+const UNFILED = item({
+  id: "unfiled",
+  subject: "Re: Audit & Proposal",
+  participants: from("sales@jacoblab.com"),
+});
+const FILED_UNDER_RECEIPTS = item({
+  id: "filed",
+  subject: "Re: Invoice for Final Installment",
+  participants: from("sales@jacoblab.com"),
+});
+
+test("All tab shows only unfiled threads when not searching", () => {
+  const result = selectTabFilteredInboxItems({
+    items: [UNFILED, FILED_UNDER_RECEIPTS],
+    tabs: [RECEIPTS_TAB],
+    selectedTabId: null,
+    isSearching: false,
+  });
+  assert.deepEqual(result.map((i) => i.id), ["unfiled"]);
+});
+
+test("searching from the All tab returns filed threads too", () => {
+  const result = selectTabFilteredInboxItems({
+    items: [UNFILED, FILED_UNDER_RECEIPTS],
+    tabs: [RECEIPTS_TAB],
+    selectedTabId: null,
+    isSearching: true,
+  });
+  assert.deepEqual(result.map((i) => i.id), ["unfiled", "filed"]);
+});
+
+test("searching from a category tab also spans every tab", () => {
+  const result = selectTabFilteredInboxItems({
+    items: [UNFILED, FILED_UNDER_RECEIPTS],
+    tabs: [RECEIPTS_TAB],
+    selectedTabId: "tab-receipts",
+    isSearching: true,
+  });
+  assert.deepEqual(result.map((i) => i.id), ["unfiled", "filed"]);
+});
+
+test("a category tab still filters normally when not searching", () => {
+  const result = selectTabFilteredInboxItems({
+    items: [UNFILED, FILED_UNDER_RECEIPTS],
+    tabs: [RECEIPTS_TAB],
+    selectedTabId: "tab-receipts",
+    isSearching: false,
+  });
+  assert.deepEqual(result.map((i) => i.id), ["filed"]);
 });
