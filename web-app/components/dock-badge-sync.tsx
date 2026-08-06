@@ -7,6 +7,7 @@ import { useUserProfile } from "@/lib/supabase/hooks";
 import {
   clearDockBadge,
   DOCK_BADGE_PROMPT_STORAGE_KEY,
+  hasDockBadgeLiveSource,
   publishDockBadgeCount,
   shouldPromptForBadgePermission,
   shouldSyncDockBadge,
@@ -15,6 +16,10 @@ import {
 const POLL_INTERVAL_MS = 30 * 1000;
 
 async function fetchAndPublishBadge() {
+  // Stand down while the email inbox view is mounted — it publishes the same
+  // count live from in-memory state, and two writers racing on document.title
+  // is what made the tab title flicker between counts during triage.
+  if (hasDockBadgeLiveSource()) return;
   try {
     const response = await fetch("/api/email/unread-count", {
       credentials: "include",
