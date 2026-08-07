@@ -103,7 +103,7 @@ export function DeleteProjectModal({
         {step === 'choose' && (
           <>
             <DialogHeader>
-              <DialogTitle>Delete "{project?.name}"</DialogTitle>
+              <DialogTitle>Delete &ldquo;{project?.name}&rdquo;</DialogTitle>
               <DialogDescription className="text-zinc-400">
                 This project has {tasks.length} task{tasks.length !== 1 ? 's' : ''}. What would you like to do?
               </DialogDescription>
@@ -237,7 +237,7 @@ export function DeleteProjectModal({
             <DialogHeader>
               <DialogTitle>Confirm Deletion</DialogTitle>
               <DialogDescription className="text-zinc-400">
-                This will move "{project?.name}" and all {tasks.length} task{tasks.length !== 1 ? 's' : ''} in it to the Trash. You can restore it from there, or permanently delete it later.
+                This will move &ldquo;{project?.name}&rdquo; and all {tasks.length} task{tasks.length !== 1 ? 's' : ''} in it to the Trash. You can restore it from there, or permanently delete it later.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="mt-2">

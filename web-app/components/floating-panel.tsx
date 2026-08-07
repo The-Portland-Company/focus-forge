@@ -9,18 +9,24 @@ import {
   PanelLeft,
   PanelRight,
   PanelTop,
-  Square,
   X,
 } from "lucide-react";
+import { useModalWindow } from "@/components/ui/modal-window";
 
 /**
- * Reusable floating panel: drag by the header, minimize to the title bar, and
- * (optionally) dock to the left/right edge of the viewport. Rendered in a
- * portal with no backdrop so the page underneath stays usable.
+ * Reusable floating panel: drag by the header, minimize into the shared window
+ * dock, and (optionally) dock to an edge of the viewport. Rendered in a portal
+ * with no backdrop so the page underneath stays usable.
  *
  * Extracted from the spam explainability modal (PR #81) so the Linked Tasks
  * pop-out and any future floating panel share one drag implementation — fix a
  * drag bug once, not per panel.
+ *
+ * Positioning stays local: a panel is free-dragged to absolute coordinates or
+ * pinned to an edge, which the modal hook's centre-plus-offset model does not
+ * describe. Minimize is the shared part — a minimized panel goes to the same
+ * dock as every modal rather than leaving an orphaned title bar floating over
+ * the page, so there is one place to find anything you set aside.
  */
 
 export type FloatingPanelDock = "left" | "right" | "top" | "bottom" | null;
@@ -50,8 +56,12 @@ export function FloatingPanel({
 }) {
   // `pos === null` renders centered (or docked); once dragged it is absolute.
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-  const [minimized, setMinimized] = useState(false);
   const [dock, setDock] = useState<FloatingPanelDock>(initialDock);
+  const { minimized, minimize, restore } = useModalWindow({
+    title,
+    open,
+    onRequestClose: onClose,
+  });
   const dragState = useRef<{
     startX: number;
     startY: number;
@@ -64,7 +74,7 @@ export function FloatingPanel({
 
   useEffect(() => {
     setPos(null);
-    setMinimized(false);
+    restore();
     setDock(initialDock);
     // initialDock is a plain prop default; resetKey drives the reset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -114,7 +124,8 @@ export function FloatingPanel({
     setDock((current) => (current === side ? null : side));
   };
 
-  if (!open) return null;
+  // Minimized panels live in the shared dock, which owns restoring them.
+  if (!open || minimized) return null;
 
   const style: React.CSSProperties = dock
     ? dock === "left" || dock === "right"
@@ -204,16 +215,12 @@ export function FloatingPanel({
           ) : null}
           <button
             type="button"
-            onClick={() => setMinimized((m) => !m)}
-            aria-label={minimized ? "Restore" : "Minimize"}
-            title={minimized ? "Restore" : "Minimize"}
+            onClick={minimize}
+            aria-label="Minimize"
+            title="Minimize"
             className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
           >
-            {minimized ? (
-              <Square className="h-3.5 w-3.5" />
-            ) : (
-              <Minus className="h-4 w-4" />
-            )}
+            <Minus className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -225,9 +232,7 @@ export function FloatingPanel({
           </button>
         </div>
 
-        {minimized ? null : (
-          <div className="overflow-y-auto">{children}</div>
-        )}
+        <div className="overflow-y-auto">{children}</div>
       </div>
     </div>,
     document.body,
