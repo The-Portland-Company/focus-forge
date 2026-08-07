@@ -56,6 +56,9 @@ export function TaskModalStack({
   const [trail, setTrail] = useState<Task[]>([]);
   // Popped entries kept so "forward" can retrace without re-expanding.
   const [forward, setForward] = useState<Task[]>([]);
+  // The inner TaskModal renders nothing while minimized, so the stack must
+  // also drop its backdrop and peek cards or they scrim an empty page.
+  const [minimized, setMinimized] = useState(false);
 
   const reset = useCallback(() => {
     setTrail([]);
@@ -132,14 +135,23 @@ export function TaskModalStack({
     ) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div
+      className={
+        minimized
+          ? "pointer-events-none fixed inset-0 z-50"
+          : "fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      }
+    >
       <div className="relative flex h-full w-full items-center justify-center">
         {/* Cards fan out to the left behind the active modal: each parent shows
             roughly 5% of its width sticking out, with its own shadow so the
             layers read as separate sheets rather than one thick edge. Depth is
             capped so a deep trail doesn't march off the viewport — beyond that
             the deck just looks the same. */}
-        {Array.from({ length: Math.min(depth, MAX_VISIBLE_CARDS) }).map(
+        {(minimized
+          ? []
+          : Array.from({ length: Math.min(depth, MAX_VISIBLE_CARDS) })
+        ).map(
           (_, index) => {
             // level 1 = immediately behind the active modal.
             const level = Math.min(depth, MAX_VISIBLE_CARDS) - index;
@@ -189,6 +201,7 @@ export function TaskModalStack({
           stackHeaderExtra={pager}
           renderInStack
           stackZIndex={activeZIndex}
+          onMinimizedChange={setMinimized}
         />
       </div>
     </div>

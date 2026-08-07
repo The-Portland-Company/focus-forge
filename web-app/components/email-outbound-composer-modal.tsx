@@ -7,7 +7,6 @@ import {
   ImageIcon,
   Loader2,
   MailPlus,
-  Minus,
   Paperclip,
   Save,
   SendHorizontal,
@@ -181,10 +180,6 @@ export function EmailOutboundComposerModal({
   const [importingAttachment, setImportingAttachment] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Minimizing keeps this component mounted (and therefore every field intact)
-  // while hiding the dialog behind a restore bar — closing it would wipe the
-  // draft state, which is exactly what minimize is meant to avoid.
-  const [minimized, setMinimized] = useState(false);
   // What closing an unsent composer does; "ask" shows the confirm layer below.
   const [closeAction, setCloseAction] =
     useState<ComposerCloseAction>("ask");
@@ -224,7 +219,6 @@ export function EmailOutboundComposerModal({
       setStatusMessage(null);
       setSendProgress(null);
       setImportingAttachment(false);
-      setMinimized(false);
       setClosePromptOpen(false);
       setRememberCloseChoice(false);
       return;
@@ -726,9 +720,8 @@ export function EmailOutboundComposerModal({
   };
 
   return (
-    <>
     <Dialog
-      open={open && !minimized}
+      open={open}
       onOpenChange={(next) => {
         if (next) {
           onOpenChange(true);
@@ -737,16 +730,13 @@ export function EmailOutboundComposerModal({
         requestClose();
       }}
     >
-      <DialogContent className="border-zinc-800 bg-zinc-950 text-zinc-100 sm:max-w-4xl">
-        <button
-          type="button"
-          onClick={() => setMinimized(true)}
-          aria-label="Minimize"
-          title="Minimize"
-          className="absolute right-11 top-4 rounded-sm text-zinc-400 opacity-70 transition-opacity hover:text-white hover:opacity-100 focus:outline-none"
-        >
-          <Minus className="h-4 w-4" />
-        </button>
+      <DialogContent
+        className="border-zinc-800 bg-zinc-950 text-zinc-100 sm:max-w-4xl"
+        // Minimized drafts dock by subject, so a half-written email is
+        // findable among several minimized windows.
+        windowTitle={subject.trim() || "New Email"}
+        onRequestClose={requestClose}
+      >
         <DialogTitle>New Email</DialogTitle>
         <DialogDescription className="text-zinc-400">
           Create a new outbound email from a connected mailbox.
@@ -1134,31 +1124,5 @@ export function EmailOutboundComposerModal({
         ) : null}
       </DialogContent>
     </Dialog>
-
-    {open && minimized ? (
-      <div className="fixed bottom-4 right-4 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 shadow-xl">
-        <MailPlus className="h-4 w-4 shrink-0 text-zinc-400" />
-        <button
-          type="button"
-          onClick={() => setMinimized(false)}
-          className="min-w-0 truncate text-sm text-zinc-100 hover:text-white"
-        >
-          {subject.trim() || "New Email"}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setMinimized(false);
-            requestClose();
-          }}
-          aria-label="Close composer"
-          title="Close composer"
-          className="shrink-0 rounded-md border border-zinc-700 bg-zinc-950 p-1 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-    ) : null}
-    </>
   );
 }

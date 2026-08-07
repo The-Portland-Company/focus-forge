@@ -29,7 +29,9 @@ export function ConfirmModal({
 }: ConfirmModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-zinc-900 border-zinc-800">
+      {/* A confirmation is a blocking yes/no — minimizing it would strand the
+          decision it is waiting on, so it stays modal. */}
+      <DialogContent className="bg-zinc-900 border-zinc-800" minimizable={false}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="text-zinc-400">

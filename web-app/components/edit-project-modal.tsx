@@ -350,7 +350,10 @@ export function EditProjectModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="bg-zinc-900 border-zinc-800 max-w-3xl max-h-[90vh] overflow-y-auto"
+        windowTitle={project ? `Edit ${project.name}` : "Edit Project"}
+      >
         <form onSubmit={handleSubmit} className="space-y-6">
           <DialogHeader>
             <DialogTitle>Edit Project</DialogTitle>

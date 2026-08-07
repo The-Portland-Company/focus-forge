@@ -474,7 +474,9 @@ export function EstimateReviewModal({
         if (!o) finish();
       }}
     >
-      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-xl [&>button.absolute]:rounded-full [&>button.absolute]:border [&>button.absolute]:border-zinc-700 [&>button.absolute]:bg-zinc-800 [&>button.absolute]:p-1.5 [&>button.absolute]:text-zinc-300 [&>button.absolute]:opacity-100 [&>button.absolute]:transition-colors [&>button.absolute]:hover:border-zinc-500 [&>button.absolute]:hover:bg-zinc-700 [&>button.absolute]:hover:text-white">
+      <DialogContent
+        windowTitle="Estimate tasks"
+        className="bg-zinc-900 border-zinc-800 max-w-xl [&>button.absolute]:rounded-full [&>button.absolute]:border [&>button.absolute]:border-zinc-700 [&>button.absolute]:bg-zinc-800 [&>button.absolute]:p-1.5 [&>button.absolute]:text-zinc-300 [&>button.absolute]:opacity-100 [&>button.absolute]:transition-colors [&>button.absolute]:hover:border-zinc-500 [&>button.absolute]:hover:bg-zinc-700 [&>button.absolute]:hover:text-white">
         <DialogHeader>
           <DialogTitle>
             <span className="inline-flex items-center gap-2 text-white">
@@ -725,7 +727,11 @@ export function EstimateReviewModal({
         open={recurringDeleteOpen}
         onOpenChange={(o) => !deleting && setRecurringDeleteOpen(o)}
       >
-        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-md">
+        {/* Destructive confirmation — not minimizable (see confirm-modal). */}
+        <DialogContent
+          className="bg-zinc-900 border-zinc-800 max-w-md"
+          minimizable={false}
+        >
           <DialogHeader>
             <DialogTitle className="text-white">Delete recurring task</DialogTitle>
           </DialogHeader>
@@ -811,7 +817,11 @@ export function EstimateReviewModal({
         open={confirmDeleteProjectOpen}
         onOpenChange={(o) => !deletingProject && setConfirmDeleteProjectOpen(o)}
       >
-        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-md">
+        {/* Destructive confirmation — not minimizable (see confirm-modal). */}
+        <DialogContent
+          className="bg-zinc-900 border-zinc-800 max-w-md"
+          minimizable={false}
+        >
           <DialogHeader>
             <DialogTitle className="text-white">Delete project?</DialogTitle>
           </DialogHeader>

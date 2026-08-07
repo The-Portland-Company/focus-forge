@@ -27,7 +27,9 @@ export interface EstimateHelpModalProps {
 export function EstimateHelpModal({ isOpen, onClose }: EstimateHelpModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-lg text-zinc-200 [&>button.absolute]:rounded-full [&>button.absolute]:border [&>button.absolute]:border-zinc-700 [&>button.absolute]:bg-zinc-800 [&>button.absolute]:p-1.5 [&>button.absolute]:text-zinc-300 [&>button.absolute]:opacity-100 [&>button.absolute]:transition-colors [&>button.absolute]:hover:border-zinc-500 [&>button.absolute]:hover:bg-zinc-700 [&>button.absolute]:hover:text-white">
+      <DialogContent
+        windowTitle="How AI estimates are made"
+        className="bg-zinc-900 border-zinc-800 max-w-lg text-zinc-200 [&>button.absolute]:rounded-full [&>button.absolute]:border [&>button.absolute]:border-zinc-700 [&>button.absolute]:bg-zinc-800 [&>button.absolute]:p-1.5 [&>button.absolute]:text-zinc-300 [&>button.absolute]:opacity-100 [&>button.absolute]:transition-colors [&>button.absolute]:hover:border-zinc-500 [&>button.absolute]:hover:bg-zinc-700 [&>button.absolute]:hover:text-white">
         <DialogHeader>
           <DialogTitle>
             <span className="inline-flex items-center gap-2 text-white">

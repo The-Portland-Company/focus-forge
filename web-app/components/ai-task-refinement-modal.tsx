@@ -139,7 +139,10 @@ export function AiTaskRefinementModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => (!o ? onClose() : undefined)}>
-      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-md">
+      <DialogContent
+        className="bg-zinc-900 border-zinc-800 max-w-md"
+        windowTitle="Why the AI created this task"
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-violet-400" />
