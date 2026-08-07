@@ -82,6 +82,10 @@ import { DragToTabModal } from "@/components/drag-to-tab-modal";
 import { EmailAssignProjectModal } from "@/components/email-assign-project-modal";
 import { QuarantineRulesModal } from "@/components/quarantine-rules-modal";
 import {
+  describeDepartures,
+  listExplainedDepartures,
+} from "@/lib/email-inbox/thread-departures";
+import {
   isUnfiledInboxItem,
   listUnresolvedAiIntents,
   matchInboxTab,
@@ -1809,6 +1813,9 @@ export function EmailInboxView({
   // Last-loaded conversation per thread, so reopening one is instant.
   const threadDetailCacheRef = useRef<Map<string, any>>(new Map());
   const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
+  /** thread id → epoch ms the user last acted on it, so a status change the
+   *  server makes moments later can be attributed and explained. */
+  const touchedThreadsRef = useRef<Map<string, number>>(new Map());
   // Orders concurrent /api/email/inbox reads so a stale response can never
   // overwrite a newer one (see lib/email-inbox/snapshot-sequence).
   const inboxSnapshotSequenceRef = useRef(createSnapshotSequence());
@@ -2704,6 +2711,24 @@ export function EmailInboxView({
       }).forEach((item) => {
         dispatchBrowserNotification(item);
       });
+    }
+
+    // Explain any just-touched thread that the server moved out of the inbox on
+    // its own (reprocessThread re-runs rules + AI on assign and can land on
+    // quarantine/archived/resolved). The row is still allowed to leave — it no
+    // longer belongs here — but it must not leave silently.
+    const departures = listExplainedDepartures({
+      previousItems: inboxSnapshotRef.current,
+      nextItems,
+      touchedAt: touchedThreadsRef.current,
+      nowMs: Date.now(),
+    });
+    const departureMessage = describeDepartures(departures);
+    if (departureMessage) {
+      departures.forEach((departure) =>
+        touchedThreadsRef.current.delete(departure.threadId),
+      );
+      updateStatus(departureMessage);
     }
 
     inboxSnapshotRef.current = nextItems;
@@ -4695,6 +4720,11 @@ export function EmailInboxView({
 
   const handleProjectAssign = async (threadId: string, projectId: string) => {
     if (!threadId) return;
+
+    // Assigning triggers a server-side reprocess that can reclassify the thread
+    // straight out of the inbox. Remember the interaction so the next snapshot
+    // can say where it went instead of the row just disappearing.
+    touchedThreadsRef.current.set(threadId, Date.now());
 
     // Optimistic: reflect the assignment in local state immediately so the row
     // updates without waiting on the round-trip. Snapshot prior state to revert
