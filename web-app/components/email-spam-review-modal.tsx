@@ -512,7 +512,9 @@ export function EmailSpamReviewModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="inset-0 left-0 top-0 h-[100dvh] max-h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 border-zinc-800 bg-zinc-950 p-0 text-white sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[92vh] sm:w-[min(96vw,1440px)] sm:max-w-[96vw] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border">
+      <DialogContent
+        windowTitle="AI + Spam Review"
+        className="inset-0 left-0 top-0 h-[100dvh] max-h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 border-zinc-800 bg-zinc-950 p-0 text-white sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[92vh] sm:w-[min(96vw,1440px)] sm:max-w-[96vw] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border">
         <div className="border-b border-zinc-800 px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>

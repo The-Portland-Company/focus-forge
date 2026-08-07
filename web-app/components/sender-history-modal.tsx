@@ -99,7 +99,10 @@ export function SenderHistoryModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-3xl overflow-hidden border-zinc-800 bg-zinc-950 p-0 text-zinc-100">
+      <DialogContent
+        className="max-h-[85vh] max-w-3xl overflow-hidden border-zinc-800 bg-zinc-950 p-0 text-zinc-100"
+        windowTitle={senderName || senderEmail || "Sender history"}
+      >
         <div className="border-b border-zinc-800 px-6 py-5">
           <DialogTitle className="text-left text-xl text-white">
             {senderName || senderEmail || "Sender history"}

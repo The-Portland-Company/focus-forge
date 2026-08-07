@@ -218,6 +218,12 @@ interface TaskModalProps {
   ) => Promise<Task | null>;
   /** Rendered in the modal header, e.g. the stack's back/forward pager. */
   stackHeaderExtra?: ReactNode;
+  /**
+   * Fires when this modal is minimized or restored. The stack wrapper uses it
+   * to drop its own backdrop and peek cards — otherwise minimizing a stacked
+   * task would leave a scrim over an empty page.
+   */
+  onMinimizedChange?: (minimized: boolean) => void;
 }
 
 export function TaskModal({
@@ -242,16 +248,22 @@ export function TaskModal({
   onExpandSubtask,
   onRequestSaveForExpand,
   stackHeaderExtra,
+  onMinimizedChange,
 }: TaskModalProps) {
-  const modalWindow = useModalWindow({
-    title: "Task",
-    onRequestClose: onClose,
-  });
   const isEditMode = !!task;
   const { user: authUser } = useAuth();
   const titleInputId = useId();
   const descriptionInputId = useId();
   const [taskName, setTaskName] = useState("");
+  // Declared after taskName so the dock entry is labelled with the task being
+  // edited rather than a generic "Task".
+  const modalWindow = useModalWindow({
+    title: taskName.trim() || (isEditMode ? "Task" : "New task"),
+    onRequestClose: onClose,
+  });
+  useEffect(() => {
+    onMinimizedChange?.(modalWindow.minimized);
+  }, [modalWindow.minimized, onMinimizedChange]);
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState<string>("");

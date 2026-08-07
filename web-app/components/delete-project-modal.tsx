@@ -95,7 +95,11 @@ export function DeleteProjectModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-md">
+      {/* Destructive confirmation — not minimizable (see confirm-modal). */}
+      <DialogContent
+        className="bg-zinc-900 border-zinc-800 max-w-md"
+        minimizable={false}
+      >
         {step === 'choose' && (
           <>
             <DialogHeader>

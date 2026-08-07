@@ -67,8 +67,14 @@ const DialogContent = React.forwardRef<
     windowTitle?: string
     /** Opt out of minimize (confirmations, alerts). */
     minimizable?: boolean
+    /** Lets the dock close this dialog without restoring it first. Omit when
+     *  closing is only meaningful from inside the dialog. */
+    onRequestClose?: () => void
   }
->(({ className, children, windowTitle, minimizable = true, ...props }, ref) => {
+>((
+  { className, children, windowTitle, minimizable = true, onRequestClose, ...props },
+  ref,
+) => {
   const {
     minimized,
     minimize,
@@ -77,7 +83,7 @@ const DialogContent = React.forwardRef<
   } = useModalWindow({
     title: windowTitle || "Window",
     minimizable,
-    onRequestClose: undefined,
+    onRequestClose,
   })
 
   useBodyInteractivityWhileMinimized(minimized)

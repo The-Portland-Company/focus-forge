@@ -42,7 +42,10 @@ export function EditOrganizationModal({ isOpen, onClose, organization, onUpdate 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-zinc-900 border-zinc-800">
+      <DialogContent
+        className="bg-zinc-900 border-zinc-800"
+        windowTitle="Edit Organization"
+      >
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>Edit Organization</DialogTitle>

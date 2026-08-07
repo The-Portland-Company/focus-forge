@@ -179,7 +179,7 @@ export function NavTasksBadge({
       </Popover.Root>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-xl" windowTitle={`${name} · ${kind} tasks`}>
           <DialogHeader>
             <DialogTitle className="capitalize">
               {name}
