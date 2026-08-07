@@ -275,6 +275,39 @@ export function isUnfiledInboxItem(
   return !tabs.some((tab) => matchInboxTab(item, tab.rules));
 }
 
+/**
+ * The list a category tab should show.
+ *
+ * `isSearching` is the important parameter. The "All" pseudo-tab is really
+ * "unfiled", so running a search from it used to drop every match that had been
+ * filed under Receipts / Newsletters / Transactional / Known Contacts — the
+ * query found them, the tab discarded them, and the inbox looked like it had
+ * lost mail (a Jul 24 email that was sitting under Receipts the whole time).
+ * A search therefore bypasses category filing entirely: you get every match,
+ * whichever tab it lives in. Pure helper — unit tested.
+ */
+export function selectTabFilteredInboxItems<
+  T extends { id: string; rules: InboxTabRules },
+>(params: {
+  items: InboxItem[];
+  tabs: T[];
+  selectedTabId: string | null;
+  isSearching: boolean;
+}): InboxItem[] {
+  const { items, tabs, selectedTabId, isSearching } = params;
+  if (isSearching) return items;
+
+  const tab = tabs.find((candidate) => candidate.id === selectedTabId);
+  if (!tab) {
+    return items.filter((item) => isUnfiledInboxItem(item, tabs));
+  }
+  return items.filter((item) =>
+    item.inboxTabId
+      ? item.inboxTabId === tab.id
+      : matchInboxTab(item, tab.rules),
+  );
+}
+
 // The defaults pre-seeded for every user. "Known Contacts" is first (and the
 // UI selects it by default).
 export const DEFAULT_INBOX_TABS: Array<{ name: string; rules: InboxTabRules }> = [

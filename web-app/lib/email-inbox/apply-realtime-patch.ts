@@ -54,6 +54,59 @@ function readString(value: unknown): string | null {
 }
 
 /**
+ * Shallow structural equality for the subset of `InboxItem` fields a realtime
+ * patch can touch. Arrays are compared element-wise (they are short id/label
+ * lists); `taskSuggestions` holds objects, so it falls back to JSON.
+ */
+function isSameFieldValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((value, index) => {
+      const other = b[index];
+      if (value === other) return true;
+      if (
+        value &&
+        other &&
+        typeof value === "object" &&
+        typeof other === "object"
+      ) {
+        return JSON.stringify(value) === JSON.stringify(other);
+      }
+      return false;
+    });
+  }
+  return false;
+}
+
+/**
+ * True when applying `patch` to `existing` would not change any rendered field.
+ *
+ * Assigning a project fires our own PUT plus a server-side `reprocessThread()`
+ * write, and each of those comes back to the originating client as a
+ * `postgres_changes` UPDATE. Without this check every echo produced a brand-new
+ * items array (new object identity for the row and the array), re-rendering the
+ * whole list for a patch that changed nothing — one of the visible "reload"
+ * flashes after a project assignment.
+ */
+function isNoopPatch(
+  existing: InboxItem,
+  patch: Partial<InboxItem>,
+): boolean {
+  return (Object.keys(patch) as (keyof InboxItem)[]).every((key) => {
+    // `updated_at` is bumped by every write, including writes that change
+    // nothing the list renders (an AI backfill re-saving identical values, the
+    // second write inside reprocessThread). Comparing it would defeat this
+    // check entirely. It is not rendered — `getInboxItemActivityTime` only
+    // falls back to it when every real timestamp is null — and the thread
+    // detail cache is invalidated by the realtime handler on every event
+    // regardless, so ignoring it here is safe.
+    if (key === "updatedAt") return true;
+    return isSameFieldValue(existing[key], patch[key]);
+  });
+}
+
+/**
  * Re-derive the full project id list so the primary `project_id` stays first
  * without dropping the extra links the caller already had loaded.
  */
@@ -212,6 +265,17 @@ export function applyEmailThreadRealtimeChange(params: {
   const patch = mapEmailThreadRowToInboxPatch(row);
   const merged: InboxItem = { ...existing, ...patch };
   merged.projectIds = mergeProjectIds(merged.projectId, existing.projectIds);
+
+  // Echo suppression: an event that would not change a single rendered field
+  // must not produce a new items array, otherwise every self-triggered write
+  // (our own PUT, then reprocessThread's follow-up write) re-renders the entire
+  // list for nothing.
+  if (
+    isNoopPatch(existing, patch) &&
+    isSameFieldValue(existing.projectIds, merged.projectIds)
+  ) {
+    return noop;
+  }
 
   const next = [...items];
   next[existingIndex] = merged;

@@ -108,6 +108,7 @@ export function GoalGroupShell({
 
   return (
     <div
+      data-goal-id={goal.id}
       className={`group/goal mt-2 rounded-lg border transition-colors ${
         isDragOver
           ? "border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))]/10"
