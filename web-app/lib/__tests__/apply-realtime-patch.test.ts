@@ -178,3 +178,65 @@ test("mapEmailThreadRowToInboxPatch maps snake_case to InboxItem fields", () => 
   assert.equal((patch as Record<string, unknown>).derivedTaskCount, undefined);
   assert.equal((patch as Record<string, unknown>).messageCount, undefined);
 });
+
+test("UPDATE that changes nothing rendered is suppressed (no re-render)", () => {
+  // The self-echo case: assigning a project fires our own PUT plus the
+  // server-side reprocessThread() write, and both come back as UPDATEs. An
+  // echo carrying identical values must not produce a new items array,
+  // otherwise the whole list re-renders for nothing.
+  const row = makeRow({ project_id: "p1" });
+  const items = [
+    makeItem({
+      ...mapEmailThreadRowToInboxPatch(row),
+      projectIds: ["p1"],
+      derivedTaskCount: 3,
+      messageCount: 5,
+    }),
+  ];
+
+  const result = applyEmailThreadRealtimeChange({
+    items,
+    change: { eventType: "UPDATE", new: row, old: row },
+  });
+
+  assert.equal(result.changed, false);
+  assert.equal(result.items, items, "items array identity must be preserved");
+  assert.equal(result.hydrateThreadId, null);
+  assert.equal(result.needsFullRefresh, false);
+});
+
+test("UPDATE differing only in updated_at is suppressed", () => {
+  const row = makeRow({ project_id: "p1" });
+  const items = [
+    makeItem({ ...mapEmailThreadRowToInboxPatch(row), projectIds: ["p1"] }),
+  ];
+
+  const result = applyEmailThreadRealtimeChange({
+    items,
+    change: {
+      eventType: "UPDATE",
+      new: makeRow({ project_id: "p1", updated_at: "2026-02-02T00:00:00Z" }),
+      old: row,
+    },
+  });
+
+  assert.equal(result.changed, false);
+  assert.equal(result.items, items);
+});
+
+test("UPDATE that adds a project link still applies", () => {
+  const items = [makeItem({ projectId: null, projectIds: [] })];
+
+  const result = applyEmailThreadRealtimeChange({
+    items,
+    change: {
+      eventType: "UPDATE",
+      new: makeRow({ project_id: "p1", needs_project: false }),
+      old: makeRow(),
+    },
+  });
+
+  assert.equal(result.changed, true);
+  assert.equal(result.items[0].projectId, "p1");
+  assert.deepEqual(result.items[0].projectIds, ["p1"]);
+});
