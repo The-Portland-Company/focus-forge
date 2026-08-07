@@ -290,6 +290,15 @@ const BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 30 * 1000;
 // When Supabase Realtime is connected it carries new-mail signals, so the
 // poll only needs to act as a slow safety net.
 const REALTIME_CONNECTED_POLL_INTERVAL_MS = 60 * 1000;
+
+/**
+ * How long after a click background snapshots wait before replacing the list.
+ *
+ * Long enough to cover the server round-trip and the reprocess write that
+ * follow an action, short enough that new mail still lands promptly. Only
+ * BACKGROUND snapshots settle — optimistic updates paint immediately.
+ */
+const INBOX_SETTLE_WINDOW_MS = 2500;
 const EMAIL_DETAIL_PANEL_DEFAULT_WIDTH = 380;
 const EMAIL_DETAIL_PANEL_MIN_WIDTH = 320;
 const EMAIL_DETAIL_PANEL_MAX_WIDTH = 720;
@@ -1816,6 +1825,12 @@ export function EmailInboxView({
   /** thread id → epoch ms the user last acted on it, so a status change the
    *  server makes moments later can be attributed and explained. */
   const touchedThreadsRef = useRef<Map<string, number>>(new Map());
+  /** Epoch ms of the user's last list interaction. Background snapshots settle
+   *  rather than re-sorting the list while they are still working in it. */
+  const lastInteractionAtRef = useRef<number>(0);
+  const deferredSnapshotRef = useRef<any>(null);
+  const settleTimerRef = useRef<number | null>(null);
+  const applyInboxSnapshotRef = useRef<((params: any) => void) | null>(null);
   // Orders concurrent /api/email/inbox reads so a stale response can never
   // overwrite a newer one (see lib/email-inbox/snapshot-sequence).
   const inboxSnapshotSequenceRef = useRef(createSnapshotSequence());
@@ -2657,6 +2672,28 @@ export function EmailInboxView({
     /** Monotonic id of the /api/email/inbox request this snapshot came from. */
     requestSeq?: number;
   }) => {
+    // Settle window. The IMAP worker and the 60s poll write continuously, so a
+    // snapshot that lands in the seconds after a click re-sorts the list, opens
+    // new day-group headers and splices in fresh arrivals — all while the user
+    // is still looking at the row they just acted on. In the reported recording
+    // that produced four separate batches of rows shoving the list down over
+    // 15s. Background snapshots are held briefly and the NEWEST one is applied
+    // once the user stops interacting; the optimistic path still paints
+    // immediately, so their own action is never delayed by this.
+    const sinceInteraction = Date.now() - lastInteractionAtRef.current;
+    if (sinceInteraction < INBOX_SETTLE_WINDOW_MS) {
+      deferredSnapshotRef.current = params;
+      if (settleTimerRef.current === null) {
+        settleTimerRef.current = window.setTimeout(() => {
+          settleTimerRef.current = null;
+          const deferred = deferredSnapshotRef.current;
+          deferredSnapshotRef.current = null;
+          if (deferred) applyInboxSnapshotRef.current?.(deferred);
+        }, INBOX_SETTLE_WINDOW_MS - sinceInteraction);
+      }
+      return;
+    }
+
     // Out-of-order guard. Deleting several emails in quick succession fires a
     // refresh per delete, so multiple /api/email/inbox reads are in flight at
     // once and can resolve in any order. A response issued BEFORE a later
@@ -2739,6 +2776,18 @@ export function EmailInboxView({
       nextItems.filter((item) => item.status === "quarantine").length,
     );
   };
+
+  applyInboxSnapshotRef.current = applyInboxSnapshot;
+
+  useEffect(
+    () => () => {
+      if (settleTimerRef.current !== null) {
+        window.clearTimeout(settleTimerRef.current);
+        settleTimerRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     replyAttachmentsRef.current = replyAttachments;
@@ -4096,6 +4145,10 @@ export function EmailInboxView({
     const threadId = options?.threadId ?? selectedThreadId;
     if (!threadId) return;
 
+    // Any deliberate action starts the settle window, so a background snapshot
+    // can't re-sort the list out from under the user mid-triage.
+    lastInteractionAtRef.current = Date.now();
+
     // Quarantine opens a rules-review modal first (shows the rules applied and
     // offers a quarantine rule); the modal re-invokes with skipQuarantinePrompt.
     if (action === "quarantine" && !options?.skipQuarantinePrompt) {
@@ -4725,6 +4778,7 @@ export function EmailInboxView({
     // straight out of the inbox. Remember the interaction so the next snapshot
     // can say where it went instead of the row just disappearing.
     touchedThreadsRef.current.set(threadId, Date.now());
+    lastInteractionAtRef.current = Date.now();
 
     // Optimistic: reflect the assignment in local state immediately so the row
     // updates without waiting on the round-trip. Snapshot prior state to revert
