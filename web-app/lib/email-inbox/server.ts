@@ -5646,6 +5646,45 @@ export async function processScheduledOutboundDrafts() {
 }
 
 /**
+ * Record a thread as a labeled spam/not-spam example for the k-NN classifier.
+ *
+ * Every place the user states a spam verdict has to call this, or the corpus
+ * never grows and `classifySpam` stays gated at zero confidence — a silent
+ * failure, because the click still looks like it worked.
+ *
+ * Best-effort: training must never break the action the user actually asked for.
+ */
+async function recordThreadSpamTrainingLabel(params: {
+  threadId: string;
+  thread: any;
+  mailbox: any;
+  label: "spam" | "not_spam";
+}) {
+  try {
+    const latestMessage = await getLatestThreadMessage(params.threadId);
+    if (!latestMessage) return;
+    const spamText = buildSpamInputText(
+      { subject: params.thread.subject },
+      {
+        subject: latestMessage.subject,
+        body_text: latestMessage.body_text,
+        senderEmail: buildRuleContext(params.mailbox, latestMessage).senderEmail,
+      },
+    );
+    await recordSpamLabel({
+      userId: params.mailbox.owner_user_id,
+      organizationId: params.mailbox.organization_id ?? undefined,
+      mailboxId: params.mailbox.id,
+      threadId: params.threadId,
+      text: spamText,
+      label: params.label,
+    });
+  } catch (e) {
+    console.error(`recordSpamLabel (${params.label}) failed:`, e);
+  }
+}
+
+/**
  * Point a provider call at the folder a message actually lives in.
  *
  * Every provider helper opens `mailbox.sync_folder`, and an IMAP uid is only
@@ -6046,6 +6085,32 @@ export async function applyThreadAction(params: {
       .update(update)
       .eq("id", params.threadId);
 
+    // Categorizing IS a spam verdict, and it is the control the Spam Review
+    // modal uses — so it has to train the classifier. Without this, every
+    // "classify as spam" click looked like it worked while teaching the model
+    // nothing, leaving the corpus one-sided and permanently gated at zero
+    // confidence. Moving a thread OFF spam is just as valuable a signal: it is
+    // the not_spam class the gate also requires.
+    const wasSpam =
+      thread.classification === "spam" ||
+      thread.status === "spam" ||
+      thread.status === "quarantine";
+    if (nextClassification === "spam") {
+      await recordThreadSpamTrainingLabel({
+        threadId: params.threadId,
+        thread,
+        mailbox,
+        label: "spam",
+      });
+    } else if (wasSpam) {
+      await recordThreadSpamTrainingLabel({
+        threadId: params.threadId,
+        thread,
+        mailbox,
+        label: "not_spam",
+      });
+    }
+
     return { success: true, classification: nextClassification };
   }
 
@@ -6289,33 +6354,12 @@ export async function applyThreadAction(params: {
   // Training-through-the-UI: a user marking a thread as spam is a labeled
   // example. Feed the k-NN model (best-effort — must never break the action).
   if (effectiveAction === "spam") {
-    try {
-      const latestMessage = await getLatestThreadMessage(params.threadId);
-      if (latestMessage) {
-        const mailboxScope = mailbox as unknown as {
-          owner_user_id: string;
-          organization_id: string | null;
-        };
-        const spamText = buildSpamInputText(
-          { subject: thread.subject },
-          {
-            subject: latestMessage.subject,
-            body_text: latestMessage.body_text,
-            senderEmail: buildRuleContext(mailbox, latestMessage).senderEmail,
-          },
-        );
-        await recordSpamLabel({
-          userId: mailboxScope.owner_user_id,
-          organizationId: mailboxScope.organization_id ?? undefined,
-          mailboxId: mailbox.id,
-          threadId: params.threadId,
-          text: spamText,
-          label: "spam",
-        });
-      }
-    } catch (e) {
-      console.error("recordSpamLabel (spam action) failed:", e);
-    }
+    await recordThreadSpamTrainingLabel({
+      threadId: params.threadId,
+      thread,
+      mailbox,
+      label: "spam",
+    });
   }
 
   return { success: true };
