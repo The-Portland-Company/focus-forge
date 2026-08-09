@@ -1125,6 +1125,134 @@ export async function applyMailboxThreadAction(params: {
   );
 }
 
+/**
+ * Find the IMAP folder that backs a category label, creating it when missing.
+ *
+ * On Gmail an IMAP folder IS a label, so creating "Receipts" creates the
+ * "Receipts" label and moving a message into it applies that label AND drops
+ * `\Inbox` — exactly the "label it, then take it out of the Inbox" behavior we
+ * want, in one operation. On plain IMAP servers there are no labels, so the
+ * same move files the message into a folder of that name, which is the closest
+ * faithful equivalent.
+ *
+ * Matching is case-insensitive against both the leaf name and the full path so
+ * we reuse a label the user already made (including one nested under a parent)
+ * instead of creating a near-duplicate beside it.
+ */
+type MailboxLabelCreator = MailboxLister & {
+  mailboxCreate: (path: string) => Promise<{ path?: string }>;
+};
+
+export async function resolveOrCreateLabelMailboxPath(
+  client: MailboxLabelCreator,
+  labelName: string,
+) {
+  const wanted = labelName.trim();
+  if (!wanted) return null;
+  const normalized = wanted.toLowerCase();
+
+  const listed = await client.list().catch(() => []);
+  for (const mailbox of listed) {
+    if (
+      mailbox.name.trim().toLowerCase() === normalized ||
+      mailbox.path.trim().toLowerCase() === normalized
+    ) {
+      return mailbox.path;
+    }
+  }
+
+  try {
+    const created = await client.mailboxCreate(wanted);
+    return created?.path || wanted;
+  } catch (error) {
+    // A racing sync (or another client) may have just created it; treat an
+    // already-exists as success and re-resolve rather than losing the move.
+    const listedAfter = await client.list().catch(() => []);
+    for (const mailbox of listedAfter) {
+      if (
+        mailbox.name.trim().toLowerCase() === normalized ||
+        mailbox.path.trim().toLowerCase() === normalized
+      ) {
+        return mailbox.path;
+      }
+    }
+    throw error;
+  }
+}
+
+/**
+ * Apply a category label to a thread's messages provider-side and take them out
+ * of the Inbox.
+ *
+ * This is the provider half of Focus's inbox tabs: once Forge decides an email
+ * is a Receipt / Newsletter / OTP / etc., the same decision is mirrored into
+ * Gmail (and any other IMAP client reading the same account) so the user's
+ * actual mailbox matches what they see here.
+ *
+ * Best-effort by design — the caller keeps the in-app categorization even if
+ * the provider move fails, so a flaky IMAP connection can never lose a filing.
+ */
+export async function applyMailboxThreadLabel(params: {
+  mailbox: MailboxTransportRow;
+  providerMessageIds: string[];
+  labelName: string;
+}): Promise<{
+  moved: boolean;
+  labelPath?: string;
+  uidMap: Map<string, string>;
+}> {
+  if (params.providerMessageIds.length === 0) {
+    return { moved: false, uidMap: new Map<string, string>() };
+  }
+
+  const uids = params.providerMessageIds
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  if (uids.length === 0) {
+    // Locally-composed messages the server has never echoed back have no UID to
+    // act on. Log rather than swallow so a genuinely broken mapping is visible.
+    console.warn(
+      `[email] applyMailboxThreadLabel(${params.labelName}): no numeric provider UID among`,
+      params.providerMessageIds,
+      "— skipping provider-side label",
+    );
+    return { moved: false, uidMap: new Map<string, string>() };
+  }
+
+  return withImapRetry(`thread-label:${params.labelName}`, () =>
+    withImapClient(params.mailbox, async (client) => {
+      const labelPath = await resolveOrCreateLabelMailboxPath(
+        client,
+        params.labelName,
+      );
+      const sourcePath = params.mailbox.sync_folder || "INBOX";
+      if (!labelPath || labelPath === sourcePath) {
+        return { moved: false, uidMap: new Map<string, string>() };
+      }
+      const result = await client.messageMove(uids.join(","), labelPath, {
+        uid: true,
+      });
+
+      // A UID only means anything inside one folder: the message gets a fresh
+      // uid in the label folder and its INBOX uid dies with the move. Servers
+      // with UIDPLUS (Gmail included) hand back the source→destination mapping,
+      // which the caller persists so attachments/read/delete keep working. When
+      // a server omits it we still report the move; the caller then knows only
+      // the folder changed and re-resolves by Message-ID on next need.
+      const uidMap = new Map<string, string>();
+      const rawMap = (result as { uidMap?: Map<number, number> })?.uidMap;
+      if (rawMap && typeof rawMap.forEach === "function") {
+        rawMap.forEach((destinationUid, sourceUid) => {
+          uidMap.set(String(sourceUid), String(destinationUid));
+        });
+      }
+
+      return { moved: true, labelPath, uidMap };
+    }),
+  );
+}
+
 export async function emptyMailboxTrash(mailbox: MailboxTransportRow) {
   const { client, release } = await acquireImapClient(mailbox);
 
