@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildMailboxSyncCursor,
   normalizeMailboxSyncCursor,
+  resolveOrCreateLabelMailboxPath,
   resolveSpecialMailboxPath,
   Semaphore,
 } from "../email-inbox/provider";
@@ -151,4 +152,81 @@ test("Semaphore releases waiters in FIFO order", async () => {
   sem.release(); // let the queue drain
   await Promise.all(waiters);
   assert.deepEqual(order, [1, 2, 3]);
+});
+
+// --- Category labels (inbox tabs mirrored into Gmail/IMAP) -------------------
+//
+// On Gmail a folder IS a label, so these paths decide which label an email gets
+// and whether we create a duplicate beside one the user already made.
+
+function labelClient(
+  paths: string[],
+  createImpl?: (path: string) => Promise<{ path?: string }>,
+) {
+  const created: string[] = [];
+  return {
+    created,
+    list: async () =>
+      paths.map((path) => ({
+        path,
+        name: path.split("/").pop() || path,
+      })),
+    mailboxCreate: async (path: string) => {
+      created.push(path);
+      if (createImpl) return createImpl(path);
+      paths.push(path);
+      return { path };
+    },
+  };
+}
+
+test("resolveOrCreateLabelMailboxPath reuses an existing label case-insensitively", async () => {
+  const client = labelClient(["INBOX", "Receipts"]);
+  assert.equal(
+    await resolveOrCreateLabelMailboxPath(client, "receipts"),
+    "Receipts",
+  );
+  assert.deepEqual(client.created, []);
+});
+
+test("resolveOrCreateLabelMailboxPath reuses a nested label by its leaf name", async () => {
+  const client = labelClient(["INBOX", "Focus/Newsletters"]);
+  assert.equal(
+    await resolveOrCreateLabelMailboxPath(client, "Newsletters"),
+    "Focus/Newsletters",
+  );
+  assert.deepEqual(client.created, []);
+});
+
+test("resolveOrCreateLabelMailboxPath creates the label when none exists", async () => {
+  const client = labelClient(["INBOX"]);
+  assert.equal(
+    await resolveOrCreateLabelMailboxPath(client, "OTPs/2FAs"),
+    "OTPs/2FAs",
+  );
+  assert.deepEqual(client.created, ["OTPs/2FAs"]);
+});
+
+test("resolveOrCreateLabelMailboxPath recovers when a racing client created the label first", async () => {
+  const paths = ["INBOX"];
+  const client = {
+    list: async () =>
+      paths.map((path) => ({ path, name: path.split("/").pop() || path })),
+    mailboxCreate: async (path: string) => {
+      // Simulate the server rejecting the create because another connection
+      // (another sync, or Gmail itself) just made the same label.
+      paths.push(path);
+      throw new Error("ALREADYEXISTS");
+    },
+  };
+  assert.equal(
+    await resolveOrCreateLabelMailboxPath(client, "Transactional"),
+    "Transactional",
+  );
+});
+
+test("resolveOrCreateLabelMailboxPath ignores a blank label rather than creating one", async () => {
+  const client = labelClient(["INBOX"]);
+  assert.equal(await resolveOrCreateLabelMailboxPath(client, "   "), null);
+  assert.deepEqual(client.created, []);
 });

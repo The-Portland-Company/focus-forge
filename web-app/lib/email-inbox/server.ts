@@ -58,6 +58,7 @@ import { encryptMailboxCredentials } from "@/lib/email-inbox/crypto";
 import {
   buildMailboxSyncCursor,
   applyMailboxThreadAction,
+  applyMailboxThreadLabel,
   emptyMailboxTrash,
   fetchMailboxAttachmentByProviderMessageId,
   fetchMailboxMessagesByProviderMessageIds,
@@ -70,6 +71,7 @@ import {
   type MailboxTransportRow,
 } from "@/lib/email-inbox/provider";
 import { MAILBOX_PROVIDER_PRESETS } from "@/lib/email-inbox/provider-presets";
+import { matchInboxTab } from "@/lib/email-inbox/inbox-tabs";
 import {
   hasApnsConfiguration,
   isApnsPermanentFailure,
@@ -1484,10 +1486,16 @@ async function mirrorProviderFolderState(params: {
   }
   const presentUids = new Set(folderUids);
 
+  // Threads Forge itself filed under a category label are deliberately no
+  // longer in the synced folder — that removal IS the feature. Without this
+  // guard the very next sync would read their absence as "the user archived it
+  // in Gmail" and archive them here too, yanking them out of the tab the user
+  // just filed them into.
   const { data: threadRows } = await admin
     .from("email_threads")
     .select("id")
     .eq("mailbox_id", params.mailboxId)
+    .is("provider_label_synced_at", null)
     .in("status", ["active", "needs_project"]);
 
   const threadIds = (threadRows ?? []).map((row: any) => String(row.id));
@@ -3535,6 +3543,22 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       pushNotificationCount += result.delivered;
     }
 
+    // Mirror each freshly-categorized thread into the provider: label it and
+    // take it out of the Inbox. Runs after analysis (so `classification` is
+    // settled) and only for threads this sync touched — never a sweep over the
+    // user's existing mail. Each thread is independently best-effort so one bad
+    // IMAP move can't fail the whole sync.
+    let providerLabeledThreadCount = 0;
+    if (mailbox.owner_user_id) {
+      for (const threadId of changedThreadIds) {
+        const labelResult = await mirrorThreadCategoryToProvider({
+          userId: String(mailbox.owner_user_id),
+          threadId,
+        }).catch(() => null);
+        if (labelResult?.labeled) providerLabeledThreadCount += 1;
+      }
+    }
+
     await admin
       .from("mailboxes")
       .update({
@@ -3564,6 +3588,7 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       syncedMessageCount: messages.length,
       changedThreadCount: changedThreadIds.size,
       pushNotificationCount,
+      providerLabeledThreadCount,
       archivedThreadCount: mirrorResult.archivedThreadCount,
     };
   } catch (error) {
@@ -3782,7 +3807,9 @@ export async function getThreadAttachmentForUser(
   const admin = getAdminClient();
   const { data: row } = await admin
     .from("email_messages")
-    .select("id,thread_id,mailbox_id,provider_message_id,metadata_json")
+    .select(
+      "id,thread_id,mailbox_id,provider_message_id,provider_folder_path,metadata_json",
+    )
     .eq("id", messageId)
     .maybeSingle();
 
@@ -3798,8 +3825,13 @@ export async function getThreadAttachmentForUser(
   await ensureThreadAccess(userId, String(row.thread_id));
   const mailbox = await ensureMailboxAccess(userId, String(row.mailbox_id));
 
+  // Open the folder the message actually lives in — a filed message's uid does
+  // not resolve in INBOX any more.
   const attachment = await fetchMailboxAttachmentByProviderMessageId(
-    mailbox as MailboxTransportRow,
+    mailboxForFolder(
+      mailbox as MailboxTransportRow,
+      row.provider_folder_path as string | null,
+    ),
     String(row.provider_message_id),
     attachmentIndex,
   );
@@ -5614,6 +5646,227 @@ export async function processScheduledOutboundDrafts() {
 }
 
 /**
+ * Point a provider call at the folder a message actually lives in.
+ *
+ * Every provider helper opens `mailbox.sync_folder`, and an IMAP uid is only
+ * meaningful inside one folder — so once a message has been filed under a
+ * category label, addressing it still requires opening that label's folder.
+ * A null path means the message never moved and INBOX is correct.
+ */
+function mailboxForFolder(
+  mailbox: MailboxTransportRow,
+  folderPath: string | null | undefined,
+): MailboxTransportRow {
+  if (!folderPath || folderPath === (mailbox.sync_folder || "INBOX")) {
+    return mailbox;
+  }
+  return { ...mailbox, sync_folder: folderPath };
+}
+
+/**
+ * A thread's provider messages bucketed by the folder they live in, so a
+ * thread whose mail is partly in INBOX and partly under a label is still acted
+ * on in full — one provider call per folder.
+ */
+async function groupThreadProviderMessagesByFolder(params: {
+  threadId: string;
+  mailbox: MailboxTransportRow;
+}): Promise<Array<{ mailbox: MailboxTransportRow; providerMessageIds: string[] }>> {
+  const admin = getAdminClient();
+  const { data: messages } = await admin
+    .from("email_messages")
+    .select("provider_message_id,provider_folder_path")
+    .eq("thread_id", params.threadId);
+
+  const byFolder = new Map<string, string[]>();
+  for (const message of messages || []) {
+    if (!message.provider_message_id) continue;
+    const key = message.provider_folder_path || "";
+    const bucket = byFolder.get(key) || [];
+    bucket.push(String(message.provider_message_id));
+    byFolder.set(key, bucket);
+  }
+
+  return Array.from(byFolder.entries()).map(([folderPath, providerMessageIds]) => ({
+    mailbox: mailboxForFolder(params.mailbox, folderPath || null),
+    providerMessageIds,
+  }));
+}
+
+/**
+ * Resolve the category label a thread belongs under, using the same rules the
+ * inbox UI uses: an explicit assignment wins, otherwise the first tab (in the
+ * user's own tab order) whose rules match.
+ *
+ * Returns null when the thread is unfiled — unfiled mail stays in the Inbox.
+ */
+async function resolveThreadCategoryLabel(params: {
+  userId: string;
+  threadRow: any;
+}): Promise<string | null> {
+  const admin = getAdminClient();
+  const { data: tabRows } = await admin
+    .from("email_inbox_tabs")
+    .select("id,name,rules_json,order_index")
+    .eq("user_id", params.userId)
+    .order("order_index", { ascending: true });
+
+  const tabs = tabRows || [];
+  if (tabs.length === 0) return null;
+
+  const explicitTabId = params.threadRow.inbox_tab_id
+    ? String(params.threadRow.inbox_tab_id)
+    : null;
+  if (explicitTabId) {
+    const assigned = tabs.find((tab: any) => String(tab.id) === explicitTabId);
+    return assigned ? String(assigned.name || "").trim() || null : null;
+  }
+
+  const { data: participantRows } = await admin
+    .from("email_participants")
+    .select("email_address,participant_role,contact_id,profile_id")
+    .eq("thread_id", params.threadRow.id);
+
+  // Only the fields `matchInboxTab` actually reads — this is a rules check, not
+  // a render, so there is no need to hydrate a full inbox item.
+  const item = {
+    id: String(params.threadRow.id),
+    classification: params.threadRow.classification ?? null,
+    subject: params.threadRow.subject ?? null,
+    previewText: params.threadRow.preview_text ?? null,
+    summaryText: params.threadRow.summary_text ?? null,
+    inboxTabId: null,
+    aiTabVerdicts:
+      params.threadRow.ai_tab_verdicts_json &&
+      typeof params.threadRow.ai_tab_verdicts_json === "object"
+        ? params.threadRow.ai_tab_verdicts_json
+        : {},
+    participants: (participantRows || []).map((row: any) => ({
+      emailAddress: row.email_address,
+      participantRole: row.participant_role,
+      contactId: row.contact_id ?? null,
+      profileId: row.profile_id ?? null,
+    })),
+  } as unknown as InboxItem;
+
+  for (const tab of tabs) {
+    const rules = tab.rules_json || { matchMode: "any", conditions: [] };
+    if (matchInboxTab(item, rules)) {
+      return String(tab.name || "").trim() || null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Mirror a thread's Focus category into the mail provider: give it a label of
+ * the same name and take it out of the Inbox.
+ *
+ * On Gmail both halves are one IMAP move (a folder IS a label, and moving drops
+ * `\Inbox`), so a thread Focus filed under "Receipts" shows up labeled Receipts
+ * and out of the Inbox in Gmail, the iPhone Mail app, and anything else reading
+ * the account.
+ *
+ * Best-effort and idempotent: the last pushed label is recorded on the thread so
+ * repeat syncs don't re-open IMAP for mail that is already filed, and any
+ * provider failure is logged without disturbing the in-app categorization.
+ */
+async function mirrorThreadCategoryToProvider(params: {
+  userId: string;
+  threadId: string;
+}) {
+  const admin = getAdminClient();
+
+  const { data: threadRow } = await admin
+    .from("email_threads")
+    .select(
+      "id,mailbox_id,subject,preview_text,summary_text,classification," +
+        "inbox_tab_id,ai_tab_verdicts_json,provider_label_name,status",
+    )
+    .eq("id", params.threadId)
+    .maybeSingle();
+
+  if (!threadRow) return { labeled: false as const };
+
+  // Spam and deleted mail already have their own provider destinations (Junk /
+  // Trash); re-filing them under a category label would pull them back out.
+  if (threadRow.status === "spam" || threadRow.status === "deleted") {
+    return { labeled: false as const };
+  }
+
+  const labelName = await resolveThreadCategoryLabel({
+    userId: params.userId,
+    threadRow,
+  });
+  if (!labelName) return { labeled: false as const };
+
+  if (threadRow.provider_label_name === labelName) {
+    return { labeled: false as const, alreadyLabeled: true };
+  }
+
+  const { data: mailbox } = await admin
+    .from("email_mailboxes")
+    .select("*")
+    .eq("id", threadRow.mailbox_id)
+    .maybeSingle();
+  if (!mailbox) return { labeled: false as const };
+
+  // Only messages still sitting in the synced folder can be moved out of it;
+  // anything already filed elsewhere has a uid scoped to that other folder.
+  const { data: messages } = await admin
+    .from("email_messages")
+    .select("id,provider_message_id,provider_folder_path")
+    .eq("thread_id", params.threadId)
+    .is("provider_folder_path", null);
+
+  const providerMessageIds = (messages || [])
+    .map((message: any) => message.provider_message_id)
+    .filter(Boolean);
+
+  try {
+    const result = await applyMailboxThreadLabel({
+      mailbox: mailbox as MailboxTransportRow,
+      providerMessageIds,
+      labelName,
+    });
+    if (!result?.moved) return { labeled: false as const };
+
+    // Repoint each moved message at its new home. The uid it had in INBOX is
+    // dead now, so leaving the rows untouched would break every later
+    // UID-addressed operation on this thread.
+    const labelPath = result.labelPath || labelName;
+    for (const message of messages || []) {
+      const newUid = result.uidMap?.get(String(message.provider_message_id));
+      await admin
+        .from("email_messages")
+        .update({
+          provider_folder_path: labelPath,
+          ...(newUid ? { provider_message_id: newUid } : {}),
+        })
+        .eq("id", message.id);
+    }
+  } catch (error) {
+    console.error(
+      `[email] mirrorThreadCategoryToProvider(${labelName}) failed:`,
+      error,
+    );
+    return { labeled: false as const };
+  }
+
+  await admin
+    .from("email_threads")
+    .update({
+      provider_label_name: labelName,
+      provider_label_synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.threadId);
+
+  return { labeled: true as const, labelName };
+}
+
+/**
  * Explicitly "move" a thread into an inbox tab (or clear the assignment with
  * null). An assigned thread renders ONLY under that tab — the client filter
  * hides it from other category tabs and from "All".
@@ -5633,6 +5886,17 @@ export async function setThreadInboxTab(params: {
     .update({ inbox_tab_id: params.tabId, updated_at: new Date().toISOString() })
     .eq("id", params.threadId);
   if (error) throw new Error(error.message);
+
+  // Push the same filing to the mail provider so Gmail (and every other client
+  // on the account) shows the label and drops the thread from the Inbox. Purely
+  // best-effort: the in-app move already succeeded above.
+  if (params.tabId) {
+    await mirrorThreadCategoryToProvider({
+      userId: params.userId,
+      threadId: params.threadId,
+    }).catch(() => {});
+  }
+
   return { ok: true };
 }
 
@@ -5698,6 +5962,27 @@ export async function applyThreadAction(params: {
   const providerMessageIds = (messages || [])
     .map((message: any) => message.provider_message_id)
     .filter(Boolean);
+
+  // Act on the thread wherever its mail actually sits. Messages Forge filed
+  // under a category label live in that label's folder now, and their uids only
+  // resolve there — so a thread split across INBOX and a label takes one
+  // provider call per folder rather than one call that silently misses half.
+  const runProviderAction = async (
+    action: "mark_read" | "archive" | "spam" | "delete",
+  ) => {
+    const groups = await groupThreadProviderMessagesByFolder({
+      threadId: params.threadId,
+      mailbox,
+    });
+    for (const group of groups) {
+      await applyMailboxThreadAction({
+        mailbox: group.mailbox,
+        providerMessageIds: group.providerMessageIds,
+        action,
+      });
+    }
+  };
+
   const effectiveAction =
     params.action === "always_delete_sender" ? "delete" : params.action;
 
@@ -5740,11 +6025,7 @@ export async function applyThreadAction(params: {
       // moves it in Focus. Best-effort: a provider hiccup must not fail the
       // in-app categorization.
       try {
-        await applyMailboxThreadAction({
-          mailbox,
-          providerMessageIds,
-          action: "spam",
-        });
+        await runProviderAction("spam");
       } catch (providerError) {
         console.error(
           "[email] categorize→spam provider move failed:",
@@ -5881,11 +6162,7 @@ export async function applyThreadAction(params: {
       action: params.action,
       phase: "server_start",
     });
-    await applyMailboxThreadAction({
-      mailbox,
-      providerMessageIds,
-      action: "mark_read",
-    });
+    await runProviderAction("mark_read");
     const { error: markReadError } = await admin
       .from("email_threads")
       .update({
@@ -5942,11 +6219,7 @@ export async function applyThreadAction(params: {
   // any drift on its next pass.
   let providerMoveError: string | null = null;
   try {
-    await applyMailboxThreadAction({
-      mailbox,
-      providerMessageIds,
-      action: effectiveAction as "archive" | "spam" | "delete",
-    });
+    await runProviderAction(effectiveAction as "archive" | "spam" | "delete");
   } catch (moveError) {
     providerMoveError =
       moveError instanceof Error ? moveError.message : String(moveError);
