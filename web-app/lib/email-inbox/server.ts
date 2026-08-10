@@ -3548,9 +3548,22 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
     // settled) and only for threads this sync touched — never a sweep over the
     // user's existing mail. Each thread is independently best-effort so one bad
     // IMAP move can't fail the whole sync.
+    //
+    // Spam takes the same trip to a different destination: mail the classifier
+    // flagged is pushed to the provider's Junk folder, so Gmail agrees with
+    // Focus instead of leaving detected spam sitting in the Inbox.
     let providerLabeledThreadCount = 0;
+    let providerSpamThreadCount = 0;
     if (mailbox.owner_user_id) {
       for (const threadId of changedThreadIds) {
+        const spamResult = await mirrorThreadSpamToProvider({
+          mailbox: transportMailbox,
+          threadId,
+        }).catch(() => null);
+        if (spamResult?.movedToJunk) {
+          providerSpamThreadCount += 1;
+          continue;
+        }
         const labelResult = await mirrorThreadCategoryToProvider({
           userId: String(mailbox.owner_user_id),
           threadId,
@@ -3589,6 +3602,7 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       changedThreadCount: changedThreadIds.size,
       pushNotificationCount,
       providerLabeledThreadCount,
+      providerSpamThreadCount,
       archivedThreadCount: mirrorResult.archivedThreadCount,
     };
   } catch (error) {
@@ -5646,6 +5660,13 @@ export async function processScheduledOutboundDrafts() {
 }
 
 /**
+ * Sentinel stored in `provider_label_name` for a thread pushed to the provider's
+ * Junk folder. Junk is a destination, not one of the user's category labels, so
+ * it needs a value that can never collide with a real tab name.
+ */
+const SPAM_PROVIDER_LABEL_MARKER = "__spam__";
+
+/**
  * Record a thread as a labeled spam/not-spam example for the k-NN classifier.
  *
  * Every place the user states a spam verdict has to call this, or the corpus
@@ -5903,6 +5924,78 @@ async function mirrorThreadCategoryToProvider(params: {
     .eq("id", params.threadId);
 
   return { labeled: true as const, labelName };
+}
+
+/**
+ * Push a thread the classifier flagged as spam into the provider's Junk folder.
+ *
+ * Marking spam by hand already did this. Auto-detected spam did not — it was
+ * only ever flagged inside Focus, so Gmail kept showing it in the Inbox. This
+ * closes that gap on the sync path.
+ *
+ * Idempotent via `provider_label_synced_at`, which doubles as the "this thread
+ * has been filed provider-side" marker for both spam and category labels — so a
+ * thread is never moved twice, and mirrorProviderFolderState knows not to read
+ * its absence from the Inbox as a user archive.
+ *
+ * Best-effort: a provider failure leaves the in-app spam verdict untouched.
+ */
+async function mirrorThreadSpamToProvider(params: {
+  mailbox: MailboxTransportRow;
+  threadId: string;
+}) {
+  const admin = getAdminClient();
+
+  const { data: threadRow } = await admin
+    .from("email_threads")
+    .select("id,status,classification,provider_label_name")
+    .eq("id", params.threadId)
+    .maybeSingle();
+
+  if (!threadRow) return { movedToJunk: false };
+
+  // Quarantine is the auto-detected state; "spam" is the settled one. Both mean
+  // "this is junk" as far as the mail account is concerned.
+  const isSpam =
+    threadRow.classification === "spam" &&
+    (threadRow.status === "spam" || threadRow.status === "quarantine");
+  if (!isSpam) return { movedToJunk: false };
+  if (threadRow.provider_label_name === SPAM_PROVIDER_LABEL_MARKER) {
+    return { movedToJunk: false, alreadyMoved: true };
+  }
+
+  const { data: messages } = await admin
+    .from("email_messages")
+    .select("provider_message_id")
+    .eq("thread_id", params.threadId)
+    .is("provider_folder_path", null);
+
+  const providerMessageIds = (messages || [])
+    .map((message: any) => message.provider_message_id)
+    .filter(Boolean);
+  if (providerMessageIds.length === 0) return { movedToJunk: false };
+
+  try {
+    await applyMailboxThreadAction({
+      mailbox: params.mailbox,
+      providerMessageIds,
+      action: "spam",
+    });
+  } catch (error) {
+    console.error("[email] auto-spam provider move failed:", error);
+    return { movedToJunk: false };
+  }
+
+  await admin
+    .from("email_threads")
+    .update({
+      provider_label_name: SPAM_PROVIDER_LABEL_MARKER,
+      provider_label_synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.threadId);
+
+  return { movedToJunk: true };
 }
 
 /**
