@@ -677,6 +677,35 @@ function compareConversationEntriesByTime(
  */
 async function findExistingThreadForMessage(mailbox: any, message: any) {
   const admin = getAdminClient();
+
+  // Same Message-ID means the same email, so it belongs on whatever thread we
+  // already filed it under — check this before anything else.
+  //
+  // Without it, sending yourself an email (or CC'ing your own address) produced
+  // two threads: the composer creates one at send time with the Message-ID and
+  // no provider uid, then the INBOX sync sees the delivered copy, fails to
+  // match on References (a new email has none) or on thread_key, and starts a
+  // second thread. The Sent-folder sync already deduped this way; the inbound
+  // path did not.
+  if (message.internetMessageId) {
+    const { data: sameMessage } = await admin
+      .from("email_messages")
+      .select("thread_id")
+      .eq("mailbox_id", mailbox.id)
+      .eq("internet_message_id", message.internetMessageId)
+      .limit(1)
+      .maybeSingle();
+
+    if (sameMessage?.thread_id) {
+      const { data: sameThread } = await admin
+        .from("email_threads")
+        .select("id,origin")
+        .eq("id", sameMessage.thread_id)
+        .maybeSingle();
+      if (sameThread?.id) return sameThread;
+    }
+  }
+
   const referenceIds = [
     message.inReplyTo,
     ...(message.references || []),
