@@ -12,6 +12,7 @@ import {
   type CSSProperties,
   type DragEvent as ReactDragEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -3436,6 +3437,156 @@ export function EmailInboxView({
       window.location.assign(url.toString());
     }
   };
+
+  // Deliver an outbound draft from the alert center with a Gmail-style undo
+  // window. The composer already closed; the actual send is deferred a few
+  // seconds so Undo genuinely un-sends (nothing has left yet) rather than
+  // pretending to. Undo reopens the composer; Cancel just drops the send and
+  // leaves the draft in Drafts.
+  const OUTBOUND_UNDO_SECONDS = 5;
+  const outboundSendTimersRef = useRef<
+    Map<string, { interval: ReturnType<typeof setInterval>; timeout: ReturnType<typeof setTimeout> }>
+  >(new Map());
+
+  const clearOutboundSendTimers = useCallback((draftId: string) => {
+    const timers = outboundSendTimersRef.current.get(draftId);
+    if (timers) {
+      clearInterval(timers.interval);
+      clearTimeout(timers.timeout);
+      outboundSendTimersRef.current.delete(draftId);
+    }
+  }, []);
+
+  const beginOutboundSendWithUndo = useCallback(
+    (params: {
+      draftId: string;
+      mailboxId: string;
+      subject: string;
+      recipientSummary: string;
+    }) => {
+      const alertId = `outbound-send:${params.draftId}`;
+      const recipientLine = params.recipientSummary
+        ? `To ${params.recipientSummary}`
+        : params.subject;
+
+      const deliver = async () => {
+        clearOutboundSendTimers(params.draftId);
+        upsertAlert({
+          id: alertId,
+          type: "progress",
+          title: "Sending…",
+          message: recipientLine,
+          duration: 0,
+        });
+        try {
+          const response = await fetch(
+            `/api/email/outbound-drafts/${params.draftId}/send`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+            },
+          );
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.error || "Failed to send email");
+          }
+          upsertAlert({
+            id: alertId,
+            type: "success",
+            title: "Email sent",
+            message: recipientLine,
+            duration: 5000,
+            actions: [
+              {
+                id: "view",
+                label: "View in Sent",
+                variant: "link",
+                onClick: () => {
+                  if (typeof window !== "undefined") {
+                    const url = new URL("/email-sent", window.location.origin);
+                    url.searchParams.set("selectedMailbox", params.mailboxId || "all");
+                    if (payload.threadId) {
+                      url.searchParams.set("threadId", payload.threadId);
+                    }
+                    window.location.assign(url.toString());
+                  }
+                },
+              },
+            ],
+          });
+          void refreshInboxState({ skipMailboxes: true });
+          void onRefresh?.();
+        } catch (error) {
+          upsertAlert({
+            id: alertId,
+            type: "error",
+            title: "Couldn’t send email",
+            message: error instanceof Error ? error.message : recipientLine,
+            hint: "Your message is saved in Drafts.",
+            duration: 0,
+            actions: [
+              {
+                id: "reopen",
+                label: "Reopen draft",
+                onClick: () => {
+                  dismissAlert(alertId);
+                  setOutboundComposerInitialDraft({ draftId: params.draftId });
+                  setIsOutboundComposerOpen(true);
+                },
+              },
+            ],
+          });
+        }
+      };
+
+      const undo = () => {
+        clearOutboundSendTimers(params.draftId);
+        dismissAlert(alertId);
+        setOutboundComposerInitialDraft({ draftId: params.draftId });
+        setIsOutboundComposerOpen(true);
+      };
+
+      const cancel = () => {
+        clearOutboundSendTimers(params.draftId);
+        dismissAlert(alertId);
+        updateStatus("Send canceled. Saved to Drafts.");
+      };
+
+      const renderCountdown = (remaining: number) => {
+        upsertAlert({
+          id: alertId,
+          type: "progress",
+          title: `Sending in ${remaining}s…`,
+          message: recipientLine,
+          duration: 0,
+          actions: [
+            { id: "undo", label: "Undo", onClick: undo },
+            { id: "cancel", label: "Cancel", variant: "link", onClick: cancel },
+          ],
+        });
+      };
+
+      // Guard against a double-send of the same draft still counting down.
+      clearOutboundSendTimers(params.draftId);
+      let remaining = OUTBOUND_UNDO_SECONDS;
+      renderCountdown(remaining);
+      const interval = setInterval(() => {
+        remaining -= 1;
+        if (remaining > 0) renderCountdown(remaining);
+      }, 1000);
+      const timeout = setTimeout(() => void deliver(), OUTBOUND_UNDO_SECONDS * 1000);
+      outboundSendTimersRef.current.set(params.draftId, { interval, timeout });
+    },
+    [
+      clearOutboundSendTimers,
+      dismissAlert,
+      onRefresh,
+      refreshInboxState,
+      updateStatus,
+      upsertAlert,
+    ],
+  );
 
   const handleOutboundComposerScheduled = async () => {
     await refreshInboxState({ skipMailboxes: true });
@@ -7346,6 +7497,7 @@ export function EmailInboxView({
             setIsOutboundComposerOpen(open);
             if (!open) setOutboundComposerInitialDraft(null);
           }}
+          onSendViaAlerts={beginOutboundSendWithUndo}
           onSent={(result) => {
             void handleOutboundComposerSent(result);
           }}

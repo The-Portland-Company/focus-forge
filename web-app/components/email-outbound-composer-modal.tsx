@@ -110,6 +110,18 @@ type EmailOutboundComposerModalProps = {
   selectedMailboxId: string;
   userId?: string | null;
   onOpenChange: (open: boolean) => void;
+  /**
+   * When provided, Send hands the saved draft to the parent instead of
+   * delivering inline: the modal closes at once and the send (with its undo
+   * window) runs in the alert center. `onSent` is not called in this path — the
+   * parent owns the outcome.
+   */
+  onSendViaAlerts?: (params: {
+    draftId: string;
+    mailboxId: string;
+    subject: string;
+    recipientSummary: string;
+  }) => void;
   onSent?: (result: { mailboxId: string; threadId?: string | null }) => void;
   onScheduled?: (draft: EmailOutboundDraft) => void;
   onDraftSaved?: (draft: EmailOutboundDraft) => void;
@@ -150,6 +162,7 @@ export function EmailOutboundComposerModal({
   selectedMailboxId,
   userId,
   onOpenChange,
+  onSendViaAlerts,
   onSent,
   onScheduled,
   onDraftSaved,
@@ -678,8 +691,48 @@ export function EmailOutboundComposerModal({
     }
   };
 
+  // Short recipient summary for the alert center, e.g. "Jane Doe +2".
+  const recipientSummary = () => {
+    const recipients = parseRecipientList(toInput);
+    if (recipients.length === 0) return "";
+    const first = recipients[0];
+    const label = first.name?.trim() || first.email;
+    return recipients.length > 1 ? `${label} +${recipients.length - 1}` : label;
+  };
+
   const handleSend = async () => {
     if (busyState) return;
+
+    // Alert-center path: save the draft, then close immediately and let the
+    // parent deliver it (with an undo window) from the top-right alerts.
+    if (onSendViaAlerts) {
+      setBusyState("send");
+      setErrorMessage(null);
+      setSendProgress({ label: "Saving draft…", step: 0, total: 1 });
+      try {
+        const draft = await ensureDraft();
+        const summary = recipientSummary();
+        onOpenChange(false);
+        onSendViaAlerts({
+          draftId: draft.id,
+          mailboxId,
+          subject: subject.trim() || "(no subject)",
+          recipientSummary: summary,
+        });
+      } catch (error) {
+        setSendProgress((current) =>
+          current
+            ? { ...current, label: "Send failed", failed: true }
+            : { label: "Send failed", step: 0, total: 1, failed: true },
+        );
+        setErrorMessage(
+          error instanceof Error ? error.message : "Failed to send email",
+        );
+      } finally {
+        setBusyState(null);
+      }
+      return;
+    }
 
     const total = 3;
     setBusyState("send");
