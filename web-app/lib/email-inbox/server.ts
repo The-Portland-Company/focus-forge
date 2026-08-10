@@ -67,6 +67,7 @@ import {
   fetchMailboxMessages,
   fetchMailboxSentMessages,
   fetchMailboxDraftMessages,
+  deleteMailboxDraftMessage,
   fetchMailboxStorageQuota,
   sendMailboxReply,
   type MailboxTransportRow,
@@ -5597,6 +5598,26 @@ export async function deleteOutboundDraft(params: {
     throw new Error("A sent email can't be discarded.");
   }
 
+  // Provider-synced draft (composed in Gmail etc.): delete the provider copy
+  // first, or the next sync's reconcile would re-add the row we're deleting.
+  // Best-effort — a provider hiccup shouldn't block removing it from Focus; the
+  // reconcile still prunes it once it's gone from the folder.
+  if (draft.provider_message_id && draft.provider_folder_path) {
+    try {
+      const mailbox = (await ensureMailboxAccess(
+        params.userId,
+        String(draft.mailbox_id),
+      )) as MailboxTransportRow;
+      await deleteMailboxDraftMessage(
+        mailbox,
+        draft.provider_message_id,
+        draft.provider_folder_path,
+      );
+    } catch (providerError) {
+      console.error("[email] provider draft delete failed:", providerError);
+    }
+  }
+
   const { error } = await admin
     .from("email_outbound_drafts")
     .delete()
@@ -5604,6 +5625,23 @@ export async function deleteOutboundDraft(params: {
 
   if (error) throw error;
 
+  return { id: params.draftId };
+}
+
+export async function deleteReplyDraft(params: {
+  userId: string;
+  draftId: string;
+}) {
+  const admin = getAdminClient();
+  const draft = await ensureReplyDraftAccess(params.userId, params.draftId);
+  if (draft.status === "sent") {
+    throw new Error("A sent reply can't be discarded.");
+  }
+  const { error } = await admin
+    .from("email_reply_drafts")
+    .delete()
+    .eq("id", params.draftId);
+  if (error) throw error;
   return { id: params.draftId };
 }
 

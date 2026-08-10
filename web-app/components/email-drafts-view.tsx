@@ -7,8 +7,10 @@ import {
   Loader2,
   Clock,
   AlertCircle,
+  Pencil,
   Search,
   Send,
+  Trash2,
 } from "lucide-react";
 import { richTextToPlainText } from "@/lib/rich-text";
 import {
@@ -302,6 +304,46 @@ export function EmailDraftsView({
     }
   };
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Delete a draft: outbound drafts (incl. Gmail-synced ones, whose provider
+  // copy the API also removes) and reply drafts each have their own route.
+  const deleteDraft = async (row: DraftRow) => {
+    if (deletingId) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Delete this draft? This can't be undone.")
+    ) {
+      return;
+    }
+    setDeletingId(row.id);
+    try {
+      const endpoint =
+        row.kind === "outbound"
+          ? `/api/email/outbound-drafts/${row.id}`
+          : `/api/email/reply-drafts/${row.id}`;
+      const response = await fetch(endpoint, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error || "Failed to delete draft");
+      }
+      // Drop it locally at once; a full refetch also runs to stay authoritative.
+      setRows((current) =>
+        (current || []).filter(
+          (entry) => !(entry.kind === row.kind && entry.id === row.id),
+        ),
+      );
+      reloadDrafts();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete draft");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-4 flex items-center gap-2">
@@ -364,42 +406,72 @@ export function EmailDraftsView({
             const scheduled = formatDateTime(row.scheduledFor);
             const created = formatDateTime(row.createdAt);
             return (
-              <li key={`${row.kind}-${row.id}`}>
-                <button
-                  type="button"
-                  onClick={() => openDraft(row)}
-                  className="w-full rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-900"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-white">
-                        {row.subject}
+              <li
+                key={`${row.kind}-${row.id}`}
+                className="group rounded-lg border border-zinc-800 bg-zinc-900/40 transition-colors hover:border-zinc-600 hover:bg-zinc-900"
+              >
+                <div className="flex items-start gap-2 px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => openDraft(row)}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-white">
+                          {row.subject}
+                        </div>
+                        <div className="mt-0.5 truncate text-xs text-zinc-500">
+                          To: {row.recipients}
+                          {created ? (
+                            <span className="text-zinc-600"> · {created}</span>
+                          ) : null}
+                        </div>
                       </div>
-                      <div className="mt-0.5 truncate text-xs text-zinc-500">
-                        To: {row.recipients}
-                        {created ? (
-                          <span className="text-zinc-600"> · {created}</span>
-                        ) : null}
+                      <div
+                        className={`flex shrink-0 items-center gap-1 text-xs ${meta.className}`}
+                      >
+                        <StatusIcon className="h-3.5 w-3.5" />
+                        {meta.label}
                       </div>
                     </div>
-                    <div
-                      className={`flex shrink-0 items-center gap-1 text-xs ${meta.className}`}
+                    {scheduled ? (
+                      <div className="mt-1.5 flex items-center gap-1 text-xs sm:text-[11px] text-sky-400/80">
+                        <Clock className="h-3 w-3" /> Scheduled for {scheduled}
+                      </div>
+                    ) : null}
+                    {row.status === "failed" && row.lastError ? (
+                      <div className="mt-1.5 text-xs sm:text-[11px] text-red-400/80">
+                        {row.lastError}
+                      </div>
+                    ) : null}
+                  </button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => openDraft(row)}
+                      aria-label="Edit draft"
+                      title="Edit"
+                      className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
                     >
-                      <StatusIcon className="h-3.5 w-3.5" />
-                      {meta.label}
-                    </div>
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void deleteDraft(row)}
+                      disabled={deletingId === row.id}
+                      aria-label="Delete draft"
+                      title="Delete"
+                      className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-red-950/40 hover:text-red-300 disabled:opacity-50"
+                    >
+                      {deletingId === row.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </button>
                   </div>
-                  {scheduled ? (
-                    <div className="mt-1.5 flex items-center gap-1 text-xs sm:text-[11px] text-sky-400/80">
-                      <Clock className="h-3 w-3" /> Scheduled for {scheduled}
-                    </div>
-                  ) : null}
-                  {row.status === "failed" && row.lastError ? (
-                    <div className="mt-1.5 text-xs sm:text-[11px] text-red-400/80">
-                      {row.lastError}
-                    </div>
-                  ) : null}
-                </button>
+                </div>
               </li>
             );
           })}
