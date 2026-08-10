@@ -4668,7 +4668,13 @@ export default function ViewPage({
     }
 
     if (view === "email-drafts") {
-      return <EmailDraftsView />;
+      return (
+        <EmailDraftsView
+          data={database}
+          currentUserId={currentUserId}
+          onRefresh={fetchData}
+        />
+      );
     }
 
     if (view === "email-starred") {

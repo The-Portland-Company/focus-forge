@@ -11,7 +11,22 @@ import {
   Send,
 } from "lucide-react";
 import { richTextToPlainText } from "@/lib/rich-text";
-import type { EmailOutboundDraft, EmailReplyDraft } from "@/lib/types";
+import {
+  formatComposerRecipients,
+  toDateTimeLocalValue,
+} from "@/lib/email-draft-link";
+import { loadEmailSignatures } from "@/lib/email-signatures";
+import {
+  EmailOutboundComposerModal,
+  type EmailComposerInitialDraft,
+} from "@/components/email-outbound-composer-modal";
+import type {
+  Database,
+  EmailOutboundDraft,
+  EmailReplyDraft,
+  EmailSignature,
+  Mailbox,
+} from "@/lib/types";
 
 /** Drafts folder for the Email Inbox. It covers both kinds of unsent mail:
  *  reply drafts (manual + AI, from email_reply_drafts) and new-email drafts
@@ -31,14 +46,37 @@ const STATUS_META: Record<
   canceled: { label: "Canceled", className: "text-zinc-500", icon: FileText },
 };
 
+// Two categories, not statuses. A draft is either waiting to be sent now
+// (Drafts) or waiting for a time (Scheduled). "Failed" is a STATUS a row in
+// either category can carry — shown as a badge on the row, never its own tab —
+// and "Sent" mail lives on the Sent page, not here.
 const STATUS_FILTERS = [
-  { value: "all", label: "All" },
   { value: "draft", label: "Drafts" },
   { value: "scheduled", label: "Scheduled" },
-  { value: "failed", label: "Failed" },
 ] as const;
 
-type StatusFilter = (typeof STATUS_FILTERS)[number]["value"];
+export type DraftQueueCategory = (typeof STATUS_FILTERS)[number]["value"];
+
+/** Which tab a row belongs under, from its type rather than its status. */
+export function draftQueueCategory(row: {
+  status: string;
+  scheduledFor?: string | null;
+}): DraftQueueCategory {
+  return row.scheduledFor || row.status === "scheduled"
+    ? "scheduled"
+    : "draft";
+}
+
+/** Rows for a tab: right category, matching the search, sent excluded. */
+export function selectDraftRows<
+  T extends { status: string; scheduledFor?: string | null; searchText: string },
+>(rows: T[], category: DraftQueueCategory, query: string): T[] {
+  const needle = query.trim().toLowerCase();
+  return rows
+    .filter((row) => row.status !== "sent")
+    .filter((row) => draftQueueCategory(row) === category)
+    .filter((row) => !needle || row.searchText.includes(needle));
+}
 
 type DraftRow = {
   id: string;
@@ -77,12 +115,52 @@ function recipientLabel(
   return list.length > 0 ? list.join(", ") : "—";
 }
 
-export function EmailDraftsView() {
+export function EmailDraftsView({
+  data,
+  currentUserId,
+  onRefresh,
+}: {
+  data?: Database | null;
+  currentUserId?: string;
+  onRefresh?: () => void | Promise<void>;
+} = {}) {
   const router = useRouter();
   const [rows, setRows] = useState<DraftRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [statusFilter, setStatusFilter] =
+    useState<DraftQueueCategory>("draft");
+  const [reloadKey, setReloadKey] = useState(0);
+  // The full outbound drafts, kept so a click can rebuild the composer without
+  // a second round trip.
+  const [outboundById, setOutboundById] = useState<
+    Map<string, EmailOutboundDraft>
+  >(new Map());
+  const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
+  const [signatures, setSignatures] = useState<EmailSignature[]>([]);
+  const [composerDraft, setComposerDraft] =
+    useState<EmailComposerInitialDraft | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
+
+  useEffect(() => {
+    setSignatures(loadEmailSignatures(currentUserId));
+  }, [currentUserId]);
+
+  // Mailboxes power the composer's sender select; loaded once alongside drafts.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/email/mailboxes", { credentials: "include" })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((payload) => {
+        if (!cancelled) {
+          setMailboxes(Array.isArray(payload) ? payload : payload?.mailboxes ?? []);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +179,15 @@ export function EmailDraftsView() {
         const replyDrafts = (await replyResponse.json()) as EmailReplyDraft[];
         const outboundDrafts =
           (await outboundResponse.json()) as EmailOutboundDraft[];
+        if (!cancelled) {
+          setOutboundById(
+            new Map(
+              (Array.isArray(outboundDrafts) ? outboundDrafts : []).map(
+                (draft) => [draft.id, draft],
+              ),
+            ),
+          );
+        }
 
         const mapped: DraftRow[] = [
           ...(Array.isArray(outboundDrafts) ? outboundDrafts : []).map(
@@ -167,25 +254,47 @@ export function EmailDraftsView() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
+
+  const reloadDrafts = () => {
+    setReloadKey((key) => key + 1);
+    void onRefresh?.();
+  };
 
   const visible = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return (rows || [])
-      .filter((row) => statusFilter === "all" || row.status === statusFilter)
-      .filter((row) => !query || row.searchText.includes(query))
-      .sort((left, right) =>
+    return selectDraftRows(rows || [], statusFilter, search).sort(
+      (left, right) =>
         (right.updatedAt || right.createdAt || "").localeCompare(
           left.updatedAt || left.createdAt || "",
         ),
-      );
+    );
   }, [rows, search, statusFilter]);
 
-  // Outbound drafts reopen in the composer; reply drafts belong to a thread, so
-  // they open that thread where the reply editor already lives.
+  // Outbound drafts reopen in the composer right here on the Drafts page — no
+  // navigation. Reply drafts belong to a thread, whose reply editor only exists
+  // in the inbox, so those still open the thread.
   const openDraft = (row: DraftRow) => {
     if (row.kind === "outbound") {
-      router.push(`/email-inbox?composeDraft=${encodeURIComponent(row.id)}`);
+      const draft = outboundById.get(row.id);
+      if (!draft) {
+        // Fallback: if the full draft isn't in hand, the inbox deep-link still
+        // reopens it rather than dropping the click.
+        router.push(`/email-inbox?composeDraft=${encodeURIComponent(row.id)}`);
+        return;
+      }
+      setComposerDraft({
+        draftId: draft.id,
+        mailboxId: draft.mailboxId,
+        projectId: draft.projectId ?? null,
+        subject: draft.subject || "",
+        body: draft.contentHtml || draft.contentText || "",
+        to: formatComposerRecipients(draft.to),
+        cc: formatComposerRecipients(draft.cc),
+        bcc: formatComposerRecipients(draft.bcc),
+        scheduledFor: toDateTimeLocalValue(draft.scheduledFor),
+        existingAttachments: draft.attachments || [],
+      });
+      setComposerOpen(true);
       return;
     }
     if (row.threadId) {
@@ -296,6 +405,36 @@ export function EmailDraftsView() {
           })}
         </ul>
       )}
+
+      {composerOpen ? (
+        <EmailOutboundComposerModal
+          open={composerOpen}
+          mailboxes={mailboxes}
+          projects={data?.projects ?? []}
+          signatures={signatures}
+          onSignaturesChange={setSignatures}
+          selectedMailboxId={composerDraft?.mailboxId || "all"}
+          userId={currentUserId}
+          initialDraft={composerDraft}
+          onOpenChange={(open) => {
+            setComposerOpen(open);
+            if (!open) setComposerDraft(null);
+          }}
+          onSent={() => {
+            setComposerOpen(false);
+            setComposerDraft(null);
+            reloadDrafts();
+          }}
+          onScheduled={() => {
+            setComposerOpen(false);
+            setComposerDraft(null);
+            reloadDrafts();
+          }}
+          onDraftSaved={() => {
+            reloadDrafts();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
