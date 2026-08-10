@@ -7338,6 +7338,7 @@ export function EmailInboxView({
           mailboxes={mailboxes}
           projects={data.projects}
           signatures={emailSignatures}
+          onSignaturesChange={setEmailSignatures}
           selectedMailboxId={selectedMailboxId}
           userId={currentUserId}
           initialDraft={outboundComposerInitialDraft}

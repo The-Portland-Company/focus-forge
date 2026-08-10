@@ -8,6 +8,7 @@ import {
   Loader2,
   MailPlus,
   Paperclip,
+  Plus,
   Save,
   SendHorizontal,
   X,
@@ -30,9 +31,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
+  createEmptyEmailSignature,
   getApplicableEmailSignatures,
   getDefaultEmailSignature,
+  saveEmailSignatures,
+  upsertEmailSignature,
 } from "@/lib/email-signatures";
 import {
   loadComposerCloseAction,
@@ -100,6 +105,8 @@ type EmailOutboundComposerModalProps = {
   mailboxes: Mailbox[];
   projects: Project[];
   signatures: EmailSignature[];
+  /** Lets the composer add a signature without a trip to Settings. */
+  onSignaturesChange?: (signatures: EmailSignature[]) => void;
   selectedMailboxId: string;
   userId?: string | null;
   onOpenChange: (open: boolean) => void;
@@ -139,6 +146,7 @@ export function EmailOutboundComposerModal({
   mailboxes,
   projects,
   signatures,
+  onSignaturesChange,
   selectedMailboxId,
   userId,
   onOpenChange,
@@ -188,6 +196,12 @@ export function EmailOutboundComposerModal({
   // should become the saved default (also editable in Settings → Email).
   const [closeChoice, setCloseChoice] = useState<"draft" | "discard">("draft");
   const [rememberCloseChoice, setRememberCloseChoice] = useState(false);
+
+  // Inline "new signature" panel, opened by the + beside the picker. Writing
+  // one here beats losing the draft to a round trip through Settings.
+  const [signatureFormOpen, setSignatureFormOpen] = useState(false);
+  const [newSignatureName, setNewSignatureName] = useState("");
+  const [newSignatureContent, setNewSignatureContent] = useState("");
 
   const applicableSignatures = useMemo(
     () => getApplicableEmailSignatures(signatures, mailboxId || null),
@@ -384,6 +398,37 @@ export function EmailOutboundComposerModal({
         .sort((left, right) => left.name.localeCompare(right.name)),
     [projects],
   );
+  const projectOptions = useMemo(
+    () =>
+      visibleProjects.map((project) => ({
+        value: project.id,
+        label: project.name,
+      })),
+    [visibleProjects],
+  );
+
+  const closeSignatureForm = () => {
+    setSignatureFormOpen(false);
+    setNewSignatureName("");
+    setNewSignatureContent("");
+  };
+
+  // Saves to the same per-user signature store Settings uses, hands the new
+  // list back to the parent so both stay in step, and selects the new signature
+  // so it lands on the email the user is already writing.
+  const handleCreateSignature = () => {
+    const name = newSignatureName.trim();
+    if (!name || !userId) return;
+    const signature = createEmptyEmailSignature(userId, {
+      name,
+      content: newSignatureContent,
+    });
+    const nextSignatures = upsertEmailSignature(signatures, signature);
+    saveEmailSignatures(userId, nextSignatures);
+    onSignaturesChange?.(nextSignatures);
+    setSelectedSignatureId(signature.id);
+    closeSignatureForm();
+  };
 
   const buildPayload = () => ({
     mailboxId,
@@ -786,19 +831,17 @@ export function EmailOutboundComposerModal({
             </div>
             <div className="relative pt-2">
               <FloatingFieldLabel label="Project" />
-              <Select value={projectId || "__none__"} onValueChange={(value) => setProjectId(value === "__none__" ? "" : value)}>
-                <SelectTrigger className="border-zinc-700 bg-zinc-900 text-zinc-100">
-                  <SelectValue placeholder="No project" />
-                </SelectTrigger>
-                <SelectContent className="border-zinc-800 bg-zinc-950 text-zinc-100">
-                  <SelectItem value="__none__">No project</SelectItem>
-                  {visibleProjects.map((project) => (
-                    <SelectItem key={project.id} value={project.id}>
-                      {project.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* Searchable: the project list runs long enough that scrolling
+                  a plain select to find one is the slow path. */}
+              <SearchableSelect
+                aria-label="Project"
+                value={projectId || null}
+                onChange={(value) => setProjectId(value || "")}
+                options={projectOptions}
+                emptyOptionLabel="No project"
+                searchPlaceholder="Search projects…"
+                className="border-zinc-700 bg-zinc-900 text-zinc-100"
+              />
             </div>
           </div>
 
@@ -854,24 +897,80 @@ export function EmailOutboundComposerModal({
             <div className="border-t border-zinc-800 px-3 pb-1 pt-3">
               <div className="relative pt-2">
                 <FloatingFieldLabel label="Signature" />
-                <Select
-                  value={selectedSignatureId || "__none__"}
-                  onValueChange={(value) =>
-                    setSelectedSignatureId(value === "__none__" ? null : value)
-                  }
-                >
-                  <SelectTrigger className="border-zinc-700 bg-zinc-900 text-zinc-100">
-                    <SelectValue placeholder="No signature" />
-                  </SelectTrigger>
-                  <SelectContent className="border-zinc-800 bg-zinc-950 text-zinc-100">
-                    <SelectItem value="__none__">No signature</SelectItem>
-                    {applicableSignatures.map((signature) => (
-                      <SelectItem key={signature.id} value={signature.id}>
-                        {signature.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Select
+                      value={selectedSignatureId || "__none__"}
+                      onValueChange={(value) =>
+                        setSelectedSignatureId(
+                          value === "__none__" ? null : value,
+                        )
+                      }
+                    >
+                      <SelectTrigger className="border-zinc-700 bg-zinc-900 text-zinc-100">
+                        <SelectValue placeholder="No signature" />
+                      </SelectTrigger>
+                      <SelectContent className="border-zinc-800 bg-zinc-950 text-zinc-100">
+                        <SelectItem value="__none__">No signature</SelectItem>
+                        {applicableSignatures.map((signature) => (
+                          <SelectItem key={signature.id} value={signature.id}>
+                            {signature.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Tooltip content="New signature" className="w-auto">
+                    <button
+                      type="button"
+                      aria-label="New signature"
+                      disabled={!userId}
+                      onClick={() =>
+                        signatureFormOpen
+                          ? closeSignatureForm()
+                          : setSignatureFormOpen(true)
+                      }
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </Tooltip>
+                </div>
+                {signatureFormOpen ? (
+                  <div className="mt-2 space-y-2 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
+                    <Input
+                      value={newSignatureName}
+                      onChange={(event) =>
+                        setNewSignatureName(event.target.value)
+                      }
+                      placeholder="Signature name"
+                      className="border-zinc-700 bg-zinc-900 text-zinc-100"
+                    />
+                    <RichTextEditor
+                      value={newSignatureContent}
+                      onChange={setNewSignatureContent}
+                      placeholder="Signature content…"
+                      minHeightClassName="min-h-[96px]"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={closeSignatureForm}
+                        className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCreateSignature}
+                        disabled={!newSignatureName.trim()}
+                        className="rounded-lg bg-theme-gradient px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                      >
+                        Save signature
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 px-3 py-3">
