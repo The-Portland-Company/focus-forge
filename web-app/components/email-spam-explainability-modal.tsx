@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { FloatingPanel } from "@/components/floating-panel";
+import { SpamAssessmentPanel } from "@/components/spam-assessment-panel";
 
 import type {
   EmailRule,
@@ -172,6 +173,9 @@ export function EmailSpamExplainabilityModal({
       icon={<Sparkles className="h-4 w-4 shrink-0 text-amber-300" />}
     >
         <div className="px-6 pb-6 pt-4">
+        {/* The live verdict for THIS email sits above the description of how
+            the pipeline works — what it decided matters more than how. */}
+        <SpamAssessmentPanel threadId={item.id} />
         <p className="text-sm text-zinc-400">
           {pct != null ? (
             <>
