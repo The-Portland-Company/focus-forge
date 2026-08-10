@@ -655,6 +655,36 @@ export async function fetchMailboxDraftMessages(
   }
 }
 
+/**
+ * Permanently delete one draft from the provider's Drafts folder, by the uid
+ * carried in its `draft:<uid>` provider id. Used when the user deletes a
+ * provider-synced draft in Focus, so it doesn't reappear on the next sync.
+ * Best-effort: returns false if the id isn't a provider draft or the folder is
+ * unknown.
+ */
+export async function deleteMailboxDraftMessage(
+  mailbox: MailboxTransportRow,
+  providerMessageId: string,
+  folderPath: string,
+): Promise<boolean> {
+  const match = /^draft:(\d+)$/.exec(providerMessageId || "");
+  if (!match || !folderPath) return false;
+  const uid = Number(match[1]);
+  if (!Number.isFinite(uid) || uid <= 0) return false;
+
+  return withImapRetry("draft-delete", () =>
+    withImapConnection(mailbox, async (client) => {
+      const lock = await client.getMailboxLock(folderPath);
+      try {
+        await client.messageDelete(String(uid), { uid: true });
+        return true;
+      } finally {
+        lock.release();
+      }
+    }),
+  );
+}
+
 export type MailboxStorageQuota = {
   used: number;
   total: number;
