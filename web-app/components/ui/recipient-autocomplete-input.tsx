@@ -51,6 +51,38 @@ function chipLabel(raw: string): string {
   return raw.trim();
 }
 
+// The editable pieces behind a chip. A raw token is either a bare address or
+// `Display Name <address>`; the display name is split on the first space so a
+// first/last pair round-trips, while a single-word or multi-word name lands
+// wholly in firstName rather than being lost.
+export type RecipientParts = {
+  firstName: string;
+  lastName: string;
+  email: string;
+};
+
+export function parseRecipientParts(raw: string): RecipientParts {
+  const angle = raw.match(/^(.*)<([^>]+)>\s*$/);
+  const name = (angle ? angle[1] : "").trim().replace(/^"|"$/g, "").trim();
+  const email = (angle ? angle[2] : raw).trim();
+  if (!name) return { firstName: "", lastName: "", email };
+  const firstSpace = name.indexOf(" ");
+  if (firstSpace === -1) return { firstName: name, lastName: "", email };
+  return {
+    firstName: name.slice(0, firstSpace).trim(),
+    lastName: name.slice(firstSpace + 1).trim(),
+    email,
+  };
+}
+
+// Rebuild a raw token from edited parts. No name → bare address (so a chip the
+// user blanked the name on doesn't become `<addr>`); any name → `Name <addr>`.
+export function buildRecipientRaw(parts: RecipientParts): string {
+  const name = `${parts.firstName.trim()} ${parts.lastName.trim()}`.trim();
+  const email = parts.email.trim();
+  return name ? `${name} <${email}>` : email;
+}
+
 export function RecipientAutocompleteInput({
   value,
   onChange,
@@ -63,6 +95,13 @@ export function RecipientAutocompleteInput({
   const [searching, setSearching] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [highlight, setHighlight] = React.useState(0);
+  // Index of the chip being edited via the double-click popover, or null.
+  const [editingIndex, setEditingIndex] = React.useState<number | null>(null);
+  const [editParts, setEditParts] = React.useState<RecipientParts>({
+    firstName: "",
+    lastName: "",
+    email: "",
+  });
 
   const containerRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -163,6 +202,50 @@ export function RecipientAutocompleteInput({
     [chips, inputValue, onChange, buildValue]
   );
 
+  const beginEditChip = React.useCallback(
+    (index: number) => {
+      const chip = chips[index];
+      if (!chip) return;
+      setEditParts(parseRecipientParts(chip.raw));
+      setEditingIndex(index);
+      setOpen(false);
+    },
+    [chips]
+  );
+
+  // Commit the popover edits back into the chip. An empty email drops the chip
+  // entirely rather than leaving a nameless placeholder.
+  const commitEditChip = React.useCallback(() => {
+    if (editingIndex === null) return;
+    const raws = chips.map((c) => c.raw);
+    if (!editParts.email.trim()) {
+      const nextRaws = raws.filter((_, i) => i !== editingIndex);
+      onChange(buildValue(nextRaws, inputValue));
+    } else {
+      raws[editingIndex] = buildRecipientRaw(editParts);
+      onChange(buildValue(raws, inputValue));
+    }
+    setEditingIndex(null);
+  }, [chips, editingIndex, editParts, inputValue, onChange, buildValue]);
+
+  // The outside-click handler is registered once, so it reads the live commit
+  // through a ref instead of capturing a stale closure.
+  const commitEditChipRef = React.useRef(commitEditChip);
+  commitEditChipRef.current = commitEditChip;
+
+  const handleEditKeyDown = React.useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commitEditChip();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setEditingIndex(null);
+      }
+    },
+    [commitEditChip]
+  );
+
   // Commit the trailing typed token as a chip (no trailing comma required —
   // leaving the field or pressing Enter is enough).
   const commitTrailingToken = React.useCallback(() => {
@@ -225,6 +308,9 @@ export function RecipientAutocompleteInput({
         !containerRef.current.contains(e.target as Node)
       ) {
         setOpen(false);
+        // A click outside the field also commits an open chip editor, matching
+        // how the trailing text token commits on blur.
+        commitEditChipRef.current();
       }
     };
     document.addEventListener("pointerdown", onPointerDown);
@@ -250,9 +336,19 @@ export function RecipientAutocompleteInput({
         {chips.map((chip, i) => (
           <span
             key={`${chip.raw}-${i}`}
-            className="inline-flex max-w-full items-center gap-1 rounded-md bg-zinc-700/70 px-2 py-0.5 text-xs font-medium text-zinc-100"
+            className="relative inline-flex max-w-full items-center gap-1 rounded-md bg-zinc-700/70 px-2 py-0.5 text-xs font-medium text-zinc-100"
           >
-            <span className="truncate">{chip.label}</span>
+            <span
+              className="cursor-text truncate"
+              // Double-click opens the name/email editor for this recipient.
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                beginEditChip(i);
+              }}
+              title="Double-click to edit"
+            >
+              {chip.label}
+            </span>
             <button
               type="button"
               aria-label={`Remove ${chip.label}`}
@@ -264,6 +360,59 @@ export function RecipientAutocompleteInput({
             >
               <X className="h-3 w-3" />
             </button>
+            {editingIndex === i ? (
+              <div
+                className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="grid grid-cols-2 gap-1.5">
+                  <input
+                    autoFocus
+                    value={editParts.firstName}
+                    onChange={(e) =>
+                      setEditParts((p) => ({ ...p, firstName: e.target.value }))
+                    }
+                    onKeyDown={handleEditKeyDown}
+                    placeholder="First name"
+                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:ring-1 ring-theme"
+                  />
+                  <input
+                    value={editParts.lastName}
+                    onChange={(e) =>
+                      setEditParts((p) => ({ ...p, lastName: e.target.value }))
+                    }
+                    onKeyDown={handleEditKeyDown}
+                    placeholder="Last name"
+                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:ring-1 ring-theme"
+                  />
+                </div>
+                <input
+                  value={editParts.email}
+                  onChange={(e) =>
+                    setEditParts((p) => ({ ...p, email: e.target.value }))
+                  }
+                  onKeyDown={handleEditKeyDown}
+                  placeholder="Email address"
+                  className="mt-1.5 w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:ring-1 ring-theme"
+                />
+                <div className="mt-2 flex justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditingIndex(null)}
+                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={commitEditChip}
+                    className="rounded-md bg-theme-gradient px-2 py-1 text-xs font-medium text-white"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </span>
         ))}
         <input
