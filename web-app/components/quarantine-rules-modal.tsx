@@ -45,6 +45,33 @@ function senderEmailOf(item: InboxItem): string {
   return (from?.emailAddress || "").trim().toLowerCase();
 }
 
+/**
+ * The value from THIS email that a given rule field should be matched against.
+ *
+ * Picking a field is really picking which part of the email to match on, so the
+ * value box should follow it. Leaving the previous field's value behind meant
+ * choosing "Subject" left a sender address sitting in the box — a rule that
+ * matches nothing, one click away from being saved.
+ */
+export function ruleValueForField(
+  item: InboxItem,
+  field: EmailRuleCondition["field"],
+): string {
+  const sender = senderEmailOf(item);
+  switch (field) {
+    case "sender_email":
+      return sender;
+    case "sender_domain":
+      return sender.split("@")[1] || "";
+    case "subject":
+      return item.subject || "";
+    case "body":
+      return (item.previewText || item.summaryText || "").trim();
+    default:
+      return "";
+  }
+}
+
 function describeCondition(c: EmailRuleCondition): string {
   const field = FIELD_OPTIONS.find((o) => o.value === c.field)?.label ?? c.field;
   const op = OPERATOR_OPTIONS.find((o) => o.value === c.operator)?.label ??
@@ -94,6 +121,9 @@ export function QuarantineRulesModal({
       : { field: "subject", operator: "contains", value: item.subject || "" },
   );
   const [saving, setSaving] = useState(false);
+  // Once the value has been typed into by hand, the dropdowns stop rewriting
+  // it — auto-fill is a convenience, not something that eats your input.
+  const [valueEdited, setValueEdited] = useState(false);
 
   // Rules already matching this email (informational).
   const matchedRules = useMemo(() => {
@@ -200,11 +230,18 @@ export function QuarantineRulesModal({
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <select
                   value={condition.field}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const field = e.target
+                      .value as EmailRuleCondition["field"];
                     update({
-                      field: e.target.value as EmailRuleCondition["field"],
-                    })
-                  }
+                      field,
+                      // Follow the field with the matching value off this email
+                      // unless the box has been hand-edited.
+                      ...(valueEdited
+                        ? {}
+                        : { value: ruleValueForField(item, field) }),
+                    });
+                  }}
                   className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
                 >
                   {FIELD_OPTIONS.map((o) => (
@@ -219,6 +256,11 @@ export function QuarantineRulesModal({
                     update({
                       operator: e.target
                         .value as EmailRuleCondition["operator"],
+                      ...(valueEdited
+                        ? {}
+                        : {
+                            value: ruleValueForField(item, condition.field),
+                          }),
                     })
                   }
                   className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
@@ -231,7 +273,10 @@ export function QuarantineRulesModal({
                 </select>
                 <input
                   value={condition.value}
-                  onChange={(e) => update({ value: e.target.value })}
+                  onChange={(e) => {
+                    setValueEdited(true);
+                    update({ value: e.target.value });
+                  }}
                   placeholder="value"
                   className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
                 />
