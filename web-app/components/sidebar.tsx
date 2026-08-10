@@ -386,6 +386,8 @@ export function Sidebar({
   const [emailFoldersExpanded, setEmailFoldersExpanded] =
     useState<boolean>(false);
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
+  // Unsent-draft count for the Drafts row badge (outbound + reply drafts).
+  const [draftCount, setDraftCount] = useState(0);
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
   const [showPendingInvitations, setShowPendingInvitations] = useState(false);
   const [resendingUserId, setResendingUserId] = useState<string | null>(null);
@@ -932,6 +934,24 @@ export function Sidebar({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasLoadedPreferences]);
+
+  // Keep the Drafts badge current: refresh whenever the email section is open
+  // and when the user navigates (e.g. away from the Drafts page after editing).
+  useEffect(() => {
+    if (!emailInboxExpanded) return;
+    let cancelled = false;
+    fetch("/api/email/drafts/count", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!cancelled && typeof json?.count === "number") {
+          setDraftCount(json.count);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [emailInboxExpanded, currentView]);
 
   const copyOrgId = async (orgId: string, event: React.MouseEvent) => {
     event.preventDefault();
@@ -1876,6 +1896,11 @@ export function Sidebar({
                     <FileText className="w-4 h-4" />
                     Drafts
                   </span>
+                  {draftCount > 0 ? (
+                    <span className="rounded-full bg-zinc-700 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-zinc-200">
+                      {draftCount > 99 ? "99+" : draftCount}
+                    </span>
+                  ) : null}
                 </Link>
                 <Link
                   href="/email-quarantine"
