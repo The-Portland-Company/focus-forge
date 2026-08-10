@@ -66,6 +66,7 @@ import {
   fetchMailboxMessageReadStates,
   fetchMailboxMessages,
   fetchMailboxSentMessages,
+  fetchMailboxDraftMessages,
   fetchMailboxStorageQuota,
   sendMailboxReply,
   type MailboxTransportRow,
@@ -1022,6 +1023,83 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
  *   belong to a known inbox conversation is skipped (returns null) so the Sent
  *   sync never floods the inbox with outbound-only threads.
  */
+/**
+ * Reconcile the mailbox's provider Drafts folder (e.g. Gmail's) into
+ * email_outbound_drafts, so drafts composed outside the app appear on the
+ * Drafts page.
+ *
+ * Full mirror of the (small) Drafts folder each sync: upsert every provider
+ * draft by its `draft:<uid>` id, and delete Focus rows previously synced from
+ * the provider whose uid is no longer present (edited or deleted in Gmail —
+ * Gmail assigns a new uid when a draft is re-saved, so the stale row must go).
+ * App-composed drafts (provider_message_id IS NULL) are never touched.
+ */
+async function syncMailboxProviderDrafts(mailbox: any) {
+  const admin = getAdminClient();
+  const transportMailbox = mailbox as MailboxTransportRow;
+
+  const drafts = await fetchMailboxDraftMessages(transportMailbox, {
+    limit: 50,
+  });
+
+  const seenProviderIds = new Set<string>();
+  for (const draft of drafts) {
+    seenProviderIds.add(draft.providerMessageId);
+    const toAddrs = (draft.to || []).map((a: any) => ({
+      email: a.email,
+      name: a.name ?? null,
+    }));
+    const ccAddrs = (draft.cc || []).map((a: any) => ({
+      email: a.email,
+      name: a.name ?? null,
+    }));
+    const bccAddrs = (draft.bcc || []).map((a: any) => ({
+      email: a.email,
+      name: a.name ?? null,
+    }));
+
+    await admin
+      .from("email_outbound_drafts")
+      .upsert(
+        {
+          mailbox_id: mailbox.id,
+          created_by_user_id: mailbox.owner_user_id ?? null,
+          status: "draft",
+          subject: draft.subject || "",
+          content_text: draft.bodyText || "",
+          content_html: draft.bodyHtml || null,
+          to_json: toAddrs,
+          cc_json: ccAddrs,
+          bcc_json: bccAddrs,
+          provider_message_id: draft.providerMessageId,
+          internet_message_id: draft.internetMessageId ?? null,
+          provider_folder_path: draft.folderPath,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "mailbox_id,provider_message_id" },
+      );
+  }
+
+  // Drop provider-synced rows no longer in the folder. Scoped to this mailbox's
+  // provider drafts only — app-composed drafts have a null provider_message_id
+  // and are excluded by the not-null filter.
+  const { data: existing } = await admin
+    .from("email_outbound_drafts")
+    .select("id,provider_message_id")
+    .eq("mailbox_id", mailbox.id)
+    .not("provider_message_id", "is", null);
+
+  const stale = (existing || [])
+    .filter((row: any) => !seenProviderIds.has(row.provider_message_id))
+    .map((row: any) => row.id);
+
+  if (stale.length > 0) {
+    await admin.from("email_outbound_drafts").delete().in("id", stale);
+  }
+
+  return { syncedDraftCount: drafts.length, removedDraftCount: stale.length };
+}
+
 async function ingestOutboundMailboxMessage(mailbox: any, message: any) {
   const admin = getAdminClient();
 
@@ -2409,6 +2487,33 @@ export async function listInboxItemsForUser(
  * in the active inbox (excludes quarantine/deleted/archived/resolved). Runs as a
  * head-only count so it can be polled cheaply from any view.
  */
+/**
+ * Count the drafts the Drafts page would show for this user: unsent outbound
+ * drafts + unsent reply drafts across every mailbox they can access. Backs the
+ * sidebar's Drafts badge, so it must match the page's own "not sent" rule.
+ */
+export async function getDraftCountForUser(userId: string): Promise<number> {
+  const admin = getAdminClient();
+  const mailboxes = await listMailboxesForUser(userId);
+  const mailboxIds = mailboxes.map((mailbox) => mailbox.id);
+  if (mailboxIds.length === 0) return 0;
+
+  const [outbound, reply] = await Promise.all([
+    admin
+      .from("email_outbound_drafts")
+      .select("id", { count: "exact", head: true })
+      .in("mailbox_id", mailboxIds)
+      .neq("status", "sent"),
+    admin
+      .from("email_reply_drafts")
+      .select("id", { count: "exact", head: true })
+      .in("mailbox_id", mailboxIds)
+      .neq("status", "sent"),
+  ]);
+
+  return (outbound.count ?? 0) + (reply.count ?? 0);
+}
+
 export async function getUnreadBadgeCountForUser(
   userId: string,
 ): Promise<number> {
@@ -3494,6 +3599,17 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       console.error(
         "[email-inbox] Sent-folder sync failed",
         extractMailboxErrorMessage(sentSyncError),
+      );
+    }
+
+    // Mirror the provider's Drafts folder so drafts written directly in Gmail
+    // (etc.) show on the Drafts page. Non-fatal: never abort the inbound sync.
+    try {
+      await syncMailboxProviderDrafts(mailbox);
+    } catch (draftSyncError) {
+      console.error(
+        "[email-inbox] Drafts-folder sync failed",
+        extractMailboxErrorMessage(draftSyncError),
       );
     }
 

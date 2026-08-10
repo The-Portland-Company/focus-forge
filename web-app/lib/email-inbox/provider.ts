@@ -580,6 +580,81 @@ export async function fetchMailboxSentMessages(
   }
 }
 
+/**
+ * Fetch the mailbox's Drafts folder so drafts composed OUTSIDE the app (e.g.
+ * directly in Gmail) show up on the Drafts page. Mirrors fetchMailboxSentMessages:
+ * the main sync only reads INBOX, so without this a Gmail-composed draft is
+ * invisible in Focus.
+ *
+ * providerMessageId is namespaced `draft:<uid>` (folder-scoped UIDs would
+ * otherwise collide with INBOX/Sent), and each message carries the resolved
+ * folder path so the caller can reconcile and, later, delete the provider copy.
+ */
+export async function fetchMailboxDraftMessages(
+  mailbox: MailboxTransportRow,
+  options?: { limit?: number },
+): Promise<Array<NormalizedMailboxMessage & { folderPath: string }>> {
+  const limit = options?.limit && options.limit > 0 ? options.limit : 50;
+  const { client, release } = await acquireImapClient(mailbox);
+
+  try {
+    const folders = await client.list();
+    const draftsFolder =
+      (folders || []).find((folder) => folder.specialUse === "\\Drafts") ??
+      (folders || []).find((folder) =>
+        /(^|[\/.])drafts?$/i.test(folder.path),
+      ) ??
+      (folders || []).find((folder) => /draft/i.test(folder.path));
+
+    if (!draftsFolder?.path) {
+      return [];
+    }
+
+    const lock = await client.getMailboxLock(draftsFolder.path);
+    try {
+      const uids = await client.search({ all: true }, { uid: true });
+      const target = [...(Array.isArray(uids) ? uids : [])]
+        .sort((a, b) => a - b)
+        .slice(-limit);
+
+      if (target.length === 0) {
+        return [];
+      }
+
+      const messagePromises: Array<
+        Promise<NormalizedMailboxMessage & { folderPath: string }>
+      > = [];
+      for await (const message of client.fetch(
+        target,
+        { uid: true, source: true, flags: true, internalDate: true },
+        { uid: true },
+      )) {
+        if (!message.source) {
+          continue;
+        }
+        messagePromises.push(
+          normalizeParsedMailboxMessage({
+            uid: message.uid,
+            source: message.source,
+            flags: message.flags || null,
+            internalDate: message.internalDate || null,
+          }).then((normalized) => ({
+            ...normalized,
+            providerMessageId: `draft:${normalized.providerMessageId}`,
+            folderPath: draftsFolder.path,
+          })),
+        );
+      }
+
+      return await Promise.all(messagePromises);
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await release();
+  }
+}
+
 export type MailboxStorageQuota = {
   used: number;
   total: number;
