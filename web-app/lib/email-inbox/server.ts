@@ -1042,52 +1042,57 @@ async function syncMailboxProviderDrafts(mailbox: any) {
     limit: 50,
   });
 
-  const seenProviderIds = new Set<string>();
-  for (const draft of drafts) {
-    seenProviderIds.add(draft.providerMessageId);
-    const toAddrs = (draft.to || []).map((a: any) => ({
-      email: a.email,
-      name: a.name ?? null,
-    }));
-    const ccAddrs = (draft.cc || []).map((a: any) => ({
-      email: a.email,
-      name: a.name ?? null,
-    }));
-    const bccAddrs = (draft.bcc || []).map((a: any) => ({
-      email: a.email,
-      name: a.name ?? null,
-    }));
-
-    await admin
-      .from("email_outbound_drafts")
-      .upsert(
-        {
-          mailbox_id: mailbox.id,
-          created_by_user_id: mailbox.owner_user_id ?? null,
-          status: "draft",
-          subject: draft.subject || "",
-          content_text: draft.bodyText || "",
-          content_html: draft.bodyHtml || null,
-          to_json: toAddrs,
-          cc_json: ccAddrs,
-          bcc_json: bccAddrs,
-          provider_message_id: draft.providerMessageId,
-          internet_message_id: draft.internetMessageId ?? null,
-          provider_folder_path: draft.folderPath,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "mailbox_id,provider_message_id" },
-      );
-  }
-
-  // Drop provider-synced rows no longer in the folder. Scoped to this mailbox's
-  // provider drafts only — app-composed drafts have a null provider_message_id
-  // and are excluded by the not-null filter.
+  // Existing provider-synced rows for this mailbox, keyed by provider id. Fetched
+  // once so each draft is a lookup, not a round trip. Explicit update-or-insert
+  // rather than PostgREST upsert: the unique index is PARTIAL (WHERE
+  // provider_message_id IS NOT NULL) and cannot serve as an ON CONFLICT arbiter,
+  // so an upsert would error and the whole draft sync would be lost.
   const { data: existing } = await admin
     .from("email_outbound_drafts")
     .select("id,provider_message_id")
     .eq("mailbox_id", mailbox.id)
     .not("provider_message_id", "is", null);
+  const existingByProviderId = new Map<string, string>();
+  for (const row of existing || []) {
+    if (row.provider_message_id) {
+      existingByProviderId.set(row.provider_message_id, row.id);
+    }
+  }
+
+  const seenProviderIds = new Set<string>();
+  for (const draft of drafts) {
+    seenProviderIds.add(draft.providerMessageId);
+    const mapAddrs = (list: any[]) =>
+      (list || []).map((a: any) => ({ email: a.email, name: a.name ?? null }));
+
+    const fields = {
+      status: "draft" as const,
+      subject: draft.subject || "",
+      content_text: draft.bodyText || "",
+      content_html: draft.bodyHtml || null,
+      to_json: mapAddrs(draft.to),
+      cc_json: mapAddrs(draft.cc),
+      bcc_json: mapAddrs(draft.bcc),
+      internet_message_id: draft.internetMessageId ?? null,
+      provider_folder_path: draft.folderPath,
+      updated_at: new Date().toISOString(),
+    };
+
+    const existingId = existingByProviderId.get(draft.providerMessageId);
+    if (existingId) {
+      await admin
+        .from("email_outbound_drafts")
+        .update(fields)
+        .eq("id", existingId);
+    } else {
+      await admin.from("email_outbound_drafts").insert({
+        mailbox_id: mailbox.id,
+        created_by_user_id: mailbox.owner_user_id ?? null,
+        provider_message_id: draft.providerMessageId,
+        ...fields,
+      });
+    }
+  }
 
   const stale = (existing || [])
     .filter((row: any) => !seenProviderIds.has(row.provider_message_id))
