@@ -471,6 +471,12 @@ export interface InboxItem {
    *  — a thread has at least its own message, so we never display 0. Derived
    *  from email_messages, not stored on the email_threads row. */
   messageCount: number;
+  /** Number of gallery-eligible attachments across every message in the thread,
+   *  included in the list payload so the paperclip badge paints on first render
+   *  instead of lazy-loading per row. Mirrors collectThreadAttachments so the
+   *  badge and the lightbox agree. Optional for back-compat with cached payloads
+   *  that predate this field. */
+  attachmentCount?: number;
   matchedRuleIds?: string[];
   /** Explicit tab assignment (a "moved" thread). When set, the thread belongs
    *  ONLY to this tab and is hidden from other category tabs and "All". */

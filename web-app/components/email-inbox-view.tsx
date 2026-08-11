@@ -997,9 +997,11 @@ export function filterInboxItemsBySearchQuery(params: {
       ]);
     const participantEmails = (participants: typeof item.participants = []) =>
       (participants || []).map((participant) => participant.emailAddress);
-    const hasAttachments = Boolean(
-      (item.conversation || []).some((entry) => (entry.attachments || []).length > 0),
-    );
+    const hasAttachments =
+      (item.attachmentCount ?? 0) > 0 ||
+      (item.conversation || []).some(
+        (entry) => (entry.attachments || []).length > 0,
+      );
     const fieldMatchers: Record<string, (value: string) => boolean> = {
       from: (value) =>
         matchesSearchTerm(value, [
