@@ -119,6 +119,10 @@ import {
   type EmailReplyAttachment,
 } from "@/lib/email-reply";
 import { getProjectAiExportForUser } from "@/lib/project-ai-export";
+import {
+  collectThreadAttachments,
+  countStoredGalleryAttachments,
+} from "@/lib/email-inbox/attachments";
 
 type VisibleScope = {
   orgMemberships: Array<{ organization_id: string; is_owner: boolean | null }>;
@@ -1263,6 +1267,7 @@ function mapThreadToInboxItem(params: {
   taskCount: number;
   projectIds?: string[];
   messageCount?: number;
+  attachmentCount?: number;
 }): InboxItem {
   // Full project association list: the primary project_id first (for back-compat
   // and as the default task target), then any additional links from the
@@ -1315,6 +1320,13 @@ function mapThreadToInboxItem(params: {
     // message, so the UI never shows 0.
     messageCount:
       params.messageCount && params.messageCount > 0 ? params.messageCount : 1,
+    // Thread-wide attachment total for the list paperclip badge. Shipped in the
+    // initial payload so the badge paints on first render instead of the client
+    // lazy-fetching each thread.
+    attachmentCount:
+      params.attachmentCount && params.attachmentCount > 0
+        ? params.attachmentCount
+        : 0,
     matchedRuleIds: Array.isArray(params.row.analysis_json?.matchedRuleIds)
       ? params.row.analysis_json.matchedRuleIds
           .map((value: unknown) => String(value || "").trim())
@@ -2425,12 +2437,15 @@ export async function listInboxItemsForUser(
       .from("email_thread_projects")
       .select("thread_id,project_id")
       .in("thread_id", threadIds),
-    // Per-thread message counts (conversation length) for the list badge. One
-    // grouped read over the capped thread set (<=200 threads), counted in JS —
-    // cheaper than one query per thread.
+    // Per-thread message counts (conversation length) AND attachment totals for
+    // the list badges. One grouped read over the capped thread set (<=200
+    // threads), counted in JS — cheaper than one query per thread, and it lets
+    // the attachment count ship in the initial payload instead of the client
+    // lazy-fetching each thread just to render the paperclip badge. metadata_json
+    // is the only place stored attachments live, so it is pulled here.
     admin
       .from("email_messages")
-      .select("thread_id")
+      .select("id,thread_id,metadata_json")
       .in("thread_id", threadIds),
   ]);
 
@@ -2438,6 +2453,21 @@ export async function listInboxItemsForUser(
     (map: Map<string, number>, row: any) => {
       const key = String(row.thread_id);
       map.set(key, (map.get(key) || 0) + 1);
+      return map;
+    },
+    new Map<string, number>(),
+  );
+
+  const attachmentCountByThread = ((messageRows || []) as any[]).reduce(
+    (map: Map<string, number>, row: any) => {
+      const count = countStoredGalleryAttachments(
+        String(row.id),
+        row.metadata_json?.attachments,
+      );
+      if (count > 0) {
+        const key = String(row.thread_id);
+        map.set(key, (map.get(key) || 0) + count);
+      }
       return map;
     },
     new Map<string, number>(),
@@ -2482,6 +2512,7 @@ export async function listInboxItemsForUser(
         taskCount: taskCounts.get(String(row.id)) || 0,
         projectIds: projectIdsByThread.get(String(row.id)) || [],
         messageCount: messageCountByThread.get(String(row.id)) ?? 1,
+        attachmentCount: attachmentCountByThread.get(String(row.id)) ?? 0,
       }),
     ),
   );
@@ -2675,6 +2706,7 @@ export async function listSenderHistoryForUser(
 
       return {
         ...item,
+        attachmentCount: collectThreadAttachments(conversation).length,
         conversation,
       };
     }),
@@ -3936,6 +3968,7 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
 
   return {
     ...item,
+    attachmentCount: collectThreadAttachments(conversation).length,
     conversation: conversation.map((entry: ConversationEntry) => ({
       ...entry,
       participants: participantMap.get(entry.id) || [],

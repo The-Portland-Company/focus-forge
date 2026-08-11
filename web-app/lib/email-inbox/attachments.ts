@@ -175,6 +175,51 @@ export function collectThreadAttachments(
   return collected;
 }
 
+/**
+ * Count the gallery-eligible attachments stored on a single email_messages row's
+ * `metadata_json.attachments`, WITHOUT building the full thread conversation.
+ * Mirrors collectThreadAttachments exactly (same isGalleryAttachment filter and
+ * the same coerceConversationEntry URL derivation) so the inbox list badge and
+ * the lightbox gallery always report the same number. Lets listInboxItemsForUser
+ * ship the attachment count in the initial payload instead of the client
+ * lazy-fetching each thread just to render the paperclip badge.
+ */
+export function countStoredGalleryAttachments(
+  messageId: string,
+  storedAttachments: unknown,
+): number {
+  if (!Array.isArray(storedAttachments)) {
+    return 0;
+  }
+
+  let count = 0;
+  storedAttachments.forEach((attachment: unknown, index: number) => {
+    const raw = (attachment ?? {}) as Record<string, unknown>;
+    // coerceConversationEntry always stamps attachmentIndex (by array position)
+    // and a fallback download URL from the owning message id — replicate that so
+    // the gallery/url checks behave identically here.
+    const normalized = {
+      ...raw,
+      attachmentIndex:
+        typeof raw.attachmentIndex === "number" ? raw.attachmentIndex : index,
+      url:
+        typeof raw.url === "string" && raw.url
+          ? raw.url
+          : `/api/email/messages/${messageId}/attachments/${index}`,
+    } as unknown as RawAttachment;
+
+    if (!isGalleryAttachment(normalized)) {
+      return;
+    }
+    if (!resolveAttachmentUrl(messageId, normalized)) {
+      return;
+    }
+    count += 1;
+  });
+
+  return count;
+}
+
 /** Human-readable byte size, e.g. "1.4 MB". */
 export function formatAttachmentSize(bytes: number): string {
   if (!bytes || bytes <= 0) {
