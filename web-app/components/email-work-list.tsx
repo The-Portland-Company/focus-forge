@@ -10,6 +10,7 @@ import {
   type MouseEvent,
 } from "react";
 import {
+  Archive,
   Check,
   ChevronDown,
   Clock,
@@ -1565,6 +1566,23 @@ export function EmailWorkList({
                       }
                     />
                     <Tooltip
+                      content="Archive email"
+                      className="w-auto"
+                      side="top"
+                    >
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void onThreadAction?.(item, "archive");
+                        }}
+                        className="inline-flex h-11 w-11 sm:h-7 sm:w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-emerald-300"
+                        aria-label="Archive email"
+                      >
+                        <Archive className="h-3.5 w-3.5" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip
                       content="Delete email"
                       className="w-auto"
                       side="top"
@@ -1585,6 +1603,25 @@ export function EmailWorkList({
                 ) : null}
                 {/* Hover-revealed delete on every row (outside triage views,
                     which already render an always-visible delete above). */}
+                {!showTodayTriageActions ? (
+                  <Tooltip
+                    content="Archive email"
+                    className="w-auto"
+                    side="top"
+                  >
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void onThreadAction?.(item, "archive");
+                      }}
+                      className="inline-flex h-11 w-11 sm:h-7 sm:w-7 items-center justify-center rounded-md text-zinc-400 opacity-0 transition hover:bg-zinc-800 hover:text-emerald-300 focus-visible:opacity-100 group-hover:opacity-100"
+                      aria-label="Archive email"
+                    >
+                      <Archive className="h-3.5 w-3.5" />
+                    </button>
+                  </Tooltip>
+                ) : null}
                 {!showTodayTriageActions ? (
                   <Tooltip
                     content="Delete email"

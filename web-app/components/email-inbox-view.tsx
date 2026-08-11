@@ -4402,6 +4402,42 @@ export function EmailInboxView({
         updateSelectedThread: false,
       });
     };
+    // Archive: like spam/delete, the provider-side move (IMAP) lags, so the row
+    // already vanished optimistically. Dock a progress alert to the bell while
+    // the sync runs; it flips to a short-lived success on commit or a sticky
+    // error with Retry on failure.
+    const archiveAlertId = `archive:${threadId}`;
+    const retryArchive = () => {
+      dismissAlert(archiveAlertId);
+      void handleThreadAction("archive", {
+        threadId,
+        updateSelectedThread: false,
+      });
+    };
+    if (action === "archive") {
+      const archiveTargetItem =
+        previousItems.find((it) => it.id === threadId) ?? null;
+      const archiveSender = archiveTargetItem
+        ? formatParticipantName(
+            getPrimarySenderParticipant(archiveTargetItem.participants, [
+              archiveTargetItem.mailboxEmailAddress,
+            ]),
+          )
+        : null;
+      const archiveSubject = archiveTargetItem
+        ? formatEmailSubject(archiveTargetItem.subject) || "(no subject)"
+        : null;
+      upsertAlert({
+        id: archiveAlertId,
+        type: "progress",
+        title: "Archiving…",
+        message: [archiveSubject, archiveSender ? `from ${archiveSender}` : null]
+          .filter(Boolean)
+          .join(" "),
+        duration: 0,
+      });
+    }
+
     if (action === "spam") {
       const spamTargetItem =
         previousItems.find((it) => it.id === threadId) ?? null;
@@ -4476,6 +4512,16 @@ export function EmailInboxView({
         });
       }
 
+      if (action === "archive") {
+        // Provider move committed — flip to a short-lived success.
+        upsertAlert({
+          id: archiveAlertId,
+          type: "success",
+          title: "Archived",
+          duration: 4000,
+        });
+      }
+
       updateStatus(`Applied ${action.replace(/_/g, " ")}.`);
     } catch (error) {
       if (action === "spam") {
@@ -4487,6 +4533,26 @@ export function EmailInboxView({
           title: "Couldn't mark as spam",
           message,
           duration: 0,
+        });
+      }
+      if (action === "archive") {
+        const message =
+          error instanceof Error ? error.message : "Failed to archive";
+        // Sticky error with a Retry affordance; the row is restored below.
+        upsertAlert({
+          id: archiveAlertId,
+          type: "error",
+          title: "Couldn't archive",
+          message,
+          duration: 0,
+          actions: [
+            {
+              id: "retry",
+              label: "Retry",
+              variant: "button",
+              onClick: retryArchive,
+            },
+          ],
         });
       }
       if (changedOptimistically) {
@@ -7579,6 +7645,12 @@ export function EmailInboxView({
             setIsOutboundComposerOpen(true);
           }}
           onUnsubscribe={handleUnsubscribe}
+          onArchive={(id) =>
+            void handleThreadAction("archive", {
+              threadId: id,
+              updateSelectedThread: false,
+            })
+          }
           onOpenChange={setIsThreadModalOpen}
         />
       )}
