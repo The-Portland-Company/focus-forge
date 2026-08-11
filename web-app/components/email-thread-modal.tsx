@@ -197,6 +197,14 @@ type EmailThreadModalProps = {
    * per-step bell alerts, so the modal just closes and delegates.
    */
   onUnsubscribe?: (threadId: string) => void | Promise<void>;
+  /**
+   * Archive from the open email. The parent owns the optimistic removal (the row
+   * disappears from the list instantly) + the background provider sync and the
+   * bell "Archiving…"→"Archived" alert, so the modal just closes and delegates —
+   * identical behavior to archiving from a list row. When omitted, the modal
+   * falls back to its own (non-optimistic) execute-then-close path.
+   */
+  onArchive?: (threadId: string) => void | Promise<void>;
 };
 
 export function shouldCloseEmailThreadModalAfterAction(action: ThreadAction) {
@@ -420,6 +428,7 @@ export function EmailThreadModal({
   freshnessSignal = null,
   onForward,
   onUnsubscribe,
+  onArchive,
 }: EmailThreadModalProps) {
   const [thread, setThread] = useState<EmailThreadDetail | null>(null);
   // Read inside the open effect without re-firing it on every realtime tick.
@@ -1709,6 +1718,16 @@ export function EmailThreadModal({
 
   const handleThreadAction = (action: ThreadAction) => {
     if (queuedAction) {
+      return;
+    }
+
+    // Archive routes through the parent's optimistic path so the email
+    // disappears from the list instantly (background provider sync + bell
+    // alert), identical to archiving from a list row. Close and delegate.
+    if (action === "archive" && onArchive && threadId) {
+      const targetThreadId = threadId;
+      onOpenChange(false);
+      void onArchive(targetThreadId);
       return;
     }
 
