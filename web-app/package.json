@@ -7,7 +7,7 @@
     "dev:no-log": "next dev --turbo -p 3244",
     "build": "NODE_OPTIONS=--max-old-space-size=4096 next build",
     "start": "node start.js",
-    "test": "tsx --test components/__tests__/*.test.tsx components/__tests__/*.test.ts lib/__tests__/*.test.ts",
+    "test": "tsx --test components/__tests__/*.test.tsx components/__tests__/*.test.ts lib/__tests__/*.test.ts lib/email-inbox/__tests__/*.test.ts",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx --no-eslintrc -c .eslintrc.json",
     "check:precommit": "npm run test && npm run build && gitleaks protect --staged --redact --verbose",
     "migrate:todoist": "tsx scripts/migrate-todoist.ts",

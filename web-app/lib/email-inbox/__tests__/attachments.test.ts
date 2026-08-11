@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   collectThreadAttachments,
+  countStoredGalleryAttachments,
   formatAttachmentSize,
   isGalleryAttachment,
   isImageAttachment,
@@ -112,6 +113,60 @@ test("collectThreadAttachments flattens, filters, and classifies", () => {
 test("collectThreadAttachments handles empty input", () => {
   assert.deepEqual(collectThreadAttachments(null), []);
   assert.deepEqual(collectThreadAttachments([]), []);
+});
+
+test("countStoredGalleryAttachments matches collectThreadAttachments semantics", () => {
+  // Same shape stored in email_messages.metadata_json.attachments (no
+  // attachmentIndex/url stamped — those are derived at read time).
+  const stored = [
+    { filename: "photo.png", contentType: "image/png", size: 100, related: false },
+    // inline cid part — hidden from the gallery, must not be counted
+    {
+      filename: "logo.png",
+      contentType: "image/png",
+      size: 5,
+      related: false,
+      contentDisposition: "inline",
+      cid: "logo@x",
+    },
+    // related part — hidden
+    { filename: "bg.png", contentType: "image/png", size: 5, related: true },
+    { filename: "report.pdf", contentType: "application/pdf", size: 2048 },
+  ];
+
+  assert.equal(countStoredGalleryAttachments("m1", stored), 2);
+});
+
+test("countStoredGalleryAttachments handles empty / non-array input", () => {
+  assert.equal(countStoredGalleryAttachments("m1", null), 0);
+  assert.equal(countStoredGalleryAttachments("m1", undefined), 0);
+  assert.equal(countStoredGalleryAttachments("m1", []), 0);
+  assert.equal(countStoredGalleryAttachments("m1", "nope"), 0);
+});
+
+test("countStoredGalleryAttachments agrees with collectThreadAttachments", () => {
+  const stored = [
+    { filename: "a.pdf", contentType: "application/pdf", size: 1 },
+    { filename: "b.png", contentType: "image/png", size: 2, related: false },
+    { filename: "inline.png", contentType: "image/png", contentDisposition: "inline", cid: "x@y" },
+  ];
+  // Build the equivalent conversation entry the way coerceConversationEntry does
+  // (attachmentIndex + url stamped by array position), then compare counts.
+  const conversation = [
+    {
+      id: "m9",
+      attachments: stored.map((attachment, index) => ({
+        ...attachment,
+        attachmentIndex: index,
+        url: `/api/email/messages/m9/attachments/${index}`,
+      })),
+    },
+  ] as unknown as ConversationEntry[];
+
+  assert.equal(
+    countStoredGalleryAttachments("m9", stored),
+    collectThreadAttachments(conversation).length,
+  );
 });
 
 test("formatAttachmentSize renders human-readable sizes", () => {

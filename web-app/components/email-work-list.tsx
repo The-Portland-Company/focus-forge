@@ -1246,11 +1246,14 @@ export function EmailWorkList({
         const reviewBadgeLabel = getInboxReviewBadgeLabel(item);
         const canMoveToQuarantine =
           reviewState === "spam" && item.status !== "quarantine";
-        // Lazily-resolved attachments for the paperclip badge + lightbox.
+        // Attachment badge count. The list payload now ships attachmentCount so
+        // the badge paints on first render; once the lightbox has lazy-loaded the
+        // full attachment list (on hover/click), prefer that precise count — the
+        // two agree because both derive from collectThreadAttachments.
         const cachedAttachments = getCachedAttachments(item.id);
         const attachmentCount = Array.isArray(cachedAttachments)
           ? cachedAttachments.length
-          : 0;
+          : (item.attachmentCount ?? 0);
         // Detect a verification/OTP code from the subject + available preview
         // text. The full HTML body isn't in the inbox payload, so codes that
         // live only deep in the body won't be surfaced here (most OTP emails
@@ -1281,10 +1284,20 @@ export function EmailWorkList({
               event.dataTransfer.effectAllowed = "move";
             }}
             onMouseEnter={() => {
-              ensureThreadAttachments(item.id);
+              // Prefetch the full attachment list for the lightbox only when the
+              // thread actually has attachments (badge count already known from
+              // the payload). undefined = older payload without the count, so
+              // still prefetch to stay correct.
+              if (item.attachmentCount === undefined || item.attachmentCount > 0) {
+                ensureThreadAttachments(item.id);
+              }
               if (isGrouped) setHoveredGroupKey(groupLabel ?? "");
             }}
-            onFocus={() => ensureThreadAttachments(item.id)}
+            onFocus={() => {
+              if (item.attachmentCount === undefined || item.attachmentCount > 0) {
+                ensureThreadAttachments(item.id);
+              }
+            }}
             onClick={() => onSelect?.(item)}
             onContextMenu={(event) => {
               event.preventDefault();
@@ -1989,6 +2002,9 @@ export function EmailWorkList({
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
+                      // Touch/keyboard users may open the gallery without ever
+                      // firing hover, so kick off the lazy load here too.
+                      ensureThreadAttachments(item.id);
                       setLightboxThread({
                         threadId: item.id,
                         title: formatEmailSubject(item.subject),
