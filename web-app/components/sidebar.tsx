@@ -1148,31 +1148,6 @@ export function Sidebar({
     return m;
   }, [data.projects]);
 
-  const sentItemsCount = useMemo(() => {
-    const sentItems = data.inboxItems.filter(
-      (item) =>
-        item.status !== "quarantine" &&
-        item.status !== "deleted" &&
-        (item.origin === "outbound" || item.origin === "mixed"),
-    );
-
-    return {
-      total: sentItems.length,
-      unread: sentItems.filter((item) => item.isUnread).length,
-    };
-  }, [data.inboxItems]);
-
-  const trashItemsCount = useMemo(() => {
-    const deletedItems = data.inboxItems.filter(
-      (item) => item.status === "deleted",
-    );
-
-    return {
-      total: deletedItems.length,
-      unread: deletedItems.filter((item) => item.isUnread).length,
-    };
-  }, [data.inboxItems]);
-
   // Per-sub-item unread/total counts for two-tone badges.
   const quarantineItemsCount = useMemo(() => {
     const quarantineItems = data.inboxItems.filter(
@@ -1930,9 +1905,6 @@ export function Sidebar({
                     <Trash2 className="w-4 h-4" />
                     Trash
                   </span>
-                  <Tooltip content="Unread / read deleted emails" className="">
-                    <UnreadReadBadge unread={trashItemsCount.unread} total={trashItemsCount.total} />
-                  </Tooltip>
                 </Link>
                 <Link
                   href="/email-sent"
@@ -1946,9 +1918,6 @@ export function Sidebar({
                     <Send className="w-4 h-4" />
                     Sent
                   </span>
-                  <Tooltip content="Unread / read sent emails" className="">
-                    <UnreadReadBadge unread={sentItemsCount.unread} total={sentItemsCount.total} />
-                  </Tooltip>
                 </Link>
                 <Link
                   href="/email-rules"

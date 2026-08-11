@@ -1611,6 +1611,73 @@ async function mirrorProviderFolderState(params: {
   }
   const presentUids = new Set(folderUids);
 
+  // SAFETY: an empty INBOX read is almost always a transient IMAP hiccup, not a
+  // genuinely empty inbox. Acting on it archived ~900 threads in one bad sync.
+  // Treat empty as "unknown" and do nothing this pass — never archive the whole
+  // inbox on a single suspicious read.
+  if (presentUids.size === 0) {
+    console.warn(
+      "[email] mirrorProviderFolderState: INBOX returned 0 uids — skipping archive/restore this pass",
+    );
+    return { archivedThreadCount: 0, restoredThreadCount: 0 };
+  }
+
+  // RESTORE (self-heal): a thread whose inbound message is back in the INBOX
+  // must be active, even if a previous bad pass archived it. This is the inverse
+  // of the archive rule and is what recovers the mass-archive damage on the next
+  // sync. Bounded to threads that actually have a provider message id.
+  const { data: archivedRows } = await admin
+    .from("email_threads")
+    .select("id,project_id")
+    .eq("mailbox_id", params.mailboxId)
+    .eq("status", "archived");
+  const archivedIds = (archivedRows ?? []).map((row: any) => String(row.id));
+  const projectByThread = new Map<string, string | null>(
+    (archivedRows ?? []).map((row: any) => [
+      String(row.id),
+      row.project_id ?? null,
+    ]),
+  );
+  const restoreChunk = 100;
+  const toRestore: string[] = [];
+  for (let i = 0; i < archivedIds.length; i += restoreChunk) {
+    const chunk = archivedIds.slice(i, i + restoreChunk);
+    const { data: msgRows } = await admin
+      .from("email_messages")
+      .select("thread_id,provider_message_id")
+      .eq("mailbox_id", params.mailboxId)
+      .eq("direction", "inbound")
+      .not("provider_message_id", "is", null)
+      .in("thread_id", chunk);
+    const present = new Set<string>();
+    (msgRows ?? []).forEach((row: any) => {
+      if (presentUids.has(String(row.provider_message_id || ""))) {
+        present.add(String(row.thread_id));
+      }
+    });
+    for (const id of chunk) if (present.has(id)) toRestore.push(id);
+  }
+  for (let i = 0; i < toRestore.length; i += restoreChunk) {
+    const chunk = toRestore.slice(i, i + restoreChunk);
+    // active when it has a project, else needs_project — matching how a freshly
+    // ingested inbox thread is classified.
+    const withProject = chunk.filter((id) => projectByThread.get(id));
+    const withoutProject = chunk.filter((id) => !projectByThread.get(id));
+    if (withProject.length > 0) {
+      await admin
+        .from("email_threads")
+        .update({ status: "active" })
+        .in("id", withProject);
+    }
+    if (withoutProject.length > 0) {
+      await admin
+        .from("email_threads")
+        .update({ status: "needs_project", needs_project: true })
+        .in("id", withoutProject);
+    }
+  }
+  const restoredThreadCount = toRestore.length;
+
   // Threads Forge itself filed under a category label are deliberately no
   // longer in the synced folder — that removal IS the feature. Without this
   // guard the very next sync would read their absence as "the user archived it
@@ -1652,7 +1719,21 @@ async function mirrorProviderFolderState(params: {
     (id: string) => !stillPresent.has(id),
   );
   if (departedThreadIds.length === 0) {
-    return { archivedThreadCount: 0 };
+    return { archivedThreadCount: 0, restoredThreadCount };
+  }
+
+  // SAFETY CAP: a single sync marking a large share of the inbox as "departed"
+  // is far more likely a partial/stale INBOX read than the user archiving
+  // hundreds of emails at once. Skip archiving in that case — a missed archive
+  // self-corrects on the next healthy sync, but a wrongful mass-archive does
+  // not. The cap only trips on both a big absolute count and a big fraction, so
+  // small/normal inboxes clearing out are unaffected.
+  const departedFraction = departedThreadIds.length / threadIds.length;
+  if (departedThreadIds.length > 25 && departedFraction > 0.5) {
+    console.warn(
+      `[email] mirrorProviderFolderState: ${departedThreadIds.length}/${threadIds.length} threads absent from INBOX — refusing to mass-archive (suspected partial read)`,
+    );
+    return { archivedThreadCount: 0, restoredThreadCount, skippedMassArchive: true };
   }
 
   for (let i = 0; i < departedThreadIds.length; i += chunkSize) {
@@ -1663,7 +1744,7 @@ async function mirrorProviderFolderState(params: {
       .in("id", chunk);
   }
 
-  return { archivedThreadCount: departedThreadIds.length };
+  return { archivedThreadCount: departedThreadIds.length, restoredThreadCount };
 }
 
 async function syncMailboxThreadReadStates(params: {
