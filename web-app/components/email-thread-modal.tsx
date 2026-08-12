@@ -1756,6 +1756,37 @@ export function EmailThreadModal({
     [],
   );
 
+  const [copiedEmailId, setCopiedEmailId] = useState(false);
+  const copiedEmailIdTimeoutRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copiedEmailIdTimeoutRef.current !== null) {
+        window.clearTimeout(copiedEmailIdTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  const handleCopyEmailId = async () => {
+    if (!threadId || typeof window === "undefined") return;
+    try {
+      await navigator.clipboard.writeText(threadId);
+      setCopiedEmailId(true);
+      if (copiedEmailIdTimeoutRef.current !== null) {
+        window.clearTimeout(copiedEmailIdTimeoutRef.current);
+      }
+      copiedEmailIdTimeoutRef.current = window.setTimeout(
+        () => setCopiedEmailId(false),
+        1500,
+      );
+    } catch {
+      // Clipboard blocked (permissions / insecure context): fall back to a
+      // manual prompt so the ID can still be copied by hand.
+      window.prompt("Copy this email ID", threadId);
+    }
+  };
+
   const handleCopyThreadLink = async () => {
     if (!threadId || typeof window === "undefined") return;
     const url = new URL("/email-inbox", window.location.origin);
@@ -2003,26 +2034,58 @@ export function EmailThreadModal({
                   ) : null}
                 </div>
               ) : null}
-              {aiSummaryText ? (
-                <div className="min-w-0 truncate text-sm font-medium text-zinc-200">
-                  <span className="text-zinc-500">Summary: </span>
-                  {aiSummaryText}
+              {/* Click the summary or subject to copy the email's ID — handy for
+                  referencing a specific email when talking to API-connected
+                  agents. A "Copied!" toast fades in, then slides up and out. */}
+              <div className="relative min-w-0">
+                {aiSummaryText ? (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    title="Copy email ID"
+                    onClick={() => void handleCopyEmailId()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void handleCopyEmailId();
+                      }
+                    }}
+                    className="min-w-0 cursor-pointer truncate rounded text-sm font-medium text-zinc-200 transition-colors hover:text-white"
+                  >
+                    <span className="text-zinc-500">Summary: </span>
+                    {aiSummaryText}
+                  </div>
+                ) : null}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  title="Copy email ID"
+                  onClick={() => void handleCopyEmailId()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      void handleCopyEmailId();
+                    }
+                  }}
+                  className={cn(
+                    "min-w-0 cursor-pointer truncate rounded transition-colors hover:text-white",
+                    aiSummaryText
+                      ? "text-xs text-zinc-500"
+                      : "text-sm font-medium text-zinc-300",
+                  )}
+                >
+                  <span className="text-zinc-600">Subject: </span>
+                  {thread?.subject
+                    ? formatEmailSubject(thread.subject)
+                    : freshnessSignal?.subject
+                      ? formatEmailSubject(freshnessSignal.subject)
+                      : "Email thread"}
                 </div>
-              ) : null}
-              <div
-                className={cn(
-                  "min-w-0 truncate",
-                  aiSummaryText
-                    ? "text-xs text-zinc-500"
-                    : "text-sm font-medium text-zinc-300",
-                )}
-              >
-                <span className="text-zinc-600">Subject: </span>
-                {thread?.subject
-                  ? formatEmailSubject(thread.subject)
-                  : freshnessSignal?.subject
-                    ? formatEmailSubject(freshnessSignal.subject)
-                    : "Email thread"}
+                {copiedEmailId ? (
+                  <div className="animate-copied-id-toast pointer-events-none absolute -top-1 left-0 z-10 rounded-md bg-emerald-500 px-2 py-0.5 text-xs font-semibold text-white shadow-lg">
+                    Copied!
+                  </div>
+                ) : null}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
