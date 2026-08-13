@@ -1265,6 +1265,32 @@ function getInboxItemSenderSortValue(item: InboxItem) {
   return formatParticipantName(sender).toLocaleLowerCase();
 }
 
+/**
+ * The signal handed to the thread modal when a row is opened. Beyond the
+ * cache-freshness fields it seeds the modal header's From/To/date rows from the
+ * data the list row already shows, so the header renders its final shape on the
+ * first frame instead of popping those rows in when the thread detail lands.
+ */
+function buildThreadFreshnessSignal(item: InboxItem | undefined | null) {
+  if (!item) {
+    return null;
+  }
+
+  const sender = getPrimarySenderParticipant(item.participants, [
+    item.mailboxEmailAddress,
+  ]);
+
+  return {
+    ...item,
+    senderName: sender?.displayName ?? null,
+    senderEmail: sender?.emailAddress ?? null,
+    receivedAt:
+      item.latestInboundAt || item.latestMessageAt || item.createdAt || null,
+    mailboxName: item.mailboxName ?? null,
+    mailboxEmailAddress: item.mailboxEmailAddress ?? null,
+  };
+}
+
 function getInboxItemSubjectSortValue(item: InboxItem) {
   const subject = item.normalizedSubject || item.subject || "";
   const normalized = subject.trim().toLocaleLowerCase();
@@ -7629,7 +7655,9 @@ export function EmailInboxView({
           threadId={selectedThreadId}
           freshnessSignal={
             selectedThreadId
-              ? (inboxItems.find((item) => item.id === selectedThreadId) ?? null)
+              ? buildThreadFreshnessSignal(
+                  inboxItems.find((item) => item.id === selectedThreadId),
+                )
               : null
           }
           projects={data.projects}
