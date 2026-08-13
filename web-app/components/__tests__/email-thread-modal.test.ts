@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   canMarkThreadAsRead,
+  getEmailThreadHeaderSummaryText,
   shouldCloseEmailThreadModalAfterAction,
 } from "../email-thread-modal";
 import { getThreadProjectId } from "../../lib/email-thread-projects";
@@ -70,4 +71,45 @@ test("delete undo duration is clamped to supported profile limits", () => {
   assert.equal(clampEmailDeleteUndoSeconds(1), 5);
   assert.equal(clampEmailDeleteUndoSeconds(75.6), 76);
   assert.equal(clampEmailDeleteUndoSeconds(9999), 3600);
+});
+
+test("the header Summary row keeps its slot while the thread hydrates", () => {
+  // Loaded: the real AI summary always wins.
+  assert.equal(
+    getEmailThreadHeaderSummaryText("Real AI summary", {
+      summaryText: "Row summary",
+    }),
+    "Real AI summary",
+  );
+  // Loading: fall back to the inbox row so the row does not appear in the body
+  // first and then jump up into the header.
+  assert.equal(
+    getEmailThreadHeaderSummaryText("", { summaryText: "Row summary" }),
+    "Row summary",
+  );
+  assert.equal(
+    getEmailThreadHeaderSummaryText("", { previewText: "Row preview" }),
+    "Row preview",
+  );
+  // The greeting is stripped in both states so the seeded text matches the
+  // loaded text character-for-character.
+  assert.equal(
+    getEmailThreadHeaderSummaryText("", {
+      summaryText: "Hi Spencer, your ticket was denied.",
+    }),
+    "Your ticket was denied.",
+  );
+});
+
+test("the header Summary row stays empty when there is nothing real to show", () => {
+  assert.equal(getEmailThreadHeaderSummaryText("", null), "");
+  assert.equal(getEmailThreadHeaderSummaryText("", {}), "");
+  // An action title that merely repeats the subject is not a summary.
+  assert.equal(
+    getEmailThreadHeaderSummaryText("", {
+      subject: "Denied Without Explanation",
+      actionTitle: "Review and handle: Denied Without Explanation",
+    }),
+    "",
+  );
 });
