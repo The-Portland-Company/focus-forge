@@ -191,6 +191,22 @@ export async function middleware(request: NextRequest) {
     },
   );
 
+  // Carry any auth cookies Supabase refreshed onto whatever response we return.
+  //
+  // getSession() below auto-refreshes the access token and writes the rotated
+  // session cookies onto `response` (via the set/remove callbacks above). Every
+  // branch that returns a DIFFERENT response object — the redirects and the
+  // /api/ response that adds x-user-id — would otherwise silently drop those
+  // Set-Cookie headers, so the rotated refresh token never reaches the browser.
+  // On concurrent requests (the client loads /api/sync/database and
+  // /api/organizations at once) each one then rotates the token and invalidates
+  // its siblings → intermittent 401s (organizations fails to load) and a
+  // redirect loop back to /auth/login. Copying the cookies through fixes both.
+  const carryAuthCookies = (target: NextResponse) => {
+    response.cookies.getAll().forEach((cookie) => target.cookies.set(cookie));
+    return applySecurityHeaders(target);
+  };
+
   // Check for authenticated user using getSession instead of getUser
   // getSession doesn't verify the JWT, avoiding refresh token issues
   const {
@@ -202,7 +218,7 @@ export async function middleware(request: NextRequest) {
     // Redirect to login page if not authenticated
     if (pathname.startsWith("/api/")) {
       // For API routes, return 401
-      return applySecurityHeaders(
+      return carryAuthCookies(
         NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
       );
     }
@@ -210,7 +226,7 @@ export async function middleware(request: NextRequest) {
     // For page routes, redirect to login
     const loginUrl = new URL("/auth/login", request.url);
     loginUrl.searchParams.set("from", pathname);
-    return applySecurityHeaders(NextResponse.redirect(loginUrl));
+    return carryAuthCookies(NextResponse.redirect(loginUrl));
   }
 
   const { aal, iat } = decodeAccessToken(session.access_token);
@@ -219,13 +235,13 @@ export async function middleware(request: NextRequest) {
   // revoked/older session cannot keep using a still-valid access token.
   if (iat && iat < SESSION_MIN_IAT) {
     if (pathname.startsWith("/api/")) {
-      return applySecurityHeaders(
+      return carryAuthCookies(
         NextResponse.json({ error: "Session expired" }, { status: 401 }),
       );
     }
     const loginUrl = new URL("/auth/login", request.url);
     loginUrl.searchParams.set("from", pathname);
-    return applySecurityHeaders(NextResponse.redirect(loginUrl));
+    return carryAuthCookies(NextResponse.redirect(loginUrl));
   }
 
   // MFA gate: any authenticated session below aal2 must complete TOTP MFA
@@ -238,7 +254,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/auth/logout");
   if (aal !== "aal2" && !isMfaExempt) {
     if (pathname.startsWith("/api/")) {
-      return applySecurityHeaders(
+      return carryAuthCookies(
         NextResponse.json({ error: "MFA required" }, { status: 403 }),
       );
     }
@@ -246,7 +262,7 @@ export async function middleware(request: NextRequest) {
     if (pathname && pathname !== "/") {
       mfaUrl.searchParams.set("from", pathname);
     }
-    return applySecurityHeaders(NextResponse.redirect(mfaUrl));
+    return carryAuthCookies(NextResponse.redirect(mfaUrl));
   }
 
   // Add user ID to headers for API routes
@@ -254,7 +270,7 @@ export async function middleware(request: NextRequest) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-user-id", session.user.id);
 
-    return applySecurityHeaders(
+    return carryAuthCookies(
       NextResponse.next({
         request: {
           headers: requestHeaders,
