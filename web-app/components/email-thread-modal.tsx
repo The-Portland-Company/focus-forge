@@ -177,8 +177,9 @@ type EmailThreadModalProps = {
   onEditTask?: (taskId: string) => void | Promise<void>;
   /** The (realtime-updated) inbox row's freshness signal for the open thread.
    *  When it matches the cached detail, reopening skips the network entirely.
-   *  The display fields (subject/preview/…) also seed instant content while the
-   *  full thread hydrates, so opening never shows a bare spinner. */
+   *  The display fields (subject/summary/sender/mailbox/date) also seed the
+   *  header while the full thread hydrates, so the header renders its final
+   *  shape immediately and never re-lays-out when the detail arrives. */
   freshnessSignal?:
     | {
         updatedAt?: string;
@@ -187,6 +188,13 @@ type EmailThreadModalProps = {
         summaryText?: string | null;
         previewText?: string | null;
         actionTitle?: string | null;
+        /** Seeds the header From row while the thread conversation loads. */
+        senderName?: string | null;
+        senderEmail?: string | null;
+        receivedAt?: string | null;
+        /** Seeds the header To row while the thread detail loads. */
+        mailboxName?: string | null;
+        mailboxEmailAddress?: string | null;
       }
     | null;
   /** Open the outbound composer pre-filled to forward this thread. */
@@ -221,6 +229,43 @@ export function canMarkThreadAsRead(
   thread: Pick<InboxItem, "isUnread"> | null | undefined,
 ) {
   return Boolean(thread?.isUnread);
+}
+
+/**
+ * Text for the header "Summary:" row. Once the thread detail is loaded this is
+ * the real AI summary; while it hydrates we fall back to the same fields off
+ * the inbox row (summary → preview → action title, normalized identically) so
+ * the row occupies the SAME header slot in both states instead of appearing in
+ * the body first and jumping up on load.
+ */
+export function getEmailThreadHeaderSummaryText(
+  aiSummaryText: string,
+  freshnessSignal?: {
+    subject?: string | null;
+    summaryText?: string | null;
+    previewText?: string | null;
+    actionTitle?: string | null;
+  } | null,
+) {
+  if (aiSummaryText) {
+    return aiSummaryText;
+  }
+
+  if (!freshnessSignal) {
+    return "";
+  }
+
+  const seeded =
+    freshnessSignal.summaryText?.trim() ||
+    freshnessSignal.previewText?.trim() ||
+    (shouldShowSecondaryActionTitle(
+      freshnessSignal.actionTitle,
+      freshnessSignal.subject || "",
+    )
+      ? normalizeInboxActionTitle(freshnessSignal.actionTitle)
+      : "");
+
+  return stripAiGreeting(seeded);
 }
 
 async function parseApiResponse<T>(response: Response, fallbackError: string) {
@@ -612,6 +657,38 @@ export function EmailThreadModal({
         ? normalizeInboxActionTitle(thread.actionTitle)
         : ""),
   );
+  // Header rows must render the SAME shape while the thread hydrates as they do
+  // once it lands, or opening an email visibly "switches" layout. Each row falls
+  // back to the inbox row's signal, and still renders nothing when neither side
+  // has the data (degrade gracefully — never fabricate a sender/mailbox).
+  const headerSummaryText = getEmailThreadHeaderSummaryText(
+    aiSummaryText,
+    freshnessSignal,
+  );
+  const headerFromActor = primaryThreadEntry
+    ? {
+        name: primaryThreadEntry.authorName,
+        email: primaryThreadEntry.authorEmail,
+        receivedAt: primaryThreadEntry.createdAt,
+      }
+    : freshnessSignal?.senderName || freshnessSignal?.senderEmail
+      ? {
+          name: freshnessSignal.senderName ?? null,
+          email: freshnessSignal.senderEmail ?? null,
+          receivedAt: freshnessSignal.receivedAt ?? null,
+        }
+      : null;
+  const headerMailbox = thread?.mailboxEmailAddress
+    ? {
+        name: thread.mailboxName ?? null,
+        email: thread.mailboxEmailAddress,
+      }
+    : freshnessSignal?.mailboxEmailAddress
+      ? {
+          name: freshnessSignal.mailboxName ?? null,
+          email: freshnessSignal.mailboxEmailAddress,
+        }
+      : null;
 
   const conversationEntryIds = useMemo(
     () => conversationEntries.map((entry) => entry.id),
@@ -1985,11 +2062,11 @@ export function EmailThreadModal({
               {/* From details FIRST: small avatar aligned to the sender text's
                   line-height, sender name + inline muted email, and the message
                   date floated to the right of the row. */}
-              {primaryThreadEntry ? (
+              {headerFromActor ? (
                 <div className="flex min-w-0 items-center gap-2">
                   <EmailActorAvatar
-                    name={primaryThreadEntry.authorName}
-                    email={primaryThreadEntry.authorEmail}
+                    name={headerFromActor.name}
+                    email={headerFromActor.email}
                     size="sm"
                   />
                   <span className="text-[10px] uppercase tracking-wide text-zinc-500">
@@ -1997,39 +2074,38 @@ export function EmailThreadModal({
                   </span>
                   <span className="truncate text-sm font-medium text-zinc-100">
                     {getEmailActorName(
-                      primaryThreadEntry.authorName,
-                      primaryThreadEntry.authorEmail,
+                      headerFromActor.name,
+                      headerFromActor.email,
                     )}
                   </span>
-                  {primaryThreadEntry.authorEmail &&
-                  primaryThreadEntry.authorEmail !==
-                    primaryThreadEntry.authorName ? (
+                  {headerFromActor.email &&
+                  headerFromActor.email !== headerFromActor.name ? (
                     <span className="truncate text-xs text-zinc-500">
-                      {primaryThreadEntry.authorEmail}
+                      {headerFromActor.email}
                     </span>
                   ) : null}
-                  {primaryThreadEntry.createdAt ? (
+                  {headerFromActor.receivedAt ? (
                     <span className="ml-auto shrink-0 pl-2 text-xs text-zinc-500">
-                      {formatEmailTimestamp(primaryThreadEntry.createdAt)}
+                      {formatEmailTimestamp(headerFromActor.receivedAt)}
                     </span>
                   ) : null}
                 </div>
               ) : null}
               {/* To: the mailbox that received this email, shown under From. The
                   left spacer keeps the "To" label aligned under "From". */}
-              {thread?.mailboxEmailAddress ? (
+              {headerMailbox ? (
                 <div className="flex min-w-0 items-center gap-2">
                   <span aria-hidden className="h-5 w-5 shrink-0" />
                   <span className="text-[10px] uppercase tracking-wide text-zinc-500">
                     To
                   </span>
                   <span className="truncate text-sm text-zinc-300">
-                    {thread.mailboxName || thread.mailboxEmailAddress}
+                    {headerMailbox.name || headerMailbox.email}
                   </span>
-                  {thread.mailboxName &&
-                  thread.mailboxEmailAddress !== thread.mailboxName ? (
+                  {headerMailbox.name &&
+                  headerMailbox.email !== headerMailbox.name ? (
                     <span className="truncate text-xs text-zinc-500">
-                      {thread.mailboxEmailAddress}
+                      {headerMailbox.email}
                     </span>
                   ) : null}
                 </div>
@@ -2038,7 +2114,7 @@ export function EmailThreadModal({
                   referencing a specific email when talking to API-connected
                   agents. A "Copied!" toast fades in, then slides up and out. */}
               <div className="relative min-w-0">
-                {aiSummaryText ? (
+                {headerSummaryText ? (
                   <div
                     role="button"
                     tabIndex={0}
@@ -2053,7 +2129,7 @@ export function EmailThreadModal({
                     className="min-w-0 cursor-pointer truncate rounded text-sm font-medium text-zinc-200 transition-colors hover:text-white"
                   >
                     <span className="text-zinc-500">Summary: </span>
-                    {aiSummaryText}
+                    {headerSummaryText}
                   </div>
                 ) : null}
                 <div
@@ -2069,7 +2145,7 @@ export function EmailThreadModal({
                   }}
                   className={cn(
                     "min-w-0 cursor-pointer truncate rounded transition-colors hover:text-white",
-                    aiSummaryText
+                    headerSummaryText
                       ? "text-xs text-zinc-500"
                       : "text-sm font-medium text-zinc-300",
                   )}
@@ -2401,30 +2477,26 @@ export function EmailThreadModal({
 
           <div ref={scrollBodyRef} className="flex-1 overflow-y-auto p-6">
           {loadingThread ? (
-            // Instant open: show the subject + preview we already have from the
-            // inbox row, with a subtle "loading full conversation" line, instead
-            // of a bare spinner while the heavy thread detail hydrates.
-            <div className="min-h-[420px] space-y-4">
-              {freshnessSignal?.subject ? (
-                <h2 className="text-base font-semibold text-zinc-100">
-                  {formatEmailSubject(freshnessSignal.subject)}
-                </h2>
-              ) : null}
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-sm text-zinc-300">
-                {freshnessSignal?.summaryText ||
-                freshnessSignal?.previewText ||
-                freshnessSignal?.actionTitle ? (
-                  <p className="whitespace-pre-line text-zinc-300">
-                    {freshnessSignal.summaryText ||
-                      freshnessSignal.previewText ||
-                      freshnessSignal.actionTitle}
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="h-3 w-3/4 animate-pulse rounded bg-zinc-800" />
-                    <div className="h-3 w-1/2 animate-pulse rounded bg-zinc-800" />
+            // Only the CONVERSATION region is unknown at this point — the header
+            // above already renders its final From/To/Summary/Subject rows from
+            // the inbox row's signal. So the loading body is a skeleton shaped
+            // like the message card it will become: no duplicate subject, no
+            // summary box, nothing that disappears on load and shifts the layout.
+            <div className="min-h-[420px] space-y-5">
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-zinc-800" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="h-3.5 w-40 animate-pulse rounded bg-zinc-800" />
+                    <div className="h-3 w-56 animate-pulse rounded bg-zinc-900" />
                   </div>
-                )}
+                </div>
+                <div className="mt-4 space-y-2">
+                  <div className="h-3 w-full animate-pulse rounded bg-zinc-800" />
+                  <div className="h-3 w-11/12 animate-pulse rounded bg-zinc-800" />
+                  <div className="h-3 w-4/5 animate-pulse rounded bg-zinc-800" />
+                  <div className="h-3 w-2/3 animate-pulse rounded bg-zinc-900" />
+                </div>
               </div>
               <div className="flex items-center gap-2 text-xs text-zinc-500">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
