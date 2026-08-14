@@ -1,4 +1,5 @@
 import { getAdminClient } from "@/lib/supabase/admin";
+import type { ConversationRecipientContact } from "@/lib/types";
 
 export type ContactScope = "all" | "personal" | "org";
 
@@ -7,6 +8,7 @@ export interface ContactInput {
   firstName?: string | null;
   lastName?: string | null;
   displayName?: string | null;
+  company?: string | null;
   phone?: string | null;
   source?: string;
 }
@@ -20,6 +22,7 @@ export interface ContactRow {
   display_name: string | null;
   first_name: string | null;
   last_name: string | null;
+  company: string | null;
   phone: string | null;
   source: string;
   created_at: string;
@@ -27,7 +30,7 @@ export interface ContactRow {
 }
 
 const CONTACT_COLUMNS =
-  "id,organization_id,user_id,profile_id,email,display_name,first_name,last_name,phone,source,created_at,updated_at";
+  "id,organization_id,user_id,profile_id,email,display_name,first_name,last_name,company,phone,source,created_at,updated_at";
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -139,6 +142,7 @@ export async function createPersonalContact(params: {
       display_name: deriveDisplayName(params.input),
       first_name: params.input.firstName ?? null,
       last_name: params.input.lastName ?? null,
+      company: params.input.company ?? null,
       phone: params.input.phone ?? null,
       source: params.input.source || "manual",
     })
@@ -159,6 +163,7 @@ export async function updatePersonalContact(params: {
   if (params.patch.email !== undefined) update.email = normalizeEmail(params.patch.email);
   if (params.patch.firstName !== undefined) update.first_name = params.patch.firstName;
   if (params.patch.lastName !== undefined) update.last_name = params.patch.lastName;
+  if (params.patch.company !== undefined) update.company = params.patch.company;
   if (params.patch.phone !== undefined) update.phone = params.patch.phone;
   if (
     params.patch.displayName !== undefined ||
@@ -243,6 +248,7 @@ export async function importPersonalContacts(params: {
       firstName: c.firstName ?? merged.firstName ?? null,
       lastName: c.lastName ?? merged.lastName ?? null,
       displayName: c.displayName ?? merged.displayName ?? null,
+      company: c.company ?? merged.company ?? null,
       phone: c.phone ?? merged.phone ?? null,
       source: params.source,
     });
@@ -279,6 +285,7 @@ export async function importPersonalContacts(params: {
         display_name: deriveDisplayName(input),
         first_name: input.firstName ?? null,
         last_name: input.lastName ?? null,
+        company: input.company ?? null,
         phone: input.phone ?? null,
         source: params.source,
       });
@@ -288,6 +295,7 @@ export async function importPersonalContacts(params: {
       if (!existing.display_name && deriveDisplayName(input)) patch.display_name = deriveDisplayName(input);
       if (!existing.first_name && input.firstName) patch.first_name = input.firstName;
       if (!existing.last_name && input.lastName) patch.last_name = input.lastName;
+      if (!existing.company && input.company) patch.company = input.company;
       if (!existing.phone && input.phone) patch.phone = input.phone;
       if (Object.keys(patch).length > 0) {
         toUpdate.push({ id: existing.id, patch });
@@ -309,6 +317,64 @@ export async function importPersonalContacts(params: {
   }
 
   return result;
+}
+
+/**
+ * Resolve a batch of email addresses against the contacts a user can see (their
+ * personal contacts plus org-shared ones). ONE query for the whole batch — the
+ * thread header calls this with every To/Cc/Bcc address on a thread, so a
+ * per-address lookup would be an N+1 on the read path. Keyed by lowercased
+ * email; addresses with no contact are simply absent from the map. A personal
+ * contact wins over an org-shared one for the same address.
+ */
+export async function getContactsByEmailForUser(params: {
+  userId: string;
+  emails: string[];
+}): Promise<Map<string, ConversationRecipientContact>> {
+  const resolved = new Map<string, ConversationRecipientContact>();
+  const emails = Array.from(
+    new Set(
+      params.emails
+        .map((email) => normalizeEmail(email || ""))
+        .filter((email) => email.includes("@")),
+    ),
+  );
+  if (emails.length === 0) return resolved;
+
+  const admin = getAdminClient();
+  const orgIds = await getUserOrganizationIds(params.userId);
+  const orgClause =
+    orgIds.length > 0
+      ? `and(user_id.is.null,organization_id.in.(${orgIds.join(",")}))`
+      : null;
+  const orExpr = orgClause
+    ? `user_id.eq.${params.userId},${orgClause}`
+    : `user_id.eq.${params.userId}`;
+
+  const CHUNK = 200;
+  for (let index = 0; index < emails.length; index += CHUNK) {
+    const slice = emails.slice(index, index + CHUNK);
+    const { data } = await admin
+      .from("contacts")
+      .select("email,display_name,first_name,last_name,company,user_id")
+      .in("email", slice)
+      .or(orExpr);
+
+    for (const row of (data || []) as any[]) {
+      const key = normalizeEmail(String(row.email || ""));
+      if (!key) continue;
+      // Personal contacts (user_id set) take precedence over org-shared rows.
+      if (resolved.has(key) && !row.user_id) continue;
+      resolved.set(key, {
+        firstName: row.first_name ?? null,
+        lastName: row.last_name ?? null,
+        displayName: row.display_name ?? null,
+        company: row.company ?? null,
+      });
+    }
+  }
+
+  return resolved;
 }
 
 /**

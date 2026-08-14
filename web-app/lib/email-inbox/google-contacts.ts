@@ -180,7 +180,7 @@ export async function fetchGoogleContacts(userId: string): Promise<ContactInput[
 
   do {
     const params = new URLSearchParams({
-      personFields: "names,emailAddresses,phoneNumbers",
+      personFields: "names,emailAddresses,phoneNumbers,organizations",
       pageSize: "1000",
     });
     if (pageToken) params.set("pageToken", pageToken);
@@ -197,6 +197,9 @@ export async function fetchGoogleContacts(userId: string): Promise<ContactInput[
     for (const person of json.connections || []) {
       const name = person.names?.[0];
       const phone = person.phoneNumbers?.[0]?.value || null;
+      // Primary organization is the business the person belongs to; the thread
+      // header shows it beside their name.
+      const company = person.organizations?.[0]?.name || null;
       for (const emailEntry of person.emailAddresses || []) {
         const email = String(emailEntry.value || "").trim().toLowerCase();
         if (!email || !email.includes("@")) continue;
@@ -205,6 +208,7 @@ export async function fetchGoogleContacts(userId: string): Promise<ContactInput[
           displayName: name?.displayName || null,
           firstName: name?.givenName || null,
           lastName: name?.familyName || null,
+          company,
           phone,
           source: "google",
         });

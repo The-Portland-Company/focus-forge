@@ -3,7 +3,8 @@ import type { ContactInput } from "./contacts";
 
 /**
  * Minimal vCard (.vcf) parser covering the fields we care about for contact import:
- * FN (formatted name), N (structured name), EMAIL, TEL. Handles vCard 2.1/3.0/4.0,
+ * FN (formatted name), N (structured name), ORG (company), EMAIL, TEL. Handles
+ * vCard 2.1/3.0/4.0,
  * folded lines (continuation lines starting with a space/tab), and TYPE params.
  * Produces one ContactInput per EMAIL found (a card with multiple emails yields multiple).
  */
@@ -18,6 +19,7 @@ export function parseVCards(text: string): ContactInput[] {
   let lastName: string | null = null;
   let emails: string[] = [];
   let phone: string | null = null;
+  let company: string | null = null;
 
   const flush = () => {
     for (const email of emails) {
@@ -26,6 +28,7 @@ export function parseVCards(text: string): ContactInput[] {
         displayName: fn,
         firstName,
         lastName,
+        company,
         phone,
         source: "apple",
       });
@@ -44,6 +47,7 @@ export function parseVCards(text: string): ContactInput[] {
       lastName = null;
       emails = [];
       phone = null;
+      company = null;
       continue;
     }
     if (upper === "END:VCARD") {
@@ -71,6 +75,9 @@ export function parseVCards(text: string): ContactInput[] {
       if (email && email.includes("@")) emails.push(email);
     } else if (keyName === "TEL" && !phone) {
       phone = decodeVCardValue(value).trim() || null;
+    } else if (keyName === "ORG" && !company) {
+      // ORG: Company;Department;… — only the company matters here.
+      company = decodeVCardValue(value).split(";")[0].trim() || null;
     }
   }
 
@@ -92,6 +99,7 @@ const FIRST_HEADER_HINTS = ["first name", "given name", "first"];
 const LAST_HEADER_HINTS = ["last name", "family name", "surname", "last"];
 const NAME_HEADER_HINTS = ["name", "display name", "full name"];
 const PHONE_HEADER_HINTS = ["phone", "tel", "mobile"];
+const COMPANY_HEADER_HINTS = ["company", "organization", "organisation", "employer"];
 
 function matchHeader(headers: string[], hints: string[]): number {
   const lower = headers.map((h) => h.toLowerCase().trim());
@@ -126,6 +134,7 @@ export function parseContactsCsv(text: string): ContactInput[] {
   const lastIdx = matchHeader(headers, LAST_HEADER_HINTS);
   const nameIdx = matchHeader(headers, NAME_HEADER_HINTS);
   const phoneIdx = matchHeader(headers, PHONE_HEADER_HINTS);
+  const companyIdx = matchHeader(headers, COMPANY_HEADER_HINTS);
 
   const contacts: ContactInput[] = [];
   for (let i = 1; i < records.length; i++) {
@@ -143,9 +152,19 @@ export function parseContactsCsv(text: string): ContactInput[] {
     const lastName = lastIdx !== -1 ? (row[lastIdx] || "").trim() || null : null;
     const displayName = nameIdx !== -1 ? (row[nameIdx] || "").trim() || null : null;
     const phone = phoneIdx !== -1 ? (row[phoneIdx] || "").trim() || null : null;
+    const company =
+      companyIdx !== -1 ? (row[companyIdx] || "").trim() || null : null;
 
     for (const email of emailParts) {
-      contacts.push({ email, firstName, lastName, displayName, phone, source: "import" });
+      contacts.push({
+        email,
+        firstName,
+        lastName,
+        displayName,
+        company,
+        phone,
+        source: "import",
+      });
     }
   }
   return contacts;
