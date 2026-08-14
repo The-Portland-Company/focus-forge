@@ -98,6 +98,7 @@ import {
   type AISurface,
   type KnownModel,
 } from "@/lib/ai/model-chains";
+import type { LlmProviderInfo } from "@/lib/ai/provider-status";
 import { MailboxFormDialog } from "@/components/mailbox-form-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatRelativeSync } from "@/lib/email-inbox/format-relative-sync";
@@ -153,6 +154,16 @@ export default function SettingsPage() {
   >([]);
   const [emailAiLoading, setEmailAiLoading] = useState(false);
   const [emailAiError, setEmailAiError] = useState<string | null>(null);
+  // Live LLM provider status/balance (GET /api/llm-providers/status). Only
+  // DeepSeek exposes a real balance; the rest report an honest probe status.
+  const [llmProviders, setLlmProviders] = useState<LlmProviderInfo[]>([]);
+  const [llmProvidersLoading, setLlmProvidersLoading] = useState(false);
+  const [llmProvidersError, setLlmProvidersError] = useState<string | null>(
+    null,
+  );
+  const [llmProvidersCheckedAt, setLlmProvidersCheckedAt] = useState<
+    string | null
+  >(null);
   const [emailDeleteUndoSeconds, setEmailDeleteUndoSeconds] = useState<number>(
     DEFAULT_EMAIL_DELETE_UNDO_SECONDS,
   );
@@ -267,10 +278,39 @@ export default function SettingsPage() {
     setOrganizationFromUrl(params.get("organizationId"));
   }, []);
 
+  /**
+   * Probe the LLM providers. `force` bypasses the server's 60s cache — used by
+   * the Refresh button so the numbers are live on demand rather than on every
+   * render.
+   */
+  const loadLlmProviders = async (force: boolean) => {
+    setLlmProvidersLoading(true);
+    setLlmProvidersError(null);
+    try {
+      const res = await fetch(
+        `/api/llm-providers/status${force ? "?refresh=1" : ""}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const payload = await res.json();
+      setLlmProviders(
+        Array.isArray(payload?.providers) ? payload.providers : [],
+      );
+      setLlmProvidersCheckedAt(payload?.checkedAt ?? null);
+    } catch {
+      setLlmProvidersError(
+        "Could not reach the provider status endpoint. Balances and statuses below may be stale.",
+      );
+    } finally {
+      setLlmProvidersLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchData();
     fetchCalendarToken();
     fetchPersonalAccessTokens();
+    void loadLlmProviders(false);
   }, []);
 
   useEffect(() => {
@@ -723,6 +763,12 @@ export default function SettingsPage() {
 
     if (sectionFromUrl === "api-keys" && !apiSectionAutoscrollHandled) {
       const anchor = document.getElementById("personal-access-keys");
+      anchor?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setApiSectionAutoscrollHandled(true);
+    }
+
+    if (sectionFromUrl === "llm-providers" && !apiSectionAutoscrollHandled) {
+      const anchor = document.getElementById("llm-providers");
       anchor?.scrollIntoView({ behavior: "smooth", block: "start" });
       setApiSectionAutoscrollHandled(true);
     }
@@ -1831,8 +1877,147 @@ export default function SettingsPage() {
                 </label>
               </div>
 
-              {/* AI model waterfalls (estimator + assistant are independent) */}
-              <div className="space-y-4">
+              {/* LLM providers: live status/balance, then the per-surface
+                  waterfalls that decide which provider is actually used. */}
+              <div id="llm-providers" className="space-y-4 scroll-mt-8">
+                <div>
+                  <h2 className="text-lg font-medium">LLM Providers</h2>
+                  <p className="text-sm text-zinc-400">
+                    The AI providers this deployment can call, their live
+                    status, and — where the provider actually publishes one —
+                    the remaining credit. Below the table you choose the order
+                    they are tried in.
+                  </p>
+                </div>
+
+                <div className="bg-zinc-900 rounded-lg border border-zinc-800">
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-4">
+                    <div>
+                      <h3 className="text-lg font-medium">Providers in use</h3>
+                      <p className="text-sm text-zinc-400">
+                        {llmProvidersCheckedAt
+                          ? `Checked ${new Date(llmProvidersCheckedAt).toLocaleTimeString()}. Cached for 60 seconds.`
+                          : "Status is probed live against each provider."}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => void loadLlmProviders(true)}
+                      disabled={llmProvidersLoading}
+                      className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 ${llmProvidersLoading ? "animate-spin" : ""}`}
+                      />
+                      {llmProvidersLoading ? "Checking..." : "Refresh"}
+                    </button>
+                  </div>
+
+                  {llmProvidersError ? (
+                    <p className="px-6 pb-4 text-sm text-red-400">
+                      {llmProvidersError}
+                    </p>
+                  ) : null}
+
+                  <div className="overflow-x-auto px-6 pb-6">
+                    <table className="w-full min-w-[560px] text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-800 text-xs uppercase tracking-wide text-zinc-500">
+                          <th className="py-2 pr-4 font-medium">Provider</th>
+                          <th className="py-2 pr-4 font-medium">Models</th>
+                          <th className="py-2 pr-4 font-medium">Status</th>
+                          <th className="py-2 pr-4 font-medium">Balance</th>
+                          <th className="py-2 font-medium">API key</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {llmProviders.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={5}
+                              className="py-4 text-sm text-zinc-500"
+                            >
+                              {llmProvidersLoading
+                                ? "Probing providers..."
+                                : "No provider status available."}
+                            </td>
+                          </tr>
+                        ) : (
+                          llmProviders.map((provider) => (
+                            <tr
+                              key={provider.id}
+                              className="border-b border-zinc-800/60 align-top last:border-0"
+                            >
+                              <td className="py-3 pr-4">
+                                <span className="text-white">
+                                  {provider.label}
+                                </span>
+                                {provider.statusNote ? (
+                                  <p className="mt-1 max-w-xs text-xs text-zinc-500">
+                                    {provider.statusNote}
+                                  </p>
+                                ) : null}
+                              </td>
+                              <td className="py-3 pr-4 text-xs text-zinc-400">
+                                {provider.models.join(", ")}
+                              </td>
+                              <td className="py-3 pr-4">
+                                <span
+                                  className={`inline-block rounded-md border px-2 py-1 text-xs ${
+                                    provider.status === "ok"
+                                      ? "border-green-900/60 bg-green-950/40 text-green-400"
+                                      : provider.status === "out_of_credit"
+                                        ? "border-amber-900/60 bg-amber-950/40 text-amber-400"
+                                        : provider.status === "unconfigured"
+                                          ? "border-zinc-700 bg-zinc-800/60 text-zinc-400"
+                                          : "border-red-900/60 bg-red-950/40 text-red-400"
+                                  }`}
+                                >
+                                  {provider.status === "ok"
+                                    ? "OK"
+                                    : provider.status === "out_of_credit"
+                                      ? "Out of credit"
+                                      : provider.status === "unconfigured"
+                                        ? "Not configured"
+                                        : "Error"}
+                                </span>
+                              </td>
+                              <td className="py-3 pr-4">
+                                {provider.balanceUsd === null ? (
+                                  <>
+                                    <span className="text-zinc-500">—</span>
+                                    <p className="mt-1 text-xs text-zinc-600">
+                                      {provider.balanceNote ??
+                                        "not exposed by provider"}
+                                    </p>
+                                  </>
+                                ) : (
+                                  <span className="font-medium text-white">
+                                    ${provider.balanceUsd.toFixed(2)}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3">
+                                <span
+                                  className={
+                                    provider.configured
+                                      ? "text-zinc-300"
+                                      : "text-amber-400"
+                                  }
+                                >
+                                  {provider.configured ? "Set" : "Missing"}
+                                </span>
+                                <p className="mt-1 text-xs text-zinc-600">
+                                  {provider.envVar}
+                                </p>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
                 <div>
                   <h2 className="text-lg font-medium">AI model order</h2>
                   <p className="text-sm text-zinc-400">
