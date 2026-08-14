@@ -18,6 +18,7 @@ import {
   getSpamFallbackMode,
   type SpamClassification,
 } from "@/lib/spam/server";
+import { resolveEmailChain } from "@/lib/ai/email-provider";
 import {
   mergeEmailReplySettings,
   type EmailReplySettingsOverride,
@@ -3071,6 +3072,22 @@ export async function reprocessThread(
     console.error("AI-memory retrieval (email classify) failed:", e);
   }
 
+  // The mailbox's organization owns the provider waterfall for email triage
+  // (settings → Email AI providers). Best-effort: a missing org or column just
+  // means the DeepSeek-first default chain is used.
+  let orgAiSettings: unknown = null;
+  if (mailbox.organization_id) {
+    const { data: org, error: orgError } = await admin
+      .from("organizations")
+      .select("ai_settings")
+      .eq("id", mailbox.organization_id)
+      .maybeSingle();
+    if (orgError) {
+      console.error("email AI settings lookup failed:", orgError);
+    }
+    orgAiSettings = (org as { ai_settings?: unknown } | null)?.ai_settings ?? null;
+  }
+
   const aiResult = await analyzeThreadWithAI({
     subject: latestMessage.subject || thread.subject || "",
     bodyText: latestMessage.body_text || "",
@@ -3078,6 +3095,7 @@ export async function reprocessThread(
     mailboxEmail: mailbox.email_address,
     preventSpamClassification: suppressContentSpam,
     forceHeuristic: forceHeuristicAnalysis,
+    chain: resolveEmailChain(orgAiSettings),
     profile,
     projectOptions: projectOptions.map((project) => ({
       id: project.id,
