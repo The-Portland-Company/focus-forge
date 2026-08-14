@@ -6798,7 +6798,6 @@ export default function ViewPage({
                   immediately), not the late-arriving `project` object, so the
                   buttons paint at 0ms. Handlers that truly need the loaded
                   project are disabled until it arrives. */}
-              <AlertBellButton />
               <Tooltip
                 content="Project notes"
                 side="bottom"
@@ -6885,6 +6884,9 @@ export default function ViewPage({
                   align="end"
                 />
               </Tooltip>
+              {/* Last in the row so the bell + its count badge sit at the far
+                  right edge of the header. */}
+              <AlertBellButton />
             </div>
           </div>
 

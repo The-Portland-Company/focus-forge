@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -45,6 +46,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [isPanelOpen, setPanelOpen] = useState(false)
   // Distinguishes same-millisecond toasts (the old Date.now() id collided).
   const alertSeqRef = useRef(0)
+  // Pending auto-dismiss timers for bell-only alerts, keyed by alert identity.
+  const expiryTimersRef = useRef(new Map<string, number>())
 
   const upsertAlert = useCallback(
     (alert: Omit<AppAlert, 'createdAt'> & { createdAt?: number }) => {
@@ -66,6 +69,46 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setAlerts([])
   }, [])
 
+  // A floating card expires itself (it animates out on its own timer), but
+  // bell-only alerts have no card mounted while the panel is closed, so their
+  // countdown has to run here — otherwise a timed alert never clears and the
+  // bell count only ever climbs.
+  useEffect(() => {
+    const timers = expiryTimersRef.current
+    const live = new Set<string>()
+
+    for (const alert of alerts) {
+      if (alert.ephemeral || alert.duration <= 0) continue
+      // createdAt is refreshed on every upsert, so an alert updated in place
+      // (progress → success) restarts its countdown rather than inheriting the
+      // remainder of the old one.
+      const key = `${alert.id}:${alert.createdAt}:${alert.duration}`
+      live.add(key)
+      if (timers.has(key)) continue
+      timers.set(
+        key,
+        window.setTimeout(() => {
+          timers.delete(key)
+          dismissAlert(alert.id)
+        }, alert.duration),
+      )
+    }
+
+    for (const [key, timer] of timers) {
+      if (live.has(key)) continue
+      window.clearTimeout(timer)
+      timers.delete(key)
+    }
+  }, [alerts, dismissAlert])
+
+  useEffect(() => {
+    const timers = expiryTimersRef.current
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer))
+      timers.clear()
+    }
+  }, [])
+
   const showToast = useCallback(
     (type: ToastType, title: string, message?: string, duration?: number) => {
       upsertAlert({
@@ -74,6 +117,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         title,
         message,
         duration: duration ?? ALERT_DEFAULT_DURATION_MS[type],
+        // One-shot feedback: keeps floating in the top-right stack. Alerts
+        // raised via upsertAlert stay in the bell panel only.
+        ephemeral: true,
       })
     },
     [upsertAlert],

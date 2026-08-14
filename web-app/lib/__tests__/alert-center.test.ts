@@ -5,6 +5,7 @@ import {
   ALERT_DEFAULT_DURATION_MS,
   ALERT_STACK_VISIBLE_COUNT,
   dismissAlert,
+  getFloatingAlerts,
   getVisibleStackAlerts,
   hasOverflowAlerts,
   upsertAlert,
@@ -67,6 +68,27 @@ test("collapsed stack shows at most the newest three", () => {
   );
   assert.equal(hasOverflowAlerts(alerts), true);
   assert.equal(hasOverflowAlerts(visible), false);
+});
+
+test("only ephemeral toasts float; persistent alerts stay bell-only", () => {
+  const alerts = [
+    alert("toast-1", { ephemeral: true }),
+    alert("delete-1", { duration: 0 }),
+    alert("send-1"),
+    alert("toast-2", { ephemeral: true }),
+  ];
+
+  assert.deepEqual(
+    getFloatingAlerts(alerts).map((entry) => entry.id),
+    ["toast-1", "toast-2"],
+  );
+  // The bell still lists every active alert, floating or not.
+  assert.equal(alerts.length, 4);
+});
+
+test("a stack of persistent alerts renders nothing floating", () => {
+  const alerts = ["a", "b", "c", "d"].map((id) => alert(id));
+  assert.deepEqual(getFloatingAlerts(alerts), []);
 });
 
 test("default durations: errors and progress are sticky, the rest expire", () => {

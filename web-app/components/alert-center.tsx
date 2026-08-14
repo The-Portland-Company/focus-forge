@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ALERT_STACK_VISIBLE_COUNT,
+  getFloatingAlerts,
   getVisibleStackAlerts,
   hasOverflowAlerts,
   type AppAlert,
@@ -151,22 +152,28 @@ function AlertCard({
 }
 
 /**
- * The collapsed top-right stack: newest ALERT_STACK_VISIBLE_COUNT alerts, the
- * last one fading out via a bottom mask; hovering lifts the mask and lets the
- * (height-capped) container scroll through every active alert. Hidden while
- * the bell panel is open — the panel shows the same list.
+ * The collapsed top-right stack: newest ALERT_STACK_VISIBLE_COUNT *ephemeral*
+ * alerts, the last one fading out via a bottom mask; hovering lifts the mask
+ * and lets the (height-capped) container scroll through the rest. Hidden while
+ * the bell panel is open — the panel shows the same cards.
+ *
+ * Only showToast's one-shot feedback floats here. Persistent alerts (a delete
+ * offering undo for a minute, a send, sync progress) are bell-only: they used
+ * to camp on top of the page for as long as they were live.
  */
 export function AlertCenterStack() {
   const { alerts, dismissAlert, isPanelOpen } = useAlertCenter();
   const [isHovered, setIsHovered] = useState(false);
 
-  if (isPanelOpen || alerts.length === 0) return null;
+  const floating = getFloatingAlerts(alerts);
+  if (isPanelOpen || floating.length === 0) return null;
 
-  const overflowing = hasOverflowAlerts(alerts);
-  const visible = isHovered ? alerts : getVisibleStackAlerts(alerts);
+  const overflowing = hasOverflowAlerts(floating);
+  const visible = isHovered ? floating : getVisibleStackAlerts(floating);
   // Fade the bottom of the stack when it is truncated (the 3rd card) or, while
   // hovered, when there is still more to scroll to.
-  const masked = !isHovered && (overflowing || alerts.length === ALERT_STACK_VISIBLE_COUNT);
+  const masked =
+    !isHovered && (overflowing || floating.length === ALERT_STACK_VISIBLE_COUNT);
 
   return (
     <div
