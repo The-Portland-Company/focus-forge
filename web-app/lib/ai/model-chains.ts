@@ -1,17 +1,22 @@
 /**
  * Independent, per-surface AI model chains.
  *
- * The estimator and the assistant each have their OWN ordered, quality-first
- * waterfall (separate default + separate ordered chain). Changing one MUST NOT
- * change the other. Chains are persisted per-user as a JSONB column
- * (profiles.ai_model_chains = { estimator: string[], assistant: string[] }) of
- * model IDs; this module owns the known-model registry, the defaults, and the
- * pure resolver that maps a stored string[] back to ModelSpec[].
+ * The estimator, the assistant, and the email/spam classifier each have their
+ * OWN ordered, quality-first waterfall (separate default + separate ordered
+ * chain). Changing one MUST NOT change the others.
+ *
+ * Storage differs by surface:
+ *   - estimator / assistant: per-USER, profiles.ai_model_chains (JSONB)
+ *   - email: per-ORGANIZATION, organizations.ai_settings.email (JSONB), since
+ *     inbound mail is triaged on behalf of an org, not a single user.
+ *
+ * This module owns the known-model registry, the defaults, and the pure
+ * resolvers that map a stored string[] back to ModelSpec[].
  */
 
 import type { ModelSpec, WaterfallProvider } from "./structured-waterfall";
 
-export type AISurface = "estimator" | "assistant";
+export type AISurface = "estimator" | "assistant" | "email";
 
 /** The known models the UI lets users order. Each maps to a provider. */
 export interface KnownModel {
@@ -23,6 +28,7 @@ export interface KnownModel {
 export const KNOWN_MODELS: KnownModel[] = [
   { id: "claude-opus-4-8", label: "Claude Opus 4.8 (Anthropic)", provider: "anthropic" },
   { id: "gpt-4.1", label: "GPT-4.1 (OpenAI)", provider: "openai" },
+  { id: "deepseek-chat", label: "DeepSeek V3 (DeepSeek)", provider: "deepseek" },
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Anthropic)", provider: "anthropic" },
   { id: "grok-3", label: "Grok 3 (xAI)", provider: "xai" },
   // Our fine-tuned estimator: a LoRA on Gemma-2B-it served by Cloudflare
@@ -48,6 +54,38 @@ export const DEFAULT_CHAIN_IDS: string[] = [
   "claude-sonnet-4-6",
   "grok-3",
 ];
+
+/**
+ * DEFAULT EMAIL/SPAM WATERFALL. Deliberately DeepSeek-first: it is the cheapest
+ * per-token of the three by a wide margin, and inbound mail is classified on
+ * every message, so the email surface is the highest-volume AI call we make.
+ * Claude and Grok sit behind it as quality/availability fallbacks.
+ *
+ * Kept separate from DEFAULT_CHAIN_IDS so the email chain never picks up
+ * estimator-only models (e.g. the fine-tuned Gemma LoRA).
+ */
+export const DEFAULT_EMAIL_CHAIN_IDS: string[] = [
+  "deepseek-chat",
+  "claude-opus-4-8",
+  "grok-3",
+];
+
+/** The models selectable for a given surface (email is restricted to its three). */
+export function modelsForSurface(surface: AISurface): KnownModel[] {
+  if (surface === "email") {
+    return DEFAULT_EMAIL_CHAIN_IDS.map((id) => MODEL_BY_ID.get(id)).filter(
+      (m): m is KnownModel => Boolean(m),
+    );
+  }
+  return KNOWN_MODELS;
+}
+
+/** The default chain for a surface, as model ids. */
+export function defaultChainIdsFor(surface: AISurface): string[] {
+  return surface === "email"
+    ? [...DEFAULT_EMAIL_CHAIN_IDS]
+    : [...DEFAULT_CHAIN_IDS];
+}
 
 export function defaultChainIds(): string[] {
   return [...DEFAULT_CHAIN_IDS];
@@ -75,28 +113,38 @@ export function modelLabel(id: string): string {
 }
 
 /**
- * Normalize a raw stored chain (string[]): drop unknown ids, de-dupe, and
- * append any known models the user omitted so the chain always covers all 4 in
- * a sensible order. Falls back to the default order when empty/invalid.
+ * Normalize a raw stored chain (string[]): drop ids that are unknown (or not
+ * allowed for this surface), de-dupe, and append any missing models from the
+ * surface's default so the chain always covers every position in a sensible
+ * order. Falls back to the default order when empty/invalid.
+ *
+ * The email surface is restricted to DEFAULT_EMAIL_CHAIN_IDS: an estimator-only
+ * model (e.g. the fine-tuned Gemma LoRA) must never be force-appended into the
+ * email chain.
  */
-export function normalizeChainIds(raw: unknown): string[] {
+export function normalizeChainIds(
+  raw: unknown,
+  surface: AISurface = "estimator",
+): string[] {
+  const allowed = new Set(modelsForSurface(surface).map((m) => m.id));
+  const defaults = defaultChainIdsFor(surface);
   const arr = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
   const seen = new Set<string>();
   const out: string[] = [];
   for (const id of arr) {
-    if (MODEL_BY_ID.has(id) && !seen.has(id)) {
+    if (allowed.has(id) && !seen.has(id)) {
       seen.add(id);
       out.push(id);
     }
   }
-  // Append any known model the user left out, in default order.
-  for (const id of DEFAULT_CHAIN_IDS) {
+  // Append any default model the user left out, in default order.
+  for (const id of defaults) {
     if (!seen.has(id)) {
       seen.add(id);
       out.push(id);
     }
   }
-  return out.length > 0 ? out : defaultChainIds();
+  return out.length > 0 ? out : defaults;
 }
 
 /**
@@ -108,9 +156,11 @@ export function resolveChain(
   surface: AISurface,
   chains?: Partial<AIModelChains> | null,
 ): ModelSpec[] {
-  const raw = chains?.[surface];
-  const ids = normalizeChainIds(raw);
-  return ids
-    .map(modelSpecFor)
-    .filter((s): s is ModelSpec => s !== null);
+  const raw = chains?.[surface as keyof AIModelChains];
+  return chainIdsToSpecs(normalizeChainIds(raw, surface));
+}
+
+/** Map an ordered list of model ids to their ModelSpecs, dropping unknowns. */
+export function chainIdsToSpecs(ids: string[]): ModelSpec[] {
+  return ids.map(modelSpecFor).filter((s): s is ModelSpec => s !== null);
 }

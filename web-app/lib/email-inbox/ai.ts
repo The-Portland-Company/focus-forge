@@ -9,6 +9,11 @@ import {
   extractPlainTextPreview,
   normalizeSubject,
 } from "@/lib/email-inbox/shared";
+import {
+  runStructuredWaterfall,
+  type ModelSpec,
+} from "@/lib/ai/structured-waterfall";
+import { resolveEmailChain } from "@/lib/ai/email-provider";
 
 export type EmailThreadAIInput = {
   subject: string;
@@ -20,6 +25,10 @@ export type EmailThreadAIInput = {
   // When true, skip the external LLM entirely and return buildHeuristicAnalysis.
   // Used to enforce SPAM_FALLBACK_MODE=private (no email content leaves the app).
   forceHeuristic?: boolean;
+  // The organization's ordered provider waterfall. An EMPTY array means the org
+  // disabled LLM triage → heuristic only. Omitted (undefined) falls back to the
+  // DeepSeek-first default chain.
+  chain?: ModelSpec[];
   profile?: SummaryProfile | null;
   projectOptions: Array<{
     id: string;
@@ -973,13 +982,38 @@ function getReplyResponseSchema() {
   };
 }
 
+/**
+ * Defensively extract a JSON object from a model's raw text. Only OpenAI honours
+ * strict json_schema; DeepSeek/xAI use json_object and Anthropic has no wire
+ * format at all, so any of them can wrap the object in prose or code fences.
+ */
+function parseAnalysisJson(text: string): any {
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Fall through to the brace-slice.
+  }
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    return JSON.parse(text.slice(start, end + 1));
+  }
+  throw new Error("Email triage model returned invalid JSON");
+}
+
 export async function analyzeThreadWithAI(
   input: EmailThreadAIInput,
 ): Promise<EmailThreadAIOutput> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  // forceHeuristic (SPAM_FALLBACK_MODE=private) or a missing key means no
-  // external LLM call — return the local heuristic analysis directly.
-  if (input.forceHeuristic || !apiKey) {
+  // forceHeuristic (SPAM_FALLBACK_MODE=private, or a rule that already decided
+  // the outcome) means no external LLM call — return the local heuristic.
+  if (input.forceHeuristic) {
+    return buildHeuristicAnalysis(input);
+  }
+
+  // The org's configured waterfall. Undefined → the DeepSeek-first default;
+  // an explicit empty array → the org turned LLM triage off.
+  const chain = input.chain ?? resolveEmailChain(null);
+  if (chain.length === 0) {
     return buildHeuristicAnalysis(input);
   }
 
@@ -995,23 +1029,8 @@ export async function analyzeThreadWithAI(
     return fallback;
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4.1",
-      temperature: 0.2,
-      response_format: {
-        type: "json_schema",
-        json_schema: getResponseSchema(),
-      },
-      messages: [
-        {
-          role: "system",
-          content: `You triage email into actionable work for Focus: Forge.
+  const schema = getResponseSchema();
+  const systemPrompt = `You triage email into actionable work for Focus: Forge.
 Return concise, task-oriented JSON only.
 The summary must be a single sentence on one line, under 160 characters, and must paraphrase the email instead of copying the body text verbatim.
 Prefer an existing project ID only when evidence is strong.
@@ -1025,47 +1044,54 @@ ${
   input.preventSpamClassification
     ? "A user rule already decided this sender must not be treated as spam. Do not return spam or quarantine."
     : ""
-}${input.playbookBlock ? `\n\n${input.playbookBlock}` : ""}${input.memoryBlock ? `\n\n${input.memoryBlock}` : ""}`,
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            mailboxEmail: input.mailboxEmail,
-            sender: {
-              email: input.senderEmail,
-              name: input.senderName || null,
-            },
-            subject: input.subject,
-            normalizedSubject: normalizeSubject(input.subject),
-            bodyText: input.bodyText,
-            profile: input.profile
-              ? {
-                  name: input.profile.name,
-                  summaryStyle: input.profile.summaryStyle,
-                  instructionText: input.profile.instructionText,
-                  settings: input.profile.settings,
-                }
-              : null,
-            projects: input.projectOptions,
-            fallback,
-          }),
-        },
-      ],
-    }),
+}${input.playbookBlock ? `\n\n${input.playbookBlock}` : ""}${input.memoryBlock ? `\n\n${input.memoryBlock}` : ""}
+
+Return ONLY a single JSON object matching this schema (no prose, no code fences):
+${JSON.stringify(schema.schema)}`;
+
+  const userMessage = JSON.stringify({
+    mailboxEmail: input.mailboxEmail,
+    sender: {
+      email: input.senderEmail,
+      name: input.senderName || null,
+    },
+    subject: input.subject,
+    normalizedSubject: normalizeSubject(input.subject),
+    bodyText: input.bodyText,
+    profile: input.profile
+      ? {
+          name: input.profile.name,
+          summaryStyle: input.profile.summaryStyle,
+          instructionText: input.profile.instructionText,
+          settings: input.profile.settings,
+        }
+      : null,
+    projects: input.projectOptions,
+    fallback,
   });
 
-  if (!response.ok) {
-    return fallback;
-  }
-
-  const payload = await response.json();
-  const content = payload?.choices?.[0]?.message?.content;
-  if (!content || typeof content !== "string") {
+  let content: string;
+  try {
+    // Waterfall: the first configured provider wins; a provider whose API key is
+    // absent is skipped, and a quota/auth error falls through to the next. When
+    // every provider fails we land in the catch and use the local heuristic.
+    const result = await runStructuredWaterfall(chain, {
+      systemPrompt,
+      userMessage,
+      jsonSchema: schema,
+      temperature: 0.2,
+    });
+    content = result.text;
+  } catch (error) {
+    console.error(
+      "[email-ai] every provider in the chain failed; using local heuristics:",
+      error instanceof Error ? error.message : error,
+    );
     return fallback;
   }
 
   try {
-    const parsed = JSON.parse(content);
+    const parsed = parseAnalysisJson(content);
     return normalizePreventedSpamResult(
       {
         classification: parsed.classification,

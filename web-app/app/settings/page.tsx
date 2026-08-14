@@ -92,8 +92,11 @@ import { clearDockBadge } from "@/lib/dock-badge";
 import {
   KNOWN_MODELS,
   defaultChainIds,
+  defaultChainIdsFor,
+  modelsForSurface,
   normalizeChainIds,
   type AISurface,
+  type KnownModel,
 } from "@/lib/ai/model-chains";
 import { MailboxFormDialog } from "@/components/mailbox-form-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -137,6 +140,19 @@ export default function SettingsPage() {
     confidenceThreshold: number;
     fallbackMode: "llm" | "private";
   } | null>(null);
+  // Per-ORG email/spam AI waterfall (organizations.ai_settings.email). Unlike
+  // the estimator/assistant chains above, this one is scoped to an org, so the
+  // block carries its own org picker.
+  const [emailAiOrgId, setEmailAiOrgId] = useState<string | null>(null);
+  const [emailAiEnabled, setEmailAiEnabled] = useState(true);
+  const [emailAiChain, setEmailAiChain] = useState<string[]>(
+    defaultChainIdsFor("email"),
+  );
+  const [emailAiProviders, setEmailAiProviders] = useState<
+    Array<{ id: string; configured: boolean }>
+  >([]);
+  const [emailAiLoading, setEmailAiLoading] = useState(false);
+  const [emailAiError, setEmailAiError] = useState<string | null>(null);
   const [emailDeleteUndoSeconds, setEmailDeleteUndoSeconds] = useState<number>(
     DEFAULT_EMAIL_DELETE_UNDO_SECONDS,
   );
@@ -278,6 +294,57 @@ export default function SettingsPage() {
       cancelled = true;
     };
   }, []);
+
+  // Default the Email AI providers block to the org from the URL, else the first
+  // org the user can see.
+  useEffect(() => {
+    if (emailAiOrgId) return;
+    const orgs = database?.organizations;
+    if (!orgs || orgs.length === 0) return;
+    const fromUrl = organizationFromUrl
+      ? orgs.find((org) => org.id === organizationFromUrl)
+      : null;
+    setEmailAiOrgId((fromUrl || orgs[0]).id);
+  }, [database, organizationFromUrl, emailAiOrgId]);
+
+  // Load the selected org's email AI settings.
+  useEffect(() => {
+    if (!emailAiOrgId) return;
+    let cancelled = false;
+    setEmailAiLoading(true);
+    setEmailAiError(null);
+    fetch(`/api/organizations/${emailAiOrgId}/ai-settings`, {
+      credentials: "include",
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(
+            res.status === 403
+              ? "You need to be an owner or admin of this organization."
+              : "Could not load the email AI settings.",
+          );
+        }
+        return res.json();
+      })
+      .then((payload) => {
+        if (cancelled) return;
+        setEmailAiEnabled(payload?.settings?.email?.enabled !== false);
+        setEmailAiChain(normalizeChainIds(payload?.settings?.email?.chain, "email"));
+        setEmailAiProviders(
+          Array.isArray(payload?.providers) ? payload.providers : [],
+        );
+      })
+      .catch((err: Error) => {
+        if (cancelled) return;
+        setEmailAiError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setEmailAiLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [emailAiOrgId]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -886,43 +953,114 @@ export default function SettingsPage() {
     void saveModelChains(surface, normalized);
   };
 
+  // Persist the selected org's email waterfall (organizations.ai_settings.email).
+  const saveEmailAiSettings = async (next: {
+    enabled: boolean;
+    chain: string[];
+  }) => {
+    if (!emailAiOrgId) return;
+    setSaveStatus("saving");
+    try {
+      const res = await fetch(
+        `/api/organizations/${emailAiOrgId}/ai-settings`,
+        {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: next }),
+        },
+      );
+      if (!res.ok) throw new Error("save failed");
+      const payload = await res.json();
+      setEmailAiEnabled(payload?.settings?.email?.enabled !== false);
+      setEmailAiChain(normalizeChainIds(payload?.settings?.email?.chain, "email"));
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch {
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus("idle"), 3000);
+    }
+  };
+
+  // Same swap-so-positions-stay-unique rule as setChainPosition, against the
+  // org-scoped email chain.
+  const setEmailChainPosition = (index: number, modelId: string) => {
+    const next = [...emailAiChain];
+    const existingIndex = next.indexOf(modelId);
+    if (existingIndex !== -1 && existingIndex !== index) {
+      next[existingIndex] = next[index];
+    }
+    next[index] = modelId;
+    const normalized = normalizeChainIds(next, "email");
+    setEmailAiChain(normalized);
+    void saveEmailAiSettings({ enabled: emailAiEnabled, chain: normalized });
+  };
+
   const renderChainEditor = (
     surface: AISurface,
     chain: string[],
     title: string,
     description: string,
-  ) => (
-    <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
-      <h3 className="text-lg font-medium mb-1">{title}</h3>
-      <p className="text-sm text-zinc-400 mb-4">{description}</p>
-      <div className="space-y-3">
-        {[0, 1, 2, 3].map((position) => (
-          <div key={position} className="flex items-center gap-3">
-            <label
-              className="w-28 text-sm text-zinc-300"
-              htmlFor={`${surface}-model-${position}`}
-            >
-              {position === 0 ? "1st (default)" : `${position + 1}th fallback`}
-            </label>
-            <select
-              id={`${surface}-model-${position}`}
-              value={chain[position] ?? ""}
-              onChange={(e) =>
-                setChainPosition(surface, position, e.target.value)
-              }
-              className="flex-1 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-white focus:ring-2 focus:ring-theme-primary"
-            >
-              {KNOWN_MODELS.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ))}
+    options?: {
+      /** Selectable models (defaults to every known model). */
+      models?: KnownModel[];
+      /** How many ordered positions to render. */
+      positions?: number;
+      /** Override the persist handler (the email surface saves per-org). */
+      onSelect?: (index: number, modelId: string) => void;
+      disabled?: boolean;
+      /** Optional per-model "key present on this deployment?" badges. */
+      configuredById?: Record<string, boolean>;
+      /** Extra content rendered under the selects. */
+      children?: React.ReactNode;
+    },
+  ) => {
+    const models = options?.models ?? KNOWN_MODELS;
+    const positions = options?.positions ?? 4;
+    const onSelect =
+      options?.onSelect ??
+      ((index: number, modelId: string) =>
+        setChainPosition(surface, index, modelId));
+    return (
+      <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+        <h3 className="text-lg font-medium mb-1">{title}</h3>
+        <p className="text-sm text-zinc-400 mb-4">{description}</p>
+        <div className="space-y-3">
+          {Array.from({ length: positions }, (_, position) => (
+            <div key={position} className="flex items-center gap-3">
+              <label
+                className="w-28 text-sm text-zinc-300"
+                htmlFor={`${surface}-model-${position}`}
+              >
+                {position === 0 ? "1st (default)" : `${position + 1}th fallback`}
+              </label>
+              <select
+                id={`${surface}-model-${position}`}
+                value={chain[position] ?? ""}
+                disabled={options?.disabled}
+                onChange={(e) => onSelect(position, e.target.value)}
+                className="flex-1 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-white focus:ring-2 focus:ring-theme-primary disabled:opacity-50"
+              >
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              {options?.configuredById &&
+              chain[position] &&
+              !options.configuredById[chain[position]] ? (
+                <span className="shrink-0 rounded-md border border-amber-900/60 bg-amber-950/40 px-2 py-1 text-xs text-amber-400">
+                  No API key
+                </span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+        {options?.children}
       </div>
-    </div>
-  );
+    );
+  };
 
   // Theme application is now handled by the shared utility
 
@@ -1718,6 +1856,81 @@ export default function SettingsPage() {
                   "Models used by the AI assistant and planner.",
                 )}
 
+                {/* Per-ORG email/spam waterfall. Scoped to an organization, not
+                    the signed-in user, so it carries its own org picker. */}
+                {database?.organizations && database.organizations.length > 0
+                  ? renderChainEditor(
+                      "email",
+                      emailAiChain,
+                      "Email AI providers",
+                      "Models used to triage inbound email and catch spam, for the selected organization. The first provider is tried first; if it hits a quota or auth error the next is used. If all of them fail, Forge falls back to on-device rules.",
+                      {
+                        models: modelsForSurface("email"),
+                        positions: modelsForSurface("email").length,
+                        onSelect: setEmailChainPosition,
+                        disabled: !emailAiEnabled || emailAiLoading,
+                        configuredById: Object.fromEntries(
+                          emailAiProviders.map((p) => [p.id, p.configured]),
+                        ),
+                        children: (
+                          <div className="mt-4 space-y-3 border-t border-zinc-800 pt-4">
+                            <div className="flex items-center gap-3">
+                              <label
+                                className="w-28 text-sm text-zinc-300"
+                                htmlFor="email-ai-org"
+                              >
+                                Organization
+                              </label>
+                              <select
+                                id="email-ai-org"
+                                value={emailAiOrgId ?? ""}
+                                onChange={(e) => setEmailAiOrgId(e.target.value)}
+                                className="flex-1 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-white focus:ring-2 focus:ring-theme-primary"
+                              >
+                                {database.organizations.map((org) => (
+                                  <option key={org.id} value={org.id}>
+                                    {org.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <label className="flex items-center gap-3 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={emailAiEnabled}
+                                disabled={emailAiLoading}
+                                onChange={(e) => {
+                                  const enabled = e.target.checked;
+                                  setEmailAiEnabled(enabled);
+                                  void saveEmailAiSettings({
+                                    enabled,
+                                    chain: emailAiChain,
+                                  });
+                                }}
+                                className="w-5 h-5 rounded border-zinc-600 bg-zinc-800 text-theme-primary focus:ring-2 focus:ring-theme-primary focus:ring-offset-0 focus:ring-offset-zinc-900"
+                              />
+                              <div>
+                                <p className="text-white text-sm">
+                                  Use AI to triage this organization&apos;s email
+                                </p>
+                                <p className="text-xs text-zinc-400">
+                                  Turn this off to keep email content on-device:
+                                  only the local rules and the private spam
+                                  classifier run.
+                                </p>
+                              </div>
+                            </label>
+                            {emailAiError ? (
+                              <p className="text-xs text-red-400">
+                                {emailAiError}
+                              </p>
+                            ) : null}
+                          </div>
+                        ),
+                      },
+                    )
+                  : null}
+
                 {spamConfig ? (
                   <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
                     <h3 className="text-sm font-medium text-zinc-200">
@@ -1726,8 +1939,10 @@ export default function SettingsPage() {
                     <p className="mt-1 text-xs text-zinc-500">
                       Read-only runtime config for the private k-NN spam
                       classifier. Set via the SPAM_CONFIDENCE_THRESHOLD and
-                      SPAM_FALLBACK_MODE environment variables. Train it from the
-                      Email Inbox → AI Rules → Spam Training tab.
+                      SPAM_FALLBACK_MODE environment variables. The LLM backstop
+                      that runs when this classifier is unsure uses the per-org
+                      Email AI providers above. Train it from the Email Inbox →
+                      AI Rules → Spam Training tab.
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2 text-xs">
                       <span className="rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 py-1 text-zinc-300">

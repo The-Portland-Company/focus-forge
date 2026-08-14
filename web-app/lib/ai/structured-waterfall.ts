@@ -10,6 +10,8 @@
  *     else json_object.
  *   - xAI (OpenAI-compatible): json_object only (no reliable json_schema), rely
  *     on the prompt + defensive parsing.
+ *   - DeepSeek (OpenAI-compatible): json_object only — DeepSeek rejects strict
+ *     json_schema, so the shape must be described in the prompt.
  *   - Anthropic: no json_schema wire support — demand strict JSON in the system
  *     prompt and prefill the assistant turn with "{" so the model continues a
  *     JSON object. Caller parses defensively.
@@ -27,6 +29,7 @@ export type WaterfallProvider =
   | "anthropic"
   | "openai"
   | "xai"
+  | "deepseek"
   | "cf-workers-ai";
 
 export interface ModelSpec {
@@ -78,6 +81,8 @@ export function apiKeyEnvVar(provider: WaterfallProvider): string {
       return "ANTHROPIC_API_KEY";
     case "xai":
       return "XAI_API_KEY";
+    case "deepseek":
+      return "DEEPSEEK_API_KEY";
     case "cf-workers-ai":
       return "CLOUDFLARE_API_TOKEN";
   }
@@ -121,6 +126,7 @@ export function isRecoverableProviderError(message: string): boolean {
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 const XAI_URL = "https://api.x.ai/v1/chat/completions";
+const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
 async function runOpenAICompatible(
@@ -298,6 +304,10 @@ export const defaultModelRunner: SingleModelRunner = async (spec, input) => {
     case "xai":
       // xAI is OpenAI-compatible but does not reliably support json_schema.
       return runOpenAICompatible(spec, XAI_URL, apiKey, input, false);
+    case "deepseek":
+      // DeepSeek is OpenAI-compatible but rejects strict json_schema; it only
+      // honours response_format json_object, so the shape lives in the prompt.
+      return runOpenAICompatible(spec, DEEPSEEK_URL, apiKey, input, false);
     case "anthropic":
       return runAnthropic(spec, apiKey, input);
     case "cf-workers-ai":
@@ -328,7 +338,7 @@ export async function runStructuredWaterfall(
   const runnable = chain.filter((spec) => hasProviderKey(spec.provider, env));
   if (runnable.length === 0) {
     throw new Error(
-      "No AI provider configured for the model chain (set OPENAI_API_KEY, ANTHROPIC_API_KEY, or XAI_API_KEY)",
+      "No AI provider configured for the model chain (set DEEPSEEK_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or XAI_API_KEY)",
     );
   }
 
