@@ -2051,7 +2051,14 @@ export default function SettingsPage() {
                       "Models used to triage inbound email and catch spam, for the selected organization. The first provider is tried first; if it hits a quota or auth error the next is used. If all of them fail, Forge falls back to on-device rules.",
                       {
                         models: modelsForSurface("email"),
-                        positions: modelsForSurface("email").length,
+                        // One select per position in the SAVED chain (never per
+                        // selectable model — more models are choosable than the
+                        // default chain is long), so every rendered select has a
+                        // real value behind it.
+                        positions: Math.max(
+                          defaultChainIdsFor("email").length,
+                          emailAiChain.length,
+                        ),
                         onSelect: setEmailChainPosition,
                         disabled: !emailAiEnabled || emailAiLoading,
                         configuredById: Object.fromEntries(

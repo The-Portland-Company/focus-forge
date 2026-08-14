@@ -7,33 +7,50 @@ import {
 } from "../ai/email-provider";
 import {
   DEFAULT_EMAIL_CHAIN_IDS,
+  EMAIL_SELECTABLE_IDS,
+  modelLabel,
   modelsForSurface,
   normalizeChainIds,
 } from "../ai/model-chains";
 import {
+  DEFAULT_MAX_TOKENS,
   apiKeyEnvVar,
   defaultModelRunner,
   hasProviderKey,
+  runStructuredWaterfall,
 } from "../ai/structured-waterfall";
 import { analyzeThreadWithAI, buildHeuristicAnalysis } from "../email-inbox/ai";
 
 // The email chain leads with DeepSeek deliberately: it is the highest-volume AI
-// surface and the cheapest provider of the three.
-test("the default email chain is DeepSeek -> Claude -> Grok", () => {
+// surface and the cheapest provider of the three. V4 Flash is the current
+// generation's economical model, which is the right trade for triage volume.
+test("the default email chain is DeepSeek V4 Flash -> Claude -> Grok", () => {
   assert.deepEqual(DEFAULT_EMAIL_CHAIN_IDS, [
-    "deepseek-chat",
+    "deepseek-v4-flash",
     "claude-opus-4-8",
     "grok-3",
   ]);
-  assert.deepEqual(
-    modelsForSurface("email").map((m) => m.provider),
-    ["deepseek", "anthropic", "xai"],
-  );
 });
 
-test("resolveEmailChain defaults to the DeepSeek-first chain when unset", () => {
+// The user must be able to CHOOSE the DeepSeek variant, so the email surface
+// offers more models than the default chain contains — each labelled with its
+// version so V4 Flash, V4 Pro and the legacy V3 alias are distinguishable.
+test("the email surface offers both V4 models plus the legacy V3 alias", () => {
+  const models = modelsForSurface("email");
+  assert.deepEqual(
+    models.map((m) => m.id),
+    EMAIL_SELECTABLE_IDS,
+  );
+  assert.equal(modelLabel("deepseek-v4-flash"), "DeepSeek V4 Flash (DeepSeek)");
+  assert.equal(modelLabel("deepseek-v4-pro"), "DeepSeek V4 Pro (DeepSeek)");
+  assert.equal(modelLabel("deepseek-chat"), "DeepSeek V3 Chat — legacy (DeepSeek)");
+  // Estimator-only models stay out of the email picker.
+  assert.ok(!models.some((m) => m.id === "ff-estimator-gemma2b"));
+});
+
+test("resolveEmailChain defaults to the DeepSeek-V4-first chain when unset", () => {
   assert.deepEqual(resolveEmailChain(null), [
-    { provider: "deepseek", model: "deepseek-chat" },
+    { provider: "deepseek", model: "deepseek-v4-flash" },
     { provider: "anthropic", model: "claude-opus-4-8" },
     { provider: "xai", model: "grok-3" },
   ]);
@@ -42,13 +59,33 @@ test("resolveEmailChain defaults to the DeepSeek-first chain when unset", () => 
 
 test("resolveEmailChain honours an org's stored order", () => {
   const chain = resolveEmailChain({
-    email: { enabled: true, chain: ["grok-3", "deepseek-chat"] },
+    email: { enabled: true, chain: ["grok-3", "deepseek-v4-flash"] },
   });
   assert.deepEqual(
     chain.map((spec) => spec.model),
     // The omitted model is appended in default order, never dropped.
-    ["grok-3", "deepseek-chat", "claude-opus-4-8"],
+    ["grok-3", "deepseek-v4-flash", "claude-opus-4-8"],
   );
+});
+
+// An org that stored the legacy V3 alias before the V4 upgrade must keep
+// resolving — its choice leads, and the new default is appended behind it.
+test("resolveEmailChain still resolves a chain pinned to the legacy V3 alias", () => {
+  const chain = resolveEmailChain({
+    email: { enabled: true, chain: ["deepseek-chat"] },
+  });
+  assert.deepEqual(
+    chain.map((spec) => spec.model),
+    ["deepseek-chat", "deepseek-v4-flash", "claude-opus-4-8", "grok-3"],
+  );
+});
+
+test("resolveEmailChain lets an org pin DeepSeek V4 Pro first", () => {
+  const chain = resolveEmailChain({
+    email: { enabled: true, chain: ["deepseek-v4-pro"] },
+  });
+  assert.equal(chain[0]?.model, "deepseek-v4-pro");
+  assert.equal(chain[0]?.provider, "deepseek");
 });
 
 test("resolveEmailChain returns an empty chain when the org disabled AI triage", () => {
@@ -62,7 +99,7 @@ test("normalizeOrgAISettings drops unknown ids and coerces enabled", () => {
   assert.equal(settings.email.enabled, true);
   assert.deepEqual(settings.email.chain, [
     "grok-3",
-    "deepseek-chat",
+    "deepseek-v4-flash",
     "claude-opus-4-8",
   ]);
   // Garbage in the column must not throw.
@@ -81,7 +118,7 @@ test("normalizeChainIds(email) never force-appends estimator-only models", () =>
   assert.ok(!ids.includes("gpt-4.1"));
 });
 
-test("deepseek maps to DEEPSEEK_API_KEY and posts an OpenAI-compatible json_object request", async () => {
+test("deepseek V4 posts an OpenAI-compatible json_object request with reasoning headroom", async () => {
   assert.equal(apiKeyEnvVar("deepseek"), "DEEPSEEK_API_KEY");
   assert.equal(hasProviderKey("deepseek", { DEEPSEEK_API_KEY: "sk-x" }), true);
   assert.equal(hasProviderKey("deepseek", {}), false);
@@ -102,7 +139,7 @@ test("deepseek maps to DEEPSEEK_API_KEY and posts an OpenAI-compatible json_obje
 
   try {
     const text = await defaultModelRunner(
-      { provider: "deepseek", model: "deepseek-chat" },
+      { provider: "deepseek", model: "deepseek-v4-flash" },
       {
         systemPrompt: "s",
         userMessage: "u",
@@ -126,8 +163,52 @@ test("deepseek maps to DEEPSEEK_API_KEY and posts an OpenAI-compatible json_obje
     "Bearer sk-deepseek-test",
   );
   const body = JSON.parse(call.init.body);
-  assert.equal(body.model, "deepseek-chat");
+  assert.equal(body.model, "deepseek-v4-flash");
   assert.deepEqual(body.response_format, { type: "json_object" });
+  // V4 is a hybrid reasoner: without an explicit budget the thinking can eat
+  // the whole default allowance and `message.content` comes back empty.
+  assert.equal(body.max_tokens, DEFAULT_MAX_TOKENS);
+  assert.ok(body.max_tokens >= 2048);
+});
+
+// A V4 reply carries BOTH reasoning_content (thinking) and content (the JSON
+// answer). The waterfall must read `content` and ignore the reasoning.
+test("runStructuredWaterfall reads content, not reasoning_content, from a V4 reply", async () => {
+  const priorKey = process.env.DEEPSEEK_API_KEY;
+  const priorFetch = globalThis.fetch;
+  process.env.DEEPSEEK_API_KEY = "sk-deepseek-test";
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => ({
+      choices: [
+        {
+          message: {
+            reasoning_content:
+              "The sender domain does not match the support desk it claims...",
+            content: '{"classification":"spam","confidence":0.95}',
+          },
+        },
+      ],
+    }),
+  })) as any;
+
+  try {
+    const result = await runStructuredWaterfall(resolveEmailChain(null), {
+      systemPrompt: "classify",
+      userMessage: SPAM_FIXTURE.subject,
+    });
+    assert.equal(result.model, "deepseek-v4-flash");
+    assert.equal(result.provider, "deepseek");
+    assert.deepEqual(JSON.parse(result.text), {
+      classification: "spam",
+      confidence: 0.95,
+    });
+    assert.ok(!result.text.includes("support desk it claims"));
+  } finally {
+    globalThis.fetch = priorFetch;
+    if (priorKey === undefined) delete process.env.DEEPSEEK_API_KEY;
+    else process.env.DEEPSEEK_API_KEY = priorKey;
+  }
 });
 
 const SPAM_FIXTURE = {
@@ -183,14 +264,20 @@ test("analyzeThreadWithAI quarantines obvious spam via the first configured prov
   // rather than erroring the whole classification.
   process.env.DEEPSEEK_API_KEY = "sk-deepseek-test";
   const urls: string[] = [];
-  globalThis.fetch = (async (url: any) => {
+  const models: string[] = [];
+  globalThis.fetch = (async (url: any, init: any) => {
     urls.push(String(url));
+    models.push(JSON.parse(init.body).model);
     return {
       ok: true,
       json: async () => ({
         choices: [
           {
             message: {
+              // V4 is a hybrid reasoner, so a real reply carries the thinking
+              // alongside the answer. Only the answer may be parsed.
+              reasoning_content:
+                "Impersonates a support desk and asks for account details.",
               // A code-fenced reply: only OpenAI honours strict json_schema, so
               // the parse must survive wrapping.
               content:
@@ -216,6 +303,8 @@ test("analyzeThreadWithAI quarantines obvious spam via the first configured prov
   }
 
   assert.deepEqual(urls, ["https://api.deepseek.com/v1/chat/completions"]);
+  // The org has no stored chain, so triage must run on the shipped default.
+  assert.deepEqual(models, ["deepseek-v4-flash"]);
 });
 
 test("analyzeThreadWithAI(chain: []) stays local when the org disabled AI triage", async () => {

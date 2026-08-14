@@ -28,7 +28,28 @@ export interface KnownModel {
 export const KNOWN_MODELS: KnownModel[] = [
   { id: "claude-opus-4-8", label: "Claude Opus 4.8 (Anthropic)", provider: "anthropic" },
   { id: "gpt-4.1", label: "GPT-4.1 (OpenAI)", provider: "openai" },
-  { id: "deepseek-chat", label: "DeepSeek V3 (DeepSeek)", provider: "deepseek" },
+  // DeepSeek V4 is the current generation and the only one GET
+  // https://api.deepseek.com/models still lists. Both V4 models are HYBRID
+  // REASONERS: the reply carries `message.reasoning_content` (thinking) AND
+  // `message.content` (the JSON answer), so the runner must give them enough
+  // max_tokens for both or `content` comes back empty.
+  {
+    id: "deepseek-v4-flash",
+    label: "DeepSeek V4 Flash (DeepSeek)",
+    provider: "deepseek",
+  },
+  {
+    id: "deepseek-v4-pro",
+    label: "DeepSeek V4 Pro (DeepSeek)",
+    provider: "deepseek",
+  },
+  // `deepseek-chat` is the LEGACY V3 alias. Still a valid, non-reasoning model,
+  // kept registered so chains stored before the V4 upgrade keep resolving.
+  {
+    id: "deepseek-chat",
+    label: "DeepSeek V3 Chat — legacy (DeepSeek)",
+    provider: "deepseek",
+  },
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Anthropic)", provider: "anthropic" },
   { id: "grok-3", label: "Grok 3 (xAI)", provider: "xai" },
   // Our fine-tuned estimator: a LoRA on Gemma-2B-it served by Cloudflare
@@ -61,19 +82,37 @@ export const DEFAULT_CHAIN_IDS: string[] = [
  * every message, so the email surface is the highest-volume AI call we make.
  * Claude and Grok sit behind it as quality/availability fallbacks.
  *
+ * Leads with `deepseek-v4-flash` — the current DeepSeek generation, and the
+ * economical half of it, which is the right trade for high-volume triage.
+ *
  * Kept separate from DEFAULT_CHAIN_IDS so the email chain never picks up
  * estimator-only models (e.g. the fine-tuned Gemma LoRA).
  */
 export const DEFAULT_EMAIL_CHAIN_IDS: string[] = [
-  "deepseek-chat",
+  "deepseek-v4-flash",
   "claude-opus-4-8",
   "grok-3",
 ];
 
-/** The models selectable for a given surface (email is restricted to its three). */
+/**
+ * The models a user may CHOOSE for the email chain. Broader than the default
+ * chain so the DeepSeek variant (V4 Flash vs V4 Pro vs the legacy V3 alias) is
+ * an actual choice in the UI, while the default ORDER above stays the one we
+ * ship. Still excludes estimator-only models (the fine-tuned Gemma LoRA).
+ */
+export const EMAIL_SELECTABLE_IDS: string[] = [
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
+  "deepseek-chat",
+  "claude-opus-4-8",
+  "claude-sonnet-4-6",
+  "grok-3",
+];
+
+/** The models selectable for a given surface (email has its own allow-list). */
 export function modelsForSurface(surface: AISurface): KnownModel[] {
   if (surface === "email") {
-    return DEFAULT_EMAIL_CHAIN_IDS.map((id) => MODEL_BY_ID.get(id)).filter(
+    return EMAIL_SELECTABLE_IDS.map((id) => MODEL_BY_ID.get(id)).filter(
       (m): m is KnownModel => Boolean(m),
     );
   }
@@ -118,7 +157,7 @@ export function modelLabel(id: string): string {
  * surface's default so the chain always covers every position in a sensible
  * order. Falls back to the default order when empty/invalid.
  *
- * The email surface is restricted to DEFAULT_EMAIL_CHAIN_IDS: an estimator-only
+ * The email surface is restricted to EMAIL_SELECTABLE_IDS: an estimator-only
  * model (e.g. the fine-tuned Gemma LoRA) must never be force-appended into the
  * email chain.
  */
