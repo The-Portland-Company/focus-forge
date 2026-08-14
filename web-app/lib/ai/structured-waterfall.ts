@@ -11,7 +11,10 @@
  *   - xAI (OpenAI-compatible): json_object only (no reliable json_schema), rely
  *     on the prompt + defensive parsing.
  *   - DeepSeek (OpenAI-compatible): json_object only — DeepSeek rejects strict
- *     json_schema, so the shape must be described in the prompt.
+ *     json_schema, so the shape must be described in the prompt. The V4 models
+ *     are hybrid reasoners: they return `message.reasoning_content` alongside
+ *     `message.content`. We read `message.content` (the answer) and ignore the
+ *     thinking, and always send a max_tokens large enough for both.
  *   - Anthropic: no json_schema wire support — demand strict JSON in the system
  *     prompt and prefill the assistant turn with "{" so the model continues a
  *     JSON object. Caller parses defensively.
@@ -43,7 +46,22 @@ export interface WaterfallInput {
   /** OpenAI-style json_schema ({ name, strict, schema }). Optional. */
   jsonSchema?: Record<string, unknown>;
   temperature?: number;
+  /**
+   * Output budget for the OpenAI-compatible providers. Defaults to
+   * DEFAULT_MAX_TOKENS, which is sized for a hybrid reasoner (see below).
+   */
+  maxTokens?: number;
 }
+
+/**
+ * Output budget for the OpenAI-compatible providers. Sized for HYBRID REASONERS
+ * (DeepSeek V4): those models spend part of the budget on `reasoning_content`
+ * before emitting `message.content`, so a tight max_tokens returns an EMPTY
+ * content field rather than the JSON we asked for. 2048 leaves room for both a
+ * classification/triage answer and the thinking that precedes it, and is
+ * harmless for the non-reasoning models on the same wire format.
+ */
+export const DEFAULT_MAX_TOKENS = 2048;
 
 /** A model that was tried and skipped before the successful one. */
 export interface WaterfallFallback {
@@ -150,6 +168,7 @@ async function runOpenAICompatible(
     body: JSON.stringify({
       model: spec.model,
       temperature: input.temperature ?? 0.2,
+      max_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS,
       response_format: responseFormat,
       messages: [
         { role: "system", content: input.systemPrompt },
