@@ -209,6 +209,7 @@ test("coerceConversationEntry carries To/Cc off the stored message metadata", ()
   assert.deepEqual(entry.cc, [
     { email: "rebecca@politogyvrm.com", name: "Rebecca Green" },
   ]);
+  assert.deepEqual(entry.bcc, []);
 
   const withoutMetadata = coerceConversationEntry({
     id: "message-3",
@@ -219,4 +220,5 @@ test("coerceConversationEntry carries To/Cc off the stored message metadata", ()
   });
 
   assert.deepEqual(withoutMetadata.cc, []);
+  assert.deepEqual(withoutMetadata.bcc, []);
 });

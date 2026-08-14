@@ -90,7 +90,10 @@ import {
   getEmailActorInitials,
   getEmailActorName,
   getPrimaryThreadRenderEntry,
+  getRecipientBadge,
+  getThreadHeaderBccActors,
   getThreadHeaderCcActors,
+  getThreadHeaderToActors,
 } from "@/lib/email-thread-ui";
 import {
   clampEmailDeleteUndoSeconds,
@@ -145,6 +148,7 @@ import {
 } from "@/lib/email-thread-display-mode";
 import type {
   ConversationEntry,
+  ConversationRecipient,
   EmailReplyDraft,
   InboxItem,
   Project,
@@ -380,6 +384,57 @@ function EmailActorAvatar({
       aria-hidden="true"
     >
       {getEmailActorInitials(name, email)}
+    </div>
+  );
+}
+
+/**
+ * One recipient row (To / Cc / Bcc) in the thread header. Each recipient is a
+ * chip labelled with the person's name from Contacts — with their company as a
+ * secondary bit when we know it — because a wall of raw addresses is unreadable.
+ * The address itself is always one hover away, and the row renders nothing at
+ * all when there are no recipients of that kind (the usual case for Bcc).
+ */
+function ThreadHeaderRecipientRow({
+  label,
+  recipients,
+}: {
+  label: string;
+  recipients: ConversationRecipient[];
+}) {
+  if (recipients.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex min-w-0 items-start gap-2">
+      {/* Left spacer keeps the label aligned under the "From" label. */}
+      <span aria-hidden className="h-5 w-5 shrink-0" />
+      <span className="mt-1 shrink-0 text-[10px] uppercase tracking-wide text-zinc-500">
+        {label}
+      </span>
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
+        {recipients.map((recipient) => {
+          const badge = getRecipientBadge(recipient);
+          return (
+            <span
+              key={`${label}-${badge.email}`}
+              title={badge.email}
+              aria-label={`${badge.label}${
+                badge.company ? `, ${badge.company}` : ""
+              } (${badge.email})`}
+              className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-zinc-700/80 bg-zinc-900/70 px-2 py-0.5 text-xs text-zinc-200"
+            >
+              <span className="truncate">{badge.label}</span>
+              {badge.company ? (
+                <span className="truncate text-[11px] text-zinc-500">
+                  · {badge.company}
+                </span>
+              ) : null}
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -690,9 +745,21 @@ export function EmailThreadModal({
           email: freshnessSignal.mailboxEmailAddress,
         }
       : null;
-  // Cc comes off the same primary message the From/date row reads, and the row
-  // is omitted entirely when the email had no Cc recipients.
+  // To/Cc/Bcc all come off the same primary message the From/date row reads.
+  // Each row is omitted when that recipient list is empty, so a normal received
+  // email shows To (+ Cc when copied) and no Bcc row at all.
   const headerCcActors = getThreadHeaderCcActors(primaryThreadEntry);
+  const headerBccActors = getThreadHeaderBccActors(primaryThreadEntry);
+  const headerToActors = getThreadHeaderToActors(primaryThreadEntry);
+  // While the thread hydrates — and for messages stored before envelope
+  // recipients were kept — fall back to the mailbox that received it, so the To
+  // row keeps its shape instead of popping in on load.
+  const headerToRecipients: ConversationRecipient[] =
+    headerToActors.length > 0
+      ? headerToActors
+      : headerMailbox
+        ? [{ email: headerMailbox.email, name: headerMailbox.name }]
+        : [];
 
   const conversationEntryIds = useMemo(
     () => conversationEntries.map((entry) => entry.id),
@@ -2095,40 +2162,17 @@ export function EmailThreadModal({
                   ) : null}
                 </div>
               ) : null}
-              {/* To: the mailbox that received this email, shown under From. The
-                  left spacer keeps the "To" label aligned under "From". */}
-              {headerMailbox ? (
-                <div className="flex min-w-0 items-center gap-2">
-                  <span aria-hidden className="h-5 w-5 shrink-0" />
-                  <span className="text-[10px] uppercase tracking-wide text-zinc-500">
-                    To
-                  </span>
-                  <span className="truncate text-sm text-zinc-300">
-                    {headerMailbox.name || headerMailbox.email}
-                  </span>
-                  {headerMailbox.name &&
-                  headerMailbox.email !== headerMailbox.name ? (
-                    <span className="truncate text-xs text-zinc-500">
-                      {headerMailbox.email}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-              {/* Cc: everyone else the sender copied, under To and matching its
-                  styling. Hidden when the email had no Cc recipients. */}
-              {headerCcActors.length > 0 ? (
-                <div className="flex min-w-0 items-center gap-2">
-                  <span aria-hidden className="h-5 w-5 shrink-0" />
-                  <span className="text-[10px] uppercase tracking-wide text-zinc-500">
-                    Cc
-                  </span>
-                  <span className="truncate text-sm text-zinc-300">
-                    {headerCcActors
-                      .map((actor) => getEmailActorName(actor.name, actor.email))
-                      .join(", ")}
-                  </span>
-                </div>
-              ) : null}
+              {/* Everyone the email went to, under From: the direct recipients,
+                  then anyone copied, then anyone blind-copied. */}
+              <ThreadHeaderRecipientRow
+                label="To"
+                recipients={headerToRecipients}
+              />
+              <ThreadHeaderRecipientRow label="Cc" recipients={headerCcActors} />
+              <ThreadHeaderRecipientRow
+                label="Bcc"
+                recipients={headerBccActors}
+              />
               {/* Click the summary or subject to copy the email's ID — handy for
                   referencing a specific email when talking to API-connected
                   agents. A "Copied!" toast fades in, then slides up and out. */}

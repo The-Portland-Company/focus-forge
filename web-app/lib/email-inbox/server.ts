@@ -103,7 +103,9 @@ import { logEmailAction } from "@/lib/email-inbox/action-log";
 import {
   createPersonalContact,
   getContactAddressesForUser,
+  getContactsByEmailForUser,
 } from "./contacts";
+import { attachContactsToRecipients } from "@/lib/email-thread-ui";
 import { getLocalDateString } from "@/lib/date-utils";
 import { retrieveRelevantAIMemory } from "@/lib/ai-memory/retrieval";
 import { getLatestActivePlaybook } from "@/lib/ai-memory/playbook";
@@ -4065,11 +4067,26 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
     )
     .sort(compareConversationEntriesByTime);
 
+  // Cross-reference every recipient on the thread against the user's contacts in
+  // ONE query, so the header can label a badge "John Smith · NueraHeat" instead
+  // of the raw address. Unmatched addresses stay as-is.
+  const contactsByEmail = await getContactsByEmailForUser({
+    userId,
+    emails: conversation.flatMap((entry) =>
+      [...(entry.to || []), ...(entry.cc || []), ...(entry.bcc || [])].map(
+        (recipient) => recipient.email,
+      ),
+    ),
+  });
+
   return {
     ...item,
     attachmentCount: collectThreadAttachments(conversation).length,
     conversation: conversation.map((entry: ConversationEntry) => ({
       ...entry,
+      to: attachContactsToRecipients(entry.to, contactsByEmail),
+      cc: attachContactsToRecipients(entry.cc, contactsByEmail),
+      bcc: attachContactsToRecipients(entry.bcc, contactsByEmail),
       participants: participantMap.get(entry.id) || [],
     })),
     linkedTasks: tasks || [],

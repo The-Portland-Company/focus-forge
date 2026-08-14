@@ -1,4 +1,8 @@
-import type { ConversationEntry } from "@/lib/types";
+import type {
+  ConversationEntry,
+  ConversationRecipient,
+  ConversationRecipientContact,
+} from "@/lib/types";
 
 const EMAIL_AVATAR_GRADIENTS = [
   "linear-gradient(135deg, #f97316 0%, #ef4444 100%)",
@@ -99,19 +103,70 @@ export function getConversationEntriesExcludingPrimary(
   return conversation.filter((entry) => entry.id !== primaryEntry.id);
 }
 
-/** Cc recipients for the thread header, de-duplicated by address. Returns an
- *  empty array when the message had no Cc (or predates the field being stored),
- *  which is the signal for the header to omit the Cc row entirely. */
-export function getThreadHeaderCcActors(entry?: ConversationEntry | null) {
+function dedupeRecipients(recipients?: ConversationRecipient[] | null) {
   const seen = new Set<string>();
 
-  return (entry?.cc || []).filter((address) => {
+  return (recipients || []).filter((address) => {
     const key = (address?.email || "").trim().toLowerCase();
     if (!key || seen.has(key)) {
       return false;
     }
     seen.add(key);
     return true;
+  });
+}
+
+/** To / Cc / Bcc recipients for the thread header, de-duplicated by address. An
+ *  empty array is the signal for the header to omit that row entirely — which is
+ *  the normal case for Bcc on received mail (inbound copies carry no Bcc header)
+ *  and for messages synced before these fields were stored. */
+export function getThreadHeaderToActors(entry?: ConversationEntry | null) {
+  return dedupeRecipients(entry?.to);
+}
+
+export function getThreadHeaderCcActors(entry?: ConversationEntry | null) {
+  return dedupeRecipients(entry?.cc);
+}
+
+export function getThreadHeaderBccActors(entry?: ConversationEntry | null) {
+  return dedupeRecipients(entry?.bcc);
+}
+
+/** What a recipient badge shows: a person's name when Contacts knows them, their
+ *  company as a secondary bit when recorded, and always the raw address for the
+ *  hover title. Falls back to the envelope display name, then to the email
+ *  itself, so an unmatched recipient still renders something meaningful. */
+export function getRecipientBadge(recipient: ConversationRecipient) {
+  const email = (recipient?.email || "").trim();
+  const contact = recipient?.contact ?? null;
+  const fullName = [contact?.firstName, contact?.lastName]
+    .map((part) => (part || "").trim())
+    .filter(Boolean)
+    .join(" ");
+  const company = (contact?.company || "").trim();
+
+  return {
+    label:
+      fullName ||
+      (contact?.displayName || "").trim() ||
+      (recipient?.name || "").trim() ||
+      email,
+    company: company || null,
+    email,
+  };
+}
+
+/** Cross-reference envelope recipients against contacts already fetched in one
+ *  batched query, keyed by lowercased email. Kept separate from the query so the
+ *  matching rules stay testable and the read path never turns into an N+1. */
+export function attachContactsToRecipients(
+  recipients: ConversationRecipient[] | null | undefined,
+  contactsByEmail: Map<string, ConversationRecipientContact>,
+): ConversationRecipient[] {
+  return (recipients || []).map((recipient) => {
+    const contact =
+      contactsByEmail.get((recipient?.email || "").trim().toLowerCase()) ?? null;
+    return { ...recipient, contact };
   });
 }
 
