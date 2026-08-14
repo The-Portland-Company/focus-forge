@@ -324,6 +324,11 @@ export interface ConversationEntry {
     url?: string | null;
   }>;
   createdAt: string;
+  // Envelope recipients carried straight off the stored message metadata, so the
+  // thread header can show To/Cc without a second participants lookup. Absent on
+  // internal notes and on messages synced before the field was persisted.
+  to?: EmailReplyAddress[];
+  cc?: EmailReplyAddress[];
   participants?: InboxParticipant[];
 }
 

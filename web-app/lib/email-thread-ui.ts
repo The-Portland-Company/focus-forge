@@ -99,6 +99,22 @@ export function getConversationEntriesExcludingPrimary(
   return conversation.filter((entry) => entry.id !== primaryEntry.id);
 }
 
+/** Cc recipients for the thread header, de-duplicated by address. Returns an
+ *  empty array when the message had no Cc (or predates the field being stored),
+ *  which is the signal for the header to omit the Cc row entirely. */
+export function getThreadHeaderCcActors(entry?: ConversationEntry | null) {
+  const seen = new Set<string>();
+
+  return (entry?.cc || []).filter((address) => {
+    const key = (address?.email || "").trim().toLowerCase();
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
 export function getDisplayableThreadAttachments(
   entry?: ConversationEntry | null,
 ) {

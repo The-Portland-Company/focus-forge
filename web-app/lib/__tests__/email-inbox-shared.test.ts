@@ -183,3 +183,40 @@ test("coerceConversationEntry adds attachment routes and indices", () => {
     "/api/email/messages/message-1/attachments/0",
   );
 });
+
+test("coerceConversationEntry carries To/Cc off the stored message metadata", () => {
+  const entry = coerceConversationEntry({
+    id: "message-2",
+    direction: "inbound",
+    subject: "Cc test",
+    body_text: "Hello",
+    body_html: null,
+    metadata_json: {
+      to: [{ email: "inbox@theportlandcompany.com", name: "Inbox" }],
+      cc: [
+        { email: "rebecca@politogyvrm.com", name: "Rebecca Green" },
+        // No address: nothing to render, so it must not become a blank chip.
+        { name: "Broken Entry" },
+      ],
+    },
+    received_at: "2026-04-10T15:00:00.000Z",
+    created_at: "2026-04-10T15:00:00.000Z",
+  });
+
+  assert.deepEqual(entry.to, [
+    { email: "inbox@theportlandcompany.com", name: "Inbox" },
+  ]);
+  assert.deepEqual(entry.cc, [
+    { email: "rebecca@politogyvrm.com", name: "Rebecca Green" },
+  ]);
+
+  const withoutMetadata = coerceConversationEntry({
+    id: "message-3",
+    direction: "inbound",
+    body_text: "Hello",
+    received_at: "2026-04-10T15:00:00.000Z",
+    created_at: "2026-04-10T15:00:00.000Z",
+  });
+
+  assert.deepEqual(withoutMetadata.cc, []);
+});
