@@ -125,6 +125,13 @@ test("providersInUse is derived from the model registry", () => {
   assert.equal(ids[0], "deepseek", "DeepSeek leads the email chain, so it lists first");
   const anthropic = providers.find((p) => p.provider === "anthropic");
   assert.ok(anthropic && anthropic.models.includes("claude-opus-4-8"));
+  // The DeepSeek row must advertise the CURRENT generation, not just the
+  // legacy V3 alias, so the LLM Providers panel shows the model actually used.
+  const deepseek = providers.find((p) => p.provider === "deepseek");
+  assert.ok(deepseek);
+  assert.ok(deepseek.models.includes("deepseek-v4-flash"));
+  assert.ok(deepseek.models.includes("deepseek-v4-pro"));
+  assert.ok(deepseek.models.includes("deepseek-chat"));
 });
 
 // --- getProviderStatuses, with fetch mocked ------------------------------
