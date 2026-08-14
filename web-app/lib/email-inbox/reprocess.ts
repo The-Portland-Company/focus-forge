@@ -21,6 +21,48 @@ export function isContentSpamExemptSender(
   );
 }
 
+/**
+ * Applies the trainable k-NN spam verdict on top of the rule/LLM-resolved thread
+ * state.
+ *
+ * The k-NN may only ever UPGRADE a thread to spam. It must NEVER downgrade a
+ * confident LLM spam verdict back to actionable: senders the user explicitly
+ * trained as "not spam" are already protected upstream by the `never_spam` RULE
+ * (via `suppressContentSpam`/`preventSpamClassification`, which skips this
+ * override entirely and tells the LLM not to mark spam). The old similarity-based
+ * not_spam downgrade was redundant with that protection and, on a corpus skewed
+ * toward not_spam examples, confidently un-flagged real spam. DeepSeek V4 is the
+ * reliable primary classifier — the noisy k-NN corpus does not get to overrule
+ * its spam calls.
+ */
+export function applySpamKnnOverride<
+  C extends InboxItem["classification"],
+  S extends InboxItem["status"],
+>(params: {
+  classification: C;
+  status: S;
+  needsProject: boolean;
+  /** Confident k-NN label, or null when absent/low-confidence. */
+  knnLabel: "spam" | "not_spam" | null;
+  knnConfident: boolean;
+  /** never_spam rule or exempt sender domain — skips the override entirely. */
+  suppressContentSpam: boolean;
+}): {
+  classification: C | "spam";
+  status: S | "quarantine";
+  needsProject: boolean;
+} {
+  const { classification, status, needsProject } = params;
+  if (
+    params.knnConfident &&
+    !params.suppressContentSpam &&
+    params.knnLabel === "spam"
+  ) {
+    return { classification: "spam", status: "quarantine", needsProject };
+  }
+  return { classification, status, needsProject };
+}
+
 export function resolveRuleDrivenThreadState(params: {
   aiResult: EmailThreadAIOutput;
   ruleActions: Set<string>;

@@ -28,6 +28,7 @@ import {
   type EmailRuleContext,
 } from "@/lib/email-inbox/rules";
 import {
+  applySpamKnnOverride,
   resolveRuleDrivenThreadState,
   isContentSpamExemptSender,
 } from "@/lib/email-inbox/reprocess";
@@ -3115,24 +3116,25 @@ export async function reprocessThread(
       ruleActions,
     });
 
-  // A confident k-NN verdict overrides the LLM/heuristic spam axis (never against
-  // a never_spam override, already excluded above). Low-confidence verdicts leave
-  // the LLM/heuristic result untouched.
+  // A confident k-NN verdict can only UPGRADE the spam axis (never against a
+  // never_spam override, already excluded above). It must never downgrade a
+  // confident LLM spam verdict back to actionable — see applySpamKnnOverride.
+  // Low-confidence verdicts leave the LLM/heuristic result untouched.
   const spamKnnConfident =
     !!spamVerdict &&
     spamVerdict.label !== null &&
     spamVerdict.exampleCount > 0 &&
     spamVerdict.confidence >= spamThreshold;
-  if (spamKnnConfident && !suppressContentSpam) {
-    if (spamVerdict!.label === "spam") {
-      classification = "spam";
-      status = "quarantine";
-    } else if (spamVerdict!.label === "not_spam" && classification === "spam") {
-      classification = "actionable";
-      status = thread.project_id ? "active" : "needs_project";
-      needsProject = !thread.project_id;
-    }
-  }
+  const spamKnnUpgradedToSpam =
+    spamKnnConfident && !suppressContentSpam && spamVerdict!.label === "spam";
+  ({ classification, status, needsProject } = applySpamKnnOverride({
+    classification,
+    status,
+    needsProject,
+    knnLabel: spamVerdict?.label ?? null,
+    knnConfident: spamKnnConfident,
+    suppressContentSpam,
+  }));
 
   const projectId =
     thread.project_id ||
@@ -3206,7 +3208,11 @@ export async function reprocessThread(
           ? `; spam-knn ${spamVerdict.label ?? "none"} conf=${spamVerdict.confidence.toFixed(
               2,
             )} n=${spamVerdict.exampleCount}${
-              spamKnnConfident ? " (used)" : ` (fallback=${spamFallbackMode})`
+              spamKnnUpgradedToSpam
+                ? " (applied → spam)"
+                : spamKnnConfident
+                  ? " (advisory; not_spam never downgrades an LLM spam verdict)"
+                  : ` (fallback=${spamFallbackMode})`
             }`
           : ""
       }${
@@ -3226,7 +3232,9 @@ export async function reprocessThread(
               label: spamVerdict.label,
               confidence: spamVerdict.confidence,
               exampleCount: spamVerdict.exampleCount,
+              // Confident enough to be consulted vs. actually changed the axis.
               usedKnn: spamKnnConfident,
+              appliedKnn: spamKnnUpgradedToSpam,
               threshold: spamThreshold,
               fallbackMode: spamFallbackMode,
               forcedHeuristic: forceHeuristicAnalysis,

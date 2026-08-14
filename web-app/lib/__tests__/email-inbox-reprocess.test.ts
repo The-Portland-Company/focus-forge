@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  applySpamKnnOverride,
   resolveRuleDrivenThreadState,
   isContentSpamExemptSender,
 } from "../email-inbox/reprocess";
@@ -90,4 +91,64 @@ test("resolveRuleDrivenThreadState still honors explicit delete actions", () => 
   assert.equal(result.alwaysDelete, true);
   assert.equal(result.status, "deleted");
   assert.equal(result.classification, "spam");
+});
+
+// Regression: a not_spam-skewed k-NN corpus was confidently un-flagging real
+// spam by downgrading the LLM's correct "spam" verdict back to actionable.
+test("applySpamKnnOverride never downgrades a confident LLM spam verdict", () => {
+  const result = applySpamKnnOverride({
+    classification: "spam",
+    status: "quarantine",
+    needsProject: false,
+    knnLabel: "not_spam",
+    knnConfident: true,
+    suppressContentSpam: false,
+  });
+
+  assert.equal(result.classification, "spam");
+  assert.equal(result.status, "quarantine");
+  assert.equal(result.needsProject, false);
+});
+
+test("applySpamKnnOverride still upgrades to spam on a confident spam verdict", () => {
+  const result = applySpamKnnOverride({
+    classification: "actionable",
+    status: "active",
+    needsProject: false,
+    knnLabel: "spam",
+    knnConfident: true,
+    suppressContentSpam: false,
+  });
+
+  assert.equal(result.classification, "spam");
+  assert.equal(result.status, "quarantine");
+});
+
+test("applySpamKnnOverride leaves state alone without a confident verdict", () => {
+  const result = applySpamKnnOverride({
+    classification: "actionable",
+    status: "active",
+    needsProject: true,
+    knnLabel: "spam",
+    knnConfident: false,
+    suppressContentSpam: false,
+  });
+
+  assert.equal(result.classification, "actionable");
+  assert.equal(result.status, "active");
+  assert.equal(result.needsProject, true);
+});
+
+test("applySpamKnnOverride is skipped when content spam is suppressed", () => {
+  const result = applySpamKnnOverride({
+    classification: "actionable",
+    status: "active",
+    needsProject: false,
+    knnLabel: "spam",
+    knnConfident: true,
+    suppressContentSpam: true,
+  });
+
+  assert.equal(result.classification, "actionable");
+  assert.equal(result.status, "active");
 });
