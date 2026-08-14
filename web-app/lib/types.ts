@@ -325,11 +325,30 @@ export interface ConversationEntry {
   }>;
   createdAt: string;
   // Envelope recipients carried straight off the stored message metadata, so the
-  // thread header can show To/Cc without a second participants lookup. Absent on
-  // internal notes and on messages synced before the field was persisted.
-  to?: EmailReplyAddress[];
-  cc?: EmailReplyAddress[];
+  // thread header can show To/Cc/Bcc without a second participants lookup. Absent
+  // on internal notes and on messages synced before the field was persisted. Bcc
+  // is normally only present on mail the user sent — inbound copies don't carry
+  // the header — so that row simply stays empty on received mail.
+  to?: ConversationRecipient[];
+  cc?: ConversationRecipient[];
+  bcc?: ConversationRecipient[];
   participants?: InboxParticipant[];
+}
+
+/** An envelope recipient, optionally cross-referenced against the mailbox
+ *  owner's Contacts so the UI can show a person's name instead of a raw address.
+ *  `contact` is null whenever no contact matched the address. */
+export interface ConversationRecipient {
+  email: string;
+  name?: string | null;
+  contact?: ConversationRecipientContact | null;
+}
+
+export interface ConversationRecipientContact {
+  firstName: string | null;
+  lastName: string | null;
+  displayName: string | null;
+  company: string | null;
 }
 
 export interface EmailSignature {
