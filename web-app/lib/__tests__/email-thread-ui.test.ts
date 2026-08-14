@@ -8,6 +8,7 @@ import {
   getEmailActorInitials,
   getEmailActorName,
   getPrimaryThreadRenderEntry,
+  getThreadHeaderCcActors,
   isPreviewableThreadAttachment,
 } from "../email-thread-ui";
 
@@ -155,5 +156,54 @@ test("isPreviewableThreadAttachment only allows routed image attachments", () =>
       url: "/api/email/messages/message-1/attachments/1",
     }),
     false,
+  );
+});
+
+test("getThreadHeaderCcActors lists Cc recipients and de-duplicates addresses", () => {
+  const actors = getThreadHeaderCcActors({
+    id: "1",
+    type: "email",
+    direction: "inbound",
+    content: "Hello",
+    contentHtml: null,
+    createdAt: "2026-04-09T20:00:00.000Z",
+    cc: [
+      { email: "rebecca@politogyvrm.com", name: "Rebecca Green" },
+      { email: "REBECCA@politogyvrm.com", name: "Rebecca Green" },
+      { email: "ops@theportlandcompany.com", name: null },
+    ],
+  });
+
+  assert.deepEqual(
+    actors.map((actor) => actor.email),
+    ["rebecca@politogyvrm.com", "ops@theportlandcompany.com"],
+  );
+});
+
+test("getThreadHeaderCcActors returns nothing when the email had no Cc", () => {
+  // An empty list is what hides the header's Cc row entirely.
+  assert.deepEqual(
+    getThreadHeaderCcActors({
+      id: "1",
+      type: "email",
+      direction: "inbound",
+      content: "Hello",
+      contentHtml: null,
+      createdAt: "2026-04-09T20:00:00.000Z",
+      cc: [],
+    }),
+    [],
+  );
+  assert.deepEqual(getThreadHeaderCcActors(null), []);
+  assert.deepEqual(
+    getThreadHeaderCcActors({
+      id: "1",
+      type: "email",
+      direction: "inbound",
+      content: "Hello",
+      contentHtml: null,
+      createdAt: "2026-04-09T20:00:00.000Z",
+    }),
+    [],
   );
 });
