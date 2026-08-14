@@ -1,5 +1,6 @@
 import type {
   ConversationEntry,
+  EmailReplyAddress,
   EmailRule,
   InboxItem,
   InboxParticipant,
@@ -342,6 +343,24 @@ export function coerceConversationEntry(row: any): ConversationEntry {
               : null,
         }))
       : [],
+    to: coerceConversationAddresses(row.metadata_json?.to),
+    cc: coerceConversationAddresses(row.metadata_json?.cc),
     createdAt: row.received_at ?? row.sent_at ?? row.created_at,
   };
+}
+
+/** Envelope addresses as stored in email_messages.metadata_json ({email,name}).
+ *  Anything without an email address is dropped so the header never renders a
+ *  blank recipient chip. */
+function coerceConversationAddresses(value: any): EmailReplyAddress[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry: any) => ({
+      email: String(entry?.email ?? "").trim(),
+      name: entry?.name ?? null,
+    }))
+    .filter((entry) => entry.email.length > 0);
 }

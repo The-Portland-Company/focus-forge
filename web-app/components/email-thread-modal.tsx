@@ -90,6 +90,7 @@ import {
   getEmailActorInitials,
   getEmailActorName,
   getPrimaryThreadRenderEntry,
+  getThreadHeaderCcActors,
 } from "@/lib/email-thread-ui";
 import {
   clampEmailDeleteUndoSeconds,
@@ -689,6 +690,9 @@ export function EmailThreadModal({
           email: freshnessSignal.mailboxEmailAddress,
         }
       : null;
+  // Cc comes off the same primary message the From/date row reads, and the row
+  // is omitted entirely when the email had no Cc recipients.
+  const headerCcActors = getThreadHeaderCcActors(primaryThreadEntry);
 
   const conversationEntryIds = useMemo(
     () => conversationEntries.map((entry) => entry.id),
@@ -2108,6 +2112,21 @@ export function EmailThreadModal({
                       {headerMailbox.email}
                     </span>
                   ) : null}
+                </div>
+              ) : null}
+              {/* Cc: everyone else the sender copied, under To and matching its
+                  styling. Hidden when the email had no Cc recipients. */}
+              {headerCcActors.length > 0 ? (
+                <div className="flex min-w-0 items-center gap-2">
+                  <span aria-hidden className="h-5 w-5 shrink-0" />
+                  <span className="text-[10px] uppercase tracking-wide text-zinc-500">
+                    Cc
+                  </span>
+                  <span className="truncate text-sm text-zinc-300">
+                    {headerCcActors
+                      .map((actor) => getEmailActorName(actor.name, actor.email))
+                      .join(", ")}
+                  </span>
                 </div>
               ) : null}
               {/* Click the summary or subject to copy the email's ID — handy for

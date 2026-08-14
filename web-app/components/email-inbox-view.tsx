@@ -1615,8 +1615,9 @@ export function EmailInboxView({
     useState<EmailRule | null>(null);
   const [inboxFilterTab, setInboxFilterTab] =
     useState<EmailInboxFilterTab>("all");
-  // Custom rule-based inbox tabs. `selectedInboxTabId` is null for "All"; the
-  // first tab (Known Contacts) is selected once tabs load.
+  // Custom rule-based inbox tabs. `selectedInboxTabId` is null for "All", which
+  // is where every page load lands — loading tabs must not pull the user onto
+  // the first one (Known Contacts), which hid the rest of the inbox on refresh.
   const [inboxTabs, setInboxTabs] = useState<EmailInboxTab[]>([]);
   const [selectedInboxTabId, setSelectedInboxTabId] = useState<string | null>(
     null,
@@ -1992,8 +1993,9 @@ export function EmailInboxView({
   // selected when the query was typed.
   const isInboxSearchActive = inboxSearchQuery.trim().length > 0;
 
-  // Load the user's custom inbox tabs (seeds defaults on first use) and select
-  // the first tab (Known Contacts) by default.
+  // Load the user's custom inbox tabs (seeds defaults on first use). The
+  // selection is left alone: "All" stays selected on load so a refresh shows the
+  // whole inbox, and clicking a tab during the session still switches to it.
   useEffect(() => {
     if (view !== "email-inbox") return;
     let cancelled = false;
@@ -2003,9 +2005,6 @@ export function EmailInboxView({
         if (cancelled) return;
         const tabs: EmailInboxTab[] = d.tabs || [];
         setInboxTabs(tabs);
-        setSelectedInboxTabId((prev) =>
-          prev ?? (tabs.length > 0 ? tabs[0].id : null),
-        );
       })
       .catch(() => undefined);
     return () => {
@@ -3751,6 +3750,45 @@ export function EmailInboxView({
       window.clearInterval(interval);
     };
   }, [view, isRealtimeConnected]);
+
+  // Opening or refreshing the inbox must pull mail from the providers, not just
+  // replay what is already cached. The recurring effect above can't do it on a
+  // cold load: it pre-filters against `mailboxesRef`, which is still empty until
+  // the first inbox fetch lands, so a refresh would sit on stale mail for a full
+  // poll interval. This posts sync-due once per mount and lets the server's
+  // BACKGROUND_SYNC_FLOOR (60s) throttle rapid refreshes, so hammering reload
+  // never hammers Gmail/IMAP.
+  const didSyncOnInboxMountRef = useRef(false);
+
+  useEffect(() => {
+    if (!isEmailInboxView(view)) return;
+    if (didSyncOnInboxMountRef.current) return;
+    didSyncOnInboxMountRef.current = true;
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/email/mailboxes/sync-due", {
+          method: "POST",
+          credentials: "include",
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) return;
+
+        if (
+          Number(payload?.syncedMailboxCount || 0) > 0 ||
+          Number(payload?.changedThreadCount || 0) > 0
+        ) {
+          // Full refresh (mailboxes included) so the sync timestamps the toolbar
+          // reads move with the mail that just arrived.
+          await refreshInboxStateRef.current?.({
+            allowBrowserNotifications: true,
+          });
+        }
+      } catch {
+        // Keep the load-time sync silent; the poll below is the safety net.
+      }
+    })();
+  }, [view]);
 
   const openMailboxCreateForm = () => {
     setEditingMailboxId(null);
