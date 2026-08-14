@@ -49,7 +49,6 @@ import {
   Radar,
   RefreshCw,
   Search,
-  SendHorizontal,
   SlidersHorizontal,
   Sparkles,
   Square,
@@ -5939,7 +5938,6 @@ export function EmailInboxView({
           )}
         </div>
         <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
-          <AlertBellButton />
           {visibleInboxItems.length > 0 ? (
             <div className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-1.5 text-sm text-zinc-400">
               <Tooltip content="Previous page" className="w-auto" side="bottom">
@@ -6188,10 +6186,13 @@ export function EmailInboxView({
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
                 aria-label="New Email"
               >
-                <SendHorizontal className="h-4 w-4" />
+                <Plus className="h-4 w-4" />
               </button>
             </Tooltip>
           ) : null}
+          {/* Last in the row so the bell + its count badge sit at the far
+              right edge of the header. */}
+          <AlertBellButton />
         </div>
       </div>
 

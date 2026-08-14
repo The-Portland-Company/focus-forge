@@ -32,6 +32,13 @@ export type AppAlert = {
   /** ms until auto-dismiss; 0 = sticky (errors, in-flight progress). */
   duration: number;
   actions?: AlertAction[];
+  /**
+   * Set by showToast: one-shot feedback that still floats in the top-right
+   * stack. Persistent alerts (raised through upsertAlert — deletes with undo,
+   * sends, sync progress) leave this unset and live only in the bell panel,
+   * so long-lived work does not park a card over the page.
+   */
+  ephemeral?: boolean;
 };
 
 /** How many alerts the collapsed (panel-closed) stack shows at once. */
@@ -63,6 +70,12 @@ export function upsertAlert(alerts: AppAlert[], alert: AppAlert): AppAlert[] {
 export function dismissAlert(alerts: AppAlert[], id: string): AppAlert[] {
   const next = alerts.filter((alert) => alert.id !== id);
   return next.length === alerts.length ? alerts : next;
+}
+
+/** The alerts the floating stack is allowed to render: ephemeral toasts only.
+ *  Everything else is bell-panel-only. */
+export function getFloatingAlerts(alerts: AppAlert[]): AppAlert[] {
+  return alerts.filter((alert) => alert.ephemeral);
 }
 
 /** The slice the collapsed stack renders (newest first, capped). */
