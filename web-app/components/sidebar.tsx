@@ -21,6 +21,7 @@ import {
   Edit,
   User,
   Settings,
+  Cpu,
   ChevronsUpDown,
   ChevronsDownUp,
   CheckSquare,
@@ -1407,6 +1408,13 @@ export function Sidebar({
                     title="Settings"
                   >
                     <Settings className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                  </Link>
+                  <Link
+                    href="/settings?section=llm-providers"
+                    className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+                    title="LLM Providers"
+                  >
+                    <Cpu className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
                   </Link>
                   <button
                     onClick={handleLogout}
@@ -2949,6 +2957,14 @@ export function Sidebar({
                 <Settings className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
               </Link>
             </Tooltip>
+            <Tooltip content="LLM Providers">
+              <Link
+                href="/settings?section=llm-providers"
+                className="w-full flex items-center justify-center p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+              >
+                <Cpu className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+              </Link>
+            </Tooltip>
             <Tooltip content="Logout">
               <button
                 onClick={handleLogout}
@@ -2960,6 +2976,13 @@ export function Sidebar({
           </div>
         ) : (
           <div className="space-y-1">
+            <Link
+              href="/settings?section=llm-providers"
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-white transition-colors"
+            >
+              <Cpu className="w-4 h-4" />
+              LLM Providers
+            </Link>
             <Link
               href="/developer/api"
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-white transition-colors"
