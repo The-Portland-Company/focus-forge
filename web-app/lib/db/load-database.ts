@@ -136,6 +136,7 @@ export async function loadDatabaseForUser(
   let tags: any[] = [];
   let sections: any[] = [];
   let goals: any[] = [];
+  let plans: any[] = [];
   let taskSections: any[] = [];
   let mailboxes: any[] = [];
   let inboxItems: any[] = [];
@@ -248,6 +249,50 @@ export async function loadDatabaseForUser(
     }
   } catch (error) {
     console.error("Error mapping goals:", error);
+  }
+
+  try {
+    // Plans attach to exactly one of org/project/goal/section. Gather every
+    // owner id currently in scope and fetch live plans owned by any of them.
+    const orgIds = organizations.map((o: any) => o.id).filter(Boolean);
+    const projectIds = projects.map((project: any) => project.id).filter(Boolean);
+    const goalIds = goals.map((g: any) => g.id).filter(Boolean);
+    const sectionIds = sections.map((s: any) => s.id).filter(Boolean);
+
+    const ownerFilters: string[] = [];
+    if (orgIds.length) ownerFilters.push(`organization_id.in.(${orgIds.join(",")})`);
+    if (projectIds.length) ownerFilters.push(`project_id.in.(${projectIds.join(",")})`);
+    if (goalIds.length) ownerFilters.push(`goal_id.in.(${goalIds.join(",")})`);
+    if (sectionIds.length) ownerFilters.push(`section_id.in.(${sectionIds.join(",")})`);
+
+    if (ownerFilters.length > 0) {
+      const { data: planRows, error: plansError } = await supabase
+        .from("plans")
+        .select("*")
+        .or(ownerFilters.join(","))
+        .is("deleted_at", null)
+        .order("order_index", { ascending: true })
+        .order("created_at", { ascending: true });
+
+      if (plansError) {
+        console.error("Error fetching plans:", plansError);
+      } else {
+        plans = (planRows || []).map((row: any) => ({
+          id: row.id,
+          organizationId: row.organization_id || undefined,
+          projectId: row.project_id || undefined,
+          goalId: row.goal_id || undefined,
+          sectionId: row.section_id || undefined,
+          name: row.name,
+          contentMarkdown: row.content_markdown ?? "",
+          order: row.order_index ?? 0,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }));
+      }
+    }
+  } catch (error) {
+    console.error("Error mapping plans:", error);
   }
 
   try {
@@ -496,6 +541,7 @@ export async function loadDatabaseForUser(
     tags,
     sections,
     goals,
+    plans,
     reminders: [],
     userSectionPreferences: [],
     settings: { showCompletedTasks: true },
