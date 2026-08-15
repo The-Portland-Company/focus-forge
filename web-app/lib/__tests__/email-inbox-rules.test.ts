@@ -34,6 +34,46 @@ test("ruleMatches checks sender domain and subject conditions", () => {
   assert.equal(matched, true);
 });
 
+test("ruleMatches supports a pattern value on a subject condition", () => {
+  const rule = {
+    id: "rule-quota",
+    name: "Quota warnings",
+    source: "user" as const,
+    isActive: true,
+    priority: 10,
+    matchMode: "all" as const,
+    conditions: [
+      {
+        field: "subject" as const,
+        operator: "matches" as const,
+        value: "You've hit {0-100}% of your *",
+      },
+    ],
+    actions: [{ type: "archive" as const }],
+    stopProcessing: false,
+    createdAt: "",
+    updatedAt: "",
+  };
+
+  const context = {
+    senderEmail: "alerts@vendor.com",
+    senderDomain: "vendor.com",
+    subject: "You've hit 80% of your quota",
+    body: "",
+    mailbox: "team@example.com",
+    participants: [],
+  };
+
+  assert.equal(ruleMatches(rule, context), true);
+  assert.equal(
+    ruleMatches(rule, {
+      ...context,
+      subject: "You've hit 120% of your quota",
+    }),
+    false,
+  );
+});
+
 test("applyEmailRules respects priority and stopProcessing", () => {
   const result = applyEmailRules(
     [

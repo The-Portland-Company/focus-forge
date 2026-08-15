@@ -540,7 +540,8 @@ export interface EmailRuleCondition {
     | "body"
     | "mailbox"
     | "participant";
-  operator: "contains" | "equals" | "ends_with" | "starts_with";
+  /** `matches` reads `value` as a pattern — see `lib/email-inbox/rule-pattern`. */
+  operator: "contains" | "equals" | "ends_with" | "starts_with" | "matches";
   value: string;
 }
 
