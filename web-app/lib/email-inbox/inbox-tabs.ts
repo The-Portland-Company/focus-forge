@@ -1,3 +1,7 @@
+import {
+  matchesPattern,
+  templateHasPattern,
+} from "@/lib/email-inbox/rule-pattern";
 import type { InboxItem } from "@/lib/types";
 
 // A user-defined inbox tab: a saved filter defined by rules.
@@ -59,7 +63,7 @@ export const INBOX_TAB_OPERATOR_OPTIONS: Array<{
   { value: "starts_with", label: "starts with" },
   { value: "ends_with", label: "ends with" },
   { value: "is", label: "is" },
-  { value: "matches", label: "matches" },
+  { value: "matches", label: "matches pattern" },
 ];
 
 function senderParticipant(item: InboxItem) {
@@ -70,6 +74,16 @@ function compare(op: InboxTabOperator, haystack: string, needle: string) {
   const h = (haystack || "").toLowerCase();
   const n = (needle || "").toLowerCase();
   if (!n) return false;
+  // `matches` reads the value as a pattern ({0-100}, {number}, *). A value with
+  // no placeholders in it compiles to plain text, so it behaves as `contains`
+  // did before — only patterned values change.
+  if (op === "matches") return matchesPattern(haystack || "", needle);
+  if (
+    (op === "contains" || op === "equals" || op === "is") &&
+    templateHasPattern(needle)
+  ) {
+    return matchesPattern(haystack || "", needle, { anchored: op !== "contains" });
+  }
   switch (op) {
     case "equals":
     case "is":

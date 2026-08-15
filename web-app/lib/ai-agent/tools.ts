@@ -551,7 +551,12 @@ export const AGENT_TOOLS = [
                   type: "string",
                   enum: ["sender_email", "sender_domain", "subject", "body", "mailbox", "participant"],
                 },
-                operator: { type: "string", enum: ["contains", "equals", "ends_with", "starts_with"] },
+                operator: {
+                  type: "string",
+                  enum: ["contains", "equals", "ends_with", "starts_with", "matches"],
+                  description:
+                    "Use matches when value is a pattern: {number} or {#} for any number, {0-100} for a number in range, * for anything.",
+                },
                 value: { type: "string" },
               },
               required: ["field", "operator", "value"],
