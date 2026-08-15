@@ -2,8 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ExternalLink, Loader2, Mic, Send, Sparkles, Square, SquarePen, X } from "lucide-react";
+import { AlertCircle, ExternalLink, Loader2, Mic, Send, Sparkles, Square, SquarePen, X } from "lucide-react";
 import { useToast } from "@/contexts/ToastContext";
+import {
+  AI_CREDIT_ALERT_TITLE,
+  isAiCreditError,
+  useAiCreditAlert,
+} from "@/hooks/use-ai-credit-alert";
 import {
   Select,
   SelectContent,
@@ -105,6 +110,7 @@ export function AiPlannerFloatingChat({
   embedded = false,
 }: AiPlannerFloatingChatProps) {
   const { showError } = useToast();
+  const { showAiCreditAlert, openLlmProviderSettings } = useAiCreditAlert();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const recorder = useRecorder();
@@ -129,6 +135,9 @@ export function AiPlannerFloatingChat({
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
+  // The out-of-credit failure also renders in-thread (same alert as the bell
+  // panel), because that is where the user is looking when the send fails.
+  const [creditError, setCreditError] = useState<string | null>(null);
   const [model, setModel] = useState<ModelChoice>("auto");
   const [sttProvider, setSttProvider] = useState<SttProviderPreference>("auto");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -195,6 +204,7 @@ export function AiPlannerFloatingChat({
       ...prev,
       { id: `local-${Date.now()}`, role: "user", content: message, origin },
     ]);
+    setCreditError(null);
 
     try {
       const response = await fetch("/api/ai-agent/chat", {
@@ -269,7 +279,13 @@ export function AiPlannerFloatingChat({
         }
       }
     } catch (error: any) {
-      showError("Assistant request failed", error?.message || "Unknown error");
+      const message = error?.message || "Unknown error";
+      if (isAiCreditError(message)) {
+        setCreditError(message);
+        showAiCreditAlert(message);
+      } else {
+        showError("Assistant request failed", message);
+      }
     } finally {
       setSending(false);
     }
@@ -480,6 +496,28 @@ export function AiPlannerFloatingChat({
                     </div>
                   ))}
                 </div>
+
+                {creditError && (
+                  <button
+                    type="button"
+                    onClick={openLlmProviderSettings}
+                    className="mt-3 flex w-full items-start gap-2.5 rounded-xl border border-rose-500/40 bg-rose-950/60 px-3 py-2.5 text-left transition-colors hover:border-rose-400/60 hover:bg-rose-950/80"
+                  >
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-medium text-zinc-100">
+                        {AI_CREDIT_ALERT_TITLE}
+                      </span>
+                      <span className="mt-1 block text-[11px] leading-snug text-zinc-300/90">
+                        {creditError}
+                      </span>
+                      <span className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-200">
+                        <ExternalLink className="h-3 w-3" />
+                        Open AI connections
+                      </span>
+                    </span>
+                  </button>
+                )}
 
                 {sending && (
                   <div className="mt-3 flex items-center gap-2 text-sm text-zinc-400">

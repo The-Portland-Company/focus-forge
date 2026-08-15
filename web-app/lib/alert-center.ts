@@ -33,6 +33,12 @@ export type AppAlert = {
   duration: number;
   actions?: AlertAction[];
   /**
+   * Makes the whole card clickable (in addition to any actions). Used by alerts
+   * whose only useful response is "go fix this over there" — e.g. the AI
+   * out-of-credit alert, which opens the LLM Providers settings.
+   */
+  onSelect?: () => void;
+  /**
    * Set by showToast: one-shot feedback that still floats in the top-right
    * stack. Persistent alerts (raised through upsertAlert — deletes with undo,
    * sends, sync progress) leave this unset and live only in the bell panel,
