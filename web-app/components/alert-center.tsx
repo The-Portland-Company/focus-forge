@@ -91,7 +91,10 @@ function AlertCard({
         "pointer-events-auto flex items-start gap-2.5 rounded-xl border px-3 py-2.5 shadow-xl backdrop-blur",
         alertToneClassName(alert.type),
         animated && (isLeaving ? "alert-card-exit" : "alert-card-enter"),
+        alert.onSelect &&
+          "cursor-pointer transition-colors hover:border-zinc-500/70 hover:bg-white/5",
       )}
+      onClick={alert.onSelect ? () => alert.onSelect?.() : undefined}
     >
       <span className="mt-0.5">
         <AlertTypeIcon type={alert.type} />
@@ -118,7 +121,10 @@ function AlertCard({
                   key={action.id}
                   type="button"
                   disabled={action.disabled}
-                  onClick={action.onClick}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    action.onClick();
+                  }}
                   className="rounded-md text-[11px] font-medium text-zinc-200 underline decoration-zinc-500 underline-offset-4 transition-colors hover:text-white disabled:opacity-50"
                 >
                   {action.label}
@@ -128,7 +134,10 @@ function AlertCard({
                   key={action.id}
                   type="button"
                   disabled={action.disabled}
-                  onClick={action.onClick}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    action.onClick();
+                  }}
                   className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-zinc-800 disabled:opacity-50"
                 >
                   {action.label}
@@ -140,7 +149,10 @@ function AlertCard({
       </div>
       <button
         type="button"
-        onClick={requestClose}
+        onClick={(event) => {
+          event.stopPropagation();
+          requestClose();
+        }}
         aria-label="Dismiss"
         title="Dismiss"
         className="-mr-0.5 shrink-0 rounded-md p-1 text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-200"
