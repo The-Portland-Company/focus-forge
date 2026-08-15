@@ -11,6 +11,7 @@ import { KeyRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ExistingMemberPicker, filterAvailableMembers } from '@/components/existing-member-picker'
 import { FocusTimeOrganizationPanel } from '@/components/focus-time-organization-panel'
+import { PlanPanel } from '@/components/plan-panel'
 import {
   ModalMinimizeButton,
   useModalWindow,
@@ -699,6 +700,10 @@ export function OrganizationSettingsModal({
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="border-t border-zinc-800 pt-4">
+              <PlanPanel ownerType="organization" ownerId={organization.id} />
             </div>
           </div>
           )}

@@ -11,9 +11,12 @@ import {
   GripVertical,
   Target,
   Boxes,
+  FileText,
+  X,
 } from "lucide-react";
 import { Section, Task, Database, Goal } from "@/lib/types";
 import { getSectionIcon } from "@/lib/section-icons";
+import { PlanPanel } from "./plan-panel";
 import { TaskList } from "./task-list";
 import { SupplyTotal } from "./supply-total";
 import { RollupSubtotal } from "./rollup-subtotal";
@@ -131,6 +134,7 @@ export function SectionView({
 }: SectionViewProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showSupplies, setShowSupplies] = useState(false);
+  const [showPlans, setShowPlans] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [isDraggingSelf, setIsDraggingSelf] = useState(false);
 
@@ -550,6 +554,16 @@ export function SectionView({
           <button
             onClick={(e) => {
               e.stopPropagation();
+              setShowPlans(true);
+            }}
+            className="p-1 hover:bg-zinc-700 rounded transition-colors"
+            title="Plans"
+          >
+            <FileText className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
               onSectionEdit(section);
             }}
             className="p-1 hover:bg-zinc-700 rounded transition-colors"
@@ -570,6 +584,33 @@ export function SectionView({
           <GripVertical className="w-4 h-4 text-zinc-500 cursor-move" />
         </div>
       </div>
+
+      {showPlans && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setShowPlans(false)}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg bg-zinc-900 p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-white">
+                Plans — {section.name}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowPlans(false)}
+                className="text-zinc-400 transition-colors hover:text-white"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <PlanPanel ownerType="section" ownerId={section.id} />
+          </div>
+        </div>
+      )}
 
       {/* Section Content — ml-3 rather than ml-6: the content was
           double-indented against an already-indented header, pushing tasks far

@@ -417,6 +417,156 @@ export const fetchLiveGoal = async (
   return data || null
 }
 
+export type MobilePlanSummary = {
+  id: string
+  organization_id: string | null
+  project_id: string | null
+  goal_id: string | null
+  section_id: string | null
+  name: string
+  content_markdown: string
+  order: number | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+const PLAN_COLUMNS =
+  'id,organization_id,project_id,goal_id,section_id,name,content_markdown,order_index,created_at,updated_at'
+
+export const serializeMobilePlan = (plan: any): MobilePlanSummary => ({
+  id: plan.id,
+  organization_id: plan.organization_id ?? null,
+  project_id: plan.project_id ?? null,
+  goal_id: plan.goal_id ?? null,
+  section_id: plan.section_id ?? null,
+  name: plan.name,
+  content_markdown: plan.content_markdown ?? '',
+  order: plan.order_index ?? null,
+  created_at: plan.created_at ?? null,
+  updated_at: plan.updated_at ?? null,
+})
+
+/**
+ * Fetch a single live plan and decide whether `userId` may access it. A plan is
+ * accessible when the user is a member of its owning organization — resolved
+ * through whichever owner FK (org/project/goal/section) is set.
+ */
+export const loadAccessiblePlan = async (
+  serviceSupabase: ReturnType<typeof createServiceSupabase>,
+  userId: string,
+  planId: string,
+): Promise<{ plan: any | null; hasAccess: boolean }> => {
+  const { data: plan } = await serviceSupabase
+    .from('plans')
+    .select(PLAN_COLUMNS)
+    .eq('id', planId)
+    .is('deleted_at', null)
+    .maybeSingle()
+
+  if (!plan) return { plan: null, hasAccess: false }
+
+  const adapter = await getMobileAdapterForUser(userId)
+  const projects = await adapter.getProjects()
+  const projectIds = new Set(projects.map((p: any) => p.id))
+  const orgIds = new Set(projects.map((p: any) => p.organizationId ?? p.organization_id))
+
+  let hasAccess = false
+  if (plan.organization_id) {
+    hasAccess = orgIds.has(plan.organization_id)
+  } else if (plan.project_id) {
+    hasAccess = projectIds.has(plan.project_id)
+  } else if (plan.goal_id) {
+    const { data: goal } = await serviceSupabase
+      .from('goals')
+      .select('project_id')
+      .eq('id', plan.goal_id)
+      .maybeSingle()
+    hasAccess = Boolean(goal && projectIds.has(goal.project_id))
+  } else if (plan.section_id) {
+    const { data: section } = await serviceSupabase
+      .from('sections')
+      .select('project_id')
+      .eq('id', plan.section_id)
+      .maybeSingle()
+    hasAccess = Boolean(section && projectIds.has(section.project_id))
+  }
+
+  return { plan, hasAccess }
+}
+
+/**
+ * Validate that `userId` may attach a plan to the given owner, and return the
+ * snake_case owner column + id. Exactly one owner must be provided.
+ */
+export const resolvePlanOwner = async (
+  serviceSupabase: ReturnType<typeof createServiceSupabase>,
+  userId: string,
+  body: Record<string, unknown>,
+): Promise<
+  | { ok: true; column: string; id: string }
+  | { ok: false; code: string; message: string }
+> => {
+  const candidates: Array<{ column: string; id: string }> = []
+  const pick = (camel: string, snake: string, column: string) => {
+    const raw = (body[camel] ?? body[snake]) as unknown
+    if (typeof raw === 'string' && raw.trim()) {
+      candidates.push({ column, id: raw.trim() })
+    }
+  }
+  pick('organizationId', 'organization_id', 'organization_id')
+  pick('projectId', 'project_id', 'project_id')
+  pick('goalId', 'goal_id', 'goal_id')
+  pick('sectionId', 'section_id', 'section_id')
+
+  if (candidates.length !== 1) {
+    return {
+      ok: false,
+      code: 'validation_error',
+      message:
+        'Exactly one of organization_id, project_id, goal_id, section_id is required',
+    }
+  }
+
+  const owner = candidates[0]
+  const adapter = await getMobileAdapterForUser(userId)
+  const projects = await adapter.getProjects()
+  const projectIds = new Set(projects.map((p: any) => p.id))
+  const orgIds = new Set(projects.map((p: any) => p.organizationId ?? p.organization_id))
+
+  let ok = false
+  if (owner.column === 'organization_id') {
+    ok = orgIds.has(owner.id)
+  } else if (owner.column === 'project_id') {
+    ok = projectIds.has(owner.id)
+  } else if (owner.column === 'goal_id') {
+    const { data: goal } = await serviceSupabase
+      .from('goals')
+      .select('project_id')
+      .eq('id', owner.id)
+      .is('deleted_at', null)
+      .maybeSingle()
+    ok = Boolean(goal && projectIds.has(goal.project_id))
+  } else if (owner.column === 'section_id') {
+    const { data: section } = await serviceSupabase
+      .from('sections')
+      .select('project_id')
+      .eq('id', owner.id)
+      .is('deleted_at', null)
+      .maybeSingle()
+    ok = Boolean(section && projectIds.has(section.project_id))
+  }
+
+  if (!ok) {
+    return {
+      ok: false,
+      code: 'owner_not_found',
+      message: 'Owner not found or not accessible for current user',
+    }
+  }
+
+  return { ok: true, column: owner.column, id: owner.id }
+}
+
 export const serializeMobileGoal = (
   goal: any,
   count?: { total: number; completed: number },
