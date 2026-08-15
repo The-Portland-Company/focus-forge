@@ -42,6 +42,11 @@ import {
   generateSpamExceptionRuleDraft,
 } from "@/lib/email-inbox/spam-exception";
 import {
+  SPAM_MIRROR_SWEEP_LIMIT,
+  SPAM_PROVIDER_LABEL_MARKER,
+  selectSpamThreadsNeedingProviderMirror,
+} from "@/lib/email-inbox/spam-mirror";
+import {
   buildParticipantSummary,
   buildThreadKey,
   coerceConversationEntry,
@@ -3837,13 +3842,15 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
 
     // Mirror each freshly-categorized thread into the provider: label it and
     // take it out of the Inbox. Runs after analysis (so `classification` is
-    // settled) and only for threads this sync touched — never a sweep over the
-    // user's existing mail. Each thread is independently best-effort so one bad
-    // IMAP move can't fail the whole sync.
+    // settled) and only for threads this sync touched — category labeling is
+    // never a sweep over the user's existing mail. Each thread is independently
+    // best-effort so one bad IMAP move can't fail the whole sync.
     //
     // Spam takes the same trip to a different destination: mail the classifier
     // flagged is pushed to the provider's Junk folder, so Gmail agrees with
-    // Focus instead of leaving detected spam sitting in the Inbox.
+    // Focus instead of leaving detected spam sitting in the Inbox. Spam alone
+    // also gets the bounded catch-up sweep below, because a thread detected on
+    // an earlier sync would otherwise never be pushed at all.
     let providerLabeledThreadCount = 0;
     let providerSpamThreadCount = 0;
     if (mailbox.owner_user_id) {
@@ -3861,6 +3868,52 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
           threadId,
         }).catch(() => null);
         if (labelResult?.labeled) providerLabeledThreadCount += 1;
+      }
+
+      // Catch-up sweep for HISTORICAL spam — distinct from the touched-thread
+      // mirror above. Spam detected on an earlier sync (before the mirror
+      // existed, or when the provider move failed) never appears in
+      // changedThreadIds again, so it would sit in the user's Inbox forever.
+      // This picks up already-detected spam that was never pushed
+      // provider-side and moves it with the same helper.
+      //
+      // Bounded by SPAM_MIRROR_SWEEP_LIMIT so a large backlog drains over a few
+      // syncs rather than one huge IMAP burst, and idempotent via
+      // SPAM_PROVIDER_LABEL_MARKER: a moved thread stops matching, so the sweep
+      // converges to empty. Category/archive mirroring is deliberately NOT
+      // swept — this is spam only.
+      try {
+        const { data: unmirroredSpamRows } = await admin
+          .from("email_threads")
+          .select("id,status,classification,provider_label_name")
+          .eq("mailbox_id", mailboxId)
+          .eq("classification", "spam")
+          .in("status", ["spam", "quarantine"])
+          .or(
+            `provider_label_name.is.null,provider_label_name.neq.${SPAM_PROVIDER_LABEL_MARKER}`,
+          )
+          .order("updated_at", { ascending: false })
+          .limit(SPAM_MIRROR_SWEEP_LIMIT);
+
+        const sweepThreadIds = selectSpamThreadsNeedingProviderMirror({
+          rows: unmirroredSpamRows,
+          skipThreadIds: changedThreadIds,
+          limit: SPAM_MIRROR_SWEEP_LIMIT,
+        });
+
+        for (const threadId of sweepThreadIds) {
+          // Best-effort per thread: one bad IMAP move can't abort the sync.
+          const sweepResult = await mirrorThreadSpamToProvider({
+            mailbox: transportMailbox,
+            threadId,
+          }).catch(() => null);
+          if (sweepResult?.movedToJunk) providerSpamThreadCount += 1;
+        }
+      } catch (spamSweepError) {
+        console.error(
+          "[email-inbox] Spam provider catch-up sweep failed",
+          extractMailboxErrorMessage(spamSweepError),
+        );
       }
     }
 
@@ -6003,13 +6056,6 @@ export async function processScheduledOutboundDrafts() {
     failedCount,
   };
 }
-
-/**
- * Sentinel stored in `provider_label_name` for a thread pushed to the provider's
- * Junk folder. Junk is a destination, not one of the user's category labels, so
- * it needs a value that can never collide with a real tab name.
- */
-const SPAM_PROVIDER_LABEL_MARKER = "__spam__";
 
 /**
  * Record a thread as a labeled spam/not-spam example for the k-NN classifier.
