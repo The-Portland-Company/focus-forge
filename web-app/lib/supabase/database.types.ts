@@ -1857,6 +1857,80 @@ export type Database = {
           },
         ]
       }
+      plans: {
+        Row: {
+          content_markdown: string
+          created_at: string | null
+          delete_batch_id: string | null
+          deleted_at: string | null
+          goal_id: string | null
+          id: string
+          name: string
+          order_index: number | null
+          organization_id: string | null
+          project_id: string | null
+          section_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          content_markdown?: string
+          created_at?: string | null
+          delete_batch_id?: string | null
+          deleted_at?: string | null
+          goal_id?: string | null
+          id?: string
+          name: string
+          order_index?: number | null
+          organization_id?: string | null
+          project_id?: string | null
+          section_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          content_markdown?: string
+          created_at?: string | null
+          delete_batch_id?: string | null
+          deleted_at?: string | null
+          goal_id?: string | null
+          id?: string
+          name?: string
+          order_index?: number | null
+          organization_id?: string | null
+          project_id?: string | null
+          section_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plans_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plans_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plans_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "goals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plans_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mailbox_members: {
         Row: {
           created_at: string

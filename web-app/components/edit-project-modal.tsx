@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Organization, Project, User } from "@/lib/types"
+import { PlanPanel } from "@/components/plan-panel"
 import { UserAvatar } from "@/components/user-avatar"
 import { Archive, Link2, Loader2, Mail, RotateCcw, Save, Search, Trash2, Users, X } from "lucide-react"
 import { RichTextEditor } from "@/components/ui/rich-text-editor"
@@ -777,6 +778,12 @@ export function EditProjectModal({
               </div>
             </div>
           </div>
+
+          {project && (
+            <div className="mt-2 border-t border-zinc-800 pt-4">
+              <PlanPanel ownerType="project" ownerId={project.id} />
+            </div>
+          )}
 
           <DialogFooter className="flex w-full items-center justify-between sm:justify-between">
             <div className="flex items-center gap-2">
