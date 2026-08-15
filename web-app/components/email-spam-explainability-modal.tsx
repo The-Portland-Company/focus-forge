@@ -54,6 +54,7 @@ const CONDITION_OPERATOR_LABEL: Record<
   equals: "equals",
   ends_with: "ends with",
   starts_with: "starts with",
+  matches: "matches pattern",
 };
 
 /** Human-readable label for a rule action type. */

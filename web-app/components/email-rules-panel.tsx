@@ -14,6 +14,7 @@ import {
   EMAIL_RULE_ACTION_OPTIONS,
   EMAIL_RULE_FIELD_OPTIONS,
 } from "@/lib/email-inbox/rule-assistant";
+import { RULE_PATTERN_HELP } from "@/lib/email-inbox/rule-pattern";
 import {
   summarizeEmailRuleActions,
   summarizeEmailRuleConditions,
@@ -626,17 +627,24 @@ export function EmailRulesPanel({
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
               />
             </div>
-            <textarea
-              value={ruleForm.conditionsJson}
-              onChange={(event) =>
-                setRuleForm((prev) => ({
-                  ...prev,
-                  conditionsJson: event.target.value,
-                }))
-              }
-              rows={8}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs text-zinc-300"
-            />
+            <div className="space-y-1.5">
+              <textarea
+                value={ruleForm.conditionsJson}
+                onChange={(event) =>
+                  setRuleForm((prev) => ({
+                    ...prev,
+                    conditionsJson: event.target.value,
+                  }))
+                }
+                rows={8}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs text-zinc-300"
+              />
+              <p className="text-xs text-zinc-500">
+                Operators: contains, equals, starts_with, ends_with, matches.
+                With <span className="font-mono text-zinc-400">matches</span>{" "}
+                the value is a pattern — {RULE_PATTERN_HELP}
+              </p>
+            </div>
             <textarea
               value={ruleForm.actionsJson}
               onChange={(event) =>

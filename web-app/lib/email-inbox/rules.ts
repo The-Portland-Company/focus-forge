@@ -1,4 +1,8 @@
-import type { EmailRule } from "@/lib/types";
+import {
+  matchesPattern,
+  templateHasPattern,
+} from "@/lib/email-inbox/rule-pattern";
+import type { EmailRule, EmailRuleCondition } from "@/lib/types";
 
 export type EmailRuleContext = {
   senderEmail: string;
@@ -15,11 +19,27 @@ export type AppliedEmailRules = {
   stopProcessing: boolean;
 };
 
-function compareValue(
+export function compareValue(
   actual: string,
-  operator: "contains" | "equals" | "ends_with" | "starts_with",
+  operator: EmailRuleCondition["operator"],
   expected: string,
 ) {
+  if (operator === "matches") {
+    return matchesPattern(actual, expected);
+  }
+
+  // A value carrying `{...}` or `*` is unambiguously a pattern, so it matches
+  // as one without the user also having to change the operator. `equals` stays
+  // anchored — it still means "the whole field", just with placeholders in it.
+  if (
+    (operator === "contains" || operator === "equals") &&
+    templateHasPattern(expected)
+  ) {
+    return matchesPattern(actual, expected, {
+      anchored: operator === "equals",
+    });
+  }
+
   const normalizedActual = actual.toLowerCase();
   const normalizedExpected = expected.toLowerCase();
 

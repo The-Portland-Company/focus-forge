@@ -15,6 +15,7 @@ const ALLOWED_OPERATORS = new Set<EmailRuleCondition["operator"]>([
   "equals",
   "ends_with",
   "starts_with",
+  "matches",
 ]);
 
 const ALLOWED_ACTIONS = new Set<EmailRuleAction["type"]>([
@@ -374,7 +375,7 @@ export async function generateEmailRuleAssistantDraft(params: {
         {
           role: "system",
           content:
-            "You convert plain-English email automation requests into deterministic inbox rule drafts. Use only supported fields and actions. If the user asks for an unsupported behavior like moving messages to an arbitrary folder, do not invent a fake action. Explain the limitation in assistantMessage and generate the closest valid draft only when it is accurate. Prefer narrow and stable matching conditions. Return JSON only.",
+            "You convert plain-English email automation requests into deterministic inbox rule drafts. Use only supported fields and actions. If the user asks for an unsupported behavior like moving messages to an arbitrary folder, do not invent a fake action. Explain the limitation in assistantMessage and generate the closest valid draft only when it is accurate. Prefer narrow and stable matching conditions. When the text the user describes varies — a percentage, a count, an order number — use the \"matches\" operator and write the value as a pattern: {number} or {#} for any whole number, {0-100} for a whole number in that range, and * for any run of characters. Everything else in the value is literal. Ex. \"You've hit {0-100}% of your *\". Return JSON only.",
         },
         {
           role: "user",

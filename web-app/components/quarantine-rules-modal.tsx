@@ -2,6 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { AlertTriangle, Pencil, ShieldAlert, X } from "lucide-react";
+import {
+  RULE_PATTERN_HELP,
+  templateHasPattern,
+} from "@/lib/email-inbox/rule-pattern";
 import type { EmailRule, EmailRuleCondition, InboxItem } from "@/lib/types";
 import {
   ModalMinimizeButton,
@@ -24,6 +28,7 @@ const OPERATOR_OPTIONS: Array<{
   { value: "contains", label: "contains" },
   { value: "starts_with", label: "starts with" },
   { value: "ends_with", label: "ends with" },
+  { value: "matches", label: "matches pattern" },
 ];
 
 const ACTION_LABEL: Record<string, string> = {
@@ -281,6 +286,11 @@ export function QuarantineRulesModal({
                   className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
                 />
               </div>
+            ) : null}
+            {createRule &&
+            (condition.operator === "matches" ||
+              templateHasPattern(condition.value)) ? (
+              <p className="mt-2 text-xs text-zinc-500">{RULE_PATTERN_HELP}</p>
             ) : null}
             {createRule && !condition.value.trim() ? (
               <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-300">

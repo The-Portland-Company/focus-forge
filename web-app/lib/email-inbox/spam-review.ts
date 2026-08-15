@@ -26,6 +26,7 @@ const RULE_OPERATOR_LABELS: Record<string, string> = {
   equals: "equals",
   ends_with: "ends with",
   starts_with: "starts with",
+  matches: "matches pattern",
 };
 
 const RULE_ACTION_LABELS: Record<string, string> = {

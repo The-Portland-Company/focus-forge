@@ -18,6 +18,7 @@ const ALLOWED_OPERATORS = new Set<EmailRuleCondition["operator"]>([
   "equals",
   "ends_with",
   "starts_with",
+  "matches",
 ]);
 
 export type SpamExceptionRuleDraftInput = {
