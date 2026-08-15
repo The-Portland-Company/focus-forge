@@ -3842,13 +3842,15 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
 
     // Mirror each freshly-categorized thread into the provider: label it and
     // take it out of the Inbox. Runs after analysis (so `classification` is
-    // settled) and only for threads this sync touched — never a sweep over the
-    // user's existing mail. Each thread is independently best-effort so one bad
-    // IMAP move can't fail the whole sync.
+    // settled) and only for threads this sync touched — category labeling is
+    // never a sweep over the user's existing mail. Each thread is independently
+    // best-effort so one bad IMAP move can't fail the whole sync.
     //
     // Spam takes the same trip to a different destination: mail the classifier
     // flagged is pushed to the provider's Junk folder, so Gmail agrees with
-    // Focus instead of leaving detected spam sitting in the Inbox.
+    // Focus instead of leaving detected spam sitting in the Inbox. Spam alone
+    // also gets the bounded catch-up sweep below, because a thread detected on
+    // an earlier sync would otherwise never be pushed at all.
     let providerLabeledThreadCount = 0;
     let providerSpamThreadCount = 0;
     if (mailbox.owner_user_id) {
