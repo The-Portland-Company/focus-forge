@@ -7,6 +7,7 @@ import {
   ModalMinimizeButton,
   useModalWindow,
 } from "@/components/ui/modal-window";
+import { PlanPanel } from "@/components/plan-panel";
 
 export interface GoalEdits {
   name: string;
@@ -124,6 +125,10 @@ export function EditGoalModal({
               />
               Mark this goal complete
             </label>
+
+            <div className="border-t border-zinc-800 pt-4">
+              <PlanPanel ownerType="goal" ownerId={goal.id} />
+            </div>
           </div>
 
           <div className="mt-6 flex justify-end gap-3">

@@ -211,6 +211,24 @@ export interface Goal {
   _saving?: boolean;
 }
 
+export type PlanOwnerType = "organization" | "project" | "goal" | "section";
+
+export interface Plan {
+  id: string;
+  // Exactly one of these owner ids is set (enforced by a DB CHECK).
+  organizationId?: string;
+  projectId?: string;
+  goalId?: string;
+  sectionId?: string;
+  name: string;
+  contentMarkdown: string;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+  /** Transient UI flag: true while an optimistic plan is being persisted. */
+  _saving?: boolean;
+}
+
 export interface Comment {
   id: string;
   taskId?: string;
@@ -620,6 +638,7 @@ export interface Database {
   tags: Tag[];
   sections: Section[];
   goals?: Goal[];
+  plans?: Plan[];
   taskSections: TaskSection[];
   userSectionPreferences: UserSectionPreference[];
   timeBlocks: TimeBlock[];
