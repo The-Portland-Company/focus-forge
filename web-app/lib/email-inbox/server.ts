@@ -2469,8 +2469,9 @@ export async function listInboxItemsForUser(
 
   // Boomerang: hide threads that are still boomeranged — until their date/time
   // passes, or until their linked task is completed. Expired date-boomerangs are
-  // cleared lazily so the thread returns cleanly.
-  {
+  // cleared lazily so the thread returns cleanly. A search spans everywhere,
+  // so snoozed threads must surface too — skip this exclusion when searching.
+  if (!isSearching) {
     const nowMs = Date.now();
     const boomerangTaskIds = Array.from(
       new Set(
