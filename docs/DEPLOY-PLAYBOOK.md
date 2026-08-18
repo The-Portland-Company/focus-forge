@@ -86,3 +86,5 @@ When the deploy run is green:
 7. Report: what shipped + **please test**  
 
 Canonical path: `docs/DEPLOY-PLAYBOOK.md` (this file). App-local pointer: `web-app/docs/DEPLOY-PLAYBOOK.md`.
+
+<!-- deploy-path verification after org transfer: 2026-08-18 -->
