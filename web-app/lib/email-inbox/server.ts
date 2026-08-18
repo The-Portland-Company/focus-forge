@@ -3671,6 +3671,191 @@ function runThreadAnalysisInBackground(
   return task;
 }
 
+// Strong references to in-flight background reconcile tasks (same rationale as
+// pendingThreadAnalysisTasks — keep the promise alive on the persistent Node
+// server until it settles). Keyed set also prevents two reconciles racing on the
+// same mailbox: the fast path flips sync_status back to `idle` quickly, so a
+// follow-up sync could otherwise start a second reconcile while the first is
+// still moving messages provider-side.
+const pendingReconcileTasks = new Set<Promise<void>>();
+const reconcilingMailboxes = new Set<string>();
+
+type ReconcileParams = {
+  userId: string;
+  mailbox: any;
+  transportMailbox: MailboxTransportRow;
+  mailboxId: string;
+  changedThreadIds: Set<string>;
+  notificationCandidates: Array<{
+    message: any;
+    messageId: string;
+    threadId: string;
+  }>;
+  processedThreads: Map<string, any>;
+  hadPreviousSync: boolean;
+};
+
+/**
+ * The heavy, provider-mirroring half of a sync, run OUT of the request path.
+ *
+ * The fast path (`syncMailboxById`) already fetched + ingested new inbound mail,
+ * advanced the cursor, and marked the mailbox idle — so the inbox renders new
+ * messages within a second (and realtime pushes them to open clients). This
+ * task then does everything that is NOT needed to show new mail: Sent/Drafts
+ * mirroring, read-state reconciliation, folder-state mirroring, push
+ * notifications, per-thread provider category/spam moves, and the bounded spam
+ * catch-up sweep. Each step is best-effort and failure-isolated; nothing here
+ * can fail the sync the user is waiting on, because the user is no longer
+ * waiting on it.
+ */
+function runMailboxReconcileInBackground(params: ReconcileParams): Promise<void> {
+  const {
+    mailbox,
+    transportMailbox,
+    mailboxId,
+    changedThreadIds,
+    notificationCandidates,
+    processedThreads,
+    hadPreviousSync,
+  } = params;
+
+  // Skip if a reconcile for this mailbox is already in flight.
+  if (reconcilingMailboxes.has(mailboxId)) {
+    return Promise.resolve();
+  }
+  reconcilingMailboxes.add(mailboxId);
+
+  const admin = getAdminClient();
+
+  const task = (async () => {
+    // Ingest replies sent outside the app (Gmail / Apple Mail / etc.) from the
+    // provider's Sent folder so they appear in the threaded conversation view.
+    try {
+      const sentMessages = await fetchMailboxSentMessages(transportMailbox, {
+        limit: 50,
+      });
+      for (const message of sentMessages) {
+        const result = await ingestOutboundMailboxMessage(mailbox, message);
+        if (result?.threadId) {
+          changedThreadIds.add(result.threadId);
+        }
+      }
+    } catch (sentSyncError) {
+      console.error(
+        "[email-inbox] Sent-folder sync failed",
+        extractMailboxErrorMessage(sentSyncError),
+      );
+    }
+
+    // Mirror the provider's Drafts folder so drafts written directly in Gmail
+    // (etc.) show on the Drafts page.
+    try {
+      await syncMailboxProviderDrafts(mailbox);
+    } catch (draftSyncError) {
+      console.error(
+        "[email-inbox] Drafts-folder sync failed",
+        extractMailboxErrorMessage(draftSyncError),
+      );
+    }
+
+    // Reconcile read/unread state across the recent message window so a Gmail
+    // "mark as read" on an existing thread is reflected here.
+    try {
+      await syncMailboxThreadReadStates({ mailboxId, mailbox: transportMailbox });
+    } catch (readStateError) {
+      console.error(
+        "[email-inbox] Read-state reconcile failed",
+        extractMailboxErrorMessage(readStateError),
+      );
+    }
+
+    try {
+      await mirrorProviderFolderState({ mailboxId, mailbox: transportMailbox });
+    } catch (folderMirrorError) {
+      console.error(
+        "[email-inbox] Provider folder mirror failed",
+        extractMailboxErrorMessage(folderMirrorError),
+      );
+    }
+
+    for (const candidate of notificationCandidates) {
+      try {
+        await sendNewEmailPushNotifications({
+          mailbox,
+          thread: processedThreads.get(candidate.threadId),
+          message: candidate.message,
+          messageId: candidate.messageId,
+          hadPreviousSync,
+        });
+      } catch (pushError) {
+        console.error(
+          "[email-inbox] Push notification failed",
+          extractMailboxErrorMessage(pushError),
+        );
+      }
+    }
+
+    // Mirror each freshly-categorized thread into the provider: spam to Junk,
+    // otherwise the category label + out of Inbox. Best-effort per thread.
+    if (mailbox.owner_user_id) {
+      for (const threadId of changedThreadIds) {
+        const spamResult = await mirrorThreadSpamToProvider({
+          mailbox: transportMailbox,
+          threadId,
+        }).catch(() => null);
+        if (spamResult?.movedToJunk) {
+          continue;
+        }
+        await mirrorThreadCategoryToProvider({
+          userId: String(mailbox.owner_user_id),
+          threadId,
+        }).catch(() => null);
+      }
+
+      // Bounded catch-up sweep for HISTORICAL spam detected on an earlier sync
+      // that was never pushed provider-side.
+      try {
+        const { data: unmirroredSpamRows } = await admin
+          .from("email_threads")
+          .select("id,status,classification,provider_label_name")
+          .eq("mailbox_id", mailboxId)
+          .eq("classification", "spam")
+          .in("status", ["spam", "quarantine"])
+          .or(
+            `provider_label_name.is.null,provider_label_name.neq.${SPAM_PROVIDER_LABEL_MARKER}`,
+          )
+          .order("updated_at", { ascending: false })
+          .limit(SPAM_MIRROR_SWEEP_LIMIT);
+
+        const sweepThreadIds = selectSpamThreadsNeedingProviderMirror({
+          rows: unmirroredSpamRows,
+          skipThreadIds: changedThreadIds,
+          limit: SPAM_MIRROR_SWEEP_LIMIT,
+        });
+
+        for (const threadId of sweepThreadIds) {
+          await mirrorThreadSpamToProvider({
+            mailbox: transportMailbox,
+            threadId,
+          }).catch(() => null);
+        }
+      } catch (spamSweepError) {
+        console.error(
+          "[email-inbox] Spam provider catch-up sweep failed",
+          extractMailboxErrorMessage(spamSweepError),
+        );
+      }
+    }
+  })();
+
+  pendingReconcileTasks.add(task);
+  void task.finally(() => {
+    pendingReconcileTasks.delete(task);
+    reconcilingMailboxes.delete(mailboxId);
+  });
+  return task;
+}
+
 export async function syncMailboxById(userId: string, mailboxId: string) {
   const admin = getAdminClient();
   const mailbox = await ensureMailboxManage(userId, mailboxId);
@@ -3735,37 +3920,6 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       }
     }
 
-    // Ingest replies sent outside the app (Gmail / Apple Mail / etc.) from the
-    // provider's Sent folder so they appear in the threaded conversation view.
-    // Non-fatal: a failure here must not abort the inbound sync.
-    try {
-      const sentMessages = await fetchMailboxSentMessages(transportMailbox, {
-        limit: 50,
-      });
-      for (const message of sentMessages) {
-        const result = await ingestOutboundMailboxMessage(mailbox, message);
-        if (result?.threadId) {
-          changedThreadIds.add(result.threadId);
-        }
-      }
-    } catch (sentSyncError) {
-      console.error(
-        "[email-inbox] Sent-folder sync failed",
-        extractMailboxErrorMessage(sentSyncError),
-      );
-    }
-
-    // Mirror the provider's Drafts folder so drafts written directly in Gmail
-    // (etc.) show on the Drafts page. Non-fatal: never abort the inbound sync.
-    try {
-      await syncMailboxProviderDrafts(mailbox);
-    } catch (draftSyncError) {
-      console.error(
-        "[email-inbox] Drafts-folder sync failed",
-        extractMailboxErrorMessage(draftSyncError),
-      );
-    }
-
     // The changed threads are already persisted with a cheap preview
     // (subject / preview_text / latest_message_at / classification="unknown")
     // during ingest, so the inbox can render them immediately. Fetch those
@@ -3812,112 +3966,14 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       Array.from(threadsNeedingAnalysis),
       mailbox.owner_user_id,
     );
-
-    // Reconcile read/unread state across the recent message window on every
-    // sync (not just the just-fetched UIDs). The newly synced messages are the
-    // newest and therefore already within this window, and this ensures a
-    // Gmail "mark as read" on an existing/older thread is reconciled even when
-    // the same sync also ingested new mail.
     void syncedProviderMessageIds;
-    await syncMailboxThreadReadStates({
-      mailboxId,
-      mailbox: transportMailbox,
-    });
 
-    const mirrorResult = await mirrorProviderFolderState({
-      mailboxId,
-      mailbox: transportMailbox,
-    });
-
-    let pushNotificationCount = 0;
-    for (const candidate of notificationCandidates) {
-      const result = await sendNewEmailPushNotifications({
-        mailbox,
-        thread: processedThreads.get(candidate.threadId),
-        message: candidate.message,
-        messageId: candidate.messageId,
-        hadPreviousSync,
-      });
-      pushNotificationCount += result.delivered;
-    }
-
-    // Mirror each freshly-categorized thread into the provider: label it and
-    // take it out of the Inbox. Runs after analysis (so `classification` is
-    // settled) and only for threads this sync touched — category labeling is
-    // never a sweep over the user's existing mail. Each thread is independently
-    // best-effort so one bad IMAP move can't fail the whole sync.
-    //
-    // Spam takes the same trip to a different destination: mail the classifier
-    // flagged is pushed to the provider's Junk folder, so Gmail agrees with
-    // Focus instead of leaving detected spam sitting in the Inbox. Spam alone
-    // also gets the bounded catch-up sweep below, because a thread detected on
-    // an earlier sync would otherwise never be pushed at all.
-    let providerLabeledThreadCount = 0;
-    let providerSpamThreadCount = 0;
-    if (mailbox.owner_user_id) {
-      for (const threadId of changedThreadIds) {
-        const spamResult = await mirrorThreadSpamToProvider({
-          mailbox: transportMailbox,
-          threadId,
-        }).catch(() => null);
-        if (spamResult?.movedToJunk) {
-          providerSpamThreadCount += 1;
-          continue;
-        }
-        const labelResult = await mirrorThreadCategoryToProvider({
-          userId: String(mailbox.owner_user_id),
-          threadId,
-        }).catch(() => null);
-        if (labelResult?.labeled) providerLabeledThreadCount += 1;
-      }
-
-      // Catch-up sweep for HISTORICAL spam — distinct from the touched-thread
-      // mirror above. Spam detected on an earlier sync (before the mirror
-      // existed, or when the provider move failed) never appears in
-      // changedThreadIds again, so it would sit in the user's Inbox forever.
-      // This picks up already-detected spam that was never pushed
-      // provider-side and moves it with the same helper.
-      //
-      // Bounded by SPAM_MIRROR_SWEEP_LIMIT so a large backlog drains over a few
-      // syncs rather than one huge IMAP burst, and idempotent via
-      // SPAM_PROVIDER_LABEL_MARKER: a moved thread stops matching, so the sweep
-      // converges to empty. Category/archive mirroring is deliberately NOT
-      // swept — this is spam only.
-      try {
-        const { data: unmirroredSpamRows } = await admin
-          .from("email_threads")
-          .select("id,status,classification,provider_label_name")
-          .eq("mailbox_id", mailboxId)
-          .eq("classification", "spam")
-          .in("status", ["spam", "quarantine"])
-          .or(
-            `provider_label_name.is.null,provider_label_name.neq.${SPAM_PROVIDER_LABEL_MARKER}`,
-          )
-          .order("updated_at", { ascending: false })
-          .limit(SPAM_MIRROR_SWEEP_LIMIT);
-
-        const sweepThreadIds = selectSpamThreadsNeedingProviderMirror({
-          rows: unmirroredSpamRows,
-          skipThreadIds: changedThreadIds,
-          limit: SPAM_MIRROR_SWEEP_LIMIT,
-        });
-
-        for (const threadId of sweepThreadIds) {
-          // Best-effort per thread: one bad IMAP move can't abort the sync.
-          const sweepResult = await mirrorThreadSpamToProvider({
-            mailbox: transportMailbox,
-            threadId,
-          }).catch(() => null);
-          if (sweepResult?.movedToJunk) providerSpamThreadCount += 1;
-        }
-      } catch (spamSweepError) {
-        console.error(
-          "[email-inbox] Spam provider catch-up sweep failed",
-          extractMailboxErrorMessage(spamSweepError),
-        );
-      }
-    }
-
+    // Advance the cursor and flip the mailbox back to `idle` NOW — before any
+    // provider mirroring. New inbound mail is already ingested (rows written →
+    // realtime pushes them to open clients), so the inbox surfaces it within a
+    // second instead of after the full IMAP mirror/sweep chain. Everything that
+    // is NOT needed to show new mail — Sent/Drafts, read-state, folder mirror,
+    // push, provider category/spam moves, spam sweep — runs detached below.
     await admin
       .from("mailboxes")
       .update({
@@ -3943,13 +3999,27 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       updated_at: new Date().toISOString(),
     });
 
+    runMailboxReconcileInBackground({
+      userId,
+      mailbox,
+      transportMailbox,
+      mailboxId,
+      changedThreadIds,
+      notificationCandidates,
+      processedThreads,
+      hadPreviousSync,
+    });
+
     return {
       syncedMessageCount: messages.length,
       changedThreadCount: changedThreadIds.size,
-      pushNotificationCount,
-      providerLabeledThreadCount,
-      providerSpamThreadCount,
-      archivedThreadCount: mirrorResult.archivedThreadCount,
+      // Provider mirroring / push now complete out-of-band; these counts settle
+      // in the background reconcile and are no longer part of the fast return.
+      pushNotificationCount: 0,
+      providerLabeledThreadCount: 0,
+      providerSpamThreadCount: 0,
+      archivedThreadCount: 0,
+      reconcileDeferred: true,
     };
   } catch (error) {
     const message = extractMailboxErrorMessage(error);
