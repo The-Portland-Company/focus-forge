@@ -2020,6 +2020,11 @@ export function EmailThreadModal({
     );
   };
 
+  // Keeps the slide-out "…" toolbar expanded while a two-step confirmation is
+  // in flight (or an action is queued for undo), so the inline Confirm button
+  // stays reachable even if the pointer leaves the toolbar's hover region.
+  const isToolbarPinned = Boolean(pendingConfirmAction) || Boolean(queuedAction);
+
   const handleOpenThreadWindow = () => {
     if (!threadId || typeof window === "undefined") return;
 
@@ -2242,13 +2247,25 @@ export function EmailThreadModal({
                   <button
                     type="button"
                     aria-label="Show thread actions"
-                    aria-expanded={false}
+                    aria-expanded={isToolbarPinned}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white group-hover/toolbar:border-zinc-600 group-hover/toolbar:text-white group-focus-within/toolbar:border-zinc-600 group-focus-within/toolbar:text-white"
                   >
                     <MoreHorizontal className="h-4 w-4" />
                   </button>
                 </Tooltip>
-                <div className="flex max-w-0 items-center gap-1 overflow-hidden opacity-0 transition-all duration-300 ease-out group-hover/toolbar:ml-1 group-hover/toolbar:max-w-[720px] group-hover/toolbar:opacity-100 group-focus-within/toolbar:ml-1 group-focus-within/toolbar:max-w-[720px] group-focus-within/toolbar:opacity-100">
+                {/* The reveal is normally hover/focus-driven, but a pending
+                    delete/spam confirmation (or a queued action) PINS it open:
+                    otherwise the pointer traveling from Delete to the inline
+                    "Confirm" button would drift off the toolbar box, collapse
+                    it (max-w-0/opacity-0), and make the confirm unreachable. */}
+                <div
+                  className={cn(
+                    "flex items-center gap-1 overflow-hidden transition-all duration-300 ease-out",
+                    isToolbarPinned
+                      ? "ml-1 max-w-[720px] opacity-100"
+                      : "max-w-0 opacity-0 group-hover/toolbar:ml-1 group-hover/toolbar:max-w-[720px] group-hover/toolbar:opacity-100 group-focus-within/toolbar:ml-1 group-focus-within/toolbar:max-w-[720px] group-focus-within/toolbar:opacity-100",
+                  )}
+                >
               {thread && !loadingThread ? (
                 <Tooltip
                   content="Refresh thread"
