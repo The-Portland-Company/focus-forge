@@ -946,6 +946,57 @@ test("filterInboxItemsForView keeps outbound and mixed threads in the sent view 
   );
 });
 
+test("filterInboxItemsForView surfaces every folder/status when searching", () => {
+  const items = [
+    { id: "active", mailboxId: "mailbox-1", status: "active", classification: "unknown", origin: "inbound" },
+    { id: "archived", mailboxId: "mailbox-1", status: "archived", classification: "reference", origin: "inbound" },
+    { id: "trashed", mailboxId: "mailbox-1", status: "deleted", classification: "unknown", origin: "inbound" },
+    { id: "spam", mailboxId: "mailbox-1", status: "spam", classification: "spam", origin: "inbound" },
+    { id: "quarantined", mailboxId: "mailbox-1", status: "quarantine", classification: "spam", origin: "inbound" },
+    { id: "resolved", mailboxId: "mailbox-1", status: "resolved", classification: "waiting", origin: "inbound" },
+    { id: "sent", mailboxId: "mailbox-1", status: "active", classification: "unknown", origin: "outbound" },
+    { id: "boomeranged", mailboxId: "mailbox-1", status: "active", classification: "unknown", origin: "inbound", boomerangUntil: "2999-01-01T00:00:00Z" },
+    { id: "other-mailbox", mailboxId: "mailbox-2", status: "active", classification: "unknown", origin: "inbound" },
+  ];
+
+  // Searching bypasses every folder/status gate but still honors the mailbox
+  // (account) scope — so all of mailbox-1's threads surface regardless of where
+  // they live, and the other account's thread stays out.
+  const filtered = filterInboxItemsForView({
+    inboxItems: items as any,
+    selectedMailboxId: "mailbox-1",
+    filterTab: "unread",
+    retainedSpamThreadIds: [],
+    view: "email-inbox",
+    isSearching: true,
+  });
+
+  assert.deepEqual(filtered.map((item) => item.id), [
+    "active",
+    "archived",
+    "trashed",
+    "spam",
+    "quarantined",
+    "resolved",
+    "sent",
+    "boomeranged",
+  ]);
+
+  // Without a search the same Inbox view drops archived/trash/quarantine/
+  // resolved/outbound/boomeranged. (The spam-status thread survives this gate —
+  // spam is stripped one layer later by spamGatedInboxItems, not here.)
+  const notSearching = filterInboxItemsForView({
+    inboxItems: items as any,
+    selectedMailboxId: "mailbox-1",
+    filterTab: "all",
+    retainedSpamThreadIds: [],
+    view: "email-inbox",
+    isSearching: false,
+  });
+
+  assert.deepEqual(notSearching.map((item) => item.id), ["active", "spam"]);
+});
+
 test("createRuleFormFromRule hydrates the rule editor with an editable not-spam rule", () => {
   const form = createRuleFormFromRule({
     id: "rule-1",

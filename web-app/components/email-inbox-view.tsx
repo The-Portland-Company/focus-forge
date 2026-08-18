@@ -855,6 +855,14 @@ export function filterInboxItemsForView(params: {
   filterTab: EmailInboxFilterTab;
   retainedSpamThreadIds: string[];
   view: string;
+  /**
+   * When a text search is active the folder/status gates stand down entirely:
+   * a search must span EVERY place an email can live — Inbox, Archived, Trash,
+   * Spam, Quarantine, Sent, resolved, boomeranged, and any label — so a match is
+   * never hidden by the folder/tab that happened to be selected. Only the
+   * mailbox-account scope is kept.
+   */
+  isSearching?: boolean;
 }) {
   const nowMs = Date.now();
   const base = params.inboxItems.filter((item) => {
@@ -863,6 +871,12 @@ export function filterInboxItemsForView(params: {
       item.mailboxId !== params.selectedMailboxId
     ) {
       return false;
+    }
+
+    // Searching spans all folders/statuses — skip every status/origin/boomerang
+    // exclusion below and let the match through regardless of where it lives.
+    if (params.isSearching) {
+      return true;
     }
 
     // Boomeranged threads leave the inbox until their time passes / task done.
@@ -914,6 +928,12 @@ export function filterInboxItemsForView(params: {
 
     return true;
   });
+
+  // While searching, the All/Unread/Read/Spam filter row also stands down so
+  // results never depend on which refinement was active when the query ran.
+  if (params.isSearching) {
+    return base;
+  }
 
   if (params.filterTab === "unread") {
     return base.filter((item) => item.isUnread);
@@ -1954,6 +1974,13 @@ export function EmailInboxView({
   const isServerSearchActive = serverSearchItems !== null;
   const baseInboxItems = isServerSearchActive ? serverSearchItems : inboxItems;
 
+  // A search is in progress the moment the user has typed something, whether or
+  // not the debounced server search has come back yet. While searching, folders
+  // and status stand down entirely: a search spans EVERY place an email can live
+  // — Inbox, Archived, Trash, Spam, Quarantine, Sent, resolved, and any label —
+  // so a match never depends on which folder/tab happened to be selected.
+  const isInboxSearchActive = inboxSearchQuery.trim().length > 0;
+
   const filteredInboxItems = useMemo(
     () =>
       filterInboxItemsForView({
@@ -1962,6 +1989,7 @@ export function EmailInboxView({
         filterTab: inboxFilterTab,
         retainedSpamThreadIds,
         view,
+        isSearching: isInboxSearchActive,
       }),
     [
       baseInboxItems,
@@ -1969,9 +1997,15 @@ export function EmailInboxView({
       retainedSpamThreadIds,
       selectedMailboxId,
       view,
+      isInboxSearchActive,
     ],
   );
   const spamGatedInboxItems = useMemo(() => {
+    // A search spans every place, so it must surface spam too — never hide it
+    // while a query is active.
+    if (isInboxSearchActive) {
+      return filteredInboxItems;
+    }
     // Only the main /email-inbox list hides spam by default. Quarantine, Trash,
     // and Sent views are unaffected. The user can opt-in via the toolbar
     // toggle (persisted in localStorage as `emailInboxShowSpam`).
@@ -1985,13 +2019,7 @@ export function EmailInboxView({
     return filteredInboxItems.filter(
       (item) => item.classification !== "spam",
     );
-  }, [filteredInboxItems, inboxFilterTab, showSpamInInbox, view]);
-  // A search is in progress the moment the user has typed something, whether or
-  // not the debounced server search has come back yet. Category tabs stand down
-  // for the whole of it, so results never depend on which tab happened to be
-  // selected when the query was typed.
-  const isInboxSearchActive = inboxSearchQuery.trim().length > 0;
-
+  }, [filteredInboxItems, inboxFilterTab, showSpamInInbox, view, isInboxSearchActive]);
   // Load the user's custom inbox tabs (seeds defaults on first use). The
   // selection is left alone: "All" stays selected on load so a refresh shows the
   // whole inbox, and clicking a tab during the session still switches to it.
