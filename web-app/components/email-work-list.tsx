@@ -1652,6 +1652,21 @@ export function EmailWorkList({
                   // timestamp — no inline Today/Yesterday pill.
                   const tsSource = getInboxItemTimestampSource(item);
                   const ts = formatThreadTimestamp(tsSource);
+                  // Hover tooltip: provider's sent/received time vs. when Forge
+                  // actually ingested the newest message. forgeReceivedAt is the
+                  // MAX of the thread's email_messages.created_at.
+                  const sentAtLabel = formatThreadTimestamp(tsSource);
+                  const forgeReceivedLabel = formatThreadTimestamp(
+                    item.forgeReceivedAt ?? item.createdAt,
+                  );
+                  const dateTooltip = [
+                    sentAtLabel ? `Sent at ${sentAtLabel}` : null,
+                    forgeReceivedLabel
+                      ? `Received by Forge at ${forgeReceivedLabel}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n");
                   // Second line: when the thread has earlier messages, show the
                   // date the thread started (first send) under the most-recent
                   // received date. Only shown when it falls on a different day.
@@ -1665,7 +1680,7 @@ export function EmailWorkList({
                         "inline-flex flex-col items-end whitespace-nowrap text-xs sm:text-[11px] tabular-nums leading-tight",
                         isVisuallyUnread ? "text-zinc-300" : "text-zinc-500",
                       )}
-                      title={tsSource ?? undefined}
+                      title={dateTooltip || (tsSource ?? undefined)}
                     >
                       <span>{ts}</span>
                       {showFirst ? (
