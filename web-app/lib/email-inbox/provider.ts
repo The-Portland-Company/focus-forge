@@ -853,6 +853,107 @@ export async function listMailboxFolders(
   }
 }
 
+export type LiveMailboxMessage = {
+  uid: number;
+  date: string | null;
+  from: string;
+  fromEmail: string | null;
+  subject: string;
+  unread: boolean;
+};
+
+export type ReadMailboxFolderLiveResult = {
+  folder: string;
+  total: number;
+  unseen: number;
+  matched: number;
+  messages: LiveMailboxMessage[];
+};
+
+/**
+ * Reads a folder's message envelopes STRAIGHT FROM the provider over IMAP —
+ * the live server-side state, NOT Focus Forge's synced/classified copy. This is
+ * the durable, agent-runnable "check my email" primitive: it shows exactly what
+ * the provider's INBOX / All Mail / Spam / Trash holds right now, bypassing
+ * Forge's auto-archiving. Mirrors scripts/check-gmail.mjs but funnels through
+ * the shared per-account connection cap.
+ *
+ * With `search`, returns envelopes matching subject OR from OR body; otherwise
+ * the newest `limit`. Results are newest-first.
+ */
+export async function readMailboxFolderLive(
+  mailbox: MailboxTransportRow,
+  opts: { folder?: string; limit?: number; search?: string | null } = {},
+): Promise<ReadMailboxFolderLiveResult> {
+  const folder = opts.folder || mailbox.sync_folder || "INBOX";
+  const limit = Math.min(Math.max(Number(opts.limit) || 20, 1), 200);
+  const search = opts.search ? String(opts.search).trim() : "";
+
+  return withImapConnection(mailbox, async (client) => {
+    const lock = await client.getMailboxLock(folder);
+    try {
+      const status = await client.status(folder, {
+        messages: true,
+        unseen: true,
+      });
+
+      let uids: number[];
+      if (search) {
+        uids = (await client.search(
+          { or: [{ subject: search }, { from: search }, { body: search }] },
+          { uid: true },
+        )) as number[];
+      } else {
+        uids = (await client.search({ all: true }, { uid: true })) as number[];
+      }
+      uids = (Array.isArray(uids) ? uids : [])
+        .sort((a, b) => a - b)
+        .slice(-limit);
+
+      const messages: LiveMailboxMessage[] = [];
+      if (uids.length) {
+        for await (const msg of client.fetch(
+          uids,
+          { uid: true, envelope: true, flags: true, internalDate: true },
+          { uid: true },
+        )) {
+          const from = msg.envelope?.from?.[0];
+          const flags =
+            msg.flags instanceof Set ? msg.flags : new Set<string>();
+          messages.push({
+            uid: Number(msg.uid),
+            date: (msg.internalDate || msg.envelope?.date || null)
+              ? new Date(
+                  (msg.internalDate || msg.envelope?.date) as Date,
+                ).toISOString()
+              : null,
+            from: from
+              ? `${from.name || ""} <${from.address || ""}>`.trim()
+              : "(unknown)",
+            fromEmail: from?.address ? String(from.address) : null,
+            subject: msg.envelope?.subject || "(no subject)",
+            unread: !flags.has("\\Seen"),
+          });
+        }
+        messages.sort(
+          (a, b) =>
+            new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
+        );
+      }
+
+      return {
+        folder,
+        total: Number(status.messages) || 0,
+        unseen: Number(status.unseen) || 0,
+        matched: uids.length,
+        messages,
+      };
+    } finally {
+      lock.release();
+    }
+  });
+}
+
 export async function fetchMailboxMessageByProviderMessageId(
   mailbox: MailboxTransportRow,
   providerMessageId: string,

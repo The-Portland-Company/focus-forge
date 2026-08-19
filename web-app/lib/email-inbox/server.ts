@@ -77,7 +77,9 @@ import {
   deleteMailboxDraftMessage,
   fetchMailboxStorageQuota,
   sendMailboxReply,
+  readMailboxFolderLive,
   type MailboxTransportRow,
+  type ReadMailboxFolderLiveResult,
 } from "@/lib/email-inbox/provider";
 import { MAILBOX_PROVIDER_PRESETS } from "@/lib/email-inbox/provider-presets";
 import { matchInboxTab } from "@/lib/email-inbox/inbox-tabs";
@@ -2104,6 +2106,64 @@ export async function listMailboxesForUser(userId: string): Promise<Mailbox[]> {
   return rows.map((row: any) =>
     coerceMailbox(row, membersByMailbox.get(String(row.id)) || []),
   );
+}
+
+export type ReadMailboxLiveForUser = ReadMailboxFolderLiveResult & {
+  mailboxId: string;
+  mailbox: string;
+  provider: string;
+  lastSyncedAt: string | null;
+};
+
+/**
+ * Live "check my email" for a user, straight from the provider over IMAP —
+ * the durable, no-HITL primitive any client (web, iOS, Bartok, an agent) can
+ * call. Shows the true provider folder state (INBOX / All Mail / Spam / Trash),
+ * NOT Forge's synced+auto-classified copy. Scopes to a mailbox the user may
+ * access; with no `mailboxId`, picks their first Gmail mailbox (else the first
+ * accessible one). Never asks the user for credentials — it reuses the app
+ * password Forge already stores encrypted.
+ */
+export async function readMailboxLiveForUser(
+  userId: string,
+  opts: {
+    mailboxId?: string | null;
+    folder?: string;
+    limit?: number;
+    search?: string | null;
+  } = {},
+): Promise<ReadMailboxLiveForUser> {
+  const rows = await getAccessibleMailboxRows(userId);
+  if (!rows.length) {
+    throw new Error("No accessible mailbox found");
+  }
+  let row: any;
+  if (opts.mailboxId) {
+    row = rows.find((r: any) => String(r.id) === String(opts.mailboxId));
+    if (!row) throw new Error("Mailbox not found");
+  } else {
+    row =
+      rows.find((r: any) => r.provider === "gmail" && r.imap_host) ||
+      rows.find((r: any) => r.imap_host) ||
+      rows[0];
+  }
+  if (!row.imap_host) {
+    throw new Error("Mailbox does not expose IMAP");
+  }
+
+  const live = await readMailboxFolderLive(row as MailboxTransportRow, {
+    folder: opts.folder,
+    limit: opts.limit,
+    search: opts.search,
+  });
+
+  return {
+    ...live,
+    mailboxId: String(row.id),
+    mailbox: row.email_address,
+    provider: row.provider,
+    lastSyncedAt: row.last_synced_at ?? null,
+  };
 }
 
 export type MailboxStorageStat = {
