@@ -1277,6 +1277,7 @@ function mapThreadToInboxItem(params: {
   projectIds?: string[];
   messageCount?: number;
   attachmentCount?: number;
+  forgeReceivedAt?: string | null;
 }): InboxItem {
   // Full project association list: the primary project_id first (for back-compat
   // and as the default task target), then any additional links from the
@@ -1312,6 +1313,12 @@ function mapThreadToInboxItem(params: {
     latestMessageAt: params.row.latest_message_at ?? null,
     latestInboundAt: params.row.latest_inbound_at ?? null,
     latestOutboundAt: params.row.latest_outbound_at ?? null,
+    // When Forge ingested the newest message (MAX email_messages.created_at).
+    // Falls back to the thread row's created_at when no message rows were
+    // fetched (e.g. the single-thread detail path). Distinct from the
+    // provider's latest_message_at — it's the "received by Forge at" time.
+    forgeReceivedAt:
+      params.forgeReceivedAt ?? params.row.created_at ?? null,
     origin:
       params.row.origin === "outbound" || params.row.origin === "mixed"
         ? params.row.origin
@@ -2536,9 +2543,26 @@ export async function listInboxItemsForUser(
     // is the only place stored attachments live, so it is pulled here.
     admin
       .from("email_messages")
-      .select("id,thread_id,metadata_json")
+      .select("id,thread_id,metadata_json,created_at")
       .in("thread_id", threadIds),
   ]);
+
+  // When Forge ingested the newest message of each thread (MAX of the message
+  // rows' created_at). This is the "received by Forge at" time — distinct from
+  // the provider's sent/received timestamp (latest_message_at) — surfaced in
+  // the inbox row's date tooltip.
+  const forgeReceivedAtByThread = ((messageRows || []) as any[]).reduce(
+    (map: Map<string, string>, row: any) => {
+      if (!row?.created_at) return map;
+      const key = String(row.thread_id);
+      const current = map.get(key);
+      if (!current || String(row.created_at) > current) {
+        map.set(key, String(row.created_at));
+      }
+      return map;
+    },
+    new Map<string, string>(),
+  );
 
   const messageCountByThread = ((messageRows || []) as any[]).reduce(
     (map: Map<string, number>, row: any) => {
@@ -2604,6 +2628,7 @@ export async function listInboxItemsForUser(
         projectIds: projectIdsByThread.get(String(row.id)) || [],
         messageCount: messageCountByThread.get(String(row.id)) ?? 1,
         attachmentCount: attachmentCountByThread.get(String(row.id)) ?? 0,
+        forgeReceivedAt: forgeReceivedAtByThread.get(String(row.id)) ?? null,
       }),
     ),
   );
