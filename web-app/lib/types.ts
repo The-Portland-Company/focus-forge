@@ -495,6 +495,10 @@ export interface InboxItem {
   latestMessageAt?: string | null;
   latestInboundAt?: string | null;
   latestOutboundAt?: string | null;
+  /** When Forge ingested the newest message (MAX email_messages.created_at) —
+   *  the "received by Forge at" time, distinct from the provider's
+   *  latestMessageAt. Surfaced in the inbox row's date tooltip. */
+  forgeReceivedAt?: string | null;
   origin?: "inbound" | "outbound" | "mixed";
   isUnread?: boolean;
   /** App-level (not Gmail) star flag, toggled from the inbox. Backed by
