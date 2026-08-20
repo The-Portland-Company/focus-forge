@@ -349,12 +349,17 @@ function AttachmentShareControl({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [revokedToast, setRevokedToast] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const copiedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // null = not yet checked; true/false = known link state.
+  const [hasLink, setHasLink] = useState<boolean | null>(null);
+  const [checking, setChecking] = useState(false);
+  const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const checkedRef = useRef(false);
 
   useEffect(
     () => () => {
-      if (copiedTimeout.current) clearTimeout(copiedTimeout.current);
+      if (toastTimeout.current) clearTimeout(toastTimeout.current);
     },
     [],
   );
@@ -362,14 +367,41 @@ function AttachmentShareControl({
   // Attachments that don't resolve to a stored message can't be shared.
   if (!ref) return null;
 
+  const base = `/api/email/messages/${encodeURIComponent(ref.messageId)}/attachments/${ref.attachmentIndex}/public-link`;
+
+  const flashToast = (setter: (v: boolean) => void) => {
+    setter(true);
+    if (toastTimeout.current) clearTimeout(toastTimeout.current);
+    toastTimeout.current = setTimeout(() => setter(false), 1500);
+  };
+
+  // Lazily reflect current link state the first time the popover opens, so we
+  // don't fire a request per chip on page load.
+  const ensureChecked = async () => {
+    if (checkedRef.current) return;
+    checkedRef.current = true;
+    setChecking(true);
+    try {
+      const res = await fetch(base, { method: "GET", credentials: "include" });
+      if (res.ok) {
+        const body = (await res.json()) as { hasLink?: boolean };
+        setHasLink(Boolean(body?.hasLink));
+      }
+    } catch {
+      // Non-fatal — fall back to the create flow.
+    } finally {
+      setChecking(false);
+    }
+  };
+
   const accept = async () => {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/email/messages/${encodeURIComponent(ref.messageId)}/attachments/${ref.attachmentIndex}/public-link`,
-        { method: "POST", credentials: "include" },
-      );
+      const res = await fetch(base, {
+        method: "POST",
+        credentials: "include",
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || "Could not create link");
@@ -377,12 +409,33 @@ function AttachmentShareControl({
       const { url } = (await res.json()) as { url?: string };
       if (!url) throw new Error("No link returned");
       await navigator.clipboard.writeText(url);
+      setHasLink(true);
       setConfirmOpen(false);
-      setCopied(true);
-      if (copiedTimeout.current) clearTimeout(copiedTimeout.current);
-      copiedTimeout.current = setTimeout(() => setCopied(false), 1500);
+      flashToast(setCopied);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create link");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(base, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || "Could not revoke link");
+      }
+      setHasLink(false);
+      setConfirmOpen(false);
+      flashToast(setRevokedToast);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not revoke link");
     } finally {
       setBusy(false);
     }
@@ -395,10 +448,14 @@ function AttachmentShareControl({
         onClick={(event) => {
           event.stopPropagation();
           setError(null);
-          setConfirmOpen((open) => !open);
+          setConfirmOpen((open) => {
+            const next = !open;
+            if (next) void ensureChecked();
+            return next;
+          });
         }}
-        aria-label="Copy public URL to share"
-        title="Copy public URL to share"
+        aria-label="Share public link"
+        title="Share public link"
         className="pointer-events-auto inline-flex h-5 w-5 items-center justify-center rounded-md border border-zinc-700 bg-zinc-950/80 text-zinc-300 opacity-0 shadow-sm transition group-hover/att:opacity-100 focus-visible:opacity-100 hover:border-emerald-500 hover:text-emerald-300"
       >
         <Link2 className="h-3 w-3" />
@@ -410,47 +467,101 @@ function AttachmentShareControl({
         </span>
       ) : null}
 
+      {revokedToast ? (
+        <span className="animate-copied-id-toast pointer-events-none absolute -top-6 right-0 z-30 whitespace-nowrap rounded-md bg-zinc-700 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow-lg">
+          Link revoked
+        </span>
+      ) : null}
+
       {confirmOpen ? (
         <div
           role="dialog"
           onClick={(event) => event.stopPropagation()}
           className="pointer-events-auto absolute right-0 top-7 z-40 w-60 rounded-lg border border-zinc-700 bg-zinc-950/95 p-3 text-left shadow-xl backdrop-blur"
         >
-          <p className="text-xs leading-snug text-zinc-200">
-            You are about to generate a public link for this file so you can
-            share it with anyone, do you accept?
-          </p>
-          {error ? (
-            <p className="mt-1.5 text-[11px] text-rose-400">{error}</p>
-          ) : null}
-          <div className="mt-2.5 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                setConfirmOpen(false);
-              }}
-              className="rounded-md px-2 py-1 text-[11px] text-zinc-400 transition hover:text-zinc-200"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={(event) => {
-                event.stopPropagation();
-                void accept();
-              }}
-              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
-            >
-              {busy ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Check className="h-3 w-3" />
-              )}
-              Accept &amp; Copy
-            </button>
-          </div>
+          {checking ? (
+            <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Checking link…
+            </div>
+          ) : hasLink ? (
+            <>
+              <p className="text-xs leading-snug text-zinc-200">
+                This file has an active public link that anyone can open. Copy it
+                again, or revoke it so the link stops working.
+              </p>
+              {error ? (
+                <p className="mt-1.5 text-[11px] text-rose-400">{error}</p>
+              ) : null}
+              <div className="mt-2.5 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void revoke();
+                  }}
+                  className="rounded-md px-1.5 py-1 text-[11px] font-semibold text-rose-400 transition hover:text-rose-300 disabled:opacity-60"
+                >
+                  Revoke public link
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void accept();
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
+                >
+                  {busy ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Check className="h-3 w-3" />
+                  )}
+                  Copy link
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs leading-snug text-zinc-200">
+                You are about to generate a public link for this file so you can
+                share it with anyone, do you accept?
+              </p>
+              {error ? (
+                <p className="mt-1.5 text-[11px] text-rose-400">{error}</p>
+              ) : null}
+              <div className="mt-2.5 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setConfirmOpen(false);
+                  }}
+                  className="rounded-md px-2 py-1 text-[11px] text-zinc-400 transition hover:text-zinc-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void accept();
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
+                >
+                  {busy ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Check className="h-3 w-3" />
+                  )}
+                  Accept &amp; Copy
+                </button>
+              </div>
+            </>
+          )}
         </div>
       ) : null}
     </span>
