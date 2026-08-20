@@ -378,6 +378,7 @@ export function AiPlannerFloatingChat({
           type="button"
           aria-label="Open AI assistant"
           title="Open AI assistant"
+          data-tutorial-id="ai-assistant"
           onClick={() => setIsOpen(true)}
           className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-50 rounded-full border border-zinc-700 bg-zinc-900 p-3 text-zinc-100 shadow-lg transition hover:border-zinc-500 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 ring-theme"
         >

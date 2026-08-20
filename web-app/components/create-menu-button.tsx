@@ -28,7 +28,7 @@ export function CreateMenuButton({
   label?: string;
 }) {
   return (
-    <div className="group relative inline-flex focus-within:z-30">
+    <div className="group relative inline-flex focus-within:z-30" data-tutorial-id="create-menu">
       <button
         type="button"
         onClick={onAddTask}
