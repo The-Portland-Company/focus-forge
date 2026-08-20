@@ -98,6 +98,13 @@ interface SidebarProps {
     organizationId?: string;
     projectId?: string;
   }) => Promise<unknown>;
+  /** Send a new invitation (from the Pending Invitations "+" affordance).
+   *  Resolves the target org in the parent; returns null on failure. */
+  onInviteUser?: (
+    email: string,
+    firstName: string,
+    lastName: string,
+  ) => Promise<{ userId: string } | null>;
   isAddingTask?: boolean; // Whether the add task modal is open
   isLoading?: boolean; // True on first load before the org/project tree data exists
   isRefreshing?: boolean; // True while a background refetch runs with data present
@@ -374,6 +381,7 @@ export function Sidebar({
   onProjectsReorder,
   onOrganizationsReorder,
   onCancelInvite,
+  onInviteUser,
   isAddingTask,
   isLoading,
   isRefreshing,
@@ -399,6 +407,11 @@ export function Sidebar({
   // Pending-invitation row currently queued for revoke confirmation.
   const [inviteToRevoke, setInviteToRevoke] = useState<AppUser | null>(null);
   const [revokingInvite, setRevokingInvite] = useState(false);
+  // Inline "send a new invitation" form under the Pending Invitations header.
+  const [showInviteForm, setShowInviteForm] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [sendingInvite, setSendingInvite] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   // --- Parent nav reorder (Edit Mode) ---------------------------------------
   const [navEditMode, setNavEditMode] = useState(false);
@@ -978,6 +991,26 @@ export function Sidebar({
     }
   };
 
+  const handleSendInvite = async () => {
+    const email = inviteEmail.trim();
+    if (!email || !onInviteUser) return;
+    setSendingInvite(true);
+    setInviteError(null);
+    try {
+      const result = await onInviteUser(email, "", "");
+      if (!result) throw new Error("Could not send invitation");
+      setInviteEmail("");
+      setShowInviteForm(false);
+      setShowPendingInvitations(true);
+    } catch (error) {
+      setInviteError(
+        error instanceof Error ? error.message : "Could not send invitation",
+      );
+    } finally {
+      setSendingInvite(false);
+    }
+  };
+
   const handleResendInvite = async (userId: string) => {
     setResendingUserId(userId);
     try {
@@ -1368,68 +1401,92 @@ export function Sidebar({
                 >
                   <MoreHorizontal className="w-5 h-5 text-zinc-400 group-hover/trigger:text-white transition-colors" />
                 </button>
-                <div className="absolute right-1 flex flex-col items-end gap-1 opacity-0 pointer-events-none translate-x-1 transition-all duration-150 group-hover/header-actions:opacity-100 group-hover/header-actions:pointer-events-auto group-hover/header-actions:translate-x-0 group-focus-within/header-actions:opacity-100 group-focus-within/header-actions:pointer-events-auto group-focus-within/header-actions:translate-x-0">
+                <div className="absolute right-1 flex flex-col items-end gap-1 rounded-2xl border border-white/10 bg-zinc-900/50 p-1.5 shadow-2xl backdrop-blur-2xl backdrop-saturate-150 opacity-0 pointer-events-none translate-x-1 transition-all duration-150 group-hover/header-actions:opacity-100 group-hover/header-actions:pointer-events-auto group-hover/header-actions:translate-x-0 group-focus-within/header-actions:opacity-100 group-focus-within/header-actions:pointer-events-auto group-focus-within/header-actions:translate-x-0">
                   <div className="flex items-center gap-1">
                   {/* Nav-reorder Edit/Done toggle, relocated here from the
                       top of <nav>. Toggles navEditMode; the reorderable nav
                       rows pick up the change via NavReorderWrapper. */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNavEditMode((v) => !v);
-                      setDraggedNavId(null);
-                      setDragOverNavId(null);
-                      setDragOverNavPosition(null);
-                    }}
-                    aria-pressed={navEditMode}
-                    title={navEditMode ? "Done" : "Edit navigation"}
-                    className={`p-2 rounded-lg transition-colors group ${
-                      navEditMode
-                        ? "bg-theme-gradient"
-                        : "hover:bg-zinc-800"
-                    }`}
+                  <Tooltip
+                    content={navEditMode ? "Done" : "Edit navigation"}
+                    side="bottom"
+                    className="w-auto"
                   >
-                    {navEditMode ? (
-                      <Check className="w-5 h-5 text-white transition-colors" />
-                    ) : (
-                      <SlidersHorizontal className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
-                    )}
-                  </button>
-                  <Link
-                    href="/trash"
-                    className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
-                    title="Trash"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNavEditMode((v) => !v);
+                        setDraggedNavId(null);
+                        setDragOverNavId(null);
+                        setDragOverNavPosition(null);
+                      }}
+                      aria-pressed={navEditMode}
+                      aria-label={navEditMode ? "Done" : "Edit navigation"}
+                      className={`p-2 rounded-lg transition-colors group ${
+                        navEditMode
+                          ? "bg-theme-gradient"
+                          : "hover:bg-zinc-800"
+                      }`}
+                    >
+                      {navEditMode ? (
+                        <Check className="w-5 h-5 text-white transition-colors" />
+                      ) : (
+                        <SlidersHorizontal className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                      )}
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Trash" side="bottom" className="w-auto">
+                    <Link
+                      href="/trash"
+                      aria-label="Trash"
+                      className="block p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+                    >
+                      <Trash2 className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                    </Link>
+                  </Tooltip>
+                  <Tooltip content="Settings" side="bottom" className="w-auto">
+                    <Link
+                      href="/settings"
+                      aria-label="Settings"
+                      className="block p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+                    >
+                      <Settings className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                    </Link>
+                  </Tooltip>
+                  <Tooltip
+                    content="LLM Providers"
+                    side="bottom"
+                    className="w-auto"
                   >
-                    <Trash2 className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
-                  </Link>
-                  <Link
-                    href="/settings"
-                    className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
-                    title="Settings"
+                    <Link
+                      href="/settings?section=llm-providers"
+                      aria-label="LLM Providers"
+                      className="block p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+                    >
+                      <Cpu className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                    </Link>
+                  </Tooltip>
+                  <Tooltip content="Logout" side="bottom" className="w-auto">
+                    <button
+                      onClick={handleLogout}
+                      aria-label="Logout"
+                      className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+                    >
+                      <LogOut className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip
+                    content="Collapse sidebar"
+                    side="bottom"
+                    className="w-auto"
                   >
-                    <Settings className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
-                  </Link>
-                  <Link
-                    href="/settings?section=llm-providers"
-                    className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
-                    title="LLM Providers"
-                  >
-                    <Cpu className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
-                  </Link>
-                  <button
-                    onClick={handleLogout}
-                    className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
-                    title="Logout"
-                  >
-                    <LogOut className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
-                  </button>
-                  <button
-                    onClick={() => setIsCollapsed(true)}
-                    className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
-                    title="Collapse sidebar"
-                  >
-                    <ChevronLeft className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
-                  </button>
+                    <button
+                      onClick={() => setIsCollapsed(true)}
+                      aria-label="Collapse sidebar"
+                      className="p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+                    >
+                      <ChevronLeft className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                    </button>
+                  </Tooltip>
                   </div>
                   {/* System / Dark / Light mode switch, relocated here from the
                       sidebar footer. Revealed BELOW the other header actions
@@ -2832,8 +2889,9 @@ export function Sidebar({
           </div>
         )}
 
-        {/* Pending Invitations Section - only show if there are pending users */}
-        {!isCollapsed && pendingUsers.length > 0 && (
+        {/* Pending Invitations Section. Shows when there are pending invites
+            OR whenever a new invite can be sent (so the "+" is always reachable). */}
+        {!isCollapsed && (pendingUsers.length > 0 || Boolean(onInviteUser)) && (
           <div className="mt-2 pt-2 border-t border-zinc-800">
             <div className="flex items-center justify-between px-3 py-1 mb-1">
               <button
@@ -2848,9 +2906,74 @@ export function Sidebar({
                   ▶
                 </span>
                 Pending Invitations
-                <span className="text-zinc-600">({pendingUsers.length})</span>
+                {pendingUsers.length > 0 ? (
+                  <span className="text-zinc-600">({pendingUsers.length})</span>
+                ) : null}
               </button>
+              {onInviteUser ? (
+                <Tooltip content="Send a new invitation" side="bottom" className="w-auto">
+                  <button
+                    type="button"
+                    aria-label="Send a new invitation"
+                    onClick={() => {
+                      setInviteError(null);
+                      setShowInviteForm((open) => !open);
+                      setShowPendingInvitations(true);
+                    }}
+                    className="p-1 rounded-md text-zinc-500 hover:bg-zinc-700 hover:text-white transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </Tooltip>
+              ) : null}
             </div>
+
+            {showInviteForm && onInviteUser ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleSendInvite();
+                }}
+                className="mx-2 mb-2 space-y-1.5"
+              >
+                <input
+                  type="email"
+                  autoFocus
+                  required
+                  value={inviteEmail}
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                  placeholder="teammate@email.com"
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+                />
+                {inviteError ? (
+                  <p className="text-[11px] text-rose-400">{inviteError}</p>
+                ) : null}
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowInviteForm(false);
+                      setInviteError(null);
+                    }}
+                    className="rounded-md px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={sendingInvite || !inviteEmail.trim()}
+                    className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
+                  >
+                    {sendingInvite ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Mail className="w-3 h-3" />
+                    )}
+                    Send Invite
+                  </button>
+                </div>
+              </form>
+            ) : null}
 
             {showPendingInvitations && (
               <div className="space-y-1 px-2">

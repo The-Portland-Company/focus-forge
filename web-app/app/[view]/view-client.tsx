@@ -16,6 +16,7 @@ import {
   Trash2,
   Edit,
   Plus,
+  Users,
   Share2,
   Bot,
   Target,
@@ -715,6 +716,11 @@ export default function ViewPage({
   const [showEditOrganization, setShowEditOrganization] = useState(false);
   const [editingOrganization, setEditingOrganization] =
     useState<Organization | null>(null);
+  // Which tab the org settings modal opens on (the header "Members" button
+  // jumps straight to the users/members tab).
+  const [orgModalInitialTab, setOrgModalInitialTab] = useState<
+    "details" | "projects" | "users" | "api-keys"
+  >("details");
   const [showEditProject, setShowEditProject] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [colorPickerProjectId, setColorPickerProjectId] = useState<
@@ -2996,9 +3002,13 @@ export default function ViewPage({
     }
   };
 
-  const handleOpenEditOrganization = (orgId: string) => {
+  const handleOpenEditOrganization = (
+    orgId: string,
+    initialTab: "details" | "projects" | "users" | "api-keys" = "details",
+  ) => {
     const org = database?.organizations.find((o) => o.id === orgId);
     if (org) {
+      setOrgModalInitialTab(initialTab);
       setEditingOrganization(org);
       setShowEditOrganization(true);
     }
@@ -6053,11 +6063,24 @@ export default function ViewPage({
                 >
                   <button
                     onClick={() => handleOpenAddProject(orgId)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded bg-theme-gradient text-white text-sm font-medium hover:opacity-90 transition-opacity"
+                    className="p-2 hover:bg-zinc-800 rounded transition-colors text-zinc-400 hover:text-white"
                     aria-label="New project"
                   >
-                    <Plus className="w-4 h-4" />
-                    New Project
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </Tooltip>
+                <Tooltip
+                  content="Members"
+                  side="bottom"
+                  align="end"
+                  className="inline-flex"
+                >
+                  <button
+                    onClick={() => handleOpenEditOrganization(orgId, "users")}
+                    className="p-2 hover:bg-zinc-800 rounded transition-colors text-zinc-400 hover:text-white"
+                    aria-label="Members"
+                  >
+                    <Users className="w-5 h-5" />
                   </button>
                 </Tooltip>
                 <Tooltip
@@ -7806,6 +7829,7 @@ export default function ViewPage({
       onProjectsReorder={handleProjectsReorder}
       onOrganizationsReorder={handleOrganizationsReorder}
       onCancelInvite={cancelInvite}
+      onInviteUser={handleInviteUser}
       isAddingTask={showAddTask}
       isLoading={isDataLoading}
       isRefreshing={isRefreshing}
@@ -8054,6 +8078,7 @@ export default function ViewPage({
       {showEditOrganization && editingOrganization && database && (
         <OrganizationSettingsModal
           organization={editingOrganization}
+          initialActiveTab={orgModalInitialTab}
           projects={database.projects.filter(
             (project) =>
               ((project as any).organization_id || project.organizationId) ===
