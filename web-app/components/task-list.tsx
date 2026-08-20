@@ -1090,12 +1090,31 @@ export function TaskList({
                         >
                           <Sparkles className="h-3.5 w-3.5" />
                         </button>
-                      ) : emailThreadIdByTaskId?.[task.id] ? (
-                        <Mail
-                          className="mr-1.5 inline-block h-3.5 w-3.5 shrink-0 -translate-y-px text-sky-400/80"
-                          role="img"
-                          aria-label="Created from email"
-                        />
+                      ) : null}
+                      {/* Email affordance: EVERY email-derived task shows a
+                          leading mail icon (regardless of whether it's also
+                          AI-created). Clicking opens the full thread. */}
+                      {emailThreadIdByTaskId?.[task.id] ? (
+                        onOpenEmailThread ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenEmailThread(emailThreadIdByTaskId[task.id]);
+                            }}
+                            aria-label="View linked email"
+                            title="View linked email"
+                            className="mr-1.5 inline-flex shrink-0 -translate-y-px items-center align-middle text-sky-400/90 hover:text-sky-300 transition-colors"
+                          >
+                            <Mail className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <Mail
+                            className="mr-1.5 inline-block h-3.5 w-3.5 shrink-0 -translate-y-px text-sky-400/80"
+                            role="img"
+                            aria-label="Created from email"
+                          />
+                        )
                       ) : null}
                       {/* A supply is identified by its make/model or type, not
                           by a free-text title, so the identity is the primary
@@ -1308,20 +1327,9 @@ export function TaskList({
                   </span>
                 ) : null}
 
-                {emailThreadIdByTaskId?.[task.id] && onOpenEmailThread ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenEmailThread(emailThreadIdByTaskId[task.id]);
-                    }}
-                    className="relative group/emaillink flex items-center justify-center w-4"
-                  >
-                    <Mail className="w-4 h-4 text-sky-400" />
-                    <span className="absolute right-full mr-2 px-2 py-1 text-xs text-white bg-black rounded shadow-lg whitespace-nowrap opacity-0 group-hover/emaillink:opacity-100 transition-opacity pointer-events-none z-50">
-                      View linked email
-                    </span>
-                  </button>
-                ) : null}
+                {/* The clickable email affordance now lives on the LEADING mail
+                    icon next to the task name (see above), so the trailing
+                    duplicate was removed to avoid two identical email icons. */}
                 {task.todoistId ? (
                   <span
                     className={`relative group/todoist flex items-center justify-center w-4 transition-opacity ${actionVisibilityClass}`}
