@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  Check,
   Download,
   File as FileIcon,
   FileText,
   Film,
   ImageIcon,
+  Link2,
   Loader2,
   Music,
   Presentation,
@@ -318,6 +320,143 @@ function AttachmentHoverPreview({
  * A single compact attachment chip: a small type icon + short filename. Click
  * opens the existing fullscreen preview; hover lazily mounts a floating preview.
  */
+// Parse the streaming download URL
+// (/api/email/messages/{messageId}/attachments/{index}) back into its parts so
+// we can mint a public share link for that exact attachment. Returns null when
+// the URL isn't the expected shape (e.g. an outbound draft attachment).
+function parseAttachmentRef(
+  url: string | null | undefined,
+): { messageId: string; attachmentIndex: number } | null {
+  if (!url) return null;
+  const m = url.match(/\/messages\/([^/]+)\/attachments\/(\d+)/);
+  if (!m) return null;
+  return { messageId: m[1], attachmentIndex: Number(m[2]) };
+}
+
+/**
+ * Hover control on an attachment chip: "Copy Public URL". Clicking opens a
+ * confirm popover ("You are about to generate a public link…") anchored to the
+ * chip; on Accept & Copy it mints a public link, copies it to the clipboard,
+ * and shows a "Copied!" toast that fades in + up then out. Anyone with the link
+ * can open the file with no Focus Forge session.
+ */
+function AttachmentShareControl({
+  attachment,
+}: {
+  attachment: ThreadAttachment;
+}) {
+  const ref = parseAttachmentRef(attachment.url);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const copiedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copiedTimeout.current) clearTimeout(copiedTimeout.current);
+    },
+    [],
+  );
+
+  // Attachments that don't resolve to a stored message can't be shared.
+  if (!ref) return null;
+
+  const accept = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/email/messages/${encodeURIComponent(ref.messageId)}/attachments/${ref.attachmentIndex}/public-link`,
+        { method: "POST", credentials: "include" },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || "Could not create link");
+      }
+      const { url } = (await res.json()) as { url?: string };
+      if (!url) throw new Error("No link returned");
+      await navigator.clipboard.writeText(url);
+      setConfirmOpen(false);
+      setCopied(true);
+      if (copiedTimeout.current) clearTimeout(copiedTimeout.current);
+      copiedTimeout.current = setTimeout(() => setCopied(false), 1500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create link");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <span className="pointer-events-none absolute right-0.5 top-0.5 z-20">
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          setError(null);
+          setConfirmOpen((open) => !open);
+        }}
+        aria-label="Copy public URL to share"
+        title="Copy public URL to share"
+        className="pointer-events-auto inline-flex h-5 w-5 items-center justify-center rounded-md border border-zinc-700 bg-zinc-950/80 text-zinc-300 opacity-0 shadow-sm transition group-hover/att:opacity-100 focus-visible:opacity-100 hover:border-emerald-500 hover:text-emerald-300"
+      >
+        <Link2 className="h-3 w-3" />
+      </button>
+
+      {copied ? (
+        <span className="animate-copied-id-toast pointer-events-none absolute -top-6 right-0 z-30 whitespace-nowrap rounded-md bg-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow-lg">
+          Copied!
+        </span>
+      ) : null}
+
+      {confirmOpen ? (
+        <div
+          role="dialog"
+          onClick={(event) => event.stopPropagation()}
+          className="pointer-events-auto absolute right-0 top-7 z-40 w-60 rounded-lg border border-zinc-700 bg-zinc-950/95 p-3 text-left shadow-xl backdrop-blur"
+        >
+          <p className="text-xs leading-snug text-zinc-200">
+            You are about to generate a public link for this file so you can
+            share it with anyone, do you accept?
+          </p>
+          {error ? (
+            <p className="mt-1.5 text-[11px] text-rose-400">{error}</p>
+          ) : null}
+          <div className="mt-2.5 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setConfirmOpen(false);
+              }}
+              className="rounded-md px-2 py-1 text-[11px] text-zinc-400 transition hover:text-zinc-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={(event) => {
+                event.stopPropagation();
+                void accept();
+              }}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
+            >
+              {busy ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Check className="h-3 w-3" />
+              )}
+              Accept &amp; Copy
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </span>
+  );
+}
+
 function AttachmentChip({
   attachment,
   kind,
@@ -340,7 +479,7 @@ function AttachmentChip({
   const closeHover = useCallback(() => setAnchorRect(null), []);
 
   return (
-    <>
+    <span className="group/att relative inline-flex">
       <button
         ref={chipRef}
         type="button"
@@ -350,13 +489,14 @@ function AttachmentChip({
         onFocus={openHover}
         onBlur={closeHover}
         title={attachment.filename || "Attachment"}
-        className="inline-flex max-w-[220px] items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-2 py-1 text-xs text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
+        className="inline-flex max-w-[220px] items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 py-1 pl-2 pr-7 text-xs text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
       >
         <AttachmentKindIcon kind={kind} className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
         <span className="truncate">
           {attachment.filename || "Attachment"}
         </span>
       </button>
+      <AttachmentShareControl attachment={attachment} />
       {anchorRect ? (
         <AttachmentHoverPreview
           attachment={attachment}
@@ -365,7 +505,7 @@ function AttachmentChip({
           anchorRect={anchorRect}
         />
       ) : null}
-    </>
+    </span>
   );
 }
 

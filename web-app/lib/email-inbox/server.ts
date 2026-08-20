@@ -4374,6 +4374,102 @@ export async function getThreadAttachmentForUser(
   return attachment;
 }
 
+/**
+ * Attachment metadata (filename + content type) for one (message, index),
+ * scoped to a user who can access the thread. Used when minting a public share
+ * link so the link row records a human-readable filename without fetching the
+ * whole file. Throws if the message/attachment isn't visible to the user.
+ */
+export async function getAttachmentMetaForUser(
+  userId: string,
+  messageId: string,
+  attachmentIndex: number,
+): Promise<{
+  mailboxId: string;
+  filename: string | null;
+  contentType: string | null;
+}> {
+  const admin = getAdminClient();
+  const { data: row } = await admin
+    .from("email_messages")
+    .select("id,thread_id,mailbox_id,metadata_json")
+    .eq("id", messageId)
+    .maybeSingle();
+
+  if (!row?.id || !row.thread_id || !row.mailbox_id) {
+    throw new Error("Attachment not found");
+  }
+
+  await ensureThreadAccess(userId, String(row.thread_id));
+  await ensureMailboxAccess(userId, String(row.mailbox_id));
+
+  const list = Array.isArray(row.metadata_json?.attachments)
+    ? row.metadata_json.attachments
+    : [];
+  const meta = list[attachmentIndex] || null;
+  if (!meta) {
+    throw new Error("Attachment not found");
+  }
+
+  return {
+    mailboxId: String(row.mailbox_id),
+    filename:
+      typeof meta.filename === "string" && meta.filename ? meta.filename : null,
+    contentType:
+      typeof meta.contentType === "string" && meta.contentType
+        ? meta.contentType
+        : null,
+  };
+}
+
+/**
+ * Fetch an attachment's bytes by (message, index) with NO user scoping — the
+ * caller (the public share-link route) has already validated an unguessable
+ * token, which IS the authorization. Resolves the message's mailbox with the
+ * admin client and streams the file live from the owner's IMAP, exactly like
+ * the authenticated path but without a session. NEVER call this from a route
+ * that isn't gated by a validated public-link token.
+ */
+export async function getAttachmentByMessageForPublicLink(
+  messageId: string,
+  attachmentIndex: number,
+) {
+  const admin = getAdminClient();
+  const { data: row } = await admin
+    .from("email_messages")
+    .select("id,mailbox_id,provider_message_id,provider_folder_path")
+    .eq("id", messageId)
+    .maybeSingle();
+
+  if (!row?.id || !row.mailbox_id || !row.provider_message_id) {
+    throw new Error("Attachment not found");
+  }
+
+  const { data: mailbox } = await admin
+    .from("mailboxes")
+    .select("*")
+    .eq("id", String(row.mailbox_id))
+    .maybeSingle();
+  if (!mailbox?.id) {
+    throw new Error("Attachment not found");
+  }
+
+  const attachment = await fetchMailboxAttachmentByProviderMessageId(
+    mailboxForFolder(
+      mailbox as MailboxTransportRow,
+      row.provider_folder_path as string | null,
+    ),
+    String(row.provider_message_id),
+    attachmentIndex,
+  );
+
+  if (!attachment?.content) {
+    throw new Error("Attachment not found");
+  }
+
+  return attachment;
+}
+
 export async function assignProjectToThread(
   userId: string,
   threadId: string,
