@@ -30,6 +30,9 @@ const publicRoutes = [
   // render for logged-out visitors (no session / no MFA required).
   "/share",
   "/api/share",
+  // Public email-attachment share links — an unguessable token gates each one;
+  // the recipient has no Focus Forge account, so this must render logged-out.
+  "/api/public/attachments",
   "/docs/focus-time-agent",
   "/docs/focus-time-openapi",
   "/developer/api",
