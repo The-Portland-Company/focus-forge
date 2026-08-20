@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api/authz";
-import { createOrGetAttachmentPublicLink } from "@/lib/email-inbox/attachment-public-links";
+import {
+  createOrGetAttachmentPublicLink,
+  hasActiveAttachmentPublicLink,
+  revokeAttachmentPublicLink,
+} from "@/lib/email-inbox/attachment-public-links";
+
+function parseAttachmentIndex(raw: string): number | null {
+  const attachmentIndex = Number(raw);
+  if (!Number.isInteger(attachmentIndex) || attachmentIndex < 0) return null;
+  return attachmentIndex;
+}
 
 // POST /api/email/messages/{messageId}/attachments/{attachmentIndex}/public-link
 //
@@ -16,8 +26,8 @@ export async function POST(
 
   try {
     const params = await props.params;
-    const attachmentIndex = Number(params.attachmentIndex);
-    if (!Number.isInteger(attachmentIndex) || attachmentIndex < 0) {
+    const attachmentIndex = parseAttachmentIndex(params.attachmentIndex);
+    if (attachmentIndex === null) {
       return NextResponse.json(
         { error: "Invalid attachment index" },
         { status: 400 },
@@ -54,6 +64,91 @@ export async function POST(
           error instanceof Error
             ? error.message
             : "Failed to create public link",
+      },
+      { status: 404 },
+    );
+  }
+}
+
+// GET /api/email/messages/{messageId}/attachments/{attachmentIndex}/public-link
+//
+// Cheap check: does the caller have an active public link for this attachment?
+// Lets the UI reflect state on load ("Revoke public link" affordance). Returns
+// { hasLink: boolean }. Auth-gated + access-checked, same as create.
+export async function GET(
+  request: NextRequest,
+  props: { params: Promise<{ messageId: string; attachmentIndex: string }> },
+) {
+  const auth = await requireAuth(request);
+  if ("errorResponse" in auth) return auth.errorResponse;
+
+  try {
+    const params = await props.params;
+    const attachmentIndex = parseAttachmentIndex(params.attachmentIndex);
+    if (attachmentIndex === null) {
+      return NextResponse.json(
+        { error: "Invalid attachment index" },
+        { status: 400 },
+      );
+    }
+
+    const hasLink = await hasActiveAttachmentPublicLink(
+      auth.user.id,
+      params.messageId,
+      attachmentIndex,
+    );
+
+    return NextResponse.json({ hasLink });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to check public link",
+      },
+      { status: 404 },
+    );
+  }
+}
+
+// DELETE /api/email/messages/{messageId}/attachments/{attachmentIndex}/public-link
+//
+// Revoke the caller's active public link(s) for this attachment (stamps
+// revoked_at). Scoped to created_by = user, so a user can only revoke links
+// they minted. After this the public download route 404s. Returns
+// { revoked: number }.
+export async function DELETE(
+  request: NextRequest,
+  props: { params: Promise<{ messageId: string; attachmentIndex: string }> },
+) {
+  const auth = await requireAuth(request);
+  if ("errorResponse" in auth) return auth.errorResponse;
+
+  try {
+    const params = await props.params;
+    const attachmentIndex = parseAttachmentIndex(params.attachmentIndex);
+    if (attachmentIndex === null) {
+      return NextResponse.json(
+        { error: "Invalid attachment index" },
+        { status: 400 },
+      );
+    }
+
+    const { revoked } = await revokeAttachmentPublicLink(
+      auth.user.id,
+      params.messageId,
+      attachmentIndex,
+    );
+
+    return NextResponse.json({ revoked });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to revoke public link",
       },
       { status: 404 },
     );

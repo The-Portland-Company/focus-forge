@@ -68,6 +68,68 @@ export async function createOrGetAttachmentPublicLink(
   return { token, filename: meta.filename, contentType: meta.contentType };
 }
 
+/**
+ * Does the user currently have an active (non-revoked, non-expired) public link
+ * for this exact (message, attachment)? Cheap existence check used by the UI to
+ * decide whether to show the "Revoke public link" affordance. Verifies access
+ * first so a caller can't probe attachments they can't see.
+ */
+export async function hasActiveAttachmentPublicLink(
+  userId: string,
+  messageId: string,
+  attachmentIndex: number,
+): Promise<boolean> {
+  // Access check (throws if not visible) — same gate as create.
+  await getAttachmentMetaForUser(userId, messageId, attachmentIndex);
+  const admin = getAdminClient();
+
+  const nowIso = new Date().toISOString();
+  const { data } = await admin
+    .from(TABLE)
+    .select("token,expires_at")
+    .eq("message_id", messageId)
+    .eq("attachment_index", attachmentIndex)
+    .eq("created_by", userId)
+    .is("revoked_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return Boolean(data?.token && (!data.expires_at || data.expires_at > nowIso));
+}
+
+/**
+ * Revoke the user's active public link(s) for one attachment by stamping
+ * `revoked_at = now()`. Scoped to `created_by = user`, so a user can only revoke
+ * links they minted. Verifies the user can still access the attachment first
+ * (same gate as create). Returns how many links were revoked (0 when none were
+ * active). Once revoked, the public download route 404s.
+ */
+export async function revokeAttachmentPublicLink(
+  userId: string,
+  messageId: string,
+  attachmentIndex: number,
+): Promise<{ revoked: number }> {
+  // Access check + mailbox scope (throws if not visible) — same gate as create.
+  await getAttachmentMetaForUser(userId, messageId, attachmentIndex);
+  const admin = getAdminClient();
+
+  const { data, error } = await admin
+    .from(TABLE)
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("message_id", messageId)
+    .eq("attachment_index", attachmentIndex)
+    .eq("created_by", userId)
+    .is("revoked_at", null)
+    .select("id");
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return { revoked: data?.length ?? 0 };
+}
+
 export type ResolvedAttachmentLink = {
   messageId: string;
   attachmentIndex: number;
