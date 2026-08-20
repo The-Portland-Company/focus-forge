@@ -6153,12 +6153,6 @@ export default function ViewPage({
               archived
             </p>
 
-            <HistoryTimelineScrubber
-              scope={{ organizationId: orgId }}
-              title="History"
-              className="mb-4"
-            />
-
             {editingOrgDescription === orgId ? (
               <textarea
                 value={organization?.description || ""}
@@ -6169,18 +6163,24 @@ export default function ViewPage({
                 }}
                 onBlur={() => setEditingOrgDescription(null)}
                 placeholder="Add a description..."
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 ring-theme transition-all"
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 ring-theme transition-all mb-4"
                 rows={3}
                 autoFocus
               />
             ) : (
               <div
                 onClick={() => setEditingOrgDescription(orgId)}
-                className="text-sm text-zinc-400 cursor-pointer hover:text-zinc-300 p-3 bg-zinc-800/50 rounded-lg border border-transparent hover:border-zinc-700"
+                className="text-sm text-zinc-400 cursor-pointer hover:text-zinc-300 p-3 bg-zinc-800/50 rounded-lg border border-transparent hover:border-zinc-700 mb-4"
               >
                 {organization?.description || "Click to add description..."}
               </div>
             )}
+
+            <HistoryTimelineScrubber
+              scope={{ organizationId: orgId }}
+              title="History"
+              className="mb-4"
+            />
           </div>
 
           <div className="space-y-8">
