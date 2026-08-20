@@ -20,6 +20,10 @@ import {
 } from "@/lib/spam/server";
 import { resolveEmailChain } from "@/lib/ai/email-provider";
 import {
+  runStructuredWaterfall,
+  type ModelSpec,
+} from "@/lib/ai/structured-waterfall";
+import {
   mergeEmailReplySettings,
   type EmailReplySettingsOverride,
 } from "@/lib/email-inbox/reply-settings";
@@ -2362,6 +2366,126 @@ export function buildThreadSearchOrFilter(term: string): string {
   ).join(",");
 }
 
+// ── Cross-thread duplicate-task guard ──────────────────────────────────────
+// Auto-created email tasks duplicate ACROSS separate threads (e.g. the same
+// alert email re-delivered as new threads). The per-thread link guard can't see
+// those, so before auto-creating a task we look for an existing task that is the
+// same actionable request: a cheap keyword/normalized-name grep first, then —
+// only when that finds candidates — one conservative LLM judgment. On a match we
+// skip creation and link the new thread to the existing task instead.
+const DUP_TASK_COLUMNS = ["name", "description"] as const;
+const DEDUP_CANDIDATE_LIMIT = 25;
+const DEDUP_WINDOW_DAYS = 45;
+const DEDUP_AI_MIN_CONFIDENCE = 0.8;
+const DEDUP_MAX_TERMS = 6;
+
+function buildTaskSearchOrFilter(term: string): string {
+  return DUP_TASK_COLUMNS.map((column) => `${column}.ilike.%${term}%`).join(",");
+}
+
+const DEDUP_RESPONSE_SCHEMA = {
+  name: "task_duplicate_verdict",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["duplicateOfTaskId", "confidence"],
+    properties: {
+      duplicateOfTaskId: { type: ["string", "null"] },
+      confidence: { type: "number" },
+    },
+  },
+};
+
+const DEDUP_SYSTEM_PROMPT = `You de-duplicate to-do tasks generated from emails. Decide whether a NEW task is the SAME actionable request as one of the EXISTING candidate tasks.
+
+Rules:
+- Return an existing task's id ONLY if it asks the user to do the SAME thing about the SAME subject. A re-delivered / identical notification IS a duplicate.
+- Different quantities, thresholds, percentages, dates, accounts, or people make tasks DISTINCT — NOT duplicates. Example: "limit 50% reached", "limit 90% reached", and "limit exceeded" are THREE different tasks; never merge them.
+- When unsure, it is NOT a duplicate.
+Respond with strict JSON: {"duplicateOfTaskId": <existing task id or null>, "confidence": <0..1>}.`;
+
+/**
+ * Return the id of an existing task that is a duplicate of `taskName` in the
+ * same project, or null. Stage 1 is a keyword grep (+ exact normalized-name
+ * short-circuit, no AI); Stage 2 is one conservative LLM judgment, run only when
+ * Stage 1 surfaced candidates and a provider chain is available.
+ */
+async function findDuplicateTaskId(
+  admin: ReturnType<typeof getAdminClient>,
+  params: { projectId: string; taskName: string; chain?: ModelSpec[] },
+): Promise<string | null> {
+  const normalizedNew = normalizeSubject(params.taskName);
+  if (!normalizedNew) return null;
+
+  const terms = parseInboxSearchTerms(params.taskName).slice(0, DEDUP_MAX_TERMS);
+  if (terms.length === 0) return null;
+
+  const sinceIso = new Date(
+    Date.now() - DEDUP_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  // AND semantics: chaining `.or()` per term requires every term to match
+  // name/description of a candidate task in the same project.
+  let query = admin
+    .from("tasks")
+    .select("id,name")
+    .eq("project_id", params.projectId)
+    .eq("completed", false)
+    .is("deleted_at", null)
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: false })
+    .limit(DEDUP_CANDIDATE_LIMIT);
+  for (const term of terms) {
+    query = query.or(buildTaskSearchOrFilter(term));
+  }
+
+  const { data: candidates } = await query;
+  const list = (candidates || []) as Array<{ id: string; name: string }>;
+  if (list.length === 0) return null;
+
+  // Exact normalized-name match → confirmed duplicate; no AI call needed.
+  const exact = list.find((t) => normalizeSubject(t.name) === normalizedNew);
+  if (exact) return exact.id;
+
+  // Stage 2 — one conservative LLM judgment.
+  if (!params.chain || params.chain.length === 0) return null;
+  try {
+    const userMessage =
+      `NEW task: ${params.taskName}\n\nEXISTING candidate tasks:\n` +
+      list.map((t) => `- id=${t.id}: ${t.name}`).join("\n");
+    const result = await runStructuredWaterfall(params.chain, {
+      systemPrompt: DEDUP_SYSTEM_PROMPT,
+      userMessage,
+      jsonSchema: DEDUP_RESPONSE_SCHEMA,
+      temperature: 0,
+    });
+    const parsed = JSON.parse(result.text || "{}") as {
+      duplicateOfTaskId?: unknown;
+      confidence?: unknown;
+    };
+    const dupId =
+      typeof parsed.duplicateOfTaskId === "string"
+        ? parsed.duplicateOfTaskId
+        : null;
+    const confidence =
+      typeof parsed.confidence === "number" ? parsed.confidence : 0;
+    if (
+      dupId &&
+      confidence >= DEDUP_AI_MIN_CONFIDENCE &&
+      list.some((t) => t.id === dupId)
+    ) {
+      return dupId;
+    }
+  } catch (error) {
+    console.error(
+      "[email-inbox] task dedup AI scan failed",
+      error instanceof Error ? error.message : error,
+    );
+  }
+  return null;
+}
+
 /**
  * Resolve the set of thread ids (within the user's accessible mailboxes) that
  * match a free-text search query. A thread matches a term if any searchable
@@ -2927,13 +3051,23 @@ async function createTasksForThreadInternal(params: {
   projectId: string;
   suggestions: InboxTaskSuggestion[];
   generatedBy: "ai" | "user" | "rule";
+  // Provider chain for the duplicate-scan LLM step (auto paths pass the org's
+  // resolved email chain). Omitted on the manual path, which skips dedup.
+  chain?: ModelSpec[];
 }) {
   const admin = getAdminClient();
 
-  // Never create tasks from quarantined (or spam) threads. This guards every
+  // Never create tasks from quarantined or spam threads. This guards every
   // task-creation path — the AI/rule auto-pipeline and the explicit user
-  // "Convert to task" action — since all of them funnel through here.
-  if (isQuarantinedEmailStatus(params.thread?.status)) {
+  // "Convert to task" action — since all of them funnel through here. We check
+  // BOTH the withheld statuses (quarantine/spam) AND classification === "spam":
+  // a phishing/spam email can be classified spam while its status is not
+  // quarantine (e.g. it slipped through as active/needs_project), which the
+  // status-only check would let become a task on the manual to_task path.
+  if (
+    isQuarantinedEmailStatus(params.thread?.status) ||
+    params.thread?.classification === "spam"
+  ) {
     return [];
   }
 
@@ -2966,13 +3100,38 @@ async function createTasksForThreadInternal(params: {
   const todayDueDate = getLocalDateString(new Date());
 
   for (const suggestion of params.suggestions) {
+    const finalName =
+      params.generatedBy === "ai"
+        ? formatAiGeneratedTaskName(
+            repairGenericTaskName(suggestion.name, params.thread.subject),
+          )
+        : suggestion.name;
+
+    // Cross-thread duplicate guard — auto paths only (manual "Convert to task"
+    // is explicit user intent, so we always honor it). If the same actionable
+    // task already exists in this project, don't re-create it: link the new
+    // thread to the existing task so both source emails stay reachable from it.
+    if (params.generatedBy !== "user") {
+      const dupTaskId = await findDuplicateTaskId(admin, {
+        projectId: params.projectId,
+        taskName: finalName,
+        chain: params.chain,
+      });
+      if (dupTaskId) {
+        await admin.from("email_thread_tasks").insert({
+          thread_id: params.thread.id,
+          task_id: dupTaskId,
+          created_by_user_id: params.actorUserId,
+          generated_by: params.generatedBy,
+          rationale:
+            "Duplicate of an existing task; linked to it instead of re-creating.",
+        });
+        continue;
+      }
+    }
+
     const task = await adapter.createTask({
-      name:
-        params.generatedBy === "ai"
-          ? formatAiGeneratedTaskName(
-              repairGenericTaskName(suggestion.name, params.thread.subject),
-            )
-          : suggestion.name,
+      name: finalName,
       description:
         suggestion.description ||
         latestInbound?.body_html ||
@@ -3356,6 +3515,8 @@ export async function reprocessThread(
       projectId,
       suggestions: aiResult.taskSuggestions,
       generatedBy: ruleActions.has("generate_tasks") ? "rule" : "ai",
+      // Reuse the org's resolved email chain for the duplicate-scan LLM step.
+      chain: resolveEmailChain(orgAiSettings),
     });
   }
 
