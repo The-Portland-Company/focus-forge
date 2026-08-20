@@ -194,7 +194,20 @@ export function useModalWindow({
     onPointerMove: onDragPointerMove,
     onPointerUp: endDrag,
     onPointerCancel: endDrag,
-    style: { cursor: dragging ? "grabbing" : "grab", touchAction: "none" },
+    // The strip must sit *behind* the header content, not on top of it. If it
+    // floats above (its class is `z-0`, which paints a positioned element over
+    // in-flow siblings), it swallows every pointer press in the top strip — so
+    // clicking a close/minimize button that lives in normal flow lands on the
+    // invisible strip and starts a drag instead of closing. `zIndex: -1` (inline,
+    // so it wins over the `z-0` class) drops it below the content while keeping it
+    // above the panel's own background, so empty header space still initiates a
+    // drag. This only stays contained to the panel because `panelStyle` /
+    // `centeredPanelStyle` below make every panel its own stacking context.
+    style: {
+      cursor: dragging ? "grabbing" : "grab",
+      touchAction: "none",
+      zIndex: -1,
+    },
   } as const;
 
   const dragged = offset.x !== 0 || offset.y !== 0;
@@ -209,16 +222,26 @@ export function useModalWindow({
     dragged,
     offset,
     dragHandleProps,
-    /** Offset transform for a panel that is NOT centred by transform. */
+    /**
+     * Offset transform for a panel that is NOT centred by transform.
+     * `isolation: isolate` makes the panel a stacking context even when it is
+     * not being dragged, so the drag strip's negative z-index stays behind the
+     * panel's content rather than escaping to the overlay and vanishing behind
+     * the whole panel.
+     */
     panelStyle: dragged
-      ? ({ transform: `translate(${offset.x}px, ${offset.y}px)` } as const)
-      : undefined,
+      ? ({
+          transform: `translate(${offset.x}px, ${offset.y}px)`,
+          isolation: "isolate",
+        } as const)
+      : ({ isolation: "isolate" } as const),
     /** Offset transform for a panel centred with -translate-x/y-1/2. */
     centeredPanelStyle: dragged
       ? ({
           transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))`,
+          isolation: "isolate",
         } as const)
-      : undefined,
+      : ({ isolation: "isolate" } as const),
   };
 }
 
