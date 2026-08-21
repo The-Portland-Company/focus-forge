@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useUserPreferences } from "@/lib/supabase/hooks";
+import { useSupabaseUser, useUserPreferences } from "@/lib/supabase/hooks";
 import { fetchChapters, fetchTooltips } from "./queries";
 import {
   getChapterProgress,
@@ -20,12 +20,18 @@ import {
 
 /** Loads published chapters (with sections) once per mount. */
 export function useTutorialChapters() {
+  const { user } = useSupabaseUser();
   const [chapters, setChapters] = useState<TutorialChapter[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
 
+  // Wait for the authenticated session before querying — RLS only exposes
+  // published rows to `authenticated`, so firing before the session hydrates
+  // would run as `anon` and return an empty list.
   useEffect(() => {
+    if (!user) return;
     let alive = true;
+    setLoading(true);
     fetchChapters()
       .then((c) => alive && setChapters(c))
       .catch((e) => alive && setError(e))
@@ -33,17 +39,19 @@ export function useTutorialChapters() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [user]);
 
   return { chapters, loading, error };
 }
 
 /** Loads published contextual tooltips once per mount. */
 export function useTutorialTooltips() {
+  const { user } = useSupabaseUser();
   const [tooltips, setTooltips] = useState<TutorialTooltip[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!user) return;
     let alive = true;
     fetchTooltips()
       .then((t) => alive && setTooltips(t))
@@ -52,7 +60,7 @@ export function useTutorialTooltips() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [user]);
 
   return { tooltips, loading };
 }

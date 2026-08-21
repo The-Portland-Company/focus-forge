@@ -130,7 +130,10 @@ export default function TutorialReaderPage() {
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-6 py-10 lg:grid-cols-[260px_1fr]">
         {/* Sidebar TOC */}
         <aside className="hidden lg:block">
-          <Link href="/tutorial" className="mb-4 inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-white">
+          <Link href="/" className="mb-3 inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-white">
+            <ArrowLeft className="h-4 w-4" /> Back to app
+          </Link>
+          <Link href="/tutorial" className="mb-4 flex items-center gap-1.5 text-sm text-gray-400 hover:text-white">
             <List className="h-4 w-4" /> All chapters
           </Link>
           <nav className="space-y-5">
@@ -175,6 +178,14 @@ export default function TutorialReaderPage() {
 
         {/* Reader */}
         <article className="min-w-0">
+          <div className="mb-4 flex items-center gap-4 lg:hidden">
+            <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-white">
+              <ArrowLeft className="h-4 w-4" /> Back to app
+            </Link>
+            <Link href="/tutorial" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-white">
+              <List className="h-4 w-4" /> All chapters
+            </Link>
+          </div>
           <p className="text-sm font-medium uppercase tracking-widest text-indigo-400">
             {chapter.title}
           </p>
