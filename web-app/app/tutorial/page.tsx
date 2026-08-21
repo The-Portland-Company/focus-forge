@@ -8,6 +8,7 @@ import {
   Play,
   Sparkles,
   ArrowRight,
+  ArrowLeft,
 } from "lucide-react";
 import { useTutorialChapters, useTutorialProgress } from "@/lib/tutorial/hooks";
 import type { TutorialChapter } from "@/lib/tutorial/types";
@@ -81,6 +82,12 @@ export default function TutorialIndexPage() {
     <main className="min-h-screen bg-[#0E0F16] text-gray-200">
       <div className="mx-auto max-w-3xl px-6 py-14">
         <header className="mb-10 border-b border-white/10 pb-8">
+          <Link
+            href="/"
+            className="mb-6 inline-flex items-center gap-1.5 text-sm text-gray-400 transition hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to app
+          </Link>
           <p className="text-sm font-medium uppercase tracking-widest text-indigo-400">
             Focus: Forge
           </p>

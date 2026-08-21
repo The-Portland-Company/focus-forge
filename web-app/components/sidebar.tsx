@@ -49,6 +49,7 @@ import {
   Download,
   X,
   MoreHorizontal,
+  GraduationCap,
 } from "lucide-react";
 import { Database, Project, Task, User as AppUser } from "@/lib/types";
 import { UserAvatar } from "@/components/user-avatar";
@@ -3064,6 +3065,14 @@ export function Sidebar({
       >
         {isCollapsed ? (
           <div className="space-y-1">
+            <Tooltip content="Tutorial">
+              <Link
+                href="/tutorial"
+                className="w-full flex items-center justify-center p-2 rounded-lg hover:bg-zinc-800 transition-colors group"
+              >
+                <GraduationCap className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+              </Link>
+            </Tooltip>
             <Tooltip content="API Docs">
               <Link
                 href="/developer/api"
@@ -3099,6 +3108,13 @@ export function Sidebar({
           </div>
         ) : (
           <div className="space-y-1">
+            <Link
+              href="/tutorial"
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-white transition-colors"
+            >
+              <GraduationCap className="w-4 h-4" />
+              Tutorial
+            </Link>
             <Link
               href="/settings?section=llm-providers"
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-white transition-colors"
