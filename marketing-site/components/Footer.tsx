@@ -23,6 +23,7 @@ export function Footer() {
                 <li><Link href="/#autonomous" className="hover:text-foreground no-underline-link">Autonomous loop</Link></li>
                 <li><Link href="/#devnotes" className="hover:text-foreground no-underline-link">DevNotes</Link></li>
                 <li><Link href="/#platforms" className="hover:text-foreground no-underline-link">Platforms</Link></li>
+                <li><Link href="/compare/" className="hover:text-foreground no-underline-link">Compare</Link></li>
               </ul>
             </div>
             <div>

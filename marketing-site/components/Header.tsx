@@ -7,6 +7,7 @@ const NAV = [
   { href: "/#autonomous", label: "Autonomous" },
   { href: "/#devnotes", label: "DevNotes" },
   { href: "/#platforms", label: "Platforms" },
+  { href: "/compare/", label: "Compare" },
 ]
 
 export function Header() {
