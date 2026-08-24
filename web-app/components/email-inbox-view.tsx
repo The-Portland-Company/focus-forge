@@ -1435,6 +1435,27 @@ export function applyOptimisticThreadActionState(
         };
         return nextItem;
       }
+      case "mark_known": {
+        // A known contact is never spam. Pull it out of spam/quarantine if it
+        // was there, and drop the score to 0% immediately; the server reprocess
+        // confirms it. The row otherwise stays put in the inbox.
+        const wasSpam =
+          item.status === "spam" ||
+          item.status === "quarantine" ||
+          item.classification === "spam";
+        const nextItem: InboxItem = {
+          ...item,
+          status: wasSpam
+            ? item.projectId
+              ? "active"
+              : "needs_project"
+            : item.status,
+          classification:
+            item.classification === "spam" ? "actionable" : item.classification,
+          actionConfidence: 0,
+        };
+        return nextItem;
+      }
       case "quarantine": {
         const nextItem: InboxItem = {
           ...item,
