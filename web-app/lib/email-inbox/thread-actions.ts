@@ -5,6 +5,7 @@ export type ThreadAction =
   | "mark_read"
   | "archive"
   | "spam"
+  | "mark_known"
   | "delete"
   | "always_delete_sender"
   | "snooze"
@@ -26,6 +27,7 @@ const ACTION_LABELS: Record<ThreadAction, string> = {
   mark_read: "Mark read",
   archive: "Archive",
   spam: "Spam",
+  mark_known: "Mark as Known Contact",
   delete: "Delete",
   always_delete_sender: "Always Delete Sender",
   snooze: "Snooze",

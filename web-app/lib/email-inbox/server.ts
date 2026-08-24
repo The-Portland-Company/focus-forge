@@ -46,6 +46,11 @@ import {
   generateSpamExceptionRuleDraft,
 } from "@/lib/email-inbox/spam-exception";
 import {
+  buildKnownContactConditions,
+  buildKnownContactRulePayload,
+  normalizeKnownContactEmail,
+} from "@/lib/email-inbox/known-contact";
+import {
   SPAM_MIRROR_SWEEP_LIMIT,
   SPAM_PROVIDER_LABEL_MARKER,
   selectSpamThreadsNeedingProviderMirror,
@@ -3238,9 +3243,39 @@ export async function reprocessThread(
   const senderDomainSpamExempt = isContentSpamExemptSender(
     buildRuleContext(mailbox, latestMessage).senderEmail,
   );
+
+  // Known Contact — auto-trust. If the user has ever replied to this sender,
+  // they're a known contact: their mail is never scored as spam. Runs on every
+  // inbound (this function is the post-ingest classify path) BEFORE the spam
+  // classifier below. We only pay for the reply-history lookup when no rule has
+  // already established trust (preventSpamClassification short-circuits it once
+  // the persisted Known Contact rule exists), and we persist the rule the first
+  // time so future mail is deterministically known without re-querying history.
+  let knownByReplyHistory = false;
+  if (!preventSpamClassification) {
+    const knownSenderEmail = buildRuleContext(
+      mailbox,
+      latestMessage,
+    ).senderEmail;
+    if (knownSenderEmail) {
+      knownByReplyHistory = await hasUserRepliedToSender(
+        mailbox.owner_user_id,
+        knownSenderEmail,
+      );
+      if (knownByReplyHistory) {
+        // Best-effort: turn the auto-trust into a durable pattern. Never breaks
+        // sync — a failure just means we re-detect via history next time.
+        await ensureKnownContactRule({
+          userId: mailbox.owner_user_id,
+          senderEmail: knownSenderEmail,
+        });
+      }
+    }
+  }
+
   // Effective suppression for the automatic content classifier only.
   const suppressContentSpam =
-    preventSpamClassification || senderDomainSpamExempt;
+    preventSpamClassification || senderDomainSpamExempt || knownByReplyHistory;
 
   // Private, trainable k-NN spam verdict (free, edge embeddings). Computed
   // before the LLM/heuristic analysis so a CONFIDENT verdict can override the
@@ -6872,6 +6907,7 @@ export async function applyThreadAction(params: {
     | "mark_read"
     | "archive"
     | "spam"
+    | "mark_known"
     | "delete"
     | "always_delete_sender"
     | "snooze"
@@ -6926,6 +6962,12 @@ export async function applyThreadAction(params: {
     // Explicit user re-analysis — always run the full model, even for
     // spam-ruled mail that auto-ingestion would skip to save credits.
     return reprocessThread(params.threadId, params.userId, { manual: true });
+  }
+
+  if (effectiveAction === "mark_known") {
+    // Trust the sender: persist a deterministic never_spam rule and reprocess so
+    // the score drops to 0%. Applied as a hard override before AI scoring.
+    return markThreadSenderKnown(params.userId, params.threadId);
   }
 
   if (effectiveAction === "set_classification") {
@@ -7339,6 +7381,188 @@ export async function emptyTrashForUser(params: {
     deletedThreadCount,
     mailboxCount: threadsByMailbox.size,
   };
+}
+
+/**
+ * True when the user has ever SENT a message to `senderEmail` from one of their
+ * own mailboxes — i.e. they've replied to / emailed this person before. Used to
+ * auto-mark inbound senders as Known Contacts so their mail is never scored as
+ * spam. Scoped to the user's mailboxes; best-effort (returns false on error).
+ */
+export async function hasUserRepliedToSender(
+  userId: string,
+  senderEmail: string,
+): Promise<boolean> {
+  const normalized = normalizeKnownContactEmail(senderEmail);
+  if (!normalized || !normalized.includes("@")) {
+    return false;
+  }
+
+  const admin = getAdminClient();
+
+  try {
+    const mailboxes = await listMailboxesForUser(userId);
+    const mailboxIds = mailboxes.map((mailbox) => mailbox.id);
+    if (mailboxIds.length === 0) {
+      return false;
+    }
+
+    // Candidate participant rows: this address appears as a recipient
+    // (to/cc/bcc) on some message. Case-insensitive on the stored address.
+    const { data: participantRows } = await admin
+      .from("email_participants")
+      .select("message_id")
+      .ilike("email_address", normalized)
+      .in("participant_role", ["to", "cc", "bcc"])
+      .not("message_id", "is", null)
+      .limit(500);
+
+    const messageIds = Array.from(
+      new Set(
+        (participantRows || [])
+          .map((row: any) => row.message_id)
+          .filter(Boolean),
+      ),
+    );
+    if (messageIds.length === 0) {
+      return false;
+    }
+
+    // At least one of those messages is an OUTBOUND message the user sent from
+    // their own mailbox → they've replied to this sender before.
+    const { data: outbound } = await admin
+      .from("email_messages")
+      .select("id")
+      .in("id", messageIds)
+      .eq("direction", "outbound")
+      .in("mailbox_id", mailboxIds)
+      .limit(1);
+
+    return (outbound?.length ?? 0) > 0;
+  } catch (e) {
+    console.error("hasUserRepliedToSender failed:", e);
+    return false;
+  }
+}
+
+/**
+ * Idempotently persist a user-scoped `never_spam` rule marking `senderEmail` as
+ * a Known Contact. Deterministic (no AI). Reactivates an existing matching rule
+ * if it was disabled. Returns the rule, or null on failure (best-effort).
+ */
+export async function ensureKnownContactRule(params: {
+  userId: string;
+  senderEmail: string;
+  senderName?: string | null;
+}): Promise<EmailRule | null> {
+  const senderEmail = normalizeKnownContactEmail(params.senderEmail);
+  if (!senderEmail || !senderEmail.includes("@")) {
+    return null;
+  }
+
+  try {
+    const payload = buildKnownContactRulePayload({
+      userId: params.userId,
+      senderEmail,
+      senderName: params.senderName ?? null,
+    });
+
+    const existingRule = await findMatchingNeverSpamRule({
+      userId: params.userId,
+      mailboxId: null,
+      conditions: buildKnownContactConditions(senderEmail),
+    });
+
+    if (existingRule) {
+      if (existingRule.isActive) {
+        return existingRule;
+      }
+      return await updateRule(params.userId, existingRule.id, {
+        name: payload.name,
+        description: payload.description,
+        isActive: true,
+        priority: payload.priority,
+        matchMode: payload.matchMode,
+        conditions: payload.conditions,
+        actions: payload.actions,
+        stopProcessing: payload.stopProcessing,
+      });
+    }
+
+    return await createRule(params.userId, payload);
+  } catch (e) {
+    console.error("ensureKnownContactRule failed:", e);
+    return null;
+  }
+}
+
+/**
+ * Manual "Mark as Known Contact" action for a thread. Persists the deterministic
+ * never_spam rule for the sender, records a not_spam training label, and
+ * reprocesses so the thread's spam score immediately drops to 0%.
+ */
+export async function markThreadSenderKnown(userId: string, threadId: string) {
+  const thread = await ensureThreadAccess(userId, threadId);
+  const mailbox = (await ensureMailboxManage(
+    userId,
+    String(thread.mailbox_id),
+  )) as MailboxTransportRow;
+  const latestMessage = await getLatestThreadMessage(threadId);
+
+  if (!latestMessage) {
+    throw new Error("Email thread has no messages");
+  }
+
+  const metadata = latestMessage.metadata_json || {};
+  const ruleContext = buildRuleContext(mailbox, latestMessage);
+  const senderEmail = normalizeKnownContactEmail(ruleContext.senderEmail);
+
+  if (!senderEmail || !senderEmail.includes("@")) {
+    throw new Error("Could not determine a sender address for this thread");
+  }
+
+  const senderName =
+    String(
+      metadata.from?.[0]?.name ||
+        latestMessage.author_name ||
+        latestMessage.display_name ||
+        "",
+    ) || null;
+
+  const rule = await ensureKnownContactRule({
+    userId,
+    senderEmail,
+    senderName,
+  });
+
+  // Record a not_spam training label so the k-NN corpus reflects the trust
+  // signal. Best-effort — must never break the known-contact flow.
+  try {
+    const spamText = buildSpamInputText(
+      { subject: thread.subject },
+      {
+        subject: latestMessage.subject,
+        body_text: latestMessage.body_text,
+        senderEmail,
+      },
+    );
+    await recordSpamLabel({
+      userId,
+      organizationId:
+        (mailbox as unknown as { organization_id: string | null })
+          .organization_id ?? undefined,
+      mailboxId: mailbox.id,
+      threadId,
+      text: spamText,
+      label: "not_spam",
+    });
+  } catch (e) {
+    console.error("recordSpamLabel (known contact) failed:", e);
+  }
+
+  await reprocessThread(threadId, userId, { manual: true });
+
+  return { threadId, senderEmail, rule };
 }
 
 export async function createSpamExceptionRuleForThread(

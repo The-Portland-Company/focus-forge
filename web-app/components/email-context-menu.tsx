@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   SquareCheckBig,
   Trash2,
+  UserRoundCheck,
   UserX,
 } from "lucide-react";
 import type { ThreadAction } from "@/lib/email-inbox/thread-actions";
@@ -423,6 +424,14 @@ export function EmailContextMenu({
             <span>Mark as spam</span>
           </button>
         )}
+        <button
+          type="button"
+          className={item_}
+          onClick={() => run("mark_known")}
+        >
+          <UserRoundCheck className={iconCls} />
+          <span>Mark as Known Contact</span>
+        </button>
         {onUnsubscribe ? (
           <button
             type="button"
