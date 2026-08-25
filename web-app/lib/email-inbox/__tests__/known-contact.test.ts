@@ -29,7 +29,8 @@ test("buildKnownContactRulePayload is a deterministic user-scoped never_spam rul
   // User-scoped (applies across every mailbox), deterministic source.
   assert.equal(payload.userId, "user-1");
   assert.equal(payload.mailboxId, null);
-  assert.equal(payload.source, "known_contact");
+  // Must be an allowed email_rules_source_check value or the INSERT fails.
+  assert.equal(payload.source, "user");
   assert.equal(payload.isActive, true);
   assert.equal(payload.matchMode, "all");
   assert.equal(payload.stopProcessing, false);
