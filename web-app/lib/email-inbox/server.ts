@@ -7568,7 +7568,72 @@ export async function markThreadSenderKnown(userId: string, threadId: string) {
 
   await reprocessThread(threadId, userId, { manual: true });
 
+  // Apply the trust to EVERY thread from this sender, not just the one clicked.
+  // The user has multiple emails from the same person; marking one Known must
+  // clear the spam score on all of them. Reprocess the rest in the background
+  // (failure-isolated, concurrency-limited); each UPDATE pushes to the client
+  // via realtime, so their scores drop to 0% without a manual refresh.
+  try {
+    const otherThreadIds = (
+      await findThreadIdsFromSender(userId, senderEmail)
+    ).filter((id) => id !== threadId);
+    if (otherThreadIds.length > 0) {
+      void runThreadAnalysisInBackground(otherThreadIds, userId);
+    }
+  } catch (e) {
+    console.error("known-contact sender fan-out failed:", e);
+  }
+
   return { threadId, senderEmail, rule };
+}
+
+/**
+ * All thread ids owned by `userId` whose sender (the `from` participant) is
+ * `senderEmail`. Used to apply a Known Contact rule across every message from
+ * that person. Best-effort; returns [] on error. Bounded to a sane ceiling.
+ */
+async function findThreadIdsFromSender(
+  userId: string,
+  senderEmail: string,
+): Promise<string[]> {
+  const normalized = normalizeKnownContactEmail(senderEmail);
+  if (!normalized || !normalized.includes("@")) {
+    return [];
+  }
+
+  const admin = getAdminClient();
+
+  try {
+    const { data: senderRows } = await admin
+      .from("email_participants")
+      .select("thread_id")
+      .eq("participant_role", "from")
+      .ilike("email_address", normalized)
+      .not("thread_id", "is", null)
+      .limit(2000);
+
+    const candidateIds = Array.from(
+      new Set(
+        (senderRows || []).map((row: any) => String(row.thread_id)).filter(Boolean),
+      ),
+    );
+    if (candidateIds.length === 0) {
+      return [];
+    }
+
+    // Scope to threads the user actually owns (never touch another user's mail).
+    const { data: ownedThreads } = await admin
+      .from("email_threads")
+      .select("id")
+      .in("id", candidateIds)
+      .eq("owner_user_id", userId)
+      .limit(2000);
+
+    return (ownedThreads || []).map((row: any) => String(row.id));
+  } catch (e) {
+    console.error("findThreadIdsFromSender failed:", e);
+    return [];
+  }
 }
 
 export async function createSpamExceptionRuleForThread(
