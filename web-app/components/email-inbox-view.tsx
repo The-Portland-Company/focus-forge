@@ -299,6 +299,12 @@ const REALTIME_CONNECTED_POLL_INTERVAL_MS = 60 * 1000;
  * BACKGROUND snapshots settle — optimistic updates paint immediately.
  */
 const INBOX_SETTLE_WINDOW_MS = 2500;
+/**
+ * How long after opening a thread we defend its optimistic "read" state against
+ * a background snapshot that raced ahead of the async mark_read POST. Bounded so
+ * a genuinely new inbound message can still mark the thread unread afterward.
+ */
+const READ_STATE_PRESERVE_MS = 15000;
 const EMAIL_DETAIL_PANEL_DEFAULT_WIDTH = 380;
 const EMAIL_DETAIL_PANEL_MIN_WIDTH = 320;
 const EMAIL_DETAIL_PANEL_MAX_WIDTH = 720;
@@ -1408,6 +1414,38 @@ export function applyOptimisticThreadReadState(
   return items.map((item) =>
     item.id === threadId ? { ...item, isUnread: false } : item,
   );
+}
+
+/**
+ * Keep a just-opened thread's optimistic "read" state when a background snapshot
+ * lands before the async mark_read POST commits. For any incoming row still
+ * flagged unread that (a) the user touched within `preserveMs` and (b) the prior
+ * local snapshot already showed as read, force it back to read. Only ever flips
+ * unread → read, and only within the TTL, so genuinely new inbound mail can
+ * still mark a thread unread once the window passes. Pure + unit-tested.
+ */
+export function preserveJustReadThreads(
+  incoming: InboxItem[],
+  previousLocal: InboxItem[],
+  touchedAt: Map<string, number>,
+  nowMs: number,
+  preserveMs: number,
+): InboxItem[] {
+  if (touchedAt.size === 0) return incoming;
+  const previousById = new Map(previousLocal.map((item) => [item.id, item]));
+  let changed = false;
+  const next = incoming.map((item) => {
+    if (!item.isUnread) return item;
+    const touched = touchedAt.get(item.id);
+    if (touched === undefined || nowMs - touched > preserveMs) return item;
+    const prior = previousById.get(item.id);
+    if (prior && prior.isUnread === false) {
+      changed = true;
+      return { ...item, isUnread: false };
+    }
+    return item;
+  });
+  return changed ? next : incoming;
 }
 
 export function applyOptimisticThreadActionState(
@@ -2645,6 +2683,15 @@ export function EmailInboxView({
   const handleSelectThread = (item: InboxItem) => {
     // Manual selection resumes normal auto-select behavior after a delete.
     suppressInboxAutoSelectRef.current = false;
+    // Opening a thread is a deliberate interaction: arm the settle window so a
+    // background /api/email/inbox snapshot can't land in the seconds after the
+    // click, re-sort/splice the list, and revert the optimistic read state onto
+    // the wrong (shifted) row — the reported "clicking a row marks the one below
+    // it unread" off-by-one. Every other interaction already does this; a plain
+    // read-click was the one path that didn't. Also record the touch so the
+    // snapshot reconcile below preserves this row's just-read state.
+    lastInteractionAtRef.current = Date.now();
+    touchedThreadsRef.current.set(item.id, Date.now());
     setSelectedThreadId(item.id);
     // Threads always open in the dedicated full-screen modal on every layout
     // (the inline reading pane has been removed).
@@ -2788,10 +2835,16 @@ export function EmailInboxView({
     // Reconcile just-actioned threads against this fresh read: rows the server
     // has now committed (or dropped) release their pin; rows still showing a
     // pre-commit status stay filtered out so a reconcile can't resurrect them.
-    const nextItems = applyPendingRemovals(
-      pendingRemovalsRef.current,
-      params.nextItems,
+    const nextItems = preserveJustReadThreads(
+      applyPendingRemovals(
+        pendingRemovalsRef.current,
+        params.nextItems,
+        Date.now(),
+      ),
+      inboxSnapshotRef.current,
+      touchedThreadsRef.current,
       Date.now(),
+      READ_STATE_PRESERVE_MS,
     );
 
     // Drop the cached conversation for any thread that changed — a new message
