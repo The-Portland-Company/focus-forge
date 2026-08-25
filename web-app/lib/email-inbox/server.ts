@@ -3448,7 +3448,13 @@ export async function reprocessThread(
       action_title: aiResult.actionTitle,
       summary_text: aiResult.summary,
       preview_text: extractPlainTextPreview(latestMessage.body_text || "", 240),
-      action_confidence: aiResult.confidence,
+      // The inbox surfaces action_confidence as the "% chance this is spam". When
+      // spam classification is suppressed (a Known Contact / never_spam rule or a
+      // content-spam-exempt domain) the sender is trusted, so the spam score is 0
+      // by definition. Persisting 0 keeps the optimistic 0 from snapping back to
+      // the old analysis confidence on the post-action refresh. Task-generation
+      // gating uses aiResult.confidence directly, so it is unaffected.
+      action_confidence: suppressContentSpam ? 0 : aiResult.confidence,
       action_reason: aiResult.reason,
       classification,
       status,
