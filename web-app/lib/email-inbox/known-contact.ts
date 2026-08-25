@@ -34,7 +34,10 @@ export type KnownContactRulePayload = {
   mailboxId: null;
   name: string;
   description: string;
-  source: "known_contact";
+  // Must be one of the email_rules_source_check values ('user' | 'system' |
+  // 'ai_training'). A Known Contact is a user-created allow rule, so 'user'.
+  // (Using an out-of-set value silently fails the INSERT under RLS/admin.)
+  source: "user";
   isActive: true;
   priority: number;
   matchMode: "all";
@@ -67,7 +70,7 @@ export function buildKnownContactRulePayload(params: {
         0,
         220,
       ),
-    source: "known_contact",
+    source: "user",
     isActive: true,
     priority: 1,
     matchMode: "all",
