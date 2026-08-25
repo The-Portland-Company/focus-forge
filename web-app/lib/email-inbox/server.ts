@@ -1255,13 +1255,22 @@ async function ingestOutboundMailboxMessage(mailbox: any, message: any) {
 }
 
 function buildRuleContext(mailbox: any, message: any): EmailRuleContext {
+  const metadata = message.metadata_json || {};
+  // Persisted email_messages rows have no contact_email/author_email columns
+  // (those exist only on the freshly-parsed message during ingest). The rule
+  // path always runs against a DB row via getLatestThreadMessage, so fall back
+  // to the stored sender in metadata_json.from — otherwise senderEmail is empty
+  // and every sender_email rule (incl. Known Contact never_spam) silently fails
+  // to match, and markThreadSenderKnown can't resolve a sender.
   const senderEmail = String(
-    message.contact_email || message.author_email || "",
+    message.contact_email ||
+      message.author_email ||
+      metadata.from?.[0]?.email ||
+      "",
   ).toLowerCase();
   const senderDomain = senderEmail.includes("@")
     ? senderEmail.split("@")[1]
     : "";
-  const metadata = message.metadata_json || {};
   const participants = [
     ...(metadata.from || []),
     ...(metadata.to || []),
@@ -7508,6 +7517,7 @@ export async function ensureKnownContactRule(params: {
  * reprocesses so the thread's spam score immediately drops to 0%.
  */
 export async function markThreadSenderKnown(userId: string, threadId: string) {
+  const admin = getAdminClient();
   const thread = await ensureThreadAccess(userId, threadId);
   const mailbox = (await ensureMailboxManage(
     userId,
@@ -7521,7 +7531,23 @@ export async function markThreadSenderKnown(userId: string, threadId: string) {
 
   const metadata = latestMessage.metadata_json || {};
   const ruleContext = buildRuleContext(mailbox, latestMessage);
-  const senderEmail = normalizeKnownContactEmail(ruleContext.senderEmail);
+  let senderEmail = normalizeKnownContactEmail(ruleContext.senderEmail);
+
+  // Fallback: resolve the sender from the stored `from` participant if the
+  // latest message's metadata didn't carry it (e.g. the newest message in the
+  // thread is an outbound reply). Keeps the action working for every thread.
+  if (!senderEmail || !senderEmail.includes("@")) {
+    const { data: fromRow } = await admin
+      .from("email_participants")
+      .select("email_address")
+      .eq("thread_id", threadId)
+      .eq("participant_role", "from")
+      .not("email_address", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    senderEmail = normalizeKnownContactEmail(fromRow?.email_address || "");
+  }
 
   if (!senderEmail || !senderEmail.includes("@")) {
     throw new Error("Could not determine a sender address for this thread");
