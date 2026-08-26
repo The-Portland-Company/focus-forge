@@ -1312,6 +1312,11 @@ export async function applyMailboxThreadAction(params: {
     }
 
     if (params.action === "spam") {
+      // Mark the message read on the server before filing it into Junk, so the
+      // mailbox matches Focus (which treats spam as read) and the junk folder
+      // isn't left showing an unread count. Flags travel with the message on a
+      // server-side MOVE, so setting \Seen first keeps it read in Junk.
+      await client.messageFlagsAdd(uidRange, ["\\Seen"], { uid: true });
       const junkPath = await resolveJunkMailboxPath(client);
       if (junkPath) {
         await client.messageMove(uidRange, junkPath, { uid: true });
