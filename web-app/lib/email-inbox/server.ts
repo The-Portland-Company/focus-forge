@@ -3467,6 +3467,11 @@ export async function reprocessThread(
       action_reason: aiResult.reason,
       classification,
       status,
+      // Spam is marked read automatically: a message classified as spam (by a
+      // rule or the AI/heuristic) is settled junk, so it should never sit unread
+      // in Focus — matching the manual "spam" action, which also marks it read.
+      // The provider \Seen flag is synced separately by the spam mirror.
+      ...(classification === "spam" ? { is_unread: false } : {}),
       needs_project: needsProject,
       always_delete: alwaysDelete,
       task_suggestions_json: aiResult.taskSuggestions,
