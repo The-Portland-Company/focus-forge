@@ -79,7 +79,7 @@ import {
   fetchMailboxAttachmentByProviderMessageId,
   fetchMailboxMessagesByProviderMessageIds,
   fetchMailboxFolderUids,
-  fetchMailboxMessageReadStates,
+  fetchMailboxUnseenUids,
   fetchMailboxMessages,
   fetchMailboxSentMessages,
   fetchMailboxDraftMessages,
@@ -91,7 +91,7 @@ import {
   type ReadMailboxFolderLiveResult,
 } from "@/lib/email-inbox/provider";
 import { MAILBOX_PROVIDER_PRESETS } from "@/lib/email-inbox/provider-presets";
-import { reconcileThreadReadStates } from "@/lib/email-inbox/reconcile-read-states";
+import { partitionThreadsByUnseen } from "@/lib/email-inbox/partition-unseen-threads";
 import { matchInboxTab } from "@/lib/email-inbox/inbox-tabs";
 import {
   hasApnsConfiguration,
@@ -1784,84 +1784,88 @@ async function mirrorProviderFolderState(params: {
   return { archivedThreadCount: departedThreadIds.length, restoredThreadCount };
 }
 
+// Statuses whose unread flag mirrors the provider inbox. Archived / deleted /
+// spam / resolved threads have left the inbox and keep whatever unread state
+// they had — this reconcile never touches them.
+const READ_STATE_RECONCILED_STATUSES = [
+  "active",
+  "needs_project",
+  "quarantine",
+];
+
 async function syncMailboxThreadReadStates(params: {
   mailboxId: string;
   mailbox: MailboxTransportRow;
-  providerMessageIds?: string[];
 }) {
   const admin = getAdminClient();
-  const providerMessageIds = (params.providerMessageIds || []).filter(Boolean);
-  let query = admin
+
+  // Ask the provider directly which messages are unread (IMAP SEARCH UNSEEN over
+  // the WHOLE folder). This is authoritative and independent of how many messages
+  // the mailbox holds — the old approach only sampled the newest 250 email_messages
+  // rows, so in a 2,000+ message mailbox ~90% of threads were never reconciled and
+  // any thread wrongly cleared to read stayed that way. A null result means the
+  // search failed (transient) — do nothing rather than clear unread.
+  const unseenUids = await fetchMailboxUnseenUids(params.mailbox);
+  if (unseenUids === null) {
+    return;
+  }
+
+  // Map every stored message (with a provider UID) to its thread.
+  const { data: messageRows } = await admin
     .from("email_messages")
     .select("thread_id,provider_message_id")
     .eq("mailbox_id", params.mailboxId)
     .not("provider_message_id", "is", null);
 
-  if (providerMessageIds.length > 0) {
-    query = query.in("provider_message_id", providerMessageIds);
-  } else {
-    query = query.order("created_at", { ascending: false }).limit(250);
-  }
-
-  const { data: messageRows } = await query;
-
-  // Nothing to reconcile. Do NOT blanket-clear the mailbox here: an empty result
-  // (UID/UIDVALIDITY drift, a transient IMAP hiccup) previously marked EVERY
-  // thread read, which is exactly how a mailbox with 65 unread collapsed to 18.
-  // Absence of data is "unknown", never "read".
   if (!messageRows || messageRows.length === 0) {
     return;
   }
 
-  // Group the queried provider UIDs by thread so each thread is judged against
-  // its own messages.
-  const threadIdByProviderMessageId = new Map<string, string>();
-  const providerIdsByThreadId = new Map<string, Set<string>>();
-
-  (messageRows as any[]).forEach((row) => {
-    const threadId = String(row.thread_id || "");
-    const providerMessageId = String(row.provider_message_id || "");
-
-    if (!threadId || !providerMessageId) {
-      return;
-    }
-
-    threadIdByProviderMessageId.set(providerMessageId, threadId);
-    let set = providerIdsByThreadId.get(threadId);
-    if (!set) {
-      set = new Set<string>();
-      providerIdsByThreadId.set(threadId, set);
-    }
-    set.add(providerMessageId);
-  });
-
-  // Live \Seen for the UIDs still present in the folder. A UID the provider does
-  // not return is UNKNOWN (the message left the folder, or UID drift) — it must
-  // never be interpreted as "read".
-  const readStates = await fetchMailboxMessageReadStates(
-    params.mailbox,
-    Array.from(threadIdByProviderMessageId.keys()),
+  // A thread is unread iff any of its messages' UIDs is in the provider's unseen
+  // set (pure, unit-tested).
+  const { unreadThreadIds, readThreadIds } = partitionThreadsByUnseen(
+    messageRows as Array<{
+      thread_id?: string | null;
+      provider_message_id?: string | null;
+    }>,
+    unseenUids,
   );
-  const isUnreadByProviderMessageId = new Map<string, boolean>();
-  readStates.forEach((state) => {
-    isUnreadByProviderMessageId.set(state.providerMessageId, state.isUnread);
-  });
 
-  // Positive-confirmation decision (pure, unit-tested). Threads whose state
-  // can't be proven this pass are left untouched rather than cleared to read.
-  const updates = reconcileThreadReadStates({
-    providerIdsByThreadId,
-    isUnreadByProviderMessageId,
-  });
+  if (unreadThreadIds.length === 0 && readThreadIds.length === 0) {
+    return;
+  }
 
-  await Promise.all(
-    updates.map(({ threadId, isUnread }) =>
+  // Chunk the id lists: a very large `.in(...)` builds an over-long query string.
+  const chunk = <T>(items: T[], size: number): T[][] => {
+    const out: T[][] = [];
+    for (let i = 0; i < items.length; i += size) {
+      out.push(items.slice(i, i + size));
+    }
+    return out;
+  };
+
+  const ops: Array<PromiseLike<unknown>> = [];
+  for (const ids of chunk(unreadThreadIds, 100)) {
+    ops.push(
       admin
         .from("email_threads")
-        .update({ is_unread: isUnread })
-        .eq("id", threadId),
-    ),
-  );
+        .update({ is_unread: true })
+        .eq("mailbox_id", params.mailboxId)
+        .in("status", READ_STATE_RECONCILED_STATUSES)
+        .in("id", ids),
+    );
+  }
+  for (const ids of chunk(readThreadIds, 100)) {
+    ops.push(
+      admin
+        .from("email_threads")
+        .update({ is_unread: false })
+        .eq("mailbox_id", params.mailboxId)
+        .in("status", READ_STATE_RECONCILED_STATUSES)
+        .in("id", ids),
+    );
+  }
+  await Promise.all(ops);
 }
 
 async function sendNewEmailPushNotifications(params: {
