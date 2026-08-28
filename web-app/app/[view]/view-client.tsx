@@ -150,7 +150,7 @@ import { AlertBellButton } from "@/components/alert-center";
 // quickly a *server-side* change is surfaced to this client. We poll faster
 // when the tab is visible (user is actively waiting on mail) and back off when
 // hidden to avoid needless round-trips and provider pressure.
-const EMAIL_BACKGROUND_SYNC_INTERVAL_VISIBLE_MS = 15 * 1000;
+const EMAIL_BACKGROUND_SYNC_INTERVAL_VISIBLE_MS = 60 * 1000;
 const EMAIL_BACKGROUND_SYNC_INTERVAL_HIDDEN_MS = 60 * 1000;
 const PROJECT_SECTION_LAYOUT_STORAGE_KEY = "focus-forge:project-section-layout";
 
@@ -1383,7 +1383,11 @@ export default function ViewPage({
     enabled: !chromeOnly && !isEmailThreadPopout,
     projectIds: realtimeProjectIds,
     onChange: () => {
-      void fetchData();
+      // A task row changed (often a task the email AI auto-created from a
+      // thread). Refresh tasks, but NOT the inbox list — pulling inbox items here
+      // replaced the whole list out from under the reader and was a source of the
+      // post-load shifting. The inbox owns its own 60s refresh + realtime.
+      void fetchData({ includeInboxItems: false });
     },
   });
 

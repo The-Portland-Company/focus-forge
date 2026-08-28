@@ -205,6 +205,7 @@ import {
   applyEmailThreadRealtimeChange,
   type EmailThreadRealtimeChange,
 } from "@/lib/email-inbox/apply-realtime-patch";
+import { reconcileAdditive } from "@/lib/email-inbox/reconcile-additive";
 import {
   DEFAULT_EMAIL_REPLY_SETTINGS,
   EMAIL_REPLY_CONCISENESS_OPTIONS,
@@ -286,10 +287,11 @@ const DEFAULT_PROFILE_SETTINGS = JSON.stringify(
   null,
   2,
 );
-const BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 30 * 1000;
-// When Supabase Realtime is connected it carries new-mail signals, so the
-// poll only needs to act as a slow safety net.
-const REALTIME_CONNECTED_POLL_INTERVAL_MS = 60 * 1000;
+// One calm cadence for the whole inbox. New mail lands on this ~60s tick (or
+// sooner via realtime); background reprocess churn no longer disturbs the list
+// between ticks (see reconcileAdditive), so there is no reason to poll faster
+// when realtime is disconnected.
+const INBOX_REFRESH_INTERVAL_MS = 60 * 1000;
 
 /**
  * How long after a click background snapshots wait before replacing the list.
@@ -1930,6 +1932,16 @@ export function EmailInboxView({
   // Last-loaded conversation per thread, so reopening one is instant.
   const threadDetailCacheRef = useRef<Map<string, any>>(new Map());
   const inboxSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
+  /** The latest server/realtime TRUTH — the list as the backend actually sees
+   *  it, before additive freezing. `inboxSnapshotRef` (what's on screen) is a
+   *  frozen view of this; a flush (user action) commits this truth so deferred
+   *  re-files/removals land exactly when the user changes what they're looking
+   *  at. See reconcileAdditive / flushDeferredInboxUpdates. */
+  const latestServerSnapshotRef = useRef<InboxItem[]>(data.inboxItems);
+  /** `${threadId}:${prompt}` pairs already sent to /ai-evaluate this session, so
+   *  a permanently-unresolved intent (provider down) is retried at most once
+   *  instead of re-firing every render. */
+  const attemptedAiIntentsRef = useRef<Set<string>>(new Set());
   /** thread id → epoch ms the user last acted on it, so a status change the
    *  server makes moments later can be attributed and explained. */
   const touchedThreadsRef = useRef<Map<string, number>>(new Map());
@@ -1939,6 +1951,7 @@ export function EmailInboxView({
   const deferredSnapshotRef = useRef<any>(null);
   const settleTimerRef = useRef<number | null>(null);
   const applyInboxSnapshotRef = useRef<((params: any) => void) | null>(null);
+  const flushDeferredInboxUpdatesRef = useRef<(() => void) | null>(null);
   // Orders concurrent /api/email/inbox reads so a stale response can never
   // overwrite a newer one (see lib/email-inbox/snapshot-sequence).
   const inboxSnapshotSequenceRef = useRef(createSnapshotSequence());
@@ -2163,13 +2176,23 @@ export function EmailInboxView({
   useEffect(() => {
     if (view !== "email-inbox") return;
     if (aiEvaluationInFlightRef.current) return;
-    const unresolved = listUnresolvedAiIntents(inboxItems, inboxTabs);
+    // Only intents we have never asked about this session. Without this an intent
+    // that stays unresolved (provider down → route returns the still-empty cached
+    // map) was re-requested on every render, hammering the endpoint forever.
+    const unresolved = listUnresolvedAiIntents(inboxItems, inboxTabs).filter(
+      (entry) =>
+        !attemptedAiIntentsRef.current.has(`${entry.threadId}:${entry.prompt}`),
+    );
     if (unresolved.length === 0) return;
 
-    const threadIds = Array.from(
-      new Set(unresolved.map((entry) => entry.threadId)),
-    ).slice(0, 12);
-    const prompts = Array.from(new Set(unresolved.map((e) => e.prompt)));
+    const batch = unresolved.slice(0, 12);
+    const threadIds = Array.from(new Set(batch.map((entry) => entry.threadId)));
+    const prompts = Array.from(new Set(batch.map((e) => e.prompt)));
+    // Mark the whole batch attempted up front: any outcome (verdict, empty map,
+    // or error) counts, so a permanently-unresolved intent is tried at most once.
+    for (const entry of batch) {
+      attemptedAiIntentsRef.current.add(`${entry.threadId}:${entry.prompt}`);
+    }
 
     aiEvaluationInFlightRef.current = true;
     void fetch("/api/email/inbox-tabs/ai-evaluate", {
@@ -2182,15 +2205,22 @@ export function EmailInboxView({
       .then((payload: { verdicts?: Record<string, Record<string, boolean>> }) => {
         const verdicts = payload?.verdicts || {};
         if (Object.keys(verdicts).length === 0) return;
-        setInboxItems((current) => {
-          const next = current.map((item) =>
+        // Verdicts re-file mail (a placement change), so they land in the deferred
+        // truth — NOT the on-screen list — and take effect at the next flush.
+        // (aiTabVerdicts is a frozen placement field, so setting it on the visible
+        // list would be a no-op re-render that also re-triggered this effect.)
+        latestServerSnapshotRef.current = latestServerSnapshotRef.current.map(
+          (item) =>
             verdicts[item.id]
-              ? { ...item, aiTabVerdicts: { ...item.aiTabVerdicts, ...verdicts[item.id] } }
+              ? {
+                  ...item,
+                  aiTabVerdicts: {
+                    ...item.aiTabVerdicts,
+                    ...verdicts[item.id],
+                  },
+                }
               : item,
-          );
-          inboxSnapshotRef.current = next;
-          return next;
-        });
+        );
       })
       .catch(() => undefined)
       .finally(() => {
@@ -2254,6 +2284,23 @@ export function EmailInboxView({
     () => getEmailInboxPageItems(groupedInboxItems, safeCurrentPage, perPage),
     [groupedInboxItems, safeCurrentPage, perPage],
   );
+
+  // Flush deferred background updates exactly when the user changes what they're
+  // looking at — switching tab, paginating, opening a thread, or entering/leaving
+  // search. Between these moments the list is frozen (see reconcileAdditive), so
+  // re-files and removals surface in direct response to a user action instead of
+  // shuffling the list while they read. `flushDeferredInboxUpdates` no-ops when
+  // nothing was deferred, so the mount-time run of each effect is harmless.
+  useEffect(() => {
+    flushDeferredInboxUpdatesRef.current?.();
+  }, [
+    selectedInboxTabId,
+    safeCurrentPage,
+    selectedThreadId,
+    isInboxSearchActive,
+    inboxFilterTab,
+    selectedMailboxId,
+  ]);
 
   const visibleSyncError = useMemo(
     () => getVisibleMailboxSyncError(mailboxes, selectedMailboxId),
@@ -2897,16 +2944,51 @@ export function EmailInboxView({
       updateStatus(departureMessage);
     }
 
-    inboxSnapshotRef.current = nextItems;
+    // `nextItems` is the fresh server truth. What we SHOW, though, is an additive
+    // reconcile of it onto the current list: background re-classification, status
+    // moves and timestamp rewrites update content only — they can't re-sort, move
+    // tab, or remove an on-screen row. Those deferred changes are held in
+    // `latestServerSnapshotRef` and land on the next user action (flush). New mail
+    // still appears immediately.
+    latestServerSnapshotRef.current = nextItems;
+    const displayed = reconcileAdditive(inboxSnapshotRef.current, nextItems);
+    inboxSnapshotRef.current = displayed;
     mailboxesRef.current = params.nextMailboxes;
     setMailboxes(params.nextMailboxes);
-    setInboxItems(nextItems);
+    setInboxItems(displayed);
     setQuarantineCount(
-      nextItems.filter((item) => item.status === "quarantine").length,
+      displayed.filter((item) => item.status === "quarantine").length,
     );
   };
 
   applyInboxSnapshotRef.current = applyInboxSnapshot;
+
+  // Commit the deferred server truth: what background syncs re-filed, re-sorted
+  // or removed while the list was frozen now takes effect. Called from user
+  // actions (tab switch, pagination, manual refresh, opening a thread) so the
+  // list only ever reshapes in direct response to something the user did.
+  // Pending-removal pins + just-read preservation still apply, so an in-flight
+  // optimistic action can't be reverted by a stale truth.
+  const flushDeferredInboxUpdates = () => {
+    const truth = preserveJustReadThreads(
+      applyPendingRemovals(
+        pendingRemovalsRef.current,
+        latestServerSnapshotRef.current,
+        Date.now(),
+      ),
+      inboxSnapshotRef.current,
+      touchedThreadsRef.current,
+      Date.now(),
+      READ_STATE_PRESERVE_MS,
+    );
+    if (truth === inboxSnapshotRef.current) return;
+    inboxSnapshotRef.current = truth;
+    setInboxItems(truth);
+    setQuarantineCount(
+      truth.filter((item) => item.status === "quarantine").length,
+    );
+  };
+  flushDeferredInboxUpdatesRef.current = flushDeferredInboxUpdates;
 
   useEffect(
     () => () => {
@@ -2948,14 +3030,26 @@ export function EmailInboxView({
     // write). Without this filter that stale payload resurrects the row —
     // remove → reappears → disappears. applyPendingRemovals keeps the pinned id
     // hidden until the fresh row actually reaches its terminal status.
+    mailboxesRef.current = data.mailboxes;
+    setMailboxes(data.mailboxes);
+
+    // SEED ONLY. The parent's `database` object is refetched by many unrelated
+    // triggers (task realtime, focus, its own 60s sync), and this effect used to
+    // blindly replace the whole inbox list on every one — bypassing the settle
+    // window, the out-of-order guard AND the additive freeze, so background
+    // churn shoved the list around. Now the prop payload only SEEDS the list on
+    // first load (empty snapshot). After that every list update flows through the
+    // guarded, additive `applyInboxSnapshot` path (the inbox's own 60s poll and
+    // realtime), so the parent can refetch freely without disturbing the list.
+    if (inboxSnapshotRef.current.length > 0) return;
+
     const reconciled = applyPendingRemovals(
       pendingRemovalsRef.current,
       data.inboxItems,
       Date.now(),
     );
     inboxSnapshotRef.current = reconciled;
-    mailboxesRef.current = data.mailboxes;
-    setMailboxes(data.mailboxes);
+    latestServerSnapshotRef.current = reconciled;
     setInboxItems(reconciled);
     setQuarantineCount(
       reconciled.filter((item) => item.status === "quarantine").length,
@@ -3437,6 +3531,26 @@ export function EmailInboxView({
         next[existingIndex] = { ...next[existingIndex], ...(item as InboxItem) };
       }
       inboxSnapshotRef.current = next;
+      // Keep the deferred truth in step so a flush doesn't drop just-arrived
+      // mail. Upsert additively — never overwrite other rows' deferred state.
+      {
+        const truthIndex = latestServerSnapshotRef.current.findIndex(
+          (entry) => entry.id === item.id,
+        );
+        if (truthIndex === -1) {
+          latestServerSnapshotRef.current = [
+            ...latestServerSnapshotRef.current,
+            item as InboxItem,
+          ];
+        } else {
+          const truth = [...latestServerSnapshotRef.current];
+          truth[truthIndex] = {
+            ...truth[truthIndex],
+            ...(item as InboxItem),
+          };
+          latestServerSnapshotRef.current = truth;
+        }
+      }
       setQuarantineCount(
         next.filter((entry) => entry.status === "quarantine").length,
       );
@@ -3502,20 +3616,42 @@ export function EmailInboxView({
       });
     }
 
+    // Update the deferred TRUTH with the raw change (placement included), so a
+    // background status/classification/tab move delivered over realtime lands at
+    // the next flush rather than waiting for the 60s poll.
+    {
+      const truthResult = applyEmailThreadRealtimeChange({
+        items: latestServerSnapshotRef.current,
+        change,
+      });
+      if (truthResult.changed) {
+        latestServerSnapshotRef.current = truthResult.items;
+      }
+    }
+
     const result = applyEmailThreadRealtimeChange({
       items: inboxSnapshotRef.current,
       change,
     });
 
     if (result.changed) {
-      inboxSnapshotRef.current = result.items;
-      setInboxItems(result.items);
-      setQuarantineCount(
-        result.items.filter((item) => item.status === "quarantine").length,
-      );
+      // Additive: a background UPDATE patches CONTENT on screen but can't move,
+      // re-file or remove a row — those are frozen and deferred to the next
+      // flush. (A DELETE's row-drop is likewise deferred.)
+      const displayed = reconcileAdditive(inboxSnapshotRef.current, result.items);
+      if (displayed !== inboxSnapshotRef.current) {
+        inboxSnapshotRef.current = displayed;
+        setInboxItems(displayed);
+        setQuarantineCount(
+          displayed.filter((item) => item.status === "quarantine").length,
+        );
+      }
     }
 
-    if (result.hydrateThreadId) {
+    // Only a genuine INSERT hydrates a new row immediately (new mail may appear).
+    // An UPDATE for a thread not in our window is a background reprocess touching
+    // off-list mail — don't append it mid-session; the 60s poll reconciles it.
+    if (result.hydrateThreadId && change.eventType === "INSERT") {
       void hydrateThreadIntoInbox(result.hydrateThreadId, {
         allowBrowserNotifications: true,
       }).catch(() => {
@@ -3825,9 +3961,7 @@ export function EmailInboxView({
       }
     })();
 
-    const pollIntervalMs = isRealtimeConnected
-      ? REALTIME_CONNECTED_POLL_INTERVAL_MS
-      : BROWSER_NOTIFICATION_POLL_INTERVAL_MS;
+    const pollIntervalMs = INBOX_REFRESH_INTERVAL_MS;
 
     const interval = window.setInterval(() => {
       void (async () => {
@@ -3925,6 +4059,9 @@ export function EmailInboxView({
 
   const handleSync = async () => {
     if (busyState || mailboxes.length === 0) return;
+    // An explicit sync is a user action: commit whatever background re-files /
+    // removals were deferred while the list was frozen, then pull fresh.
+    flushDeferredInboxUpdatesRef.current?.();
     setBusyState("sync");
     try {
       const mailboxesToSync =
