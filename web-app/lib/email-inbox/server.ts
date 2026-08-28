@@ -1835,13 +1835,6 @@ async function syncMailboxThreadReadStates(params: {
     unseenUids,
   );
 
-  console.log("[email-inbox] read-state reconcile", {
-    mailboxId: params.mailboxId,
-    unseenUidCount: unseenUids.size,
-    unreadThreads: unreadThreadIds.length,
-    readThreads: readThreadIds.length,
-  });
-
   if (unreadThreadIds.length === 0 && readThreadIds.length === 0) {
     return;
   }
@@ -2683,15 +2676,32 @@ export async function listInboxItemsForUser(
   // only the 10 newer than the window's cutoff were reachable. A second window
   // scoped to outbound/mixed gives Sent its own depth; the merge is by id, so
   // threads in both windows appear once and every other folder is unchanged.
-  const [generalResult, outboundResult] = await Promise.all([
+  //
+  // The SAME starvation hit the INBOX itself. The general window is ordered by
+  // recency across EVERY status, so in a mailbox with a large, actively-churning
+  // Archive (Forge mirrors Gmail's archived mail, which keeps getting rewritten
+  // by reprocess) the 200 most-recent rows are dominated by archived/deleted
+  // threads the inbox view then hides — e.g. 105 archived + 16 deleted left only
+  // ~57 inbox threads reachable, so the unread badge showed ~20 when the mailbox
+  // actually had ~53 unread. A third window scoped to the inbox-visible statuses
+  // gives the inbox its own depth, independent of Archive volume.
+  const INBOX_VISIBLE_STATUSES = [
+    "active",
+    "needs_project",
+    "quarantine",
+    "resolved",
+  ];
+  const [generalResult, outboundResult, inboxResult] = await Promise.all([
     buildThreadQuery(),
     buildThreadQuery().in("origin", ["outbound", "mixed"]),
+    buildThreadQuery().in("status", INBOX_VISIBLE_STATUSES),
   ]);
 
   const threadsById = new Map<string, any>();
   for (const row of [
     ...((generalResult.data as any[] | null) || []),
     ...((outboundResult.data as any[] | null) || []),
+    ...((inboxResult.data as any[] | null) || []),
   ]) {
     if (row?.id && !threadsById.has(String(row.id))) {
       threadsById.set(String(row.id), row);
