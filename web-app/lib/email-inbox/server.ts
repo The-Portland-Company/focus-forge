@@ -2638,7 +2638,7 @@ export async function listInboxItemsForUser(
   // Cap the result set: the UI paginates client-side at 50/page, so 200 keeps
   // several pages of the most-recent threads without dragging full history.
   // When searching, this caps the matched set (newest 200 matches) instead.
-  const buildThreadQuery = () => {
+  const buildThreadQuery = (limit = 200) => {
     let query = admin
       .from("email_threads")
       .select(LIST_THREAD_COLUMNS)
@@ -2650,10 +2650,10 @@ export async function listInboxItemsForUser(
       // list "changing" between refetches. Order by id so the window is
       // deterministic.
       .order("id", { ascending: false })
-      .limit(200);
+      .limit(limit);
 
     // When searching, restrict to the matched thread ids (resolved across the
-    // full mailbox above). The mailbox scope + ordering + 200 cap still apply.
+    // full mailbox above). The mailbox scope + ordering + cap still apply.
     if (isSearching) {
       query = query.in("id", searchThreadIds);
     }
@@ -2691,12 +2691,21 @@ export async function listInboxItemsForUser(
   // quarantine's threads would eat into the main inbox's 200 slots (and vice
   // versa), leaving both short. With dedicated windows the main inbox reaches ~50
   // of 53 unread here (was ~20 through the general window alone).
+  //
+  // Deeper cap (500) for the inbox windows: unread mail can be months old (a
+  // never-opened thread), and a 200-row window left the oldest few unread
+  // threads unreachable. 500 comfortably covers the current inbox set with
+  // headroom; the general/outbound windows stay at 200.
+  const INBOX_WINDOW_LIMIT = 500;
   const [generalResult, outboundResult, inboxResult, quarantineResult] =
     await Promise.all([
       buildThreadQuery(),
       buildThreadQuery().in("origin", ["outbound", "mixed"]),
-      buildThreadQuery().in("status", ["active", "needs_project"]),
-      buildThreadQuery().in("status", ["quarantine"]),
+      buildThreadQuery(INBOX_WINDOW_LIMIT).in("status", [
+        "active",
+        "needs_project",
+      ]),
+      buildThreadQuery(INBOX_WINDOW_LIMIT).in("status", ["quarantine"]),
     ]);
 
   const threadsById = new Map<string, any>();
