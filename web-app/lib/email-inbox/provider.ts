@@ -774,6 +774,32 @@ export async function fetchMailboxFolderUids(mailbox: MailboxTransportRow) {
   });
 }
 
+// The AUTHORITATIVE set of unread UIDs in the synced folder — a single IMAP
+// `SEARCH UNSEEN` over the whole folder (`{ seen: false }`), so the provider
+// itself tells us exactly which messages lack `\Seen`. This is what makes the
+// read-state reconcile match Gmail regardless of how many messages exist: no
+// row-window sampling, no per-UID FETCH. Returns UID strings. A null/failed
+// search returns null so the caller can distinguish "nothing unread" (empty
+// set) from "couldn't ask" (null) and avoid clearing unread on a transient
+// error.
+export async function fetchMailboxUnseenUids(
+  mailbox: MailboxTransportRow,
+): Promise<Set<string> | null> {
+  try {
+    return await withImapClient(mailbox, async (client) => {
+      const uids = await client.search({ seen: false }, { uid: true });
+      const set = new Set<string>();
+      for (const uid of Array.isArray(uids) ? uids : []) {
+        const value = String(uid);
+        if (value && value !== "0") set.add(value);
+      }
+      return set;
+    });
+  } catch {
+    return null;
+  }
+}
+
 export type MailboxFolderInfo = {
   /** Full IMAP path, e.g. "INBOX.Work.Clients" or "[Gmail]/All Mail". */
   path: string;
