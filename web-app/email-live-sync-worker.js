@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
+const http = require("node:http");
 const { ImapFlow } = require("imapflow");
 const { createClient } = require("@supabase/supabase-js");
 const crypto = require("node:crypto");
 const { buildLiveSyncToken } = require("./lib/email-inbox/live-sync-auth.js");
 
 const PORT = Number(process.env.PORT || 3244);
-const SYNC_ENDPOINT_BASE = `http://127.0.0.1:${PORT}`;
 const REFRESH_INTERVAL_MS = 60 * 1000;
 const MIN_RECONNECT_DELAY_MS = 5 * 1000;
 const MAX_RECONNECT_DELAY_MS = 60 * 1000;
@@ -80,51 +80,58 @@ function createImapClient(mailbox) {
   });
 }
 
+// Plain-HTTP POST to the in-process server via Node's core `http` module.
+// We do NOT use global fetch/undici here: on Railway, undici turned this
+// loopback http:// request into a TLS attempt (ERR_SSL_PACKET_LENGTH_TOO_LONG),
+// so the worker could never reach its own internal sync endpoint and autonomous
+// sync silently never ran (confirmed via a diagnostic deploy). `http.request`
+// speaks plain HTTP/1.1 with no TLS and no global dispatcher, so 127.0.0.1:PORT
+// connects cleanly.
+function postLocal(path, headers) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port: PORT,
+        path,
+        method: "POST",
+        headers,
+        timeout: 120_000,
+      },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+        res.on("end", () => resolve({ status: res.statusCode || 0, body }));
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy(new Error("internal sync request timed out"));
+    });
+    req.end();
+  });
+}
+
 async function triggerMailboxSync(mailboxId, reason) {
-  const url = `${SYNC_ENDPOINT_BASE}/api/internal/email/mailboxes/${mailboxId}/sync`;
+  const path = `/api/internal/email/mailboxes/${mailboxId}/sync`;
   const token = buildLiveSyncToken(mailboxId);
 
-  // The loopback connection to the in-process Next server can be refused for a
-  // few seconds right after boot (the worker is delayed 15s but IMAP connect
-  // timing varies), and a transient socket reset shouldn't drop a sync. Retry a
-  // couple of times before giving up; the 60s poll is the ultimate backstop.
-  let lastError;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "x-email-live-sync-token": token },
-      });
+  const res = await postLocal(path, { "x-email-live-sync-token": token });
 
-      if (!response.ok) {
-        const payload = await response.text().catch(() => "");
-        throw new Error(
-          `Live sync trigger failed for ${mailboxId} (${reason}): ${response.status} ${payload}`,
-        );
-      }
-
-      return response.json().catch(() => ({}));
-    } catch (error) {
-      lastError = error;
-      // Surface the real connection cause (undici hides it behind "fetch
-      // failed"): ECONNREFUSED vs reset vs DNS tells us how to fix the hop.
-      const cause = error && error.cause;
-      console.error("[EmailLiveSync] trigger attempt failed", {
-        mailboxId,
-        reason,
-        attempt,
-        url,
-        message: error instanceof Error ? error.message : String(error),
-        causeCode: cause && cause.code,
-        causeMessage: cause && cause.message,
-      });
-      const isHttpError =
-        error instanceof Error && /Live sync trigger failed/.test(error.message);
-      if (isHttpError || attempt === 3) break;
-      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
-    }
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(
+      `Live sync trigger failed for ${mailboxId} (${reason}): ${res.status} ${res.body}`,
+    );
   }
-  throw lastError;
+
+  try {
+    return JSON.parse(res.body);
+  } catch {
+    return {};
+  }
 }
 
 async function connectWatcher(mailbox) {
