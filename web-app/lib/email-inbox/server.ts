@@ -91,6 +91,7 @@ import {
   type ReadMailboxFolderLiveResult,
 } from "@/lib/email-inbox/provider";
 import { MAILBOX_PROVIDER_PRESETS } from "@/lib/email-inbox/provider-presets";
+import { reconcileThreadReadStates } from "@/lib/email-inbox/reconcile-read-states";
 import { matchInboxTab } from "@/lib/email-inbox/inbox-tabs";
 import {
   hasApnsConfiguration,
@@ -1804,16 +1805,18 @@ async function syncMailboxThreadReadStates(params: {
 
   const { data: messageRows } = await query;
 
+  // Nothing to reconcile. Do NOT blanket-clear the mailbox here: an empty result
+  // (UID/UIDVALIDITY drift, a transient IMAP hiccup) previously marked EVERY
+  // thread read, which is exactly how a mailbox with 65 unread collapsed to 18.
+  // Absence of data is "unknown", never "read".
   if (!messageRows || messageRows.length === 0) {
-    await admin
-      .from("email_threads")
-      .update({ is_unread: false })
-      .eq("mailbox_id", params.mailboxId);
     return;
   }
 
+  // Group the queried provider UIDs by thread so each thread is judged against
+  // its own messages.
   const threadIdByProviderMessageId = new Map<string, string>();
-  const unreadByThreadId = new Map<string, boolean>();
+  const providerIdsByThreadId = new Map<string, Set<string>>();
 
   (messageRows as any[]).forEach((row) => {
     const threadId = String(row.thread_id || "");
@@ -1824,24 +1827,35 @@ async function syncMailboxThreadReadStates(params: {
     }
 
     threadIdByProviderMessageId.set(providerMessageId, threadId);
-    unreadByThreadId.set(threadId, false);
+    let set = providerIdsByThreadId.get(threadId);
+    if (!set) {
+      set = new Set<string>();
+      providerIdsByThreadId.set(threadId, set);
+    }
+    set.add(providerMessageId);
   });
 
+  // Live \Seen for the UIDs still present in the folder. A UID the provider does
+  // not return is UNKNOWN (the message left the folder, or UID drift) — it must
+  // never be interpreted as "read".
   const readStates = await fetchMailboxMessageReadStates(
     params.mailbox,
     Array.from(threadIdByProviderMessageId.keys()),
   );
-
+  const isUnreadByProviderMessageId = new Map<string, boolean>();
   readStates.forEach((state) => {
-    const threadId = threadIdByProviderMessageId.get(state.providerMessageId);
+    isUnreadByProviderMessageId.set(state.providerMessageId, state.isUnread);
+  });
 
-    if (threadId && state.isUnread) {
-      unreadByThreadId.set(threadId, true);
-    }
+  // Positive-confirmation decision (pure, unit-tested). Threads whose state
+  // can't be proven this pass are left untouched rather than cleared to read.
+  const updates = reconcileThreadReadStates({
+    providerIdsByThreadId,
+    isUnreadByProviderMessageId,
   });
 
   await Promise.all(
-    Array.from(unreadByThreadId.entries()).map(([threadId, isUnread]) =>
+    updates.map(({ threadId, isUnread }) =>
       admin
         .from("email_threads")
         .update({ is_unread: isUnread })
