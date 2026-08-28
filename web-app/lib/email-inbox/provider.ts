@@ -795,7 +795,13 @@ export async function fetchMailboxUnseenUids(
       }
       return set;
     });
-  } catch {
+  } catch (error) {
+    // Surface WHY the unseen search failed rather than silently no-opping the
+    // read-state reconcile (a null here skips the reconcile entirely).
+    console.error(
+      "[email-inbox] fetchMailboxUnseenUids failed",
+      (error as Error)?.message || error,
+    );
     return null;
   }
 }
