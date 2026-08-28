@@ -81,24 +81,50 @@ function createImapClient(mailbox) {
 }
 
 async function triggerMailboxSync(mailboxId, reason) {
-  const response = await fetch(
-    `${SYNC_ENDPOINT_BASE}/api/internal/email/mailboxes/${mailboxId}/sync`,
-    {
-      method: "POST",
-      headers: {
-        "x-email-live-sync-token": buildLiveSyncToken(mailboxId),
-      },
-    },
-  );
+  const url = `${SYNC_ENDPOINT_BASE}/api/internal/email/mailboxes/${mailboxId}/sync`;
+  const token = buildLiveSyncToken(mailboxId);
 
-  if (!response.ok) {
-    const payload = await response.text().catch(() => "");
-    throw new Error(
-      `Live sync trigger failed for ${mailboxId} (${reason}): ${response.status} ${payload}`,
-    );
+  // The loopback connection to the in-process Next server can be refused for a
+  // few seconds right after boot (the worker is delayed 15s but IMAP connect
+  // timing varies), and a transient socket reset shouldn't drop a sync. Retry a
+  // couple of times before giving up; the 60s poll is the ultimate backstop.
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "x-email-live-sync-token": token },
+      });
+
+      if (!response.ok) {
+        const payload = await response.text().catch(() => "");
+        throw new Error(
+          `Live sync trigger failed for ${mailboxId} (${reason}): ${response.status} ${payload}`,
+        );
+      }
+
+      return response.json().catch(() => ({}));
+    } catch (error) {
+      lastError = error;
+      // Surface the real connection cause (undici hides it behind "fetch
+      // failed"): ECONNREFUSED vs reset vs DNS tells us how to fix the hop.
+      const cause = error && error.cause;
+      console.error("[EmailLiveSync] trigger attempt failed", {
+        mailboxId,
+        reason,
+        attempt,
+        url,
+        message: error instanceof Error ? error.message : String(error),
+        causeCode: cause && cause.code,
+        causeMessage: cause && cause.message,
+      });
+      const isHttpError =
+        error instanceof Error && /Live sync trigger failed/.test(error.message);
+      if (isHttpError || attempt === 3) break;
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
   }
-
-  return response.json().catch(() => ({}));
+  throw lastError;
 }
 
 async function connectWatcher(mailbox) {
