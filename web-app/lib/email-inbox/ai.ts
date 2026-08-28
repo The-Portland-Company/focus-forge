@@ -580,14 +580,20 @@ export function finalizeInboxSummary(input: {
 
 function detectSpam(subject: string, body: string, senderEmail: string) {
   const haystack = `${subject} ${body} ${senderEmail}`.toLowerCase();
+  // Only UNAMBIGUOUS spam terms. This heuristic is the sole classifier when the
+  // LLM providers are unavailable, so a false positive here quarantines real mail
+  // that never reaches the inbox. The former list included "unsubscribe",
+  // "limited time offer", "buy now" and "winner" — all of which appear in
+  // legitimate newsletters, receipts and transactional mail (CAN-SPAM REQUIRES an
+  // unsubscribe link), so on the heuristic-only path they quarantined a large
+  // share of the inbox. Gmail's own spam filter already catches real spam before
+  // it reaches these threads, so this fallback stays conservative on purpose.
   const spamSignals = [
-    "unsubscribe",
-    "limited time offer",
-    "buy now",
-    "winner",
     "viagra",
-    "lottery",
     "crypto giveaway",
+    "nigerian prince",
+    "you have won the lottery",
+    "claim your prize",
   ];
   return spamSignals.some((signal) => haystack.includes(signal));
 }

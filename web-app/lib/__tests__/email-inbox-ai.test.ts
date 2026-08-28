@@ -54,8 +54,8 @@ test("repairGenericTaskName rebuilds bare person-name titles from the subject", 
 
 test("buildHeuristicAnalysis quarantines obvious spam", () => {
   const result = buildHeuristicAnalysis({
-    subject: "Limited time offer",
-    bodyText: "Buy now and unsubscribe later",
+    subject: "Claim your prize now",
+    bodyText: "You have won the lottery — send a fee to claim your prize.",
     senderEmail: "promo@offers.example",
     mailboxEmail: "ops@example.com",
     projectOptions: [],
@@ -64,6 +64,22 @@ test("buildHeuristicAnalysis quarantines obvious spam", () => {
   assert.equal(result.status, "quarantine");
   assert.equal(result.classification, "spam");
   assert.equal(result.taskSuggestions.length, 0);
+});
+
+test("buildHeuristicAnalysis does NOT quarantine legit mail containing 'unsubscribe'", () => {
+  // Regression: 'unsubscribe' (CAN-SPAM required on legit bulk mail) used to
+  // quarantine newsletters, receipts and transactional notices on the
+  // heuristic-only path (LLM providers down).
+  const result = buildHeuristicAnalysis({
+    subject: "Your receipt from Acme",
+    bodyText: "Thanks for your payment. Manage preferences or unsubscribe here.",
+    senderEmail: "billing@acme.example",
+    mailboxEmail: "ops@example.com",
+    projectOptions: [],
+  });
+
+  assert.notEqual(result.status, "quarantine");
+  assert.notEqual(result.classification, "spam");
 });
 
 test("buildHeuristicAnalysis quarantines unsolicited service pitch spam", () => {
@@ -138,8 +154,8 @@ test("finalizeInboxSummary replaces excerpt-like summaries with a compact paraph
 
 test("buildHeuristicAnalysis skips spam classification when prevented by rule", () => {
   const result = buildHeuristicAnalysis({
-    subject: "Limited time offer",
-    bodyText: "Buy now and unsubscribe later",
+    subject: "Claim your prize now",
+    bodyText: "You have won the lottery — send a fee to claim your prize.",
     senderEmail: "promo@offers.example",
     mailboxEmail: "ops@example.com",
     preventSpamClassification: true,
