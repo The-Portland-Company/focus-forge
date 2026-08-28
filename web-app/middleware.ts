@@ -114,6 +114,14 @@ export async function middleware(request: NextRequest) {
     return applySecurityHeaders(NextResponse.next());
   }
 
+  // Internal loopback endpoints (the in-process EmailLiveSync worker POSTing to
+  // 127.0.0.1) authenticate with their own token and must bypass the HTTPS-enforce
+  // redirect and the auth/MFA gates. Without this the worker's plain-HTTP request
+  // got a 301 to https://, so autonomous sync never reached the route.
+  if (pathname.startsWith("/api/internal/")) {
+    return applySecurityHeaders(NextResponse.next());
+  }
+
   // Enforce HTTPS in production
   if (
     process.env.NODE_ENV === "production" &&
