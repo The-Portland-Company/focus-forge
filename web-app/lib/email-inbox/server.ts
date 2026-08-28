@@ -2622,6 +2622,12 @@ export async function listInboxItemsForUser(
       .select(LIST_THREAD_COLUMNS)
       .in("mailbox_id", mailboxIds)
       .order("latest_message_at", { ascending: false })
+      // Stable tiebreaker: `latest_message_at` has ties (and is rewritten by the
+      // reprocess pipeline), so without a secondary key two identical requests
+      // could return a different tail of the 200-row window — a source of the
+      // list "changing" between refetches. Order by id so the window is
+      // deterministic.
+      .order("id", { ascending: false })
       .limit(200);
 
     // When searching, restrict to the matched thread ids (resolved across the
@@ -2663,11 +2669,14 @@ export async function listInboxItemsForUser(
     }
   }
 
-  let threads = Array.from(threadsById.values()).sort((left, right) =>
-    String(right.latest_message_at || "").localeCompare(
+  let threads = Array.from(threadsById.values()).sort((left, right) => {
+    const byTime = String(right.latest_message_at || "").localeCompare(
       String(left.latest_message_at || ""),
-    ),
-  );
+    );
+    // Stable tiebreaker so the merged order matches the deterministic query
+    // order (and the client comparator, which also breaks ties by id).
+    return byTime || String(left.id).localeCompare(String(right.id));
+  });
   if (threads.length === 0) {
     return [];
   }

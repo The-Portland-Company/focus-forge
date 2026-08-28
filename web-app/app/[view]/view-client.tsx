@@ -64,6 +64,7 @@ import { ConfirmModal } from "@/components/confirm-modal";
 import { TaskList } from "@/components/task-list";
 import { AiTaskRefinementModal } from "@/components/ai-task-refinement-modal";
 import { KanbanView } from "@/components/kanban-view";
+import { TaskTimelineView } from "@/components/task-timeline-view";
 import { ColorPicker } from "@/components/color-picker";
 import { ColorWheelPicker } from "@/components/color-wheel-picker";
 import { formatDate } from "@/lib/format-date";
@@ -94,7 +95,7 @@ import { CreateMenuButton } from "@/components/create-menu-button";
 import { AddSectionDivider } from "@/components/add-section-divider";
 import { EmailWorkList } from "@/components/email-work-list";
 import { Tooltip } from "@/components/tooltip";
-import { format } from "date-fns";
+import { format, addDays as addDaysDate, parseISO } from "date-fns";
 import {
   getLocalDateString,
   isOverdue,
@@ -150,7 +151,7 @@ import { AlertBellButton } from "@/components/alert-center";
 // quickly a *server-side* change is surfaced to this client. We poll faster
 // when the tab is visible (user is actively waiting on mail) and back off when
 // hidden to avoid needless round-trips and provider pressure.
-const EMAIL_BACKGROUND_SYNC_INTERVAL_VISIBLE_MS = 15 * 1000;
+const EMAIL_BACKGROUND_SYNC_INTERVAL_VISIBLE_MS = 60 * 1000;
 const EMAIL_BACKGROUND_SYNC_INTERVAL_HIDDEN_MS = 60 * 1000;
 const PROJECT_SECTION_LAYOUT_STORAGE_KEY = "focus-forge:project-section-layout";
 
@@ -764,6 +765,24 @@ export default function ViewPage({
   const [groupTasksByProject, setGroupTasksByProject] = useState(false);
   const [showTaskDescriptions, setShowTaskDescriptions] = useState(false);
   const [todayViewMode, setTodayViewMode] = useState<"list" | "kanban">("list");
+  // Timeline (Gantt) date range. Seeded from the URL (?from&to) so views are
+  // bookmarkable; defaults to today .. +30 days.
+  const timelineDefaults = useMemo(() => {
+    const from = getLocalDateString(new Date());
+    const to = getLocalDateString(addDaysDate(new Date(), 30));
+    return { from, to };
+  }, []);
+  const timelineFrom = searchParams.get("from") || timelineDefaults.from;
+  const timelineTo = searchParams.get("to") || timelineDefaults.to;
+  const setTimelineRange = useCallback(
+    (next: { from?: string; to?: string }) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next.from) params.set("from", next.from);
+      if (next.to) params.set("to", next.to);
+      router.replace(`/timeline?${params.toString()}`);
+    },
+    [router, searchParams],
+  );
   const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(
     new Set(),
   );
@@ -1383,7 +1402,11 @@ export default function ViewPage({
     enabled: !chromeOnly && !isEmailThreadPopout,
     projectIds: realtimeProjectIds,
     onChange: () => {
-      void fetchData();
+      // A task row changed (often a task the email AI auto-created from a
+      // thread). Refresh tasks, but NOT the inbox list — pulling inbox items here
+      // replaced the whole list out from under the reader and was a source of the
+      // post-load shifting. The inbox owns its own 60s refresh + realtime.
+      void fetchData({ includeInboxItems: false });
     },
   });
 
@@ -5663,6 +5686,124 @@ export default function ViewPage({
       );
     }
 
+    if (view === "timeline") {
+      const fromDate = parseISO(timelineFrom);
+      const toDate = parseISO(timelineTo);
+      const applyPreset = (days: number) => {
+        const start = new Date();
+        setTimelineRange({
+          from: getLocalDateString(start),
+          to: getLocalDateString(addDaysDate(start, days)),
+        });
+      };
+      const presets: Array<{ label: string; days: number }> = [
+        { label: "1 Week", days: 7 },
+        { label: "2 Weeks", days: 14 },
+        { label: "Month", days: 30 },
+        { label: "Quarter", days: 90 },
+      ];
+      return (
+        <div>
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold">Timeline</h1>
+              <span className="text-sm text-zinc-500">
+                {format(fromDate, "MMM d")} – {format(toDate, "MMM d, yyyy")}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Presets */}
+              <div className="flex rounded-lg bg-zinc-800 p-1">
+                {presets.map((p) => (
+                  <button
+                    key={p.days}
+                    onClick={() => applyPreset(p.days)}
+                    className="rounded px-3 py-1 text-sm text-zinc-400 transition-colors hover:text-white"
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              {/* Custom range */}
+              <div className="flex items-center gap-2 text-sm">
+                <input
+                  type="date"
+                  value={timelineFrom}
+                  max={timelineTo}
+                  onChange={(e) => setTimelineRange({ from: e.target.value })}
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-zinc-200 [color-scheme:dark]"
+                  aria-label="Range start"
+                />
+                <span className="text-zinc-500">→</span>
+                <input
+                  type="date"
+                  value={timelineTo}
+                  min={timelineFrom}
+                  onChange={(e) => setTimelineRange({ to: e.target.value })}
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-zinc-200 [color-scheme:dark]"
+                  aria-label="Range end"
+                />
+              </div>
+              {/* Blocked toggle */}
+              <span className="relative group/blocked">
+                <button
+                  onClick={() => setShowBlockedTasks(!showBlockedTasks)}
+                  className={`p-2 rounded border transition-colors ${
+                    showBlockedTasks
+                      ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30 hover:bg-[rgb(var(--theme-primary-rgb))]/20"
+                      : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-600"
+                  }`}
+                >
+                  {showBlockedTasks ? (
+                    <Link2 className="w-4 h-4" />
+                  ) : (
+                    <Link2Off className="w-4 h-4" />
+                  )}
+                </button>
+                <span className="absolute left-1/2 -translate-x-1/2 top-full mt-1 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/blocked:opacity-100 transition-opacity pointer-events-none z-50">
+                  {showBlockedTasks ? "Showing blocked tasks" : "Hiding blocked tasks"}
+                </span>
+              </span>
+            </div>
+          </div>
+          {/* Legend */}
+          <div className="mb-3 flex flex-wrap items-center gap-4 text-[11px] text-zinc-500">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-sm bg-rose-500/80" /> P1
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-sm bg-amber-500/80" /> P2
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-sm bg-sky-500/80" /> P3
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-sm bg-zinc-500/70" /> P4
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <svg width="22" height="8">
+                <line x1="0" y1="4" x2="18" y2="4" className="stroke-amber-400/80" strokeWidth="1.5" markerEnd="" />
+              </svg>
+              blocks →
+            </span>
+          </div>
+          {isDataLoading ? (
+            <SkeletonTaskList count={6} />
+          ) : (
+            <TaskTimelineView
+              tasks={database.tasks}
+              projects={database.projects}
+              from={fromDate}
+              to={toDate}
+              blockedTaskIds={blockedTaskIds}
+              hideBlocked={!showBlockedTasks}
+              onSelectTask={handleTaskEdit}
+            />
+          )}
+        </div>
+      );
+    }
+
     if (view === "upcoming") {
       // Filter tasks based on selected date type
       let upcomingTasks = database.tasks.filter((task) => {
@@ -7872,6 +8013,8 @@ export default function ViewPage({
           className={
             view === "upcoming"
               ? "p-8"
+              : view === "timeline"
+                ? "p-8"
               : view === "estimates"
                 ? "p-0"
                 : view === "today"
