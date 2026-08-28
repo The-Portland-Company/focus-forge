@@ -1807,6 +1807,10 @@ async function syncMailboxThreadReadStates(params: {
   // search failed (transient) — do nothing rather than clear unread.
   const unseenUids = await fetchMailboxUnseenUids(params.mailbox);
   if (unseenUids === null) {
+    console.warn(
+      "[email-inbox] read-state reconcile skipped: unseen search unavailable",
+      { mailboxId: params.mailboxId },
+    );
     return;
   }
 
@@ -1830,6 +1834,13 @@ async function syncMailboxThreadReadStates(params: {
     }>,
     unseenUids,
   );
+
+  console.log("[email-inbox] read-state reconcile", {
+    mailboxId: params.mailboxId,
+    unseenUidCount: unseenUids.size,
+    unreadThreads: unreadThreadIds.length,
+    readThreads: readThreadIds.length,
+  });
 
   if (unreadThreadIds.length === 0 && readThreadIds.length === 0) {
     return;
