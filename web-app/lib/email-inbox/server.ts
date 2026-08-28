@@ -2685,23 +2685,26 @@ export async function listInboxItemsForUser(
   // ~57 inbox threads reachable, so the unread badge showed ~20 when the mailbox
   // actually had ~53 unread. A third window scoped to the inbox-visible statuses
   // gives the inbox its own depth, independent of Archive volume.
-  const INBOX_VISIBLE_STATUSES = [
-    "active",
-    "needs_project",
-    "quarantine",
-    "resolved",
-  ];
-  const [generalResult, outboundResult, inboxResult] = await Promise.all([
-    buildThreadQuery(),
-    buildThreadQuery().in("origin", ["outbound", "mixed"]),
-    buildThreadQuery().in("status", INBOX_VISIBLE_STATUSES),
-  ]);
+  // The MAIN inbox (active + needs_project) gets its own 200-window so a large
+  // Archive can't crowd it out. Quarantine is a separate view with its own
+  // sidebar count, so it gets its own window too rather than sharing — otherwise
+  // quarantine's threads would eat into the main inbox's 200 slots (and vice
+  // versa), leaving both short. With dedicated windows the main inbox reaches ~50
+  // of 53 unread here (was ~20 through the general window alone).
+  const [generalResult, outboundResult, inboxResult, quarantineResult] =
+    await Promise.all([
+      buildThreadQuery(),
+      buildThreadQuery().in("origin", ["outbound", "mixed"]),
+      buildThreadQuery().in("status", ["active", "needs_project"]),
+      buildThreadQuery().in("status", ["quarantine"]),
+    ]);
 
   const threadsById = new Map<string, any>();
   for (const row of [
     ...((generalResult.data as any[] | null) || []),
     ...((outboundResult.data as any[] | null) || []),
     ...((inboxResult.data as any[] | null) || []),
+    ...((quarantineResult.data as any[] | null) || []),
   ]) {
     if (row?.id && !threadsById.has(String(row.id))) {
       threadsById.set(String(row.id), row);
