@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
+const http = require("node:http");
 const { ImapFlow } = require("imapflow");
 const { createClient } = require("@supabase/supabase-js");
 const crypto = require("node:crypto");
 const { buildLiveSyncToken } = require("./lib/email-inbox/live-sync-auth.js");
 
 const PORT = Number(process.env.PORT || 3244);
-const SYNC_ENDPOINT_BASE = `http://127.0.0.1:${PORT}`;
 const REFRESH_INTERVAL_MS = 60 * 1000;
 const MIN_RECONNECT_DELAY_MS = 5 * 1000;
 const MAX_RECONNECT_DELAY_MS = 60 * 1000;
@@ -80,25 +80,59 @@ function createImapClient(mailbox) {
   });
 }
 
-async function triggerMailboxSync(mailboxId, reason) {
-  const response = await fetch(
-    `${SYNC_ENDPOINT_BASE}/api/internal/email/mailboxes/${mailboxId}/sync`,
-    {
-      method: "POST",
-      headers: {
-        "x-email-live-sync-token": buildLiveSyncToken(mailboxId),
+// Plain-HTTP POST to the in-process server via Node's core `http` module.
+// We do NOT use global fetch/undici here: on Railway, undici turned this
+// loopback http:// request into a TLS attempt (ERR_SSL_PACKET_LENGTH_TOO_LONG),
+// so the worker could never reach its own internal sync endpoint and autonomous
+// sync silently never ran. `http.request` speaks plain HTTP/1.1 with no TLS and
+// no global dispatcher, so 127.0.0.1:PORT connects cleanly.
+function postLocal(path, headers) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port: PORT,
+        path,
+        method: "POST",
+        headers,
+        timeout: 120_000,
       },
-    },
-  );
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+        res.on("end", () =>
+          resolve({ status: res.statusCode || 0, body }),
+        );
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy(new Error("internal sync request timed out"));
+    });
+    req.end();
+  });
+}
 
-  if (!response.ok) {
-    const payload = await response.text().catch(() => "");
+async function triggerMailboxSync(mailboxId, reason) {
+  const path = `/api/internal/email/mailboxes/${mailboxId}/sync`;
+  const token = buildLiveSyncToken(mailboxId);
+
+  const res = await postLocal(path, { "x-email-live-sync-token": token });
+
+  if (res.status < 200 || res.status >= 300) {
     throw new Error(
-      `Live sync trigger failed for ${mailboxId} (${reason}): ${response.status} ${payload}`,
+      `Live sync trigger failed for ${mailboxId} (${reason}): ${res.status} ${res.body}`,
     );
   }
 
-  return response.json().catch(() => ({}));
+  try {
+    return JSON.parse(res.body);
+  } catch {
+    return {};
+  }
 }
 
 async function connectWatcher(mailbox) {
