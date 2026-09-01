@@ -15,6 +15,23 @@ import type { SpamPolicyDraft, SpamTrainerTurn } from "@/lib/spam/trainer";
  * previous run) it is shown immediately instead, which is the "unless it's
  * already been run" half of the requirement.
  */
+/**
+ * Turn a raw provider failure into one plain sentence. When every model in the
+ * chain is out of credits the API surfaces the provider's own billing text
+ * (e.g. "credit balance is too low"); a wall of that is not something the user
+ * can act on, so collapse it to a single line that names the cause and points
+ * back to the local, free spam check that still works.
+ */
+function friendlyAnalysisError(message: string): string {
+  const m = message.toLowerCase();
+  const billing =
+    /credit|quota|billing|balance|spending limit|insufficient|payment/.test(m);
+  if (billing) {
+    return "AI analysis is temporarily unavailable — the AI provider credits are exhausted. The local spam filter still runs on every email; add credits or a free fallback model to restore the written explanation.";
+  }
+  return message;
+}
+
 export function SpamAssessmentPanel({ threadId }: { threadId: string }) {
   const [assessment, setAssessment] = useState<SpamAssessment | null>(null);
   const [loadingCached, setLoadingCached] = useState(true);
@@ -75,7 +92,11 @@ export function SpamAssessmentPanel({ threadId }: { threadId: string }) {
         }
         setAssessment(data.assessment);
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Analysis failed");
+        setError(
+          friendlyAnalysisError(
+            caught instanceof Error ? caught.message : "Analysis failed",
+          ),
+        );
       } finally {
         setAnalyzing(false);
       }
@@ -104,7 +125,11 @@ export function SpamAssessmentPanel({ threadId }: { threadId: string }) {
       if (!response.ok) throw new Error(data?.error || "The AI did not reply");
       setTurns([...nextTurns, { role: "assistant", content: data.reply }]);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The AI did not reply");
+      setError(
+        friendlyAnalysisError(
+          caught instanceof Error ? caught.message : "The AI did not reply",
+        ),
+      );
     } finally {
       setSending(false);
     }
@@ -128,7 +153,9 @@ export function SpamAssessmentPanel({ threadId }: { threadId: string }) {
       setPolicy(data.policy);
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Could not write a rule",
+        friendlyAnalysisError(
+          caught instanceof Error ? caught.message : "Could not write a rule",
+        ),
       );
     } finally {
       setFinalizing(false);
