@@ -292,7 +292,9 @@ test("analyzeThreadWithAI quarantines obvious spam via the first configured prov
   try {
     const result = await analyzeThreadWithAI(SPAM_FIXTURE);
     assert.equal(result.classification, "spam");
-    assert.equal(result.status, "spam");
+    // AI-detected spam is routed to QUARANTINE (reviewable), not the spam
+    // bucket, even when the model returns status:"spam".
+    assert.equal(result.status, "quarantine");
     assert.deepEqual(result.taskSuggestions, []);
   } finally {
     globalThis.fetch = priorFetch;

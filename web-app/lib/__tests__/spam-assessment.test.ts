@@ -120,6 +120,38 @@ test("the prompt carries the saved policies, or says there are none", () => {
   assert.match(without, /no saved spam policies yet/);
 });
 
+test("the prompt carries the recipient's personal and business names when given", () => {
+  const msg = buildAssessmentUserMessage({
+    subject: "Hi Acme Co, boost your sales",
+    senderEmail: "sales@growthhackers.biz",
+    senderName: "Growth",
+    previewText: "We help companies like yours.",
+    bodyText: "Hi Acme Co, we can grow your revenue.",
+    currentClassification: "spam",
+    knnConfidence: null,
+    policies: [],
+    recipientNames: ["Spencer", "Hill", "Spencer Hill"],
+    businessName: "Acme Co",
+  });
+  assert.match(msg, /Recipient's personal name\(s\): Spencer, Hill, Spencer Hill/);
+  assert.match(msg, /Recipient's business\/organization name: Acme Co/);
+});
+
+test("name lines are omitted when not provided", () => {
+  const msg = buildAssessmentUserMessage({
+    subject: "Question about my order",
+    senderEmail: "jane@example.com",
+    senderName: "Jane",
+    previewText: "Where is it?",
+    bodyText: "Where is my order?",
+    currentClassification: null,
+    knnConfidence: null,
+    policies: [],
+  });
+  assert.doesNotMatch(msg, /Recipient's personal name/);
+  assert.doesNotMatch(msg, /Recipient's business/);
+});
+
 test("the finalized sentence reads the way it was asked to", () => {
   assert.equal(
     buildPolicyStatement("an unsolicited pitch offering leads", "spam"),

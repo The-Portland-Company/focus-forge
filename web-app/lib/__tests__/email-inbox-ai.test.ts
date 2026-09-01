@@ -6,6 +6,7 @@ import {
   buildHeuristicAnalysis,
   finalizeInboxSummary,
   formatAiGeneratedTaskName,
+  greetsByBusinessName,
   normalizePreventedSpamResult,
   repairGenericTaskName,
 } from "../email-inbox/ai";
@@ -195,6 +196,92 @@ test("analyzeThreadWithAI(forceHeuristic) returns local heuristics without an LL
 
     const result = await analyzeThreadWithAI(input);
     assert.deepEqual(result, buildHeuristicAnalysis(input));
+  } finally {
+    globalThis.fetch = priorFetch;
+    if (priorKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = priorKey;
+  }
+});
+
+test("greetsByBusinessName flags a business-name greeting only when no personal name is present", () => {
+  const names = ["Spencer", "Hill", "Spencer Hill"];
+  // Greets the company, no personal name → the mass-merge tell.
+  assert.equal(
+    greetsByBusinessName("Hi Acme Co, we can grow your leads.", "Acme Co", names),
+    true,
+  );
+  assert.equal(
+    greetsByBusinessName("Dear Acme Co — quick question.", "Acme Co", names),
+    true,
+  );
+  // A personal greeting that merely mentions the company is NOT the pattern.
+  assert.equal(
+    greetsByBusinessName("Hi Spencer, about Acme Co's order…", "Acme Co", names),
+    false,
+  );
+  // Company named later in the body (not the greeting slot) → no match.
+  assert.equal(
+    greetsByBusinessName("Hello, following up on the Acme Co invoice.", "Acme Co", names),
+    false,
+  );
+  // No business name / too short → never fires.
+  assert.equal(greetsByBusinessName("Hi Acme Co,", null, names), false);
+  assert.equal(greetsByBusinessName("Hi Ac,", "Ac", names), false);
+});
+
+test("analyzeThreadWithAI carries recipient/business names and remaps AI spam to quarantine", async () => {
+  // Drive the OpenAI leg with an explicit chain + key, and mock the wire so we
+  // can (1) inspect the outbound prompt and (2) feed back a status:"spam" reply,
+  // asserting the AI spam verdict is routed to QUARANTINE, never the spam bucket.
+  const priorKey = process.env.OPENAI_API_KEY;
+  const priorFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "sk-test-openai";
+
+  let capturedBody = "";
+  globalThis.fetch = (async (_url: string, init?: { body?: string }) => {
+    capturedBody = init?.body ?? "";
+    const content = JSON.stringify({
+      classification: "spam",
+      status: "spam",
+      actionTitle: "Cold pitch",
+      summary: "An unsolicited cold sales pitch addressed to the company.",
+      reason: "Greets the business by name, not a person.",
+      confidence: 0.92,
+      needsProject: false,
+      projectId: null,
+      taskSuggestions: [],
+    });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content } }] }),
+      text: async () => "",
+    };
+  }) as unknown as typeof globalThis.fetch;
+
+  try {
+    const result = await analyzeThreadWithAI({
+      subject: "Grow Acme Co revenue",
+      bodyText: "Hi Acme Co, our agency can 10x your leads. Reply to learn more.",
+      senderEmail: "sales@growthhackers.biz",
+      mailboxEmail: "spencer@example.com",
+      projectOptions: [],
+      chain: [{ provider: "openai", model: "gpt-4.1" }],
+      recipientNames: ["Spencer", "Hill", "Spencer Hill"],
+      businessName: "Acme Co",
+      spamPolicies: ["Cold agency pitches are spam."],
+    });
+
+    // The prompt reached the model with the identity context.
+    const outbound = JSON.parse(capturedBody);
+    const userMessage = String(outbound.messages[1].content);
+    assert.match(userMessage, /Acme Co/);
+    assert.match(userMessage, /Spencer Hill/);
+    assert.match(userMessage, /greetingUsesBusinessName/);
+
+    // AI said spam → we route to quarantine (reviewable), never the spam bucket.
+    assert.equal(result.classification, "spam");
+    assert.equal(result.status, "quarantine");
   } finally {
     globalThis.fetch = priorFetch;
     if (priorKey === undefined) delete process.env.OPENAI_API_KEY;
