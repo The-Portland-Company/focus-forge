@@ -34,6 +34,7 @@ import {
 import {
   applySpamKnnOverride,
   resolveRuleDrivenThreadState,
+  keepLegitMailActive,
   isContentSpamExemptSender,
 } from "@/lib/email-inbox/reprocess";
 import {
@@ -3497,14 +3498,21 @@ export async function reprocessThread(
       ? aiResult.projectId
       : null);
 
-  if (
-    !projectId &&
-    aiResult.taskSuggestions.length > 0 &&
-    status === "active"
-  ) {
-    status = "needs_project";
-    needsProject = true;
-  }
+  // OLD behavior: an unrouted thread that carried task suggestions was demoted
+  // active → needs_project here, and the AI/heuristic could also archive or
+  // quarantine ("low-value") ordinary mail on its own. All of that pulled
+  // legitimate inbound mail out of the active inbox. NEW behavior: a
+  // freshly-synced inbound thread stays `active` (visible in "All") unless it is
+  // genuinely spam/junk or an explicit user rule files it elsewhere. Spam,
+  // quarantine, archive, and delete driven by classification/rules are preserved
+  // — see keepLegitMailActive. Threads without a project simply stay active; the
+  // user routes them from the inbox rather than having them hidden first.
+  ({ classification, status, needsProject } = keepLegitMailActive({
+    classification,
+    status,
+    needsProject,
+    ruleActions,
+  }));
 
   await admin
     .from("email_threads")

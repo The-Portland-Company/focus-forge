@@ -1041,11 +1041,11 @@ Return concise, task-oriented JSON only.
 The summary must be a single sentence on one line, under 160 characters, and must paraphrase the email instead of copying the body text verbatim.
 Prefer an existing project ID only when evidence is strong.
 Use the user's summary instructions when present.
-If the email is spam or low-value, quarantine it.
+Default status is "active" — keep mail in the inbox. Quarantine ONLY genuine spam or unsolicited junk. Do NOT quarantine or archive legitimate mail just because it is low-value, promotional, or low-priority; classify it (newsletter/reference) and leave status="active" so it stays visible.
 Automated transactional notifications — billing alerts, receipts, statements, invoices, payment/order confirmations, security/sign-in alerts, signup/verification emails, welcome emails, usage/quota alerts, and automated activity reports — are not actionable work. Classify them as reference or newsletter and return an empty taskSuggestions array.
 Every task name must state what the task is about, using the email subject or topic (e.g. "Review and respond: <subject>"). Never name a task after only a person or sender name, and never use a bare "Review and respond" with no topic.
 Treat unsolicited vendor pitches and generic service offers as spam when they are cold outreach with no established context.
-If actionable but you cannot confidently route it, set needsProject=true and status=needs_project.
+If actionable but you cannot confidently route it to a project, leave status="active" and let the user route it — do NOT set status=needs_project.
 ${
   input.preventSpamClassification
     ? "A user rule already decided this sender must not be treated as spam. Do not return spam or quarantine."

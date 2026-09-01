@@ -63,6 +63,67 @@ export function applySpamKnnOverride<
   return { classification, status, needsProject };
 }
 
+/**
+ * Keeps legitimate inbound mail in the ACTIVE inbox.
+ *
+ * OLD behavior: a freshly-synced inbound thread could be pulled straight out of
+ * the active view by the AI/heuristic's own guess — demoted to `needs_project`
+ * (merely "actionable but I couldn't route it"), to `archived`, or worst of all
+ * to `quarantine` for anything the model judged "low-value". Quarantine/archive
+ * HIDE a thread from the inbox entirely, so ordinary mail that is still sitting
+ * in the provider inbox (promotional, newsletters, low-priority, "unsure")
+ * vanished from FF's inbox and it looked far emptier than Gmail's.
+ *
+ * NEW behavior: a thread only leaves `active` when it is genuinely spam/junk or
+ * an explicit user rule says so. Everything else stays `active` and simply
+ * carries its classification label (it can be filtered/labeled, not hidden).
+ *
+ * This does NOT weaken spam handling — the spam path is deliberately preserved:
+ *   • real spam keeps classification "spam" (from the LLM, the k-NN override, or
+ *     a `spam` rule) and its quarantine/spam/deleted status is left untouched;
+ *   • explicit user rules (`always_delete`, `spam`, `quarantine`, `archive`,
+ *     `require_project`) are always honored;
+ *   • provider-side archive mirroring (mirrorProviderFolderState) is a separate
+ *     mechanism and is unaffected by this guard.
+ *
+ * Only the AI's own non-spam demotion of normal mail is reverted to `active`.
+ */
+export function keepLegitMailActive<
+  C extends InboxItem["classification"],
+  S extends InboxItem["status"],
+>(params: {
+  classification: C;
+  status: S;
+  needsProject: boolean;
+  ruleActions: Set<string>;
+}): { classification: C; status: S | "active"; needsProject: boolean } {
+  const { classification, status, ruleActions } = params;
+
+  // A spam/junk disposition (however it was reached) is never touched.
+  const isSpamDisposition =
+    classification === "spam" || status === "spam" || status === "deleted";
+
+  // Any explicit user rule that intentionally files mail out of the inbox wins.
+  const ruleForced =
+    ruleActions.has("always_delete") ||
+    ruleActions.has("spam") ||
+    ruleActions.has("quarantine") ||
+    ruleActions.has("archive") ||
+    ruleActions.has("require_project");
+
+  if (
+    !isSpamDisposition &&
+    !ruleForced &&
+    (status === "archived" ||
+      status === "needs_project" ||
+      status === "quarantine")
+  ) {
+    return { classification, status: "active", needsProject: false };
+  }
+
+  return { classification, status, needsProject: params.needsProject };
+}
+
 export function resolveRuleDrivenThreadState(params: {
   aiResult: EmailThreadAIOutput;
   ruleActions: Set<string>;
