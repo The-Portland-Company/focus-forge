@@ -20,6 +20,11 @@ import {
 } from "@/lib/spam/server";
 import { resolveEmailChain } from "@/lib/ai/email-provider";
 import {
+  loadRecipientIdentity,
+  listSpamPolicyStatements,
+  persistPipelineSpamAssessment,
+} from "@/lib/spam/assessment-server";
+import {
   runStructuredWaterfall,
   type ModelSpec,
 } from "@/lib/ai/structured-waterfall";
@@ -3445,6 +3450,30 @@ export async function reprocessThread(
     orgAiSettings = (org as { ai_settings?: unknown } | null)?.ai_settings ?? null;
   }
 
+  // Recipient identity (personal + business name) powers the business-name
+  // greeting spam signal; saved policies let triage reflect prior training.
+  // Both best-effort — a failure just leaves those inputs empty.
+  let recipientNames: string[] = [];
+  let businessName: string | null = null;
+  let spamPolicies: string[] = [];
+  if (!suppressContentSpam) {
+    try {
+      const [identity, policies] = await Promise.all([
+        loadRecipientIdentity(
+          mailbox.owner_user_id ? String(mailbox.owner_user_id) : null,
+          mailbox.organization_id ? String(mailbox.organization_id) : null,
+        ),
+        listSpamPolicyStatements(mailbox.owner_user_id),
+      ]);
+      recipientNames = identity.recipientNames;
+      businessName = identity.businessName;
+      spamPolicies = policies;
+    } catch (e) {
+      console.error("recipient identity / spam policies load failed:", e);
+    }
+  }
+
+  const emailChain = resolveEmailChain(orgAiSettings);
   const aiResult = await analyzeThreadWithAI({
     subject: latestMessage.subject || thread.subject || "",
     bodyText: latestMessage.body_text || "",
@@ -3452,7 +3481,7 @@ export async function reprocessThread(
     mailboxEmail: mailbox.email_address,
     preventSpamClassification: suppressContentSpam,
     forceHeuristic: forceHeuristicAnalysis,
-    chain: resolveEmailChain(orgAiSettings),
+    chain: emailChain,
     profile,
     projectOptions: projectOptions.map((project) => ({
       id: project.id,
@@ -3461,6 +3490,9 @@ export async function reprocessThread(
     })),
     memoryBlock,
     playbookBlock,
+    recipientNames,
+    businessName,
+    spamPolicies,
   });
 
   const ruleActions = new Set(appliedRules.actions);
@@ -3489,6 +3521,47 @@ export async function reprocessThread(
     knnConfident: spamKnnConfident,
     suppressContentSpam,
   }));
+
+  // Layer 2 — explainable second opinion, ONLY on the AI-driven quarantine
+  // subset. When the AI (not a rule, not a confident k-NN) has decided this is
+  // spam, run one assessSpam call to (1) cache cited reasons the quarantine
+  // review will show and (2) let a high-confidence not_spam verdict veto a false
+  // positive. Skipped when spam was rule-forced, k-NN-confident, suppressed, or
+  // the external LLM is off (private mode / rule short-circuit). Best-effort.
+  const aiDrovenQuarantine =
+    classification === "spam" &&
+    status === "quarantine" &&
+    !suppressContentSpam &&
+    !forceHeuristicAnalysis &&
+    emailChain.length > 0 && // org didn't disable email AI triage
+    !ruleActions.has("spam") &&
+    !ruleActions.has("always_delete") &&
+    !spamKnnConfident;
+  if (aiDrovenQuarantine) {
+    const assessment = await persistPipelineSpamAssessment({
+      userId: mailbox.owner_user_id,
+      organizationId: mailbox.organization_id ?? null,
+      threadId: thread.id,
+      subject: latestMessage.subject || thread.subject || null,
+      senderEmail: buildRuleContext(mailbox, latestMessage).senderEmail,
+      senderName: null,
+      previewText: null,
+      bodyText: latestMessage.body_text || null,
+      currentClassification: classification,
+      knnConfidence: spamVerdict?.confidence ?? null,
+      recipientNames,
+      businessName,
+      chain: emailChain,
+    });
+    // A confident not_spam verdict reverses the false positive: back to the
+    // inbox as the AI's non-spam read (never leave it classified spam).
+    if (assessment?.verdict === "not_spam" && assessment.confidence >= 0.8) {
+      classification =
+        aiResult.classification === "spam" ? "reference" : aiResult.classification;
+      status = "active";
+      needsProject = false;
+    }
+  }
 
   const projectId =
     thread.project_id ||
