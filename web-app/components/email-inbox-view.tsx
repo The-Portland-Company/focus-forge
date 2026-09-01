@@ -81,6 +81,7 @@ import { InboxTabModal } from "@/components/inbox-tab-modal";
 import { DragToTabModal } from "@/components/drag-to-tab-modal";
 import { EmailAssignProjectModal } from "@/components/email-assign-project-modal";
 import { QuarantineRulesModal } from "@/components/quarantine-rules-modal";
+import { EmailSpamExplainabilityModal } from "@/components/email-spam-explainability-modal";
 import {
   describeDepartures,
   listExplainedDepartures,
@@ -1719,6 +1720,9 @@ export function EmailInboxView({
   // Email pending a quarantine-rules confirmation modal.
   const [quarantineModalItem, setQuarantineModalItem] =
     useState<InboxItem | null>(null);
+  // Email whose "AI Analyze" explainability modal is open (from the quarantine
+  // modal's field dropdown).
+  const [spamAnalyzeItem, setSpamAnalyzeItem] = useState<InboxItem | null>(null);
   const [showContactsView, setShowContactsView] = useState(false);
 
   // Returning from the Google contacts OAuth flow lands back on the inbox URL
@@ -7851,6 +7855,18 @@ export function EmailInboxView({
           }}
           onEditRules={() => {
             setQuarantineModalItem(null);
+            router.push("/email-rules");
+          }}
+          onAnalyzeWithAi={(item) => setSpamAnalyzeItem(item)}
+        />
+      ) : null}
+      {spamAnalyzeItem ? (
+        <EmailSpamExplainabilityModal
+          item={spamAnalyzeItem}
+          rules={data.emailRules}
+          onClose={() => setSpamAnalyzeItem(null)}
+          onEditRules={() => {
+            setSpamAnalyzeItem(null);
             router.push("/email-rules");
           }}
         />

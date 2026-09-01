@@ -18,6 +18,7 @@ import {
   FolderSearch,
   Loader2,
   BellDot,
+  BrainCircuit,
   Mail,
   Flag,
   ListChecks,
@@ -2035,6 +2036,21 @@ export function EmailWorkList({
                         ) : (
                           `${percent}%`
                         )}
+                      </button>
+                      {/* AI Analyze: read the body and explain why it's spam,
+                          then train. Always available (unlike the score button,
+                          which is disabled until a score exists). */}
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setExplainItem(item);
+                        }}
+                        className="inline-flex items-center justify-center rounded-md px-1 py-0.5 text-zinc-400 transition-colors hover:bg-violet-500/10 hover:text-violet-300"
+                        aria-label="Analyze with AI"
+                        title="Analyze with AI — read the body and explain why it's spam"
+                      >
+                        <BrainCircuit className="h-3.5 w-3.5" />
                       </button>
                       {item.status !== "quarantine" ? (
                         <button

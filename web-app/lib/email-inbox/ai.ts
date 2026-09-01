@@ -38,6 +38,16 @@ export type EmailThreadAIInput = {
   // Optional AI-memory context blocks appended to the system prompt.
   memoryBlock?: string;
   playbookBlock?: string;
+  // The recipient's own name(s) — first, last, full — so the model can tell a
+  // personal greeting from a mass-merge one. Empty/omitted → the greeting signal
+  // is simply not evaluated.
+  recipientNames?: string[];
+  // The recipient's business/organization name. A cold pitch that greets the
+  // BUSINESS by name ("Hi Acme Co,") instead of a person is a strong spam tell.
+  businessName?: string | null;
+  // The user's finalized spam policy statements, fed so triage reflects the
+  // training conversations they have already had.
+  spamPolicies?: string[];
 };
 
 export type EmailThreadAIOutput = {
@@ -633,6 +643,35 @@ function detectUnsolicitedServicePitchSpam(
   return solicitationMatches >= 2 && servicePitchMatches >= 1;
 }
 
+/**
+ * Cheap, network-free tell: the greeting addresses the recipient's BUSINESS name
+ * ("Hi Acme Co,") rather than a personal name. Legitimate correspondents use a
+ * person's name or no name; a mass-merge cold pitch drops the company name into
+ * the greeting slot. Returned as a HINT for the LLM, never a hard verdict — B2B
+ * mail legitimately addressed to the company would otherwise false-positive.
+ */
+export function greetsByBusinessName(
+  body: string,
+  businessName: string | null | undefined,
+  recipientNames: string[] | undefined,
+): boolean {
+  const biz = (businessName || "").trim().toLowerCase();
+  if (biz.length < 3) return false;
+  // Only look at the opening — greetings live in the first line or two.
+  const opening = body.slice(0, 160).toLowerCase();
+  const escaped = biz.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const greeting = new RegExp(
+    `\\b(hi|hello|hey|dear|greetings|good\\s+(morning|afternoon|evening))\\b[\\s,:-]+${escaped}\\b`,
+  );
+  if (!greeting.test(opening)) return false;
+  // If a personal name of the recipient also appears up top, it is a personal
+  // greeting that merely mentions the company — not the mass-merge pattern.
+  const personal = (recipientNames || [])
+    .map((n) => n.trim().toLowerCase())
+    .filter((n) => n.length >= 2);
+  return !personal.some((name) => opening.includes(name));
+}
+
 function detectTransactionalNotification(
   subject: string,
   senderEmail: string,
@@ -1045,6 +1084,7 @@ If the email is spam or low-value, quarantine it.
 Automated transactional notifications — billing alerts, receipts, statements, invoices, payment/order confirmations, security/sign-in alerts, signup/verification emails, welcome emails, usage/quota alerts, and automated activity reports — are not actionable work. Classify them as reference or newsletter and return an empty taskSuggestions array.
 Every task name must state what the task is about, using the email subject or topic (e.g. "Review and respond: <subject>"). Never name a task after only a person or sender name, and never use a bare "Review and respond" with no topic.
 Treat unsolicited vendor pitches and generic service offers as spam when they are cold outreach with no established context.
+If the greeting addresses the recipient by their business or organization name rather than a personal name (e.g. "Hi <business>,"), treat that as a strong cold-outreach / mass-merge spam signal — legitimate correspondents use a personal name or none. Weigh the recipient's saved spam policies below above your general priors.
 If actionable but you cannot confidently route it, set needsProject=true and status=needs_project.
 ${
   input.preventSpamClassification
@@ -1064,6 +1104,19 @@ ${JSON.stringify(schema.schema)}`;
     subject: input.subject,
     normalizedSubject: normalizeSubject(input.subject),
     bodyText: input.bodyText,
+    recipient: {
+      names: input.recipientNames ?? [],
+      businessName: input.businessName ?? null,
+      // A local, cheap tell surfaced to the model as a hint, not a verdict.
+      greetingUsesBusinessName: input.preventSpamClassification
+        ? false
+        : greetsByBusinessName(
+            input.bodyText,
+            input.businessName,
+            input.recipientNames,
+          ),
+    },
+    spamPolicies: input.spamPolicies ?? [],
     profile: input.profile
       ? {
           name: input.profile.name,
@@ -1101,7 +1154,10 @@ ${JSON.stringify(schema.schema)}`;
     return normalizePreventedSpamResult(
       {
         classification: parsed.classification,
-        status: parsed.status,
+        // AI-detected spam is routed to QUARANTINE (reversible, reviewable),
+        // never straight to the spam bucket — the review is where the k-NN gets
+        // trained. A rule that forces the spam bucket runs on a different path.
+        status: parsed.status === "spam" ? "quarantine" : parsed.status,
         actionTitle: parsed.actionTitle,
         summary: finalizeInboxSummary({
           summary: parsed.summary,
