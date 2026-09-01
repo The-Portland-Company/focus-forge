@@ -24,11 +24,12 @@ import { analyzeThreadWithAI, buildHeuristicAnalysis } from "../email-inbox/ai";
 // The email chain leads with DeepSeek deliberately: it is the highest-volume AI
 // surface and the cheapest provider of the three. V4 Flash is the current
 // generation's economical model, which is the right trade for triage volume.
-test("the default email chain is DeepSeek V4 Flash -> Claude -> Grok", () => {
+test("the default email chain is DeepSeek V4 Flash -> Claude -> Grok -> free CF fallback", () => {
   assert.deepEqual(DEFAULT_EMAIL_CHAIN_IDS, [
     "deepseek-v4-flash",
     "claude-opus-4-8",
     "grok-3",
+    "cf-llama-3.3-70b",
   ]);
 });
 
@@ -53,6 +54,7 @@ test("resolveEmailChain defaults to the DeepSeek-V4-first chain when unset", () 
     { provider: "deepseek", model: "deepseek-v4-flash" },
     { provider: "anthropic", model: "claude-opus-4-8" },
     { provider: "xai", model: "grok-3" },
+    { provider: "cf-workers-ai", model: "cf-llama-3.3-70b" },
   ]);
   assert.deepEqual(resolveEmailChain({}), resolveEmailChain(null));
 });
@@ -63,8 +65,8 @@ test("resolveEmailChain honours an org's stored order", () => {
   });
   assert.deepEqual(
     chain.map((spec) => spec.model),
-    // The omitted model is appended in default order, never dropped.
-    ["grok-3", "deepseek-v4-flash", "claude-opus-4-8"],
+    // The omitted models are appended in default order, never dropped.
+    ["grok-3", "deepseek-v4-flash", "claude-opus-4-8", "cf-llama-3.3-70b"],
   );
 });
 
@@ -76,7 +78,13 @@ test("resolveEmailChain still resolves a chain pinned to the legacy V3 alias", (
   });
   assert.deepEqual(
     chain.map((spec) => spec.model),
-    ["deepseek-chat", "deepseek-v4-flash", "claude-opus-4-8", "grok-3"],
+    [
+      "deepseek-chat",
+      "deepseek-v4-flash",
+      "claude-opus-4-8",
+      "grok-3",
+      "cf-llama-3.3-70b",
+    ],
   );
 });
 
@@ -101,6 +109,7 @@ test("normalizeOrgAISettings drops unknown ids and coerces enabled", () => {
     "grok-3",
     "deepseek-v4-flash",
     "claude-opus-4-8",
+    "cf-llama-3.3-70b",
   ]);
   // Garbage in the column must not throw.
   assert.deepEqual(

@@ -60,6 +60,15 @@ export const KNOWN_MODELS: KnownModel[] = [
     label: "Focus Forge Estimator (fine-tuned, Gemma-2B)",
     provider: "cf-workers-ai",
   },
+  // Free, self-hosted open model on Cloudflare Workers AI. Serves as the
+  // terminal fallback in every default chain so triage and spam analysis keep
+  // working when the paid providers are out of credits — no external paid API,
+  // and it uses the same Cloudflare account that already runs spam embeddings.
+  {
+    id: "cf-llama-3.3-70b",
+    label: "Llama 3.3 70B (Cloudflare, open)",
+    provider: "cf-workers-ai",
+  },
 ];
 
 const MODEL_BY_ID = new Map(KNOWN_MODELS.map((m) => [m.id, m]));
@@ -74,6 +83,10 @@ export const DEFAULT_CHAIN_IDS: string[] = [
   "gpt-4.1",
   "claude-sonnet-4-6",
   "grok-3",
+  // Terminal free fallback: when every paid provider above is out of credits,
+  // the open Cloudflare model still answers. Last so it never displaces a paid
+  // model while credits remain.
+  "cf-llama-3.3-70b",
 ];
 
 /**
@@ -92,6 +105,9 @@ export const DEFAULT_EMAIL_CHAIN_IDS: string[] = [
   "deepseek-v4-flash",
   "claude-opus-4-8",
   "grok-3",
+  // Terminal free fallback (Cloudflare open model) so inbound triage and spam
+  // analysis survive a full paid-credit outage without leaving the app.
+  "cf-llama-3.3-70b",
 ];
 
 /**
@@ -107,6 +123,7 @@ export const EMAIL_SELECTABLE_IDS: string[] = [
   "claude-opus-4-8",
   "claude-sonnet-4-6",
   "grok-3",
+  "cf-llama-3.3-70b",
 ];
 
 /** The models selectable for a given surface (email has its own allow-list). */
