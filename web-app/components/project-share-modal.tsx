@@ -9,11 +9,15 @@ import {
   Lock,
   Trash2,
   Link as LinkIcon,
+  FileJson,
+  ExternalLink,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format-date";
 import {
+  MODAL_INSET_CLASS,
   ModalMinimizeButton,
+  ModalResizeHandle,
   useModalWindow,
 } from "@/components/ui/modal-window";
 
@@ -59,6 +63,21 @@ export function ProjectShareModal({
   const [passcode, setPasscode] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [allowPublic, setAllowPublic] = useState(true);
+  const [jsonCopied, setJsonCopied] = useState(false);
+  const aiExportPath = `/projects/${projectId}/ai-export`;
+  const copyJsonLink = async () => {
+    const url =
+      typeof window === "undefined"
+        ? aiExportPath
+        : new URL(aiExportPath, window.location.origin).toString();
+    try {
+      await navigator.clipboard.writeText(url);
+      setJsonCopied(true);
+      window.setTimeout(() => setJsonCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
   const [permission, setPermission] = useState<"read" | "write">("read");
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -174,9 +193,10 @@ export function ProjectShareModal({
   if (modalWindow.minimized) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div className={`fixed ${MODAL_INSET_CLASS} z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm`}>
       <div
-        style={{ ...modalWindow.panelStyle, position: "relative" }} className="w-full max-w-2xl rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl max-h-[90vh] flex flex-col">
+        ref={modalWindow.panelRef}
+        style={{ ...modalWindow.panelStyle, ...modalWindow.sizeStyle, position: "relative" }} className="w-full max-w-2xl rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl max-h-full flex flex-col">
         <div
           {...modalWindow.dragHandleProps}
           aria-hidden
@@ -186,6 +206,7 @@ export function ProjectShareModal({
           onMinimize={modalWindow.minimize}
           className="absolute right-12 top-4 z-20"
         />
+        <ModalResizeHandle handleProps={modalWindow.resizeHandleProps} />
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold text-white">Share project</h2>
@@ -206,6 +227,42 @@ export function ProjectShareModal({
               {error}
             </div>
           )}
+
+          {/* AI export (JSON) — moved here from the project header toolbar. */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-zinc-300">
+              AI export (JSON)
+            </h3>
+            <p className="text-xs text-zinc-500">
+              A machine-readable snapshot of this project for AI tools.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void copyJsonLink()}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+              >
+                {jsonCopied ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <LinkIcon className="h-4 w-4" />
+                )}
+                {jsonCopied ? "Copied!" : "Copy JSON link"}
+              </button>
+              <a
+                href={aiExportPath}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white"
+              >
+                <FileJson className="h-4 w-4" />
+                Open JSON page
+                <ExternalLink className="h-3.5 w-3.5 text-zinc-500" />
+              </a>
+            </div>
+          </div>
+
+          <div className="h-px bg-zinc-800" />
 
           {/* Create a link */}
           <div className="space-y-3">
