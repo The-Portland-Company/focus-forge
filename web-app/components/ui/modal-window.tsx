@@ -359,7 +359,7 @@ export function ModalMinimizeButton({
       onClick={onMinimize}
       aria-label="Minimize"
       title="Minimize"
-      className={`rounded-sm text-zinc-400 opacity-70 transition-opacity hover:text-white hover:opacity-100 focus:outline-none ${className}`}
+      className={`rounded p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 focus:outline-none ${className}`}
     >
       <Minus className="h-4 w-4" />
     </button>
