@@ -2278,13 +2278,13 @@ export function Sidebar({
         )}
 
         <NavReorderWrapper id="organizations">
-        {!isCollapsed && (
-          <div className="flex items-center justify-between px-3 py-1 mb-0">
+        {isCollapsed ? (
+          <Tooltip content="Organizations">
             <button
               onClick={() =>
                 setOrganizationsListCollapsed((prev) => !prev)
               }
-              className="flex items-center gap-2 text-xs font-medium text-zinc-500 uppercase hover:text-zinc-300 transition-colors group"
+              className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-sm transition-colors text-zinc-400 hover:text-white`}
               title={
                 organizationsListCollapsed
                   ? "Show organizations"
@@ -2292,19 +2292,34 @@ export function Sidebar({
               }
               aria-expanded={!organizationsListCollapsed}
             >
-              <ChevronRight
-                className={`w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-300 transition-transform ${organizationsListCollapsed ? "" : "rotate-90"}`}
-              />
-              Organizations
+              <Building2 className="w-4 h-4" />
+            </button>
+          </Tooltip>
+        ) : (
+          <div className="flex items-center justify-between w-full gap-3 pl-1.5 pr-3 py-1 rounded-lg text-sm transition-colors text-zinc-400 hover:text-white group">
+            <button
+              onClick={() =>
+                setOrganizationsListCollapsed((prev) => !prev)
+              }
+              className="flex items-center gap-3 flex-1 min-w-0"
+              title={
+                organizationsListCollapsed
+                  ? "Show organizations"
+                  : "Hide organizations"
+              }
+              aria-expanded={!organizationsListCollapsed}
+            >
+              <Building2 className="w-4 h-4 shrink-0" />
+              <span className="truncate">Organizations</span>
               {isRefreshing ? (
-                <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />
+                <Loader2 className="h-4 w-4 animate-spin shrink-0 ml-auto" />
               ) : null}
               {orgTaskCounts.total > 0 ? (
                 <Tooltip
                   content={`${orgTaskCounts.total} active tasks across all organizations`}
                   className=""
                 >
-                  <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[10px] tracking-wide text-zinc-400">
+                  <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs sm:text-[10px] tracking-wide text-zinc-400 shrink-0 ml-auto">
                     {orgTaskCounts.total}
                   </span>
                 </Tooltip>
@@ -2322,7 +2337,7 @@ export function Sidebar({
                   setExpandedOrgs(allOrgIds);
                 }
               }}
-              className="p-1 rounded hover:bg-zinc-800 transition-colors group"
+              className="p-1 rounded hover:bg-zinc-800 transition-colors group shrink-0"
               title={
                 expandedOrgs.length === data.organizations.length
                   ? "Collapse all"
