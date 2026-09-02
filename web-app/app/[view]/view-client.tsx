@@ -3119,20 +3119,32 @@ export default function ViewPage({
       });
 
       if (response.ok) {
-        // Pin the freshly created (empty) section into view so the
-        // "hide empty task lists" preference doesn't immediately hide it —
-        // the user just made it and expects to see it. Persisted via the
-        // visibleSectionOverrides effect.
         const created = await response.json().catch(() => null);
         const createdId =
           created && typeof created.id === "string" ? created.id : null;
-        if (createdId) {
+        if (created && createdId) {
+          // Swap the temp row for the real one IN PLACE (single render) so the
+          // section never disappears — the previous remove-then-refetch left a
+          // visible gap (appear → vanish → reappear). No blocking refetch.
+          setDatabase((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  sections: prev.sections.map((s) =>
+                    s.id === tempId ? (created as Section) : s,
+                  ),
+                }
+              : prev,
+          );
+          // Pin the freshly created (empty) section into view so the "hide
+          // empty task lists" preference doesn't immediately hide it.
           setVisibleSectionOverrides((prev) =>
             prev.includes(createdId) ? prev : [...prev, createdId],
           );
+          showSuccess(`Added "${section.name}"`);
+          return;
         }
-        // fetchData replaces the temp row with the real one; drop the temp
-        // first so it can't briefly duplicate.
+        // No id returned — reconcile via refetch (rare fallback path).
         removeOptimistic();
         await fetchData();
         showSuccess(`Added "${section.name}"`);
@@ -6885,7 +6897,7 @@ export default function ViewPage({
                 )}
               </div>
             </div>
-            <div className="group flex items-center justify-end gap-2">
+            <div className="group/projtoolbar flex items-center justify-end gap-2">
               {/* Action cluster is gated on `projectId` (known from the route
                   immediately), not the late-arriving `project` object, so the
                   buttons paint at 0ms. Handlers that truly need the loaded
@@ -6899,7 +6911,7 @@ export default function ViewPage({
                 className={`flex items-center gap-2 overflow-hidden transition-all duration-300 ease-out ${
                   projectToolbarPinned
                     ? "max-w-[640px] opacity-100"
-                    : "max-w-0 opacity-0 group-hover:max-w-[640px] group-hover:opacity-100"
+                    : "max-w-0 opacity-0 group-hover/projtoolbar:max-w-[640px] group-hover/projtoolbar:opacity-100"
                 }`}
               >
               <Tooltip

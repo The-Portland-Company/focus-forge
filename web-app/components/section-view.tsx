@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Section, Task, Database, Goal } from "@/lib/types";
 import { getSectionIcon } from "@/lib/section-icons";
+import { Tooltip } from "@/components/tooltip";
 import { PlanPanel } from "./plan-panel";
 import { TaskList } from "./task-list";
 import { SupplyTotal } from "./supply-total";
@@ -504,83 +505,90 @@ export function SectionView({
         </div>
 
         <div className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 flex items-center gap-1 transition-opacity">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onAddTask(section);
-            }}
-            className="p-1 hover:bg-zinc-700 rounded transition-colors"
-            title="Add task"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowSupplies((v) => !v);
-              if (isCollapsed) setIsCollapsed(false);
-            }}
-            className={`p-1 hover:bg-zinc-700 rounded transition-colors ${
-              showSupplies ? "text-amber-300" : ""
-            }`}
-            title="Supplies on hand"
-          >
-            <Boxes className="w-4 h-4" />
-          </button>
-          {onAddSectionAfter && (
+          <Tooltip content="Add task" side="top" className="inline-flex">
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onAddSectionAfter(section);
+                onAddTask(section);
               }}
               className="p-1 hover:bg-zinc-700 rounded transition-colors"
-              title="Add section"
             >
-              <ListPlus className="w-4 h-4" />
+              <Plus className="w-4 h-4" />
             </button>
+          </Tooltip>
+          <Tooltip content="Supplies on hand" side="top" className="inline-flex">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowSupplies((v) => !v);
+                if (isCollapsed) setIsCollapsed(false);
+              }}
+              className={`p-1 hover:bg-zinc-700 rounded transition-colors ${
+                showSupplies ? "text-amber-300" : ""
+              }`}
+            >
+              <Boxes className="w-4 h-4" />
+            </button>
+          </Tooltip>
+          {onAddSectionAfter && (
+            <Tooltip content="Add section" side="top" className="inline-flex">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddSectionAfter(section);
+                }}
+                className="p-1 hover:bg-zinc-700 rounded transition-colors"
+              >
+                <ListPlus className="w-4 h-4" />
+              </button>
+            </Tooltip>
           )}
           {onAddGoal && (
+            <Tooltip content="Add goal" side="top" className="inline-flex">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddGoal(section.projectId, section.id);
+                }}
+                className="p-1 hover:bg-zinc-700 rounded transition-colors"
+              >
+                <Target className="w-4 h-4" />
+              </button>
+            </Tooltip>
+          )}
+          <Tooltip content="Plans" side="top" className="inline-flex">
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onAddGoal(section.projectId, section.id);
+                setShowPlans(true);
               }}
               className="p-1 hover:bg-zinc-700 rounded transition-colors"
-              title="Add goal"
             >
-              <Target className="w-4 h-4" />
+              <FileText className="w-4 h-4" />
             </button>
-          )}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowPlans(true);
-            }}
-            className="p-1 hover:bg-zinc-700 rounded transition-colors"
-            title="Plans"
-          >
-            <FileText className="w-4 h-4" />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onSectionEdit(section);
-            }}
-            className="p-1 hover:bg-zinc-700 rounded transition-colors"
-            title="Edit section"
-          >
-            <Edit className="w-4 h-4" />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onSectionDelete(section.id);
-            }}
-            className="p-1 hover:bg-zinc-700 rounded transition-colors text-red-400"
-            title="Delete section"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+          </Tooltip>
+          <Tooltip content="Edit section" side="top" className="inline-flex">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSectionEdit(section);
+              }}
+              className="p-1 hover:bg-zinc-700 rounded transition-colors"
+            >
+              <Edit className="w-4 h-4" />
+            </button>
+          </Tooltip>
+          <Tooltip content="Delete section" side="top" align="end" className="inline-flex">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSectionDelete(section.id);
+              }}
+              className="p-1 hover:bg-zinc-700 rounded transition-colors text-red-400"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </Tooltip>
           <GripVertical className="w-4 h-4 text-zinc-500 cursor-move" />
         </div>
       </div>
