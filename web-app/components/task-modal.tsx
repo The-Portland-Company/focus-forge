@@ -79,7 +79,9 @@ import { nullableEditFieldValue } from "@/lib/task-modal-payload";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { StakeEditor } from "@/components/stake-editor";
 import {
+  MODAL_INSET_CLASS,
   ModalMinimizeButton,
+  ModalResizeHandle,
   useModalWindow,
 } from "@/components/ui/modal-window";
 
@@ -1968,13 +1970,16 @@ export function TaskModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      className={`fixed ${MODAL_INSET_CLASS} bg-black/50 flex items-center justify-center z-50`}
       style={{ ...(stackStyle || {}), zIndex: stackZIndex ?? 50 }}
     >
       <div
-        ref={modalRef}
-        style={{ ...modalWindow.panelStyle, position: "relative" }}
-        className="bg-zinc-900 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto border border-zinc-800"
+        ref={(node) => {
+          modalRef.current = node;
+          modalWindow.panelRef.current = node;
+        }}
+        style={{ ...modalWindow.panelStyle, ...modalWindow.sizeStyle, position: "relative" }}
+        className="bg-zinc-900 rounded-xl shadow-2xl w-full max-w-4xl max-h-full overflow-y-auto border border-zinc-800"
       >
         <div
           {...modalWindow.dragHandleProps}
@@ -1985,6 +1990,7 @@ export function TaskModal({
           onMinimize={modalWindow.minimize}
           className="absolute right-12 top-4 z-20"
         />
+        <ModalResizeHandle handleProps={modalWindow.resizeHandleProps} />
         <div className="sticky top-0 bg-zinc-900 border-b border-zinc-800 px-6 py-4 flex items-center justify-between z-10">
           <h2 className="text-xl font-semibold text-white">
             {isEditMode ? "Edit Task" : "Add Task"}

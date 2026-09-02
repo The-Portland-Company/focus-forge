@@ -8,6 +8,7 @@ import {
   formatAiGeneratedTaskName,
   greetsByBusinessName,
   normalizePreventedSpamResult,
+  projectNameMatchesText,
   repairGenericTaskName,
 } from "../email-inbox/ai";
 
@@ -123,6 +124,49 @@ test("buildHeuristicAnalysis routes actionable email to a matching project", () 
   // The response summary is still derived from the actionable classification,
   // not the retired prefix.
   assert.equal(result.summary, "The sender needs a response about acme website proposal.");
+});
+
+test("projectNameMatchesText requires a whole-word match (short names never match inside words)", () => {
+  // Regression: the 2-char project "RV" used to substring-match inside common
+  // words ("service", "server", "observe", "survey", "reserve"), auto-filing
+  // ~89 infra/notification emails into it.
+  assert.equal(
+    projectNameMatchesText("RV", "your service may continue uninterrupted"),
+    false,
+  );
+  assert.equal(projectNameMatchesText("RV", "your server was rebooted"), false);
+  assert.equal(projectNameMatchesText("RV", "please observe the reserve survey"), false);
+  // A standalone token still matches.
+  assert.equal(projectNameMatchesText("RV", "fix the rv roof this weekend"), true);
+  assert.equal(projectNameMatchesText("RV", "the rv needs weatherizing"), true);
+  // Multi-word names still match as a phrase.
+  assert.equal(
+    projectNameMatchesText("Acme Website", "please review the acme website proposal"),
+    true,
+  );
+});
+
+test("guessProjectId (via buildHeuristicAnalysis) no longer mis-routes to a 2-char project", () => {
+  const rv = { id: "rv-project", name: "RV", description: "" };
+  // Infra/notification email — must NOT land in RV.
+  const infra = buildHeuristicAnalysis({
+    subject: "Your service may continue",
+    bodyText: "Your Cloudflare service will continue on the current plan.",
+    senderEmail: "noreply@cloudflare.com",
+    mailboxEmail: "ops@example.com",
+    projectOptions: [rv],
+  });
+  assert.notEqual(infra.projectId, "rv-project");
+
+  // Genuine RV work — still routes to RV.
+  const roof = buildHeuristicAnalysis({
+    subject: "RV roof repair quote",
+    bodyText: "Here is the quote to fix the RV roof and weatherize it.",
+    senderEmail: "contractor@example.com",
+    mailboxEmail: "ops@example.com",
+    projectOptions: [rv],
+  });
+  assert.equal(roof.projectId, "rv-project");
 });
 
 test("formatAiGeneratedTaskName strips emojis and returns clean text", () => {

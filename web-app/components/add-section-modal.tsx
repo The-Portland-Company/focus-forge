@@ -10,7 +10,9 @@ import {
   resolveSectionIconKey,
 } from '@/lib/section-icons'
 import {
+  MODAL_INSET_CLASS,
   ModalMinimizeButton,
+  ModalResizeHandle,
   useModalWindow,
 } from "@/components/ui/modal-window";
 
@@ -132,9 +134,10 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
   if (modalWindow.minimized) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className={`fixed ${MODAL_INSET_CLASS} bg-black/50 flex items-center justify-center z-50`}>
       <div
-        style={{ ...modalWindow.panelStyle, position: "relative" }} className="bg-zinc-900 rounded-lg p-6 w-full max-w-md">
+        ref={modalWindow.panelRef}
+        style={{ ...modalWindow.panelStyle, ...modalWindow.sizeStyle, position: "relative" }} className="bg-zinc-900 rounded-lg p-6 w-full max-w-md">
         <div
           {...modalWindow.dragHandleProps}
           aria-hidden
@@ -144,6 +147,7 @@ export function AddSectionModal({ isOpen, onClose, onSave, projectId, parentId, 
           onMinimize={modalWindow.minimize}
           className="absolute right-12 top-4 z-20"
         />
+        <ModalResizeHandle handleProps={modalWindow.resizeHandleProps} />
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold text-white">{title}</h2>
           <button

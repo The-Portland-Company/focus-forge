@@ -770,6 +770,27 @@ function detectNewsletter(subject: string, senderEmail: string) {
   );
 }
 
+/**
+ * Whole-word match of a project name/description against the email text.
+ *
+ * A naive `haystack.includes(name)` false-fires when a short project name is a
+ * substring of a common word — the 2-char project "RV" matched inside "service",
+ * "server", "observe", "survey", "reserve", so ~89 infra/notification emails
+ * were auto-filed into it. We now require a WORD-BOUNDARY match, and names
+ * shorter than 3 characters get no substring latitude at all (they only match a
+ * standalone token, e.g. "RV" in "Fix the RV roof" but never inside "service").
+ */
+export function projectNameMatchesText(value: string, haystackLower: string) {
+  const needle = value.trim().toLowerCase();
+  if (!needle) {
+    return false;
+  }
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // \b anchors both ends to a word boundary so the needle must stand alone as a
+  // whole token (or multi-word phrase), never as a fragment of a larger word.
+  return new RegExp(`\\b${escaped}\\b`).test(haystackLower);
+}
+
 function guessProjectId(
   subject: string,
   bodyText: string,
@@ -779,7 +800,7 @@ function guessProjectId(
   for (const project of projectOptions) {
     const values = [project.name, project.description || ""];
     if (
-      values.some((value) => value && haystack.includes(value.toLowerCase()))
+      values.some((value) => value && projectNameMatchesText(value, haystack))
     ) {
       return project.id;
     }

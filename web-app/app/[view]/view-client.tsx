@@ -46,6 +46,9 @@ import {
   EyeOff,
   LayoutList,
   History,
+  GanttChartSquare,
+  Wand2,
+  ChevronLeft,
   ChevronRight,
   Menu,
   Pencil,
@@ -107,7 +110,6 @@ import { applyUserTheme } from "@/lib/theme-utils";
 import { parseRecurringPattern, getNextDueDate } from "@/lib/recurring-utils";
 import { ProjectProgressTimeline } from "@/components/project-progress-timeline";
 import { HistoryTimelineScrubber } from "@/components/history-timeline-scrubber";
-import { ProjectAiExportControls } from "@/components/project-ai-export-controls";
 import { ProjectSectionBoard } from "@/components/project-section-board";
 import {
   ProjectWorkTabs,
@@ -205,6 +207,13 @@ const ProjectShareModal = dynamic(
   () =>
     import("@/components/project-share-modal").then(
       (mod) => mod.ProjectShareModal,
+    ),
+  { ssr: false },
+);
+const ReorganizeTasksModal = dynamic(
+  () =>
+    import("@/components/reorganize-tasks-modal").then(
+      (mod) => mod.ReorganizeTasksModal,
     ),
   { ssr: false },
 );
@@ -877,7 +886,17 @@ export default function ViewPage({
     "inline" | "below" | "right"
   >("inline");
   const [showProjectHistory, setShowProjectHistory] = useState(false);
+  // Progress Timeline gets its own top-right toggle, mirroring History. It
+  // stays visible by default so nothing regresses for existing users.
+  const [showProgressTimeline, setShowProgressTimeline] = useState(true);
+  // "Copied!" toast when the project title is clicked to copy its ID.
+  const [projectIdCopied, setProjectIdCopied] = useState(false);
+  // Top-of-header action toolbar (items left of the +) slides out on hover and
+  // can be pinned open with a click.
+  const [projectToolbarPinned, setProjectToolbarPinned] = useState(false);
   const [projectFiltersExpanded, setProjectFiltersExpanded] = useState(false);
+  // Ungrouped Tasks is a collapsible accordion (open by default).
+  const [ungroupedExpanded, setUngroupedExpanded] = useState(true);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -981,6 +1000,7 @@ export default function ViewPage({
   });
   const [showProjectNotesModal, setShowProjectNotesModal] = useState(false);
   const [showProjectShareModal, setShowProjectShareModal] = useState(false);
+  const [showReorganizeModal, setShowReorganizeModal] = useState(false);
   const [showAutoSectionConfirm, setShowAutoSectionConfirm] = useState(false);
   const [autoSectioning, setAutoSectioning] = useState(false);
   const [selectedTodayEmailId, setSelectedTodayEmailId] = useState<
@@ -3099,6 +3119,18 @@ export default function ViewPage({
       });
 
       if (response.ok) {
+        // Pin the freshly created (empty) section into view so the
+        // "hide empty task lists" preference doesn't immediately hide it —
+        // the user just made it and expects to see it. Persisted via the
+        // visibleSectionOverrides effect.
+        const created = await response.json().catch(() => null);
+        const createdId =
+          created && typeof created.id === "string" ? created.id : null;
+        if (createdId) {
+          setVisibleSectionOverrides((prev) =>
+            prev.includes(createdId) ? prev : [...prev, createdId],
+          );
+        }
         // fetchData replaces the temp row with the real one; drop the temp
         // first so it can't briefly duplicate.
         removeOptimistic();
@@ -6659,6 +6691,9 @@ export default function ViewPage({
           !(section.goalId || (section as any).goal_id) &&
           sectionIsEmpty(section.id) &&
           hideEmptySections &&
+          // A just-created section is empty by definition; keep it visible while
+          // its save is in flight (it breathes) so it appears instantly.
+          !savingSectionIds.has(section.id) &&
           !visibleSectionOverrides.includes(section.id),
       );
       const hiddenEmptySectionIds = new Set(
@@ -6768,12 +6803,42 @@ export default function ViewPage({
                     </div>
                   )}
                 </div>
-                {project?.name ?? cachedProjectHeader?.name ?? (
+                {project?.name ?? cachedProjectHeader?.name ? (
+                  <span className="relative inline-flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!project?.id) return;
+                        navigator.clipboard
+                          ?.writeText(project.id)
+                          .then(() => {
+                            setProjectIdCopied(true);
+                            window.setTimeout(
+                              () => setProjectIdCopied(false),
+                              1500,
+                            );
+                          })
+                          .catch(() => {});
+                      }}
+                      title="Click to copy Project ID"
+                      className="text-left transition-colors hover:text-[rgb(var(--theme-primary-rgb))] cursor-pointer"
+                    >
+                      {project?.name ?? cachedProjectHeader?.name}
+                    </button>
+                    {projectIdCopied && (
+                      <span className="animate-copied-id-toast absolute -top-1 left-full ml-2 whitespace-nowrap text-xs font-medium text-[rgb(var(--theme-primary-rgb))]">
+                        Copied!
+                      </span>
+                    )}
+                  </span>
+                ) : (
                   <Skeleton className="h-7 w-48 rounded-md" />
                 )}
               </h1>
-              {/* Editable project goal under the title (task 10). */}
-              <div className="mt-1 ml-7 flex items-center gap-1.5 text-sm">
+              {/* Editable project goal under the title (task 10). Aligned flush
+                  with the title's color-dot icon (no left indent) so the Target
+                  icon sits directly under the project dot. */}
+              <div className="mt-1 flex items-center gap-1.5 text-sm">
                 <Target className="h-3.5 w-3.5 shrink-0 text-[rgb(var(--theme-primary-rgb))]" />
                 {isEditingProjectGoal && project ? (
                   <input
@@ -6820,11 +6885,23 @@ export default function ViewPage({
                 )}
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="group flex items-center justify-end gap-2">
               {/* Action cluster is gated on `projectId` (known from the route
                   immediately), not the late-arriving `project` object, so the
                   buttons paint at 0ms. Handlers that truly need the loaded
-                  project are disabled until it arrives. */}
+                  project are disabled until it arrives.
+
+                  Everything to the LEFT of the + lives in a slide-out panel:
+                  collapsed by default, it slides open to the left on hover of
+                  the header cluster, and stays pinned open once the toggle icon
+                  is clicked (click again to unpin). */}
+              <div
+                className={`flex items-center gap-2 overflow-hidden transition-all duration-300 ease-out ${
+                  projectToolbarPinned
+                    ? "max-w-[640px] opacity-100"
+                    : "max-w-0 opacity-0 group-hover:max-w-[640px] group-hover:opacity-100"
+                }`}
+              >
               <Tooltip
                 content="Project notes"
                 side="bottom"
@@ -6873,7 +6950,23 @@ export default function ViewPage({
                   <Share2 className="h-4 w-4" />
                 </button>
               </Tooltip>
-              <ProjectAiExportControls projectId={projectId} />
+              {/* Copy JSON link / Open JSON page moved into the Share modal. */}
+              <Tooltip
+                content="Reorganize misfiled tasks into better-fit projects"
+                side="bottom"
+                align="end"
+                className="inline-flex"
+              >
+                <button
+                  type="button"
+                  disabled={!project}
+                  onClick={() => setShowReorganizeModal(true)}
+                  className="rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Reorganize misfiled tasks"
+                >
+                  <Wand2 className="h-4 w-4" />
+                </button>
+              </Tooltip>
               <Tooltip
                 content="Browse previous versions of this project's tasks and settings"
                 side="bottom"
@@ -6893,6 +6986,58 @@ export default function ViewPage({
                   aria-label="Project history"
                 >
                   <History className="h-4 w-4" />
+                </button>
+              </Tooltip>
+              <Tooltip
+                content="Toggle the Progress Timeline for this project"
+                side="bottom"
+                align="end"
+                className="inline-flex"
+              >
+                <button
+                  type="button"
+                  disabled={!project}
+                  onClick={() => setShowProgressTimeline((prev) => !prev)}
+                  aria-pressed={showProgressTimeline}
+                  className={`rounded-lg border p-2 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                    showProgressTimeline
+                      ? "border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))]"
+                      : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
+                  }`}
+                  aria-label="Progress timeline"
+                >
+                  <GanttChartSquare className="h-4 w-4" />
+                </button>
+              </Tooltip>
+              </div>
+              {/* Slide-out toggle: pins the action panel open / closed. When
+                  unpinned the panel still reveals on hover of the header. */}
+              <Tooltip
+                content={
+                  projectToolbarPinned
+                    ? "Collapse project actions"
+                    : "Expand project actions"
+                }
+                side="bottom"
+                align="end"
+                className="inline-flex"
+              >
+                <button
+                  type="button"
+                  onClick={() => setProjectToolbarPinned((prev) => !prev)}
+                  aria-pressed={projectToolbarPinned}
+                  aria-label="Toggle project actions"
+                  className={`rounded-lg border p-2 transition-colors ${
+                    projectToolbarPinned
+                      ? "border-[rgb(var(--theme-primary-rgb))] bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))]"
+                      : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800 hover:text-white"
+                  }`}
+                >
+                  <ChevronLeft
+                    className={`h-4 w-4 transition-transform duration-300 ${
+                      projectToolbarPinned ? "rotate-180" : ""
+                    }`}
+                  />
                 </button>
               </Tooltip>
               <Tooltip
@@ -6917,7 +7062,7 @@ export default function ViewPage({
             </div>
           </div>
 
-          {project && (
+          {project && showProgressTimeline && (
             <ProjectProgressTimeline project={project} tasks={projectTasks} />
           )}
 
@@ -6966,19 +7111,8 @@ export default function ViewPage({
                       )}
                     </button>
                     <div className="flex items-center gap-2">
-                      <CreateMenuButton
-                        onAddTask={() => openAddTask(projectId)}
-                        onAddGoal={() => openAddGoal(projectId)}
-                        onAddTaskList={() =>
-                          openAddSection(projectId, undefined, 0)
-                        }
-                        onAddSection={() =>
-                          openAddSection(projectId, undefined, 0)
-                        }
-                        buttonClassName="inline-flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
-                        iconClassName="h-3.5 w-3.5"
-                        align="start"
-                      />
+                      {/* The + / create menu lives in the top-right header;
+                          the duplicate here was removed as redundant. */}
                       <div className="text-xs text-zinc-500">
                         {visibleProjectTasks.length} visible
                       </div>
@@ -7550,33 +7684,43 @@ export default function ViewPage({
                       return (
                         <div className="mt-2">
                           <div className="mb-3 flex items-center justify-between gap-3">
-                            <h3 className="text-lg font-medium text-zinc-400">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setUngroupedExpanded((prev) => !prev)
+                              }
+                              aria-expanded={ungroupedExpanded}
+                              className="group/ungrouped flex items-center gap-2 text-lg font-medium text-zinc-400 transition-colors hover:text-zinc-200"
+                            >
+                              <ChevronRight
+                                className={`h-4 w-4 transition-transform duration-200 ${
+                                  ungroupedExpanded ? "rotate-90" : ""
+                                }`}
+                              />
                               Ungrouped Tasks
-                            </h3>
+                            </button>
                             <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => openAddGoal(projectId)}
-                                className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800"
-                                title="Add project-level goal"
-                                aria-label="Add project-level goal"
+                              <Tooltip
+                                content="AI Analyze Unassigned Tasks"
+                                side="bottom"
+                                align="end"
+                                className="inline-flex"
                               >
-                                <Target className="h-4 w-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setShowAutoSectionConfirm(true)}
-                                disabled={autoSectioning}
-                                className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-                                title="AI organize unassigned tasks"
-                              >
-                                <Bot
-                                  className={`h-4 w-4 ${autoSectioning ? "animate-pulse" : ""}`}
-                                />
-                              </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAutoSectionConfirm(true)}
+                                  disabled={autoSectioning}
+                                  className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                  aria-label="AI Analyze Unassigned Tasks"
+                                >
+                                  <Bot
+                                    className={`h-4 w-4 ${autoSectioning ? "animate-pulse" : ""}`}
+                                  />
+                                </button>
+                              </Tooltip>
                             </div>
                           </div>
-                          {goalLessUnassigned.length > 0 && (
+                          {ungroupedExpanded && goalLessUnassigned.length > 0 && (
                             <TaskList
                               tasks={goalLessUnassigned}
                               allTasks={database.tasks}
@@ -7611,9 +7755,10 @@ export default function ViewPage({
                               onTaskSelect={handleProjectTaskSelect}
                             />
                           )}
-                          {projectLevelGoals.map((goal) =>
-                            renderUnassignedGoal(goal),
-                          )}
+                          {ungroupedExpanded &&
+                            projectLevelGoals.map((goal) =>
+                              renderUnassignedGoal(goal),
+                            )}
                         </div>
                       );
                     })()}
@@ -7755,6 +7900,22 @@ export default function ViewPage({
               projectName={project?.name || "Project"}
               dateFormat={resolvedCurrentUser?.dateFormat}
               onClose={() => setShowProjectShareModal(false)}
+            />
+          )}
+
+          {showReorganizeModal && (
+            <ReorganizeTasksModal
+              isOpen
+              projectId={projectId}
+              projectName={project?.name || "Project"}
+              projects={(database?.projects || []).map((p) => ({
+                id: p.id,
+                name: p.name,
+              }))}
+              onClose={() => setShowReorganizeModal(false)}
+              onChanged={() => {
+                void fetchData();
+              }}
             />
           )}
 
