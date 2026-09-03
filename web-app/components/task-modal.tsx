@@ -5,6 +5,7 @@ import {
   useState,
   useRef,
   useEffect,
+  useCallback,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -77,9 +78,20 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { nullableEditFieldValue } from "@/lib/task-modal-payload";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { StakeEditor } from "@/components/stake-editor";
 import {
+  MODAL_INSET_CLASS,
   ModalMinimizeButton,
+  ModalResizeHandle,
   useModalWindow,
 } from "@/components/ui/modal-window";
 
@@ -255,11 +267,40 @@ export function TaskModal({
   const titleInputId = useId();
   const descriptionInputId = useId();
   const [taskName, setTaskName] = useState("");
+
+  // --- Autosave-on-navigation (add mode) ------------------------------------
+  // Paging between tabs persists the in-progress task so a half-filled form is
+  // never lost, and the header X (and any other close) offers Save or Discard.
+  // The parent `onSave` create handler POSTs the task, refreshes, and RETURNS
+  // the created row WITHOUT closing this modal, so it is reused for the first
+  // create; later navigations PUT /api/tasks/[id] to update in place.
+  // `autoCreatedIdRef` guarantees we never POST a second time (no duplicate
+  // rows); Discard DELETEs a task THIS modal auto-created (no orphan). Edit mode
+  // never auto-creates — it updates the existing row on submit — and Discard is
+  // disabled there so a pre-existing task is never deleted.
+  const autoCreatedIdRef = useRef<string | null>(null);
+  const committedRef = useRef(false);
+  const persistLockRef = useRef<Promise<unknown>>(Promise.resolve());
+  const persistedSubtaskCountRef = useRef(0);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [closeBusy, setCloseBusy] = useState(false);
+
+  // Every close routes through here. In add mode, if we auto-created a task that
+  // has not been committed (via Create and Save), prompt Save/Discard; otherwise
+  // close immediately, as before.
+  const requestClose = useCallback(() => {
+    if (!isEditMode && autoCreatedIdRef.current && !committedRef.current) {
+      setShowCloseConfirm(true);
+      return;
+    }
+    onClose();
+  }, [isEditMode, onClose]);
+
   // Declared after taskName so the dock entry is labelled with the task being
   // edited rather than a generic "Task".
   const modalWindow = useModalWindow({
     title: taskName.trim() || (isEditMode ? "Task" : "New task"),
-    onRequestClose: onClose,
+    onRequestClose: requestClose,
   });
   useEffect(() => {
     onMinimizedChange?.(modalWindow.minimized);
@@ -644,7 +685,7 @@ export function TaskModal({
           modalRef.current,
         )
       ) {
-        onClose();
+        requestClose();
       }
     };
 
@@ -655,7 +696,20 @@ export function TaskModal({
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, requestClose]);
+
+  // Reset the autosave bookkeeping whenever the modal (re)opens or switches to a
+  // different task, so a previous session's auto-created id can't leak forward.
+  useEffect(() => {
+    if (isOpen) {
+      autoCreatedIdRef.current = null;
+      committedRef.current = false;
+      persistedSubtaskCountRef.current = 0;
+      persistLockRef.current = Promise.resolve();
+      setShowCloseConfirm(false);
+      setCloseBusy(false);
+    }
+  }, [isOpen, task?.id]);
 
   // Close project/priority dropdowns when clicking outside
   useEffect(() => {
@@ -844,6 +898,165 @@ export function TaskModal({
     return taskData;
   };
 
+  // True once the form carries enough to persist a row without writing an empty
+  // task. A supply has no Title, so any identifying supply field qualifies.
+  const hasPersistableContent = () => {
+    if (isSupply) {
+      return (
+        supplyMake.trim() !== "" ||
+        supplyModel.trim() !== "" ||
+        supplyType.trim() !== "" ||
+        supplyVendor.trim() !== ""
+      );
+    }
+    return taskName.trim() !== "";
+  };
+
+  // Creates any pending subtasks that haven't been persisted yet (those beyond
+  // the count already created by the initial onSave), mirroring the parent's
+  // create shape so autosave doesn't silently drop subtasks added after the
+  // first save.
+  const createUnsavedSubtasks = async (
+    parentId: string,
+    projectId: string,
+    assignedTo: unknown,
+  ) => {
+    const toCreate = pendingSubtasks.slice(persistedSubtaskCountRef.current);
+    if (toCreate.length === 0) return;
+    await Promise.all(
+      toCreate.map((sub) => {
+        const estimateRaw = sub.timeEstimate;
+        const timeEstimate =
+          estimateRaw !== undefined && estimateRaw !== null && estimateRaw !== ""
+            ? parseInt(String(estimateRaw), 10)
+            : undefined;
+        return fetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            name: sub.name,
+            completed: false,
+            priority: 4,
+            projectId,
+            parentId,
+            tags: [],
+            files: [],
+            reminders: [],
+            assignedTo,
+            ...(timeEstimate !== undefined ? { timeEstimate } : {}),
+            ...(sub.dueDate ? { dueDate: sub.dueDate } : {}),
+            ...(sub.isSupply
+              ? {
+                  isSupply: true,
+                  supplyQuantity:
+                    sub.supplyQuantity !== undefined &&
+                    sub.supplyQuantity !== ""
+                      ? Number(sub.supplyQuantity)
+                      : null,
+                  supplyPrice:
+                    sub.supplyPrice !== undefined && sub.supplyPrice !== ""
+                      ? Number(sub.supplyPrice)
+                      : null,
+                  supplyVendor: sub.supplyVendor || null,
+                  supplyMake: sub.supplyMake || null,
+                  supplyModel: sub.supplyModel || null,
+                  supplyType: sub.supplyType || null,
+                }
+              : {}),
+          }),
+        });
+      }),
+    );
+    persistedSubtaskCountRef.current = pendingSubtasks.length;
+  };
+
+  /**
+   * Persists the in-progress task without closing the modal (add mode only —
+   * edit mode saves in place on submit). The first call creates via onSave and
+   * captures the created id; later calls PUT that row. Calls are serialized
+   * through persistLockRef so two fast navigations can't both create a row.
+   */
+  const persistProgress = (): Promise<void> => {
+    const run = async () => {
+      if (isEditMode || committedRef.current) return;
+      if (!hasPersistableContent()) return;
+      const taskData = buildTaskData();
+      if (!taskData) return;
+
+      if (autoCreatedIdRef.current) {
+        const id = autoCreatedIdRef.current;
+        const { pendingSubtasks: _pending, ...payload } = taskData as any;
+        const res = await fetch(`/api/tasks/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          await createUnsavedSubtasks(id, payload.projectId, payload.assignedTo);
+          onDataRefresh?.();
+        }
+        return;
+      }
+
+      // First create: reuse the parent create path, which POSTs the task and its
+      // pending subtasks, refreshes, and returns the created row without closing.
+      const created = (await (onSave as any)(taskData)) as Task | null | undefined;
+      if (created && (created as any).id) {
+        autoCreatedIdRef.current = (created as any).id;
+        persistedSubtaskCountRef.current = pendingSubtasks.length;
+      }
+    };
+    const next = persistLockRef.current.then(run, run);
+    persistLockRef.current = next;
+    return next as Promise<void>;
+  };
+
+  // Navigate to a tab, persisting current progress in the background first.
+  const goToTab = (key: TaskModalTab) => {
+    void persistProgress();
+    setActiveTab(key);
+  };
+
+  // Header-X / outside-click Save choice: finalize and close normally.
+  const handleSaveAndClose = async () => {
+    setCloseBusy(true);
+    try {
+      await persistProgress();
+    } catch {}
+    committedRef.current = true;
+    setCloseBusy(false);
+    setShowCloseConfirm(false);
+    onClose();
+  };
+
+  // Header-X / outside-click Discard choice: delete the task THIS modal
+  // auto-created (never a pre-existing one), then close.
+  const handleDiscardAndClose = async () => {
+    const id = autoCreatedIdRef.current;
+    committedRef.current = true; // block any re-prompt
+    if (!id) {
+      setShowCloseConfirm(false);
+      onClose();
+      return;
+    }
+    setCloseBusy(true);
+    try {
+      // Let any in-flight create settle so we delete the real row.
+      await persistLockRef.current.catch(() => {});
+      await fetch(`/api/tasks/${autoCreatedIdRef.current}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+    } catch {}
+    autoCreatedIdRef.current = null;
+    setCloseBusy(false);
+    setShowCloseConfirm(false);
+    onDataRefresh?.();
+    onClose();
+  };
+
   /**
    * The supply fields, rendered in place of the Title input. A supply is named
    * by what it is (make/model or type) rather than a free-text title.
@@ -989,6 +1202,28 @@ export function TaskModal({
     }
     const taskData = buildTaskData();
     if (!taskData) return;
+    committedRef.current = true;
+    if (!isEditMode && autoCreatedIdRef.current) {
+      // Already auto-created while paging — finalize with an update, never a
+      // second POST (which would duplicate the row), then close.
+      const id = autoCreatedIdRef.current;
+      const { pendingSubtasks: _pending, ...payload } = taskData as any;
+      void (async () => {
+        try {
+          await persistLockRef.current.catch(() => {});
+          await fetch(`/api/tasks/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify(payload),
+          });
+          await createUnsavedSubtasks(id, payload.projectId, payload.assignedTo);
+          onDataRefresh?.();
+        } catch {}
+      })();
+      onClose();
+      return;
+    }
     onSave(taskData);
     onClose();
   };
@@ -1968,13 +2203,16 @@ export function TaskModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      className={`fixed ${MODAL_INSET_CLASS} bg-black/50 flex items-start justify-center z-50`}
       style={{ ...(stackStyle || {}), zIndex: stackZIndex ?? 50 }}
     >
       <div
-        ref={modalRef}
-        style={{ ...modalWindow.panelStyle, position: "relative" }}
-        className="bg-zinc-900 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto border border-zinc-800"
+        ref={(node) => {
+          modalRef.current = node;
+          modalWindow.panelRef.current = node;
+        }}
+        style={{ ...modalWindow.panelStyle, ...modalWindow.sizeStyle, position: "relative" }}
+        className="bg-zinc-900 rounded-xl shadow-2xl w-full max-w-4xl max-h-full overflow-y-auto border border-zinc-800"
       >
         <div
           {...modalWindow.dragHandleProps}
@@ -1985,6 +2223,7 @@ export function TaskModal({
           onMinimize={modalWindow.minimize}
           className="absolute right-12 top-4 z-20"
         />
+        <ModalResizeHandle handleProps={modalWindow.resizeHandleProps} />
         <div className="sticky top-0 bg-zinc-900 border-b border-zinc-800 px-6 py-4 flex items-center justify-between z-10">
           <h2 className="text-xl font-semibold text-white">
             {isEditMode ? "Edit Task" : "Add Task"}
@@ -1992,18 +2231,22 @@ export function TaskModal({
           <div className="flex items-center gap-3">
             {stackHeaderExtra}
             <button
-              onClick={onClose}
-              className="text-zinc-400 hover:text-white transition-colors"
+              onClick={requestClose}
+              className="rounded p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
+        {/* Connected tabs: the selected tab shares the form panel's background
+            and drops its bottom border onto the row's border (-mb-px) so it
+            reads as joined to the content below; the rest are muted with a
+            distinct hover state. Mirrors components/project-work-tabs.tsx. */}
         <div
           role="tablist"
           aria-label="Task sections"
-          className="sticky top-[65px] z-10 flex gap-1 overflow-x-auto border-b border-zinc-800 bg-zinc-900 px-6 py-2"
+          className="sticky top-[65px] z-10 flex items-end gap-1 overflow-x-auto bg-zinc-900 px-6 pt-2"
         >
           {visibleTabs.map((tab) => (
             <button
@@ -2011,11 +2254,11 @@ export function TaskModal({
               type="button"
               role="tab"
               aria-selected={activeTab === tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition-colors ${
+              onClick={() => goToTab(tab.key)}
+              className={`-mb-px whitespace-nowrap rounded-t-lg border px-3 py-1.5 text-sm transition-colors ${
                 activeTab === tab.key
-                  ? "bg-zinc-800 text-white"
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+                  ? "border border-b-0 border-zinc-800 bg-zinc-900 text-white"
+                  : "border-transparent bg-zinc-950/60 text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-200"
               }`}
             >
               {tab.label}
@@ -4313,14 +4556,15 @@ export function TaskModal({
           )}
 
           </div>
-          {/* Tab pagination — page through the form before saving. Prev/next
-              move between tabs; the save action stays available throughout, so
-              a task can be saved from any tab without paging to the end. */}
+          {/* Tab pagination. Prev/next page between tabs and autosave progress;
+              on the last tab, Next becomes the primary submit action ("Create
+              and Save" / "Save Changes") — the standalone footer save button was
+              removed, so this is now the form's submit control. */}
           <div className="flex items-center justify-between border-t border-zinc-800 pt-4">
             <button
               type="button"
               onClick={() =>
-                setActiveTab(visibleTabs[Math.max(0, activeTabIndex - 1)].key)
+                goToTab(visibleTabs[Math.max(0, activeTabIndex - 1)].key)
               }
               disabled={activeTabIndex <= 0}
               className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
@@ -4331,69 +4575,47 @@ export function TaskModal({
             <span className="text-xs tabular-nums text-zinc-500">
               {activeTabIndex + 1} / {visibleTabs.length}
             </span>
-            <button
-              type="button"
-              onClick={() =>
-                setActiveTab(
-                  visibleTabs[
-                    Math.min(visibleTabs.length - 1, activeTabIndex + 1)
-                  ].key,
-                )
-              }
-              disabled={activeTabIndex >= visibleTabs.length - 1}
-              className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              {activeTabIndex < visibleTabs.length - 1
-                ? visibleTabs[activeTabIndex + 1].label
-                : "Next"}
-              <ChevronRight className="h-4 w-4" />
-            </button>
+            {activeTabIndex < visibleTabs.length - 1 ? (
+              <button
+                type="button"
+                onClick={() =>
+                  goToTab(visibleTabs[activeTabIndex + 1].key)
+                }
+                className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+              >
+                {visibleTabs[activeTabIndex + 1].label}
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="flex items-center gap-1 rounded-lg btn-theme-primary px-3 py-1.5 text-sm text-white transition-all"
+              >
+                {isEditMode ? "Save Changes" : "Create and Save"}
+                <Check className="h-4 w-4" />
+              </button>
+            )}
           </div>
 
-          {/* Form Actions */}
-          <div className="flex justify-between pt-6 border-t border-zinc-800">
-            <div>
-              {isEditMode && onDelete && task && (
-                <span className="relative group/delete">
-                  <button
-                    type="button"
-                    onClick={() => onDelete(task.id)}
-                    className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
-                  <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/delete:opacity-100 transition-opacity pointer-events-none z-50">
-                    Delete Task
-                  </span>
-                </span>
-              )}
-            </div>
-            <div className="flex gap-3">
-              <span className="relative group/cancel">
+          {/* Form Actions — delete only (edit mode). The Cancel/Save buttons that
+              lived here were removed; submission runs through "Create and Save"
+              on the last tab, and closing prompts Save/Discard when needed. */}
+          {isEditMode && onDelete && task && (
+            <div className="flex justify-start pt-6 border-t border-zinc-800">
+              <span className="relative group/delete">
                 <button
                   type="button"
-                  onClick={onClose}
-                  className="p-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors"
+                  onClick={() => onDelete(task.id)}
+                  className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors"
                 >
-                  <X className="w-5 h-5" />
+                  <Trash2 className="w-5 h-5" />
                 </button>
-                <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/cancel:opacity-100 transition-opacity pointer-events-none z-50">
-                  Cancel
-                </span>
-              </span>
-              <span className="relative group/save">
-                <button
-                  type="submit"
-                  className="p-2.5 btn-theme-primary text-white rounded-lg transition-all"
-                >
-                  <Check className="w-5 h-5" />
-                </button>
-                <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/save:opacity-100 transition-opacity pointer-events-none z-50">
-                  {isEditMode ? "Save Changes" : "Add Task"}
+                <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs text-white bg-zinc-900 rounded shadow-lg whitespace-nowrap opacity-0 group-hover/delete:opacity-100 transition-opacity pointer-events-none z-50">
+                  Delete Task
                 </span>
               </span>
             </div>
-          </div>
+          )}
         </form>
       </div>
 
@@ -4413,6 +4635,49 @@ export function TaskModal({
         isLoading={isDeletingSubtask}
         onConfirm={confirmDeleteSubtask}
       />
+
+      {/* Save/Discard on close. Only reached in add mode once this modal has
+          auto-created a task while paging. Closing the dialog itself keeps the
+          modal open ("keep editing"); Discard deletes the auto-created row. */}
+      <Dialog
+        open={showCloseConfirm}
+        onOpenChange={(next) => {
+          if (!closeBusy && !next) setShowCloseConfirm(false);
+        }}
+      >
+        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-md">
+          <DialogHeader>
+            <DialogTitle>Save this task?</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              This task was saved as you moved between tabs. Keep it, or discard
+              it to delete it.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleDiscardAndClose}
+              disabled={closeBusy}
+              className="border-red-900/60 bg-transparent text-red-400 hover:bg-red-500/10 hover:text-red-300"
+            >
+              {closeBusy ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                "Discard"
+              )}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSaveAndClose}
+              disabled={closeBusy}
+              className="bg-zinc-100 hover:bg-white text-zinc-900"
+            >
+              Save &amp; close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

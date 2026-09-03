@@ -774,6 +774,38 @@ export async function fetchMailboxFolderUids(mailbox: MailboxTransportRow) {
   });
 }
 
+// The AUTHORITATIVE set of unread UIDs in the synced folder — a single IMAP
+// `SEARCH UNSEEN` over the whole folder (`{ seen: false }`), so the provider
+// itself tells us exactly which messages lack `\Seen`. This is what makes the
+// read-state reconcile match Gmail regardless of how many messages exist: no
+// row-window sampling, no per-UID FETCH. Returns UID strings. A null/failed
+// search returns null so the caller can distinguish "nothing unread" (empty
+// set) from "couldn't ask" (null) and avoid clearing unread on a transient
+// error.
+export async function fetchMailboxUnseenUids(
+  mailbox: MailboxTransportRow,
+): Promise<Set<string> | null> {
+  try {
+    return await withImapClient(mailbox, async (client) => {
+      const uids = await client.search({ seen: false }, { uid: true });
+      const set = new Set<string>();
+      for (const uid of Array.isArray(uids) ? uids : []) {
+        const value = String(uid);
+        if (value && value !== "0") set.add(value);
+      }
+      return set;
+    });
+  } catch (error) {
+    // Surface WHY the unseen search failed rather than silently no-opping the
+    // read-state reconcile (a null here skips the reconcile entirely).
+    console.error(
+      "[email-inbox] fetchMailboxUnseenUids failed",
+      (error as Error)?.message || error,
+    );
+    return null;
+  }
+}
+
 export type MailboxFolderInfo = {
   /** Full IMAP path, e.g. "INBOX.Work.Clients" or "[Gmail]/All Mail". */
   path: string;
@@ -1312,6 +1344,11 @@ export async function applyMailboxThreadAction(params: {
     }
 
     if (params.action === "spam") {
+      // Mark the message read on the server before filing it into Junk, so the
+      // mailbox matches Focus (which treats spam as read) and the junk folder
+      // isn't left showing an unread count. Flags travel with the message on a
+      // server-side MOVE, so setting \Seen first keeps it read in Junk.
+      await client.messageFlagsAdd(uidRange, ["\\Seen"], { uid: true });
       const junkPath = await resolveJunkMailboxPath(client);
       if (junkPath) {
         await client.messageMove(uidRange, junkPath, { uid: true });

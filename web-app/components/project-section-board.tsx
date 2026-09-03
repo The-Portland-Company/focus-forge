@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { Database, Goal, Section, Task } from "@/lib/types";
 import { getSectionIcon } from "@/lib/section-icons";
+import { Tooltip } from "@/components/tooltip";
 import { GoalGroupShell } from "@/components/goal-group";
 import { GoalEdits } from "@/components/edit-goal-modal";
 import { getBlockedTaskIds } from "@/lib/dependency-utils";
@@ -231,36 +232,41 @@ function BoardTaskCard({
             )}
           </button>
         ) : (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              if (!isBlocked) onTaskToggle(task.id);
-            }}
-            disabled={isBlocked || isLoading || isDeleting}
-            className={`mt-0.5 shrink-0 transition-colors hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 ${
-              isDeleting
-                ? "text-red-400"
-                : isCompleted
-                  ? "text-green-500"
-                  : "text-zinc-400"
-            }`}
-            title={isBlocked ? "Complete dependencies first" : "Toggle task"}
-            aria-label={isCompleted ? "Mark incomplete" : "Mark complete"}
+          <Tooltip
+            content={isBlocked ? "Complete dependencies first" : "Toggle task"}
+            side="top"
+            className="inline-flex mt-0.5 shrink-0"
           >
-            {isDeleting || isLoading ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : isCompleted ? (
-              <CheckCircle2 className="h-5 w-5" />
-            ) : isBlocked ? (
-              <AlertCircle className="h-5 w-5" />
-            ) : (
-              <Circle
-                className="h-5 w-5"
-                style={{ color: PRIORITY_FLAG_COLORS[task.priority] }}
-              />
-            )}
-          </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                if (!isBlocked) onTaskToggle(task.id);
+              }}
+              disabled={isBlocked || isLoading || isDeleting}
+              className={`transition-colors hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 ${
+                isDeleting
+                  ? "text-red-400"
+                  : isCompleted
+                    ? "text-green-500"
+                    : "text-zinc-400"
+              }`}
+              aria-label={isCompleted ? "Mark incomplete" : "Mark complete"}
+            >
+              {isDeleting || isLoading ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : isCompleted ? (
+                <CheckCircle2 className="h-5 w-5" />
+              ) : isBlocked ? (
+                <AlertCircle className="h-5 w-5" />
+              ) : (
+                <Circle
+                  className="h-5 w-5"
+                  style={{ color: PRIORITY_FLAG_COLORS[task.priority] }}
+                />
+              )}
+            </button>
+          </Tooltip>
         )}
 
         <button
@@ -297,43 +303,46 @@ function BoardTaskCard({
 
         <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
           {isMobile && onTaskMoveRequest ? (
+            <Tooltip content="Move task" side="top" className="inline-flex">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onTaskMoveRequest(task);
+                }}
+                className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+                aria-label="Move task"
+              >
+                <MoveRight className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+          ) : null}
+          <Tooltip content="Edit task" side="top" className="inline-flex">
             <button
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                onTaskMoveRequest(task);
+                onTaskEdit(task);
               }}
               className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-              title="Move task"
-              aria-label="Move task"
+              aria-label="Edit task"
             >
-              <MoveRight className="h-3.5 w-3.5" />
+              <Edit className="h-3.5 w-3.5" />
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onTaskEdit(task);
-            }}
-            className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-            title="Edit task"
-            aria-label="Edit task"
-          >
-            <Edit className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onTaskDelete(task.id);
-            }}
-            className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-300"
-            title="Delete task"
-            aria-label="Delete task"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          </Tooltip>
+          <Tooltip content="Delete task" side="top" align="end" className="inline-flex">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onTaskDelete(task.id);
+              }}
+              className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-300"
+              aria-label="Delete task"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -652,33 +661,36 @@ function SectionColumn({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={() => onAddTask(section.projectId, section.id)}
-            className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-            title="Add task"
-            aria-label="Add task"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onSectionEdit(section)}
-            className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-            title="Edit section"
-            aria-label="Edit section"
-          >
-            <Edit className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onSectionDelete(section.id)}
-            className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-300"
-            title="Delete section"
-            aria-label="Delete section"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip content="Add task" side="top" className="inline-flex">
+            <button
+              type="button"
+              onClick={() => onAddTask(section.projectId, section.id)}
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+              aria-label="Add task"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content="Edit section" side="top" className="inline-flex">
+            <button
+              type="button"
+              onClick={() => onSectionEdit(section)}
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+              aria-label="Edit section"
+            >
+              <Edit className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content="Delete section" side="top" align="end" className="inline-flex">
+            <button
+              type="button"
+              onClick={() => onSectionDelete(section.id)}
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-300"
+              aria-label="Delete section"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -942,36 +954,39 @@ export function ProjectSectionBoard({
               </p>
             </div>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => onAddTask(projectId)}
-                className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-                title="Add unassigned task"
-                aria-label="Add unassigned task"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => onAddGoal?.(projectId)}
-                className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-                title="Add project-level goal"
-                aria-label="Add project-level goal"
-              >
-                <Target className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={onAutoOrganizeUnassigned}
-                disabled={autoSectioning || unassignedTasks.length === 0}
-                className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                title="AI organize unassigned tasks"
-                aria-label="AI organize unassigned tasks"
-              >
-                <Bot
-                  className={`h-3.5 w-3.5 ${autoSectioning ? "animate-pulse" : ""}`}
-                />
-              </button>
+              <Tooltip content="Add unassigned task" side="top" className="inline-flex">
+                <button
+                  type="button"
+                  onClick={() => onAddTask(projectId)}
+                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+                  aria-label="Add unassigned task"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </Tooltip>
+              <Tooltip content="Add project-level goal" side="top" className="inline-flex">
+                <button
+                  type="button"
+                  onClick={() => onAddGoal?.(projectId)}
+                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+                  aria-label="Add project-level goal"
+                >
+                  <Target className="h-3.5 w-3.5" />
+                </button>
+              </Tooltip>
+              <Tooltip content="AI organize unassigned tasks" side="top" align="end" className="inline-flex">
+                <button
+                  type="button"
+                  onClick={onAutoOrganizeUnassigned}
+                  disabled={autoSectioning || unassignedTasks.length === 0}
+                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="AI organize unassigned tasks"
+                >
+                  <Bot
+                    className={`h-3.5 w-3.5 ${autoSectioning ? "animate-pulse" : ""}`}
+                  />
+                </button>
+              </Tooltip>
             </div>
           </div>
 

@@ -9,7 +9,9 @@ import { Label } from '@/components/ui/label'
 import { RichTextEditor } from '@/components/ui/rich-text-editor'
 import { hasRichTextContent } from '@/lib/rich-text'
 import {
+  MODAL_INSET_CLASS,
   ModalMinimizeButton,
+  ModalResizeHandle,
   useModalWindow,
 } from "@/components/ui/modal-window";
 
@@ -92,15 +94,16 @@ export function AddProjectModal({
 
   const wrapperClass = renderInStack
     ? 'absolute inset-0 flex items-center justify-center pointer-events-none'
-    : 'fixed inset-0 bg-black/50 flex items-center justify-center z-50'
+    : `fixed ${MODAL_INSET_CLASS} bg-black/50 flex items-center justify-center z-50`
 
   if (modalWindow.minimized) return null;
 
   return (
     <div className={wrapperClass} style={renderInStack ? { zIndex: stackZIndex } : undefined}>
       <div
+        ref={modalWindow.panelRef}
         className="bg-zinc-900 rounded-lg w-full max-w-md pointer-events-auto"
-        style={{ ...stackStyle, ...modalWindow.panelStyle, position: "relative" }}
+        style={{ ...stackStyle, ...modalWindow.panelStyle, ...modalWindow.sizeStyle, position: "relative" }}
       >
         <div
           {...modalWindow.dragHandleProps}
@@ -111,6 +114,7 @@ export function AddProjectModal({
           onMinimize={modalWindow.minimize}
           className="absolute right-12 top-4 z-20"
         />
+        <ModalResizeHandle handleProps={modalWindow.resizeHandleProps} />
         <div className="border-b border-zinc-800 p-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">New Project</h2>
           <button

@@ -5,6 +5,7 @@ import {
   applyOptimisticThreadActionState,
   EMAIL_INBOX_SORT_OPTIONS,
   applyOptimisticThreadReadState,
+  preserveJustReadThreads,
   buildEmailThreadPopoutUrl,
   clampEmailDetailPanelWidth,
   buildEmailInboxSearchInsertion,
@@ -767,6 +768,54 @@ test("applyOptimisticThreadReadState marks the selected thread read immediately"
 
   assert.equal(updated[0]?.isUnread, false);
   assert.equal(updated[1]?.isUnread, true);
+});
+
+test("preserveJustReadThreads keeps a just-read thread read when a snapshot races the mark_read POST", () => {
+  // User opened thread-1 (now read locally); a background snapshot arrives still
+  // showing it unread before the POST committed. It must stay read — and the
+  // untouched thread-2 must be left exactly as the server reports it.
+  const previousLocal = [
+    { id: "thread-1", isUnread: false },
+    { id: "thread-2", isUnread: true },
+  ] as any;
+  const incoming = [
+    { id: "thread-1", isUnread: true },
+    { id: "thread-2", isUnread: true },
+  ] as any;
+  const touched = new Map([["thread-1", 1000]]);
+
+  const result = preserveJustReadThreads(incoming, previousLocal, touched, 1500, 15000);
+
+  assert.equal(result[0]?.isUnread, false, "just-read thread stays read");
+  assert.equal(result[1]?.isUnread, true, "untouched thread is unchanged");
+});
+
+test("preserveJustReadThreads lets a thread go unread again after the TTL", () => {
+  const previousLocal = [{ id: "thread-1", isUnread: false }] as any;
+  const incoming = [{ id: "thread-1", isUnread: true }] as any;
+  const touched = new Map([["thread-1", 1000]]);
+
+  // now - touched (20s) exceeds the 15s TTL → a genuinely new inbound wins.
+  const result = preserveJustReadThreads(incoming, previousLocal, touched, 21000, 15000);
+
+  assert.equal(result[0]?.isUnread, true);
+});
+
+test("preserveJustReadThreads never flips a read server row to unread", () => {
+  const previousLocal = [{ id: "thread-1", isUnread: true }] as any;
+  const incoming = [{ id: "thread-1", isUnread: false }] as any;
+  const touched = new Map([["thread-1", 1000]]);
+
+  const result = preserveJustReadThreads(incoming, previousLocal, touched, 1500, 15000);
+
+  assert.equal(result[0]?.isUnread, false);
+  assert.equal(result, incoming, "returns the same array reference when nothing changed");
+});
+
+test("preserveJustReadThreads is a no-op when no threads were touched", () => {
+  const incoming = [{ id: "thread-1", isUnread: true }] as any;
+  const result = preserveJustReadThreads(incoming, [], new Map(), 1500, 15000);
+  assert.equal(result, incoming);
 });
 
 test("applyOptimisticThreadActionState hides deleted threads immediately", () => {

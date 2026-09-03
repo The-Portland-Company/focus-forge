@@ -20,6 +20,11 @@ import {
 } from "@/lib/spam/server";
 import { resolveEmailChain } from "@/lib/ai/email-provider";
 import {
+  loadRecipientIdentity,
+  listSpamPolicyStatements,
+  persistPipelineSpamAssessment,
+} from "@/lib/spam/assessment-server";
+import {
   runStructuredWaterfall,
   type ModelSpec,
 } from "@/lib/ai/structured-waterfall";
@@ -45,6 +50,11 @@ import {
   buildSpamExceptionRulePayload,
   generateSpamExceptionRuleDraft,
 } from "@/lib/email-inbox/spam-exception";
+import {
+  buildKnownContactConditions,
+  buildKnownContactRulePayload,
+  normalizeKnownContactEmail,
+} from "@/lib/email-inbox/known-contact";
 import {
   SPAM_MIRROR_SWEEP_LIMIT,
   SPAM_PROVIDER_LABEL_MARKER,
@@ -74,7 +84,7 @@ import {
   fetchMailboxAttachmentByProviderMessageId,
   fetchMailboxMessagesByProviderMessageIds,
   fetchMailboxFolderUids,
-  fetchMailboxMessageReadStates,
+  fetchMailboxUnseenUids,
   fetchMailboxMessages,
   fetchMailboxSentMessages,
   fetchMailboxDraftMessages,
@@ -86,6 +96,7 @@ import {
   type ReadMailboxFolderLiveResult,
 } from "@/lib/email-inbox/provider";
 import { MAILBOX_PROVIDER_PRESETS } from "@/lib/email-inbox/provider-presets";
+import { partitionThreadsByUnseen } from "@/lib/email-inbox/partition-unseen-threads";
 import { matchInboxTab } from "@/lib/email-inbox/inbox-tabs";
 import {
   hasApnsConfiguration,
@@ -1250,13 +1261,22 @@ async function ingestOutboundMailboxMessage(mailbox: any, message: any) {
 }
 
 function buildRuleContext(mailbox: any, message: any): EmailRuleContext {
+  const metadata = message.metadata_json || {};
+  // Persisted email_messages rows have no contact_email/author_email columns
+  // (those exist only on the freshly-parsed message during ingest). The rule
+  // path always runs against a DB row via getLatestThreadMessage, so fall back
+  // to the stored sender in metadata_json.from — otherwise senderEmail is empty
+  // and every sender_email rule (incl. Known Contact never_spam) silently fails
+  // to match, and markThreadSenderKnown can't resolve a sender.
   const senderEmail = String(
-    message.contact_email || message.author_email || "",
+    message.contact_email ||
+      message.author_email ||
+      metadata.from?.[0]?.email ||
+      "",
   ).toLowerCase();
   const senderDomain = senderEmail.includes("@")
     ? senderEmail.split("@")[1]
     : "";
-  const metadata = message.metadata_json || {};
   const participants = [
     ...(metadata.from || []),
     ...(metadata.to || []),
@@ -1769,71 +1789,92 @@ async function mirrorProviderFolderState(params: {
   return { archivedThreadCount: departedThreadIds.length, restoredThreadCount };
 }
 
+// Statuses whose unread flag mirrors the provider inbox. Archived / deleted /
+// spam / resolved threads have left the inbox and keep whatever unread state
+// they had — this reconcile never touches them.
+const READ_STATE_RECONCILED_STATUSES = [
+  "active",
+  "needs_project",
+  "quarantine",
+];
+
 async function syncMailboxThreadReadStates(params: {
   mailboxId: string;
   mailbox: MailboxTransportRow;
-  providerMessageIds?: string[];
 }) {
   const admin = getAdminClient();
-  const providerMessageIds = (params.providerMessageIds || []).filter(Boolean);
-  let query = admin
+
+  // Ask the provider directly which messages are unread (IMAP SEARCH UNSEEN over
+  // the WHOLE folder). This is authoritative and independent of how many messages
+  // the mailbox holds — the old approach only sampled the newest 250 email_messages
+  // rows, so in a 2,000+ message mailbox ~90% of threads were never reconciled and
+  // any thread wrongly cleared to read stayed that way. A null result means the
+  // search failed (transient) — do nothing rather than clear unread.
+  const unseenUids = await fetchMailboxUnseenUids(params.mailbox);
+  if (unseenUids === null) {
+    console.warn(
+      "[email-inbox] read-state reconcile skipped: unseen search unavailable",
+      { mailboxId: params.mailboxId },
+    );
+    return;
+  }
+
+  // Map every stored message (with a provider UID) to its thread.
+  const { data: messageRows } = await admin
     .from("email_messages")
     .select("thread_id,provider_message_id")
     .eq("mailbox_id", params.mailboxId)
     .not("provider_message_id", "is", null);
 
-  if (providerMessageIds.length > 0) {
-    query = query.in("provider_message_id", providerMessageIds);
-  } else {
-    query = query.order("created_at", { ascending: false }).limit(250);
-  }
-
-  const { data: messageRows } = await query;
-
   if (!messageRows || messageRows.length === 0) {
-    await admin
-      .from("email_threads")
-      .update({ is_unread: false })
-      .eq("mailbox_id", params.mailboxId);
     return;
   }
 
-  const threadIdByProviderMessageId = new Map<string, string>();
-  const unreadByThreadId = new Map<string, boolean>();
-
-  (messageRows as any[]).forEach((row) => {
-    const threadId = String(row.thread_id || "");
-    const providerMessageId = String(row.provider_message_id || "");
-
-    if (!threadId || !providerMessageId) {
-      return;
-    }
-
-    threadIdByProviderMessageId.set(providerMessageId, threadId);
-    unreadByThreadId.set(threadId, false);
-  });
-
-  const readStates = await fetchMailboxMessageReadStates(
-    params.mailbox,
-    Array.from(threadIdByProviderMessageId.keys()),
+  // A thread is unread iff any of its messages' UIDs is in the provider's unseen
+  // set (pure, unit-tested).
+  const { unreadThreadIds, readThreadIds } = partitionThreadsByUnseen(
+    messageRows as Array<{
+      thread_id?: string | null;
+      provider_message_id?: string | null;
+    }>,
+    unseenUids,
   );
 
-  readStates.forEach((state) => {
-    const threadId = threadIdByProviderMessageId.get(state.providerMessageId);
+  if (unreadThreadIds.length === 0 && readThreadIds.length === 0) {
+    return;
+  }
 
-    if (threadId && state.isUnread) {
-      unreadByThreadId.set(threadId, true);
+  // Chunk the id lists: a very large `.in(...)` builds an over-long query string.
+  const chunk = <T>(items: T[], size: number): T[][] => {
+    const out: T[][] = [];
+    for (let i = 0; i < items.length; i += size) {
+      out.push(items.slice(i, i + size));
     }
-  });
+    return out;
+  };
 
-  await Promise.all(
-    Array.from(unreadByThreadId.entries()).map(([threadId, isUnread]) =>
+  const ops: Array<PromiseLike<unknown>> = [];
+  for (const ids of chunk(unreadThreadIds, 100)) {
+    ops.push(
       admin
         .from("email_threads")
-        .update({ is_unread: isUnread })
-        .eq("id", threadId),
-    ),
-  );
+        .update({ is_unread: true })
+        .eq("mailbox_id", params.mailboxId)
+        .in("status", READ_STATE_RECONCILED_STATUSES)
+        .in("id", ids),
+    );
+  }
+  for (const ids of chunk(readThreadIds, 100)) {
+    ops.push(
+      admin
+        .from("email_threads")
+        .update({ is_unread: false })
+        .eq("mailbox_id", params.mailboxId)
+        .in("status", READ_STATE_RECONCILED_STATUSES)
+        .in("id", ids),
+    );
+  }
+  await Promise.all(ops);
 }
 
 async function sendNewEmailPushNotifications(params: {
@@ -2602,16 +2643,22 @@ export async function listInboxItemsForUser(
   // Cap the result set: the UI paginates client-side at 50/page, so 200 keeps
   // several pages of the most-recent threads without dragging full history.
   // When searching, this caps the matched set (newest 200 matches) instead.
-  const buildThreadQuery = () => {
+  const buildThreadQuery = (limit = 200) => {
     let query = admin
       .from("email_threads")
       .select(LIST_THREAD_COLUMNS)
       .in("mailbox_id", mailboxIds)
       .order("latest_message_at", { ascending: false })
-      .limit(200);
+      // Stable tiebreaker: `latest_message_at` has ties (and is rewritten by the
+      // reprocess pipeline), so without a secondary key two identical requests
+      // could return a different tail of the 200-row window — a source of the
+      // list "changing" between refetches. Order by id so the window is
+      // deterministic.
+      .order("id", { ascending: false })
+      .limit(limit);
 
     // When searching, restrict to the matched thread ids (resolved across the
-    // full mailbox above). The mailbox scope + ordering + 200 cap still apply.
+    // full mailbox above). The mailbox scope + ordering + cap still apply.
     if (isSearching) {
       query = query.in("id", searchThreadIds);
     }
@@ -2634,26 +2681,58 @@ export async function listInboxItemsForUser(
   // only the 10 newer than the window's cutoff were reachable. A second window
   // scoped to outbound/mixed gives Sent its own depth; the merge is by id, so
   // threads in both windows appear once and every other folder is unchanged.
-  const [generalResult, outboundResult] = await Promise.all([
-    buildThreadQuery(),
-    buildThreadQuery().in("origin", ["outbound", "mixed"]),
-  ]);
+  //
+  // The SAME starvation hit the INBOX itself. The general window is ordered by
+  // recency across EVERY status, so in a mailbox with a large, actively-churning
+  // Archive (Forge mirrors Gmail's archived mail, which keeps getting rewritten
+  // by reprocess) the 200 most-recent rows are dominated by archived/deleted
+  // threads the inbox view then hides — e.g. 105 archived + 16 deleted left only
+  // ~57 inbox threads reachable, so the unread badge showed ~20 when the mailbox
+  // actually had ~53 unread. A third window scoped to the inbox-visible statuses
+  // gives the inbox its own depth, independent of Archive volume.
+  // The MAIN inbox (active + needs_project) gets its own 200-window so a large
+  // Archive can't crowd it out. Quarantine is a separate view with its own
+  // sidebar count, so it gets its own window too rather than sharing — otherwise
+  // quarantine's threads would eat into the main inbox's 200 slots (and vice
+  // versa), leaving both short. With dedicated windows the main inbox reaches ~50
+  // of 53 unread here (was ~20 through the general window alone).
+  //
+  // Deeper cap (500) for the inbox windows: unread mail can be months old (a
+  // never-opened thread), and a 200-row window left the oldest few unread
+  // threads unreachable. 500 comfortably covers the current inbox set with
+  // headroom; the general/outbound windows stay at 200.
+  const INBOX_WINDOW_LIMIT = 500;
+  const [generalResult, outboundResult, inboxResult, quarantineResult] =
+    await Promise.all([
+      buildThreadQuery(),
+      buildThreadQuery().in("origin", ["outbound", "mixed"]),
+      buildThreadQuery(INBOX_WINDOW_LIMIT).in("status", [
+        "active",
+        "needs_project",
+      ]),
+      buildThreadQuery(INBOX_WINDOW_LIMIT).in("status", ["quarantine"]),
+    ]);
 
   const threadsById = new Map<string, any>();
   for (const row of [
     ...((generalResult.data as any[] | null) || []),
     ...((outboundResult.data as any[] | null) || []),
+    ...((inboxResult.data as any[] | null) || []),
+    ...((quarantineResult.data as any[] | null) || []),
   ]) {
     if (row?.id && !threadsById.has(String(row.id))) {
       threadsById.set(String(row.id), row);
     }
   }
 
-  let threads = Array.from(threadsById.values()).sort((left, right) =>
-    String(right.latest_message_at || "").localeCompare(
+  let threads = Array.from(threadsById.values()).sort((left, right) => {
+    const byTime = String(right.latest_message_at || "").localeCompare(
       String(left.latest_message_at || ""),
-    ),
-  );
+    );
+    // Stable tiebreaker so the merged order matches the deterministic query
+    // order (and the client comparator, which also breaks ties by id).
+    return byTime || String(left.id).localeCompare(String(right.id));
+  });
   if (threads.length === 0) {
     return [];
   }
@@ -3238,9 +3317,39 @@ export async function reprocessThread(
   const senderDomainSpamExempt = isContentSpamExemptSender(
     buildRuleContext(mailbox, latestMessage).senderEmail,
   );
+
+  // Known Contact — auto-trust. If the user has ever replied to this sender,
+  // they're a known contact: their mail is never scored as spam. Runs on every
+  // inbound (this function is the post-ingest classify path) BEFORE the spam
+  // classifier below. We only pay for the reply-history lookup when no rule has
+  // already established trust (preventSpamClassification short-circuits it once
+  // the persisted Known Contact rule exists), and we persist the rule the first
+  // time so future mail is deterministically known without re-querying history.
+  let knownByReplyHistory = false;
+  if (!preventSpamClassification) {
+    const knownSenderEmail = buildRuleContext(
+      mailbox,
+      latestMessage,
+    ).senderEmail;
+    if (knownSenderEmail) {
+      knownByReplyHistory = await hasUserRepliedToSender(
+        mailbox.owner_user_id,
+        knownSenderEmail,
+      );
+      if (knownByReplyHistory) {
+        // Best-effort: turn the auto-trust into a durable pattern. Never breaks
+        // sync — a failure just means we re-detect via history next time.
+        await ensureKnownContactRule({
+          userId: mailbox.owner_user_id,
+          senderEmail: knownSenderEmail,
+        });
+      }
+    }
+  }
+
   // Effective suppression for the automatic content classifier only.
   const suppressContentSpam =
-    preventSpamClassification || senderDomainSpamExempt;
+    preventSpamClassification || senderDomainSpamExempt || knownByReplyHistory;
 
   // Private, trainable k-NN spam verdict (free, edge embeddings). Computed
   // before the LLM/heuristic analysis so a CONFIDENT verdict can override the
@@ -3341,6 +3450,30 @@ export async function reprocessThread(
     orgAiSettings = (org as { ai_settings?: unknown } | null)?.ai_settings ?? null;
   }
 
+  // Recipient identity (personal + business name) powers the business-name
+  // greeting spam signal; saved policies let triage reflect prior training.
+  // Both best-effort — a failure just leaves those inputs empty.
+  let recipientNames: string[] = [];
+  let businessName: string | null = null;
+  let spamPolicies: string[] = [];
+  if (!suppressContentSpam) {
+    try {
+      const [identity, policies] = await Promise.all([
+        loadRecipientIdentity(
+          mailbox.owner_user_id ? String(mailbox.owner_user_id) : null,
+          mailbox.organization_id ? String(mailbox.organization_id) : null,
+        ),
+        listSpamPolicyStatements(mailbox.owner_user_id),
+      ]);
+      recipientNames = identity.recipientNames;
+      businessName = identity.businessName;
+      spamPolicies = policies;
+    } catch (e) {
+      console.error("recipient identity / spam policies load failed:", e);
+    }
+  }
+
+  const emailChain = resolveEmailChain(orgAiSettings);
   const aiResult = await analyzeThreadWithAI({
     subject: latestMessage.subject || thread.subject || "",
     bodyText: latestMessage.body_text || "",
@@ -3348,7 +3481,7 @@ export async function reprocessThread(
     mailboxEmail: mailbox.email_address,
     preventSpamClassification: suppressContentSpam,
     forceHeuristic: forceHeuristicAnalysis,
-    chain: resolveEmailChain(orgAiSettings),
+    chain: emailChain,
     profile,
     projectOptions: projectOptions.map((project) => ({
       id: project.id,
@@ -3357,6 +3490,9 @@ export async function reprocessThread(
     })),
     memoryBlock,
     playbookBlock,
+    recipientNames,
+    businessName,
+    spamPolicies,
   });
 
   const ruleActions = new Set(appliedRules.actions);
@@ -3386,6 +3522,47 @@ export async function reprocessThread(
     suppressContentSpam,
   }));
 
+  // Layer 2 — explainable second opinion, ONLY on the AI-driven quarantine
+  // subset. When the AI (not a rule, not a confident k-NN) has decided this is
+  // spam, run one assessSpam call to (1) cache cited reasons the quarantine
+  // review will show and (2) let a high-confidence not_spam verdict veto a false
+  // positive. Skipped when spam was rule-forced, k-NN-confident, suppressed, or
+  // the external LLM is off (private mode / rule short-circuit). Best-effort.
+  const aiDrovenQuarantine =
+    classification === "spam" &&
+    status === "quarantine" &&
+    !suppressContentSpam &&
+    !forceHeuristicAnalysis &&
+    emailChain.length > 0 && // org didn't disable email AI triage
+    !ruleActions.has("spam") &&
+    !ruleActions.has("always_delete") &&
+    !spamKnnConfident;
+  if (aiDrovenQuarantine) {
+    const assessment = await persistPipelineSpamAssessment({
+      userId: mailbox.owner_user_id,
+      organizationId: mailbox.organization_id ?? null,
+      threadId: thread.id,
+      subject: latestMessage.subject || thread.subject || null,
+      senderEmail: buildRuleContext(mailbox, latestMessage).senderEmail,
+      senderName: null,
+      previewText: null,
+      bodyText: latestMessage.body_text || null,
+      currentClassification: classification,
+      knnConfidence: spamVerdict?.confidence ?? null,
+      recipientNames,
+      businessName,
+      chain: emailChain,
+    });
+    // A confident not_spam verdict reverses the false positive: back to the
+    // inbox as the AI's non-spam read (never leave it classified spam).
+    if (assessment?.verdict === "not_spam" && assessment.confidence >= 0.8) {
+      classification =
+        aiResult.classification === "spam" ? "reference" : aiResult.classification;
+      status = "active";
+      needsProject = false;
+    }
+  }
+
   const projectId =
     thread.project_id ||
     (aiResult.projectId &&
@@ -3413,10 +3590,21 @@ export async function reprocessThread(
       action_title: aiResult.actionTitle,
       summary_text: aiResult.summary,
       preview_text: extractPlainTextPreview(latestMessage.body_text || "", 240),
-      action_confidence: aiResult.confidence,
+      // The inbox surfaces action_confidence as the "% chance this is spam". When
+      // spam classification is suppressed (a Known Contact / never_spam rule or a
+      // content-spam-exempt domain) the sender is trusted, so the spam score is 0
+      // by definition. Persisting 0 keeps the optimistic 0 from snapping back to
+      // the old analysis confidence on the post-action refresh. Task-generation
+      // gating uses aiResult.confidence directly, so it is unaffected.
+      action_confidence: suppressContentSpam ? 0 : aiResult.confidence,
       action_reason: aiResult.reason,
       classification,
       status,
+      // Spam is marked read automatically: a message classified as spam (by a
+      // rule or the AI/heuristic) is settled junk, so it should never sit unread
+      // in Focus — matching the manual "spam" action, which also marks it read.
+      // The provider \Seen flag is synced separately by the spam mirror.
+      ...(classification === "spam" ? { is_unread: false } : {}),
       needs_project: needsProject,
       always_delete: alwaysDelete,
       task_suggestions_json: aiResult.taskSuggestions,
@@ -6872,6 +7060,7 @@ export async function applyThreadAction(params: {
     | "mark_read"
     | "archive"
     | "spam"
+    | "mark_known"
     | "delete"
     | "always_delete_sender"
     | "snooze"
@@ -6926,6 +7115,12 @@ export async function applyThreadAction(params: {
     // Explicit user re-analysis — always run the full model, even for
     // spam-ruled mail that auto-ingestion would skip to save credits.
     return reprocessThread(params.threadId, params.userId, { manual: true });
+  }
+
+  if (effectiveAction === "mark_known") {
+    // Trust the sender: persist a deterministic never_spam rule and reprocess so
+    // the score drops to 0%. Applied as a hard override before AI scoring.
+    return markThreadSenderKnown(params.userId, params.threadId);
   }
 
   if (effectiveAction === "set_classification") {
@@ -7339,6 +7534,270 @@ export async function emptyTrashForUser(params: {
     deletedThreadCount,
     mailboxCount: threadsByMailbox.size,
   };
+}
+
+/**
+ * True when the user has ever SENT a message to `senderEmail` from one of their
+ * own mailboxes — i.e. they've replied to / emailed this person before. Used to
+ * auto-mark inbound senders as Known Contacts so their mail is never scored as
+ * spam. Scoped to the user's mailboxes; best-effort (returns false on error).
+ */
+export async function hasUserRepliedToSender(
+  userId: string,
+  senderEmail: string,
+): Promise<boolean> {
+  const normalized = normalizeKnownContactEmail(senderEmail);
+  if (!normalized || !normalized.includes("@")) {
+    return false;
+  }
+
+  const admin = getAdminClient();
+
+  try {
+    const mailboxes = await listMailboxesForUser(userId);
+    const mailboxIds = mailboxes.map((mailbox) => mailbox.id);
+    if (mailboxIds.length === 0) {
+      return false;
+    }
+
+    // Candidate participant rows: this address appears as a recipient
+    // (to/cc/bcc) on some message. Case-insensitive on the stored address.
+    const { data: participantRows } = await admin
+      .from("email_participants")
+      .select("message_id")
+      .ilike("email_address", normalized)
+      .in("participant_role", ["to", "cc", "bcc"])
+      .not("message_id", "is", null)
+      .limit(500);
+
+    const messageIds = Array.from(
+      new Set(
+        (participantRows || [])
+          .map((row: any) => row.message_id)
+          .filter(Boolean),
+      ),
+    );
+    if (messageIds.length === 0) {
+      return false;
+    }
+
+    // At least one of those messages is an OUTBOUND message the user sent from
+    // their own mailbox → they've replied to this sender before.
+    const { data: outbound } = await admin
+      .from("email_messages")
+      .select("id")
+      .in("id", messageIds)
+      .eq("direction", "outbound")
+      .in("mailbox_id", mailboxIds)
+      .limit(1);
+
+    return (outbound?.length ?? 0) > 0;
+  } catch (e) {
+    console.error("hasUserRepliedToSender failed:", e);
+    return false;
+  }
+}
+
+/**
+ * Idempotently persist a user-scoped `never_spam` rule marking `senderEmail` as
+ * a Known Contact. Deterministic (no AI). Reactivates an existing matching rule
+ * if it was disabled. Returns the rule, or null on failure (best-effort).
+ */
+export async function ensureKnownContactRule(params: {
+  userId: string;
+  senderEmail: string;
+  senderName?: string | null;
+}): Promise<EmailRule | null> {
+  const senderEmail = normalizeKnownContactEmail(params.senderEmail);
+  if (!senderEmail || !senderEmail.includes("@")) {
+    return null;
+  }
+
+  try {
+    const payload = buildKnownContactRulePayload({
+      userId: params.userId,
+      senderEmail,
+      senderName: params.senderName ?? null,
+    });
+
+    const existingRule = await findMatchingNeverSpamRule({
+      userId: params.userId,
+      mailboxId: null,
+      conditions: buildKnownContactConditions(senderEmail),
+    });
+
+    if (existingRule) {
+      if (existingRule.isActive) {
+        return existingRule;
+      }
+      return await updateRule(params.userId, existingRule.id, {
+        name: payload.name,
+        description: payload.description,
+        isActive: true,
+        priority: payload.priority,
+        matchMode: payload.matchMode,
+        conditions: payload.conditions,
+        actions: payload.actions,
+        stopProcessing: payload.stopProcessing,
+      });
+    }
+
+    return await createRule(params.userId, payload);
+  } catch (e) {
+    console.error("ensureKnownContactRule failed:", e);
+    return null;
+  }
+}
+
+/**
+ * Manual "Mark as Known Contact" action for a thread. Persists the deterministic
+ * never_spam rule for the sender, records a not_spam training label, and
+ * reprocesses so the thread's spam score immediately drops to 0%.
+ */
+export async function markThreadSenderKnown(userId: string, threadId: string) {
+  const admin = getAdminClient();
+  const thread = await ensureThreadAccess(userId, threadId);
+  const mailbox = (await ensureMailboxManage(
+    userId,
+    String(thread.mailbox_id),
+  )) as MailboxTransportRow;
+  const latestMessage = await getLatestThreadMessage(threadId);
+
+  if (!latestMessage) {
+    throw new Error("Email thread has no messages");
+  }
+
+  const metadata = latestMessage.metadata_json || {};
+  const ruleContext = buildRuleContext(mailbox, latestMessage);
+  let senderEmail = normalizeKnownContactEmail(ruleContext.senderEmail);
+
+  // Fallback: resolve the sender from the stored `from` participant if the
+  // latest message's metadata didn't carry it (e.g. the newest message in the
+  // thread is an outbound reply). Keeps the action working for every thread.
+  if (!senderEmail || !senderEmail.includes("@")) {
+    const { data: fromRow } = await admin
+      .from("email_participants")
+      .select("email_address")
+      .eq("thread_id", threadId)
+      .eq("participant_role", "from")
+      .not("email_address", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    senderEmail = normalizeKnownContactEmail(fromRow?.email_address || "");
+  }
+
+  if (!senderEmail || !senderEmail.includes("@")) {
+    throw new Error("Could not determine a sender address for this thread");
+  }
+
+  const senderName =
+    String(
+      metadata.from?.[0]?.name ||
+        latestMessage.author_name ||
+        latestMessage.display_name ||
+        "",
+    ) || null;
+
+  const rule = await ensureKnownContactRule({
+    userId,
+    senderEmail,
+    senderName,
+  });
+
+  // Record a not_spam training label so the k-NN corpus reflects the trust
+  // signal. Best-effort — must never break the known-contact flow.
+  try {
+    const spamText = buildSpamInputText(
+      { subject: thread.subject },
+      {
+        subject: latestMessage.subject,
+        body_text: latestMessage.body_text,
+        senderEmail,
+      },
+    );
+    await recordSpamLabel({
+      userId,
+      organizationId:
+        (mailbox as unknown as { organization_id: string | null })
+          .organization_id ?? undefined,
+      mailboxId: mailbox.id,
+      threadId,
+      text: spamText,
+      label: "not_spam",
+    });
+  } catch (e) {
+    console.error("recordSpamLabel (known contact) failed:", e);
+  }
+
+  await reprocessThread(threadId, userId, { manual: true });
+
+  // Apply the trust to EVERY thread from this sender, not just the one clicked.
+  // The user has multiple emails from the same person; marking one Known must
+  // clear the spam score on all of them. Reprocess the rest in the background
+  // (failure-isolated, concurrency-limited); each UPDATE pushes to the client
+  // via realtime, so their scores drop to 0% without a manual refresh.
+  try {
+    const otherThreadIds = (
+      await findThreadIdsFromSender(userId, senderEmail)
+    ).filter((id) => id !== threadId);
+    if (otherThreadIds.length > 0) {
+      void runThreadAnalysisInBackground(otherThreadIds, userId);
+    }
+  } catch (e) {
+    console.error("known-contact sender fan-out failed:", e);
+  }
+
+  return { threadId, senderEmail, rule };
+}
+
+/**
+ * All thread ids owned by `userId` whose sender (the `from` participant) is
+ * `senderEmail`. Used to apply a Known Contact rule across every message from
+ * that person. Best-effort; returns [] on error. Bounded to a sane ceiling.
+ */
+async function findThreadIdsFromSender(
+  userId: string,
+  senderEmail: string,
+): Promise<string[]> {
+  const normalized = normalizeKnownContactEmail(senderEmail);
+  if (!normalized || !normalized.includes("@")) {
+    return [];
+  }
+
+  const admin = getAdminClient();
+
+  try {
+    const { data: senderRows } = await admin
+      .from("email_participants")
+      .select("thread_id")
+      .eq("participant_role", "from")
+      .ilike("email_address", normalized)
+      .not("thread_id", "is", null)
+      .limit(2000);
+
+    const candidateIds = Array.from(
+      new Set(
+        (senderRows || []).map((row: any) => String(row.thread_id)).filter(Boolean),
+      ),
+    );
+    if (candidateIds.length === 0) {
+      return [];
+    }
+
+    // Scope to threads the user actually owns (never touch another user's mail).
+    const { data: ownedThreads } = await admin
+      .from("email_threads")
+      .select("id")
+      .in("id", candidateIds)
+      .eq("owner_user_id", userId)
+      .limit(2000);
+
+    return (ownedThreads || []).map((row: any) => String(row.id));
+  } catch (e) {
+    console.error("findThreadIdsFromSender failed:", e);
+    return [];
+  }
 }
 
 export async function createSpamExceptionRuleForThread(

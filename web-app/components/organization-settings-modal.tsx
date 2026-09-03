@@ -14,7 +14,9 @@ import { FocusTimeOrganizationPanel } from '@/components/focus-time-organization
 import { PlanPanel } from '@/components/plan-panel'
 import { OrganizationMediaStorage } from '@/components/organization-media-storage'
 import {
+  MODAL_INSET_CLASS,
   ModalMinimizeButton,
+  ModalResizeHandle,
   useModalWindow,
 } from "@/components/ui/modal-window";
 
@@ -561,10 +563,15 @@ export function OrganizationSettingsModal({
   if (modalWindow.minimized) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className={`fixed ${MODAL_INSET_CLASS} bg-black/50 flex items-center justify-center z-50`}>
       <div
-        style={{ ...modalWindow.panelStyle, position: "relative" }}
-        className="bg-zinc-900 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+        ref={modalWindow.panelRef}
+        style={{
+          ...modalWindow.panelStyle,
+          ...modalWindow.sizeStyle,
+          position: "relative",
+        }}
+        className="bg-zinc-900 rounded-lg max-w-2xl w-full max-h-full overflow-hidden flex flex-col"
       >
         <div
           {...modalWindow.dragHandleProps}
@@ -575,6 +582,7 @@ export function OrganizationSettingsModal({
           onMinimize={modalWindow.minimize}
           className="absolute right-12 top-4 z-20"
         />
+        <ModalResizeHandle handleProps={modalWindow.resizeHandleProps} />
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-zinc-800">
           <h2 className="text-xl font-semibold flex items-center gap-2">

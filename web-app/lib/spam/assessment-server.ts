@@ -20,6 +20,7 @@ import {
 } from "@/lib/spam/trainer";
 import { recordSpamLabel } from "@/lib/spam/server";
 import { buildSpamInputText } from "@/lib/spam/server";
+import type { ModelSpec } from "@/lib/ai/structured-waterfall";
 
 export interface SpamThreadContext {
   threadId: string;
@@ -32,6 +33,10 @@ export interface SpamThreadContext {
   bodyText: string | null;
   classification: string | null;
   cachedAssessment: SpamAssessment | null;
+  /** The mailbox owner's personal name(s), for the greeting signal. */
+  recipientNames: string[];
+  /** The mailbox owner's organization name, if any. */
+  businessName: string | null;
 }
 
 /** Everything the assessment and the trainer need about one thread. */
@@ -52,10 +57,17 @@ export async function loadSpamThreadContext(
   const { data: mailbox } = thread.mailbox_id
     ? await admin
         .from("mailboxes")
-        .select("id,organization_id")
+        .select("id,organization_id,owner_user_id")
         .eq("id", thread.mailbox_id)
         .maybeSingle()
     : { data: null };
+
+  // Personal name(s) + business name feed the greeting-based spam signal. Both
+  // best-effort: a missing profile or org just leaves the signal unevaluated.
+  const { recipientNames, businessName } = await loadRecipientIdentity(
+    mailbox?.owner_user_id ? String(mailbox.owner_user_id) : null,
+    mailbox?.organization_id ? String(mailbox.organization_id) : null,
+  );
 
   // Newest inbound message carries the text worth judging.
   const { data: messages } = await admin
@@ -89,7 +101,49 @@ export async function loadSpamThreadContext(
     classification: thread.classification ?? null,
     cachedAssessment:
       (thread.spam_assessment_json as SpamAssessment | null) ?? null,
+    recipientNames,
+    businessName,
   };
+}
+
+/**
+ * The recipient's personal name(s) and business name, for the greeting signal.
+ * Best-effort — any lookup failure returns empty rather than throwing, so it can
+ * never break a sync or an assessment.
+ */
+export async function loadRecipientIdentity(
+  ownerUserId: string | null,
+  organizationId: string | null,
+): Promise<{ recipientNames: string[]; businessName: string | null }> {
+  const admin = getAdminClient();
+  let recipientNames: string[] = [];
+  let businessName: string | null = null;
+
+  if (ownerUserId) {
+    const { data: profile } = await admin
+      .from("profiles")
+      .select("first_name,last_name")
+      .eq("id", ownerUserId)
+      .maybeSingle();
+    const first = (profile?.first_name || "").trim();
+    const last = (profile?.last_name || "").trim();
+    recipientNames = [first, last, [first, last].filter(Boolean).join(" ")]
+      .map((n) => n.trim())
+      .filter(Boolean);
+    // De-dupe (first === full when there is no last name, etc.).
+    recipientNames = Array.from(new Set(recipientNames));
+  }
+
+  if (organizationId) {
+    const { data: org } = await admin
+      .from("organizations")
+      .select("name")
+      .eq("id", organizationId)
+      .maybeSingle();
+    businessName = (org?.name || "").trim() || null;
+  }
+
+  return { recipientNames, businessName };
 }
 
 /** The user's active policy statements, newest first. */
@@ -136,6 +190,8 @@ export async function runThreadSpamAssessment(params: {
     currentClassification: params.context.classification,
     knnConfidence: params.knnConfidence ?? null,
     policies,
+    recipientNames: params.context.recipientNames,
+    businessName: params.context.businessName,
   };
 
   const assessment = await assessSpam(input, new Date().toISOString());
@@ -150,6 +206,70 @@ export async function runThreadSpamAssessment(params: {
     .eq("id", params.context.threadId);
 
   return assessment;
+}
+
+/**
+ * Pipeline variant of {@link runThreadSpamAssessment}: takes the fields the sync
+ * path has ALREADY loaded (no second thread/mailbox/message read), runs the
+ * explainable assessment, and caches it to `spam_assessment_json` so the
+ * quarantine review shows cited reasons. Returns the verdict so the caller can
+ * veto an AI false positive. Best-effort — every failure resolves to null and
+ * the caller keeps the AI's quarantine decision.
+ *
+ * This is the ONE targeted LLM call in the auto-catch design: it runs only on
+ * the already-flagged (AI → quarantine) subset, never on every inbound message.
+ */
+export async function persistPipelineSpamAssessment(params: {
+  userId: string;
+  organizationId: string | null;
+  threadId: string;
+  subject: string | null;
+  senderEmail: string | null;
+  senderName: string | null;
+  previewText: string | null;
+  bodyText: string | null;
+  currentClassification: string | null;
+  knnConfidence: number | null;
+  recipientNames: string[];
+  businessName: string | null;
+  /** Optional model chain (e.g. the org email chain). Defaults to assessSpam's. */
+  chain?: ModelSpec[] | null;
+}): Promise<{ verdict: "spam" | "not_spam"; confidence: number } | null> {
+  try {
+    const policies = await listSpamPolicyStatements(params.userId);
+    const input: SpamAssessmentInput = {
+      subject: params.subject,
+      senderEmail: params.senderEmail,
+      senderName: params.senderName,
+      previewText: params.previewText,
+      bodyText: params.bodyText,
+      currentClassification: params.currentClassification,
+      knnConfidence: params.knnConfidence,
+      policies,
+      recipientNames: params.recipientNames,
+      businessName: params.businessName,
+    };
+
+    const assessment = await assessSpam(
+      input,
+      new Date().toISOString(),
+      params.chain ?? undefined,
+    );
+    if (!assessment) return null;
+
+    await getAdminClient()
+      .from("email_threads")
+      .update({
+        spam_assessment_json: assessment,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", params.threadId);
+
+    return { verdict: assessment.verdict, confidence: assessment.confidence };
+  } catch (error) {
+    console.error("[spam] pipeline assessment failed (best-effort):", error);
+    return null;
+  }
 }
 
 /** One turn of the training conversation. */
