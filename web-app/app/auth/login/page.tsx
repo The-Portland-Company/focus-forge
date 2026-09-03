@@ -105,13 +105,14 @@ function LoginContent() {
               </label>
               <input
                 id="email"
+                name="username"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-theme-primary focus:outline-none"
                 placeholder="you@example.com"
                 required
-                autoComplete="email"
+                autoComplete="username"
               />
             </div>
 
@@ -130,6 +131,7 @@ function LoginContent() {
               </label>
               <input
                 id="password"
+                name="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
