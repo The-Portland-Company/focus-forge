@@ -2203,7 +2203,7 @@ export function TaskModal({
 
   return (
     <div
-      className={`fixed ${MODAL_INSET_CLASS} bg-black/50 flex items-center justify-center z-50`}
+      className={`fixed ${MODAL_INSET_CLASS} bg-black/50 flex items-start justify-center z-50`}
       style={{ ...(stackStyle || {}), zIndex: stackZIndex ?? 50 }}
     >
       <div
@@ -2246,7 +2246,7 @@ export function TaskModal({
         <div
           role="tablist"
           aria-label="Task sections"
-          className="sticky top-[65px] z-10 flex items-end gap-1 overflow-x-auto border-b border-zinc-800 bg-zinc-900 px-6 pt-2"
+          className="sticky top-[65px] z-10 flex items-end gap-1 overflow-x-auto bg-zinc-900 px-6 pt-2"
         >
           {visibleTabs.map((tab) => (
             <button
@@ -2257,7 +2257,7 @@ export function TaskModal({
               onClick={() => goToTab(tab.key)}
               className={`-mb-px whitespace-nowrap rounded-t-lg border px-3 py-1.5 text-sm transition-colors ${
                 activeTab === tab.key
-                  ? "border-zinc-800 border-b-zinc-900 bg-zinc-900 text-white"
+                  ? "border border-b-0 border-zinc-800 bg-zinc-900 text-white"
                   : "border-transparent bg-zinc-950/60 text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-200"
               }`}
             >
