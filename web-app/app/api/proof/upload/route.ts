@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { uploadToOrgStorage } from "@/lib/media-storage/upload";
+import { resolveOrgApiKey, orgKeyCanWrite } from "@/lib/media-storage/auth";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -11,50 +12,74 @@ import { v4 as uuidv4 } from "uuid";
  * default Supabase `task-attachments` bucket. Returns a `{ name, url }`
  * attachment record the caller can pin onto a Forge task.
  *
- * Authorization: the caller must be a member of the organization.
+ * Two authenticated callers are accepted:
+ *  - a Supabase session that is a member of the organization (organizationId in
+ *    the form body), or
+ *  - a Forge organization API key with `write`/`admin` scope (Bearer), which
+ *    resolves the organization itself — the server-to-server path used by the
+ *    DevNotes proxy.
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Prefer an org API key (server-to-server); else a user session.
+    const orgKey = await resolveOrgApiKey(request);
+
+    let organizationId: string | null = null;
+    let sessionUserId: string | null = null;
+
+    if (orgKey) {
+      if (!orgKeyCanWrite(orgKey)) {
+        return NextResponse.json(
+          { error: "API key is missing the write scope." },
+          { status: 403 },
+        );
+      }
+      organizationId = orgKey.organizationId;
     }
-    const userId = session.user.id;
+
+    const supabase = await createClient();
+    if (!orgKey) {
+      const {
+        data: { session },
+        error: authError,
+      } = await supabase.auth.getSession();
+      if (authError || !session?.user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      sessionUserId = session.user.id;
+    }
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
-    const organizationId = formData.get("organizationId") as string | null;
     const taskId = formData.get("taskId") as string | null;
-
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
-    if (!organizationId) {
-      return NextResponse.json(
-        { error: "organizationId is required" },
-        { status: 400 },
-      );
-    }
 
-    // Membership check: only members of the org may store media in its account.
-    const { data: membership } = await supabase
-      .from("user_organizations")
-      .select("organization_id")
-      .eq("user_id", userId)
-      .eq("organization_id", organizationId)
-      .maybeSingle();
-    if (!membership) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // Session callers name the org in the body and must be a member of it.
+    if (!orgKey) {
+      organizationId = formData.get("organizationId") as string | null;
+      if (!organizationId) {
+        return NextResponse.json(
+          { error: "organizationId is required" },
+          { status: 400 },
+        );
+      }
+      const { data: membership } = await supabase
+        .from("user_organizations")
+        .select("organization_id")
+        .eq("user_id", sessionUserId as string)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      if (!membership) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
+    const admin = getAdminClient();
 
     // Prefer the org's own storage account.
-    const admin = getAdminClient();
     const { data: org } = await admin
       .from("organizations")
       .select("media_storage")
@@ -97,10 +122,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Fallback: default Supabase bucket (org has no storage account configured).
+    // Session callers write under their user prefix; org-key callers under the org.
     if (!attachment) {
       const fileId = uuidv4();
-      const storagePath = `${userId}/${fileId}-${file.name}`;
-      const { error: uploadError } = await supabase.storage
+      const prefix = sessionUserId ?? `org/${organizationId}`;
+      const storagePath = `${prefix}/${fileId}-${file.name}`;
+      // Org-key uploads have no user session, so use the admin storage client.
+      const storageClient = sessionUserId ? supabase : admin;
+      const { error: uploadError } = await storageClient.storage
         .from("task-attachments")
         .upload(storagePath, buffer, {
           contentType: file.type,
@@ -125,7 +154,8 @@ export async function POST(request: NextRequest) {
 
     // Optionally pin to a task's attachments row.
     if (taskId) {
-      const { data: row, error: dbError } = await supabase
+      const db = sessionUserId ? supabase : admin;
+      const { data: row, error: dbError } = await db
         .from("attachments")
         .insert({ ...attachment, task_id: taskId })
         .select()
