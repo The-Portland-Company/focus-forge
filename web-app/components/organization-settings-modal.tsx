@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { ExistingMemberPicker, filterAvailableMembers } from '@/components/existing-member-picker'
 import { FocusTimeOrganizationPanel } from '@/components/focus-time-organization-panel'
 import { PlanPanel } from '@/components/plan-panel'
+import { OrganizationMediaStorage } from '@/components/organization-media-storage'
 import {
   ModalMinimizeButton,
   useModalWindow,
@@ -704,6 +705,13 @@ export function OrganizationSettingsModal({
 
             <div className="border-t border-zinc-800 pt-4">
               <PlanPanel ownerType="organization" ownerId={organization.id} />
+            </div>
+
+            <div className="border-t border-zinc-800 pt-4">
+              <OrganizationMediaStorage
+                organizationId={organization.id}
+                isOwner={isOwner}
+              />
             </div>
           </div>
           )}
