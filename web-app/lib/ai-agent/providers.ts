@@ -558,10 +558,11 @@ async function finishExhausted(
 // ---- Anthropic runner ----
 
 function makeAnthropicProvider(opts: { model: string; apiKey: () => string | undefined }): AgentProvider {
-  const anthropicTools = AGENT_TOOL_DEFS.map((d) => ({
+  const anthropicTools = AGENT_TOOL_DEFS.map((d, i, arr) => ({
     name: d.name,
     description: d.description,
     input_schema: d.parameters,
+    ...(i === arr.length - 1 ? { cache_control: { type: "ephemeral" } } : {}),
   }));
 
   return {
@@ -602,7 +603,7 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
               model: opts.model,
               max_tokens: 1500,
               temperature: 0.3,
-              system: systemPrompt,
+              system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
               messages: summaryMessages,
             }),
           },
@@ -634,9 +635,10 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
             model: opts.model,
             max_tokens: 1500,
             temperature: 0.3,
-            system: systemPrompt,
+            system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
             tools: anthropicTools,
             messages,
+            cache_control: { type: "ephemeral" },
           }),
           },
           callTimeout(deadline),
