@@ -33,11 +33,13 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    // Always report { sent: true } — never leak whether the account exists.
+    // With shouldCreateUser:false, signInWithOtp errors for an unknown email
+    // (and can rate-limit); surfacing that would enable account enumeration.
+    // Log server-side for diagnostics but return an identical response either
+    // way. A genuinely unknown email simply receives no email.
     if (error) {
-      return NextResponse.json(
-        mobileFailure('magic_link_failed', error.message, error),
-        { status: 400 },
-      )
+      console.warn('magic-link send returned an error (suppressed):', error.message)
     }
 
     return NextResponse.json(mobileSuccess({ sent: true }), { status: 200 })
