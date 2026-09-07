@@ -24,6 +24,7 @@ import { ThemeSwitcher } from "@/components/theme-switcher";
 import { UserAvatar } from "@/components/user-avatar";
 import { OrganizationSettingsModal } from "@/components/organization-settings-modal";
 import { TodoistIntegration } from "@/components/todoist-integration";
+import { SentryIntegration } from "@/components/sentry-integration";
 import { Database, EmailSignature, Organization } from "@/lib/types";
 import { useUserPreferences, useUserProfile } from "@/lib/supabase/hooks";
 import {
@@ -2655,7 +2656,10 @@ export default function SettingsPage() {
                   <Skeleton className="h-10 w-44" />
                 </div>
               ) : profile?.id ? (
-                <TodoistIntegration userId={profile.id} />
+                <>
+                  <TodoistIntegration userId={profile.id} />
+                  <SentryIntegration userId={profile.id} />
+                </>
               ) : (
                 <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
                   <p className="text-sm text-zinc-400">

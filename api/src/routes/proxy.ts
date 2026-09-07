@@ -11,6 +11,7 @@ const publicPaths = new Set([
   "/v1/calendar/feed",
   "/v1/mobile/auth/apple",
   "/v1/mobile/auth/refresh",
+  "/v1/sentry/webhook",
 ]);
 
 const getBody = async (request: FastifyRequest) => {
