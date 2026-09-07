@@ -206,7 +206,10 @@ import {
   applyEmailThreadRealtimeChange,
   type EmailThreadRealtimeChange,
 } from "@/lib/email-inbox/apply-realtime-patch";
-import { reconcileAdditive } from "@/lib/email-inbox/reconcile-additive";
+import {
+  reconcileAdditive,
+  shouldAutoFlushInbox,
+} from "@/lib/email-inbox/reconcile-additive";
 import {
   DEFAULT_EMAIL_REPLY_SETTINGS,
   EMAIL_REPLY_CONCISENESS_OPTIONS,
@@ -1956,6 +1959,7 @@ export function EmailInboxView({
   const settleTimerRef = useRef<number | null>(null);
   const applyInboxSnapshotRef = useRef<((params: any) => void) | null>(null);
   const flushDeferredInboxUpdatesRef = useRef<(() => void) | null>(null);
+  const maybeAutoFlushInboxRef = useRef<(() => void) | null>(null);
   // Orders concurrent /api/email/inbox reads so a stale response can never
   // overwrite a newer one (see lib/email-inbox/snapshot-sequence).
   const inboxSnapshotSequenceRef = useRef(createSnapshotSequence());
@@ -2305,6 +2309,25 @@ export function EmailInboxView({
     inboxFilterTab,
     selectedMailboxId,
   ]);
+
+  // Returning to the app must always reconcile. In a long-lived WebView the poll
+  // and realtime keep updating the deferred truth while the window is
+  // backgrounded, but nothing repaints the frozen list until the user acts — so
+  // days of mail could sit invisible. Flush on window focus and on the document
+  // becoming visible so the list is current the instant the user looks at it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const flush = () => flushDeferredInboxUpdatesRef.current?.();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") flush();
+    };
+    window.addEventListener("focus", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   const visibleSyncError = useMemo(
     () => getVisibleMailboxSyncError(mailboxes, selectedMailboxId),
@@ -2963,6 +2986,11 @@ export function EmailInboxView({
     setQuarantineCount(
       displayed.filter((item) => item.status === "quarantine").length,
     );
+
+    // Commit the deferred truth now (unless mid-read) so re-files, removals and
+    // newly-promoted threads surface within this poll cycle instead of waiting
+    // for the user to switch tabs / reload.
+    maybeAutoFlushInbox();
   };
 
   applyInboxSnapshotRef.current = applyInboxSnapshot;
@@ -2993,6 +3021,26 @@ export function EmailInboxView({
     );
   };
   flushDeferredInboxUpdatesRef.current = flushDeferredInboxUpdates;
+
+  // Auto-surface deferred updates without a user action. New and re-filed mail
+  // must never sit invisible for a whole poll cycle (the reported "days of mail
+  // gone until I reload"). We hold the frozen view back only while the user is
+  // actively reading a thread AND nothing strictly newer than the top of the
+  // painted list arrived — and even then the flush preserves the open/just-read
+  // row (it is `touched`), so a newer top-of-inbox message still surfaces.
+  const maybeAutoFlushInbox = () => {
+    const reading = isThreadModalOpen && Boolean(selectedThreadId);
+    if (
+      shouldAutoFlushInbox({
+        reading,
+        rendered: inboxSnapshotRef.current,
+        serverTruth: latestServerSnapshotRef.current,
+      })
+    ) {
+      flushDeferredInboxUpdates();
+    }
+  };
+  maybeAutoFlushInboxRef.current = maybeAutoFlushInbox;
 
   useEffect(
     () => () => {
@@ -3650,6 +3698,11 @@ export function EmailInboxView({
           displayed.filter((item) => item.status === "quarantine").length,
         );
       }
+
+      // A realtime re-file / promotion / removal just landed in the deferred
+      // truth — surface it now (unless mid-read) rather than waiting for the
+      // next 60s poll or a manual action.
+      maybeAutoFlushInboxRef.current?.();
     }
 
     // Only a genuine INSERT hydrates a new row immediately (new mail may appear).
