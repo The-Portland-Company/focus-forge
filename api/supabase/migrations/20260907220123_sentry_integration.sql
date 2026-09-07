@@ -41,11 +41,12 @@ ALTER TABLE sentry_connections ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view their own sentry connections" ON sentry_connections;
 DROP POLICY IF EXISTS "Users can manage their own sentry connections" ON sentry_connections;
 
-CREATE POLICY "Users can view their own sentry connections" ON sentry_connections
-  FOR SELECT USING (user_id = auth.uid());
-
+-- Single FOR ALL policy (covers SELECT too) with (select auth.uid()) so the
+-- auth function is evaluated once per query, not per row (advisor: auth_rls_initplan,
+-- multiple_permissive_policies).
 CREATE POLICY "Users can manage their own sentry connections" ON sentry_connections
-  FOR ALL USING (user_id = auth.uid());
+  FOR ALL USING (user_id = (select auth.uid()))
+  WITH CHECK (user_id = (select auth.uid()));
 
 -- Keep updated_at fresh
 DROP TRIGGER IF EXISTS update_sentry_connections_updated_at ON sentry_connections;
