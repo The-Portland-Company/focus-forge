@@ -7,6 +7,7 @@ import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   ModalMinimizeButton,
+  ModalResizeHandle,
   useModalWindow,
 } from "@/components/ui/modal-window"
 
@@ -80,11 +81,23 @@ const DialogContent = React.forwardRef<
     minimize,
     dragHandleProps,
     centeredPanelStyle,
+    panelRef,
+    resizeHandleProps,
+    sizeStyle,
   } = useModalWindow({
     title: windowTitle || "Window",
     minimizable,
     onRequestClose,
   })
+
+  const mergedRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      panelRef.current = node
+      if (typeof ref === "function") ref(node)
+      else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node
+    },
+    [panelRef, ref],
+  )
 
   useBodyInteractivityWhileMinimized(minimized)
 
@@ -92,7 +105,7 @@ const DialogContent = React.forwardRef<
     <DialogPortal>
       {minimized ? null : <DialogOverlay />}
       <DialogPrimitive.Content
-        ref={ref}
+        ref={mergedRef}
         className={cn(
           // Mobile-first: a near-full-screen sheet that fills the small-phone
           // viewport (with a small inset + safe-area padding) and scrolls its
@@ -111,6 +124,8 @@ const DialogContent = React.forwardRef<
         )}
         style={{
           ...centeredPanelStyle,
+          ...sizeStyle,
+          overflow: sizeStyle.width ? "auto" : undefined,
           ...(minimized ? { display: "none" } : null),
           ...(props.style || {}),
         }}
@@ -150,6 +165,7 @@ const DialogContent = React.forwardRef<
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>
         </div>
+        {minimized ? null : <ModalResizeHandle handleProps={resizeHandleProps} />}
       </DialogPrimitive.Content>
     </DialogPortal>
   )

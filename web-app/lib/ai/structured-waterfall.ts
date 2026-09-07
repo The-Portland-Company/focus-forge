@@ -249,11 +249,19 @@ async function runAnthropic(
 function cfModelConfig(
   modelId: string,
   env: Record<string, string | undefined>,
-): { baseModel: string; lora: string } | null {
+): { baseModel: string; lora?: string } | null {
   if (modelId === "ff-estimator-gemma2b") {
     return {
       baseModel: "@cf/google/gemma-2b-it-lora",
       lora: env.CF_ESTIMATOR_LORA || "ff-estimator-gemma2b",
+    };
+  }
+  // General-purpose open chat model on Workers AI — the FREE, self-hosted
+  // fallback that keeps triage and spam analysis working when the paid
+  // providers are out of credits. Overridable per deployment via CF_CHAT_MODEL.
+  if (modelId === "cf-llama-3.3-70b") {
+    return {
+      baseModel: env.CF_CHAT_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     };
   }
   return null;
@@ -289,8 +297,9 @@ async function runCloudflareWorkersAI(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        lora: cfg.lora,
-        max_tokens: 512,
+        // Only a LoRA model carries an adapter name; a plain chat model omits it.
+        ...(cfg.lora ? { lora: cfg.lora } : {}),
+        max_tokens: input.maxTokens ?? 1024,
         messages: [
           { role: "system", content: system },
           { role: "user", content: input.userMessage },

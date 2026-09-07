@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminClient } from '@/lib/supabase/admin'
 import { sendInviteEmail } from '@/lib/email'
+import { getAppBaseUrl } from '@/lib/auth/urls'
 import crypto from 'crypto'
 
 export async function POST(request: NextRequest) {
@@ -77,8 +78,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Build invite URL
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3244'
+    // Build invite URL — fall back to the request origin (real prod domain)
+    // rather than localhost when NEXT_PUBLIC_SITE_URL is unset.
+    const baseUrl = getAppBaseUrl({ requestUrl: request.url })
     const inviteUrl = `${baseUrl}/auth/accept-invite?token=${inviteToken}&email=${encodeURIComponent(profile.email)}`
 
     // Send invite email via Resend with optional CC

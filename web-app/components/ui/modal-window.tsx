@@ -5,6 +5,13 @@ import { createPortal } from "react-dom";
 import { Minus, X } from "lucide-react";
 
 /**
+ * Standard inset (px) between every modal panel and the viewport edges.
+ * Apply via `MODAL_INSET_CLASS` on the fixed overlay wrapper.
+ */
+export const MODAL_INSET_PX = 25;
+export const MODAL_INSET_CLASS = "inset-[25px]";
+
+/**
  * Shared drag + minimize behaviour for every modal in the app.
  *
  * Two modal families exist here: dialogs built on `components/ui/dialog`
@@ -96,12 +103,27 @@ export function useModalWindow({
     offsetY: number;
   } | null>(null);
 
-  // A closed modal starts fresh next time: centered and not minimized.
+  const panelRef = React.useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = React.useState<{
+    width: number | null;
+    height: number | null;
+  }>({ width: null, height: null });
+  const [resizing, setResizing] = React.useState(false);
+  const resizeOriginRef = React.useRef<{
+    pointerX: number;
+    pointerY: number;
+    width: number;
+    height: number;
+  } | null>(null);
+
+  // A closed modal starts fresh next time: centered, default size, not minimized.
   React.useEffect(() => {
     if (open) return;
     setOffset({ x: 0, y: 0 });
     setMinimized(false);
     setDragging(false);
+    setSize({ width: null, height: null });
+    setResizing(false);
     removeDockEntry(id);
   }, [id, open]);
 
@@ -210,6 +232,80 @@ export function useModalWindow({
     },
   } as const;
 
+  // Resizing: grabbed from the panel's own measured size (via panelRef) so it
+  // works no matter how the panel is sized by default (max-w-*, intrinsic, …).
+  const onResizePointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      if (event.button !== 0) return;
+      const rect = panelRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      resizeOriginRef.current = {
+        pointerX: event.clientX,
+        pointerY: event.clientY,
+        width: rect.width,
+        height: rect.height,
+      };
+      setResizing(true);
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      // Don't let the resize press bubble into the drag strip.
+      event.stopPropagation();
+    },
+    [],
+  );
+
+  const onResizePointerMove = React.useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      const origin = resizeOriginRef.current;
+      if (!origin) return;
+      const minWidth = 320;
+      const minHeight = 200;
+      const maxWidth =
+        typeof window !== "undefined"
+          ? window.innerWidth - MODAL_INSET_PX * 2
+          : Infinity;
+      const maxHeight =
+        typeof window !== "undefined"
+          ? window.innerHeight - MODAL_INSET_PX * 2
+          : Infinity;
+      setSize({
+        width: Math.min(
+          Math.max(origin.width + (event.clientX - origin.pointerX), minWidth),
+          maxWidth,
+        ),
+        height: Math.min(
+          Math.max(origin.height + (event.clientY - origin.pointerY), minHeight),
+          maxHeight,
+        ),
+      });
+    },
+    [],
+  );
+
+  const endResize = React.useCallback(() => {
+    if (!resizeOriginRef.current) return;
+    resizeOriginRef.current = null;
+    setResizing(false);
+  }, []);
+
+  const resizeHandleProps = {
+    onPointerDown: onResizePointerDown,
+    onPointerMove: onResizePointerMove,
+    onPointerUp: endResize,
+    onPointerCancel: endResize,
+    style: { touchAction: "none", cursor: "nwse-resize" } as const,
+  } as const;
+
+  // Merge into a panel's inline style once a manual size has been set;
+  // overrides whatever max-w-*/max-h-* className the panel normally uses.
+  const sizeStyle = size.width
+    ? ({
+        width: size.width,
+        height: size.height ?? undefined,
+        maxWidth: "none",
+        maxHeight: "none",
+      } as const)
+    : ({} as const);
+
   const dragged = offset.x !== 0 || offset.y !== 0;
 
   return {
@@ -222,6 +318,10 @@ export function useModalWindow({
     dragged,
     offset,
     dragHandleProps,
+    panelRef,
+    resizing,
+    resizeHandleProps,
+    sizeStyle,
     /**
      * Offset transform for a panel that is NOT centred by transform.
      * `isolation: isolate` makes the panel a stacking context even when it is
@@ -259,10 +359,41 @@ export function ModalMinimizeButton({
       onClick={onMinimize}
       aria-label="Minimize"
       title="Minimize"
-      className={`rounded-sm text-zinc-400 opacity-70 transition-opacity hover:text-white hover:opacity-100 focus:outline-none ${className}`}
+      className={`rounded p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 focus:outline-none ${className}`}
     >
       <Minus className="h-4 w-4" />
     </button>
+  );
+}
+
+/**
+ * Bottom-right resize grip. Spread `resizeHandleProps` from `useModalWindow`
+ * onto it; drag to resize the panel it's anchored inside of.
+ */
+export function ModalResizeHandle({
+  handleProps,
+  className = "",
+}: {
+  handleProps: ReturnType<typeof useModalWindow>["resizeHandleProps"];
+  className?: string;
+}) {
+  return (
+    <div
+      {...handleProps}
+      role="presentation"
+      aria-hidden
+      className={`absolute bottom-0 right-0 z-20 h-5 w-5 touch-none ${className}`}
+    >
+      <svg
+        viewBox="0 0 16 16"
+        className="pointer-events-none absolute bottom-0.5 right-0.5 h-3 w-3 text-zinc-600"
+        fill="currentColor"
+      >
+        <circle cx="13" cy="13" r="1.3" />
+        <circle cx="13" cy="8" r="1.3" />
+        <circle cx="8" cy="13" r="1.3" />
+      </svg>
+    </div>
   );
 }
 

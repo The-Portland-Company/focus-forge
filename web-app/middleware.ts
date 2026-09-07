@@ -42,6 +42,15 @@ const publicRoutes = [
   "/api/auth/logout",
   "/api/users",
   "/api/mobile",
+  // Proof-media upload self-authenticates (a Forge organization API key for the
+  // server-to-server DevNotes path, or a member session) inside the route, like
+  // /api/mobile — so it must bypass the session-only middleware gate.
+  "/api/proof/upload",
+  // Sentry issue webhook self-authenticates via an HMAC-SHA256 signature
+  // (sentry-hook-signature) verified inside the route against the connection's
+  // shared secret — the caller (Sentry) has no Forge session, so it must bypass
+  // the session-only gate, like /api/mobile and /api/proof/upload.
+  "/api/sentry/webhook",
   "/api/sync/comments",
   "/api/accept-invite",
   "/api/health",
@@ -111,6 +120,14 @@ export async function middleware(request: NextRequest) {
 
   // Railway healthchecks may come through as plain HTTP internally; do not redirect them.
   if (pathname.startsWith("/api/health")) {
+    return applySecurityHeaders(NextResponse.next());
+  }
+
+  // Internal loopback endpoints (the in-process EmailLiveSync worker POSTing to
+  // 127.0.0.1) authenticate with their own token and must bypass the HTTPS-enforce
+  // redirect and the auth/MFA gates. Without this the worker's plain-HTTP request
+  // got a 301 to https://, so autonomous sync never reached the route.
+  if (pathname.startsWith("/api/internal/")) {
     return applySecurityHeaders(NextResponse.next());
   }
 

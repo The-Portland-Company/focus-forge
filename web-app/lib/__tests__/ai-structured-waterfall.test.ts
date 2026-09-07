@@ -5,6 +5,7 @@ import {
   runStructuredWaterfall,
   isRecoverableProviderError,
   hasProviderKey,
+  defaultModelRunner,
   type ModelSpec,
   type SingleModelRunner,
 } from "../ai/structured-waterfall";
@@ -174,11 +175,78 @@ test("resolveChain falls back to the quality-first default when chains are absen
   assert.equal(chain[0].model, "claude-opus-4-8");
 });
 
+test("waterfall reaches the free Cloudflare fallback when every paid provider is out of credits", async () => {
+  // Mirrors the real outage: Anthropic/OpenAI/xAI all report billing errors, so
+  // the open CF model is the one that answers.
+  const calls: string[] = [];
+  const runner: SingleModelRunner = async (spec) => {
+    calls.push(spec.model);
+    if (spec.provider === "cf-workers-ai") return JSON.stringify({ ok: true });
+    throw new Error(`${spec.provider} request failed (402): credit balance too low`);
+  };
+  const chain: ModelSpec[] = [
+    { provider: "anthropic", model: "claude-opus-4-8" },
+    { provider: "openai", model: "gpt-4.1" },
+    { provider: "xai", model: "grok-3" },
+    { provider: "cf-workers-ai", model: "cf-llama-3.3-70b" },
+  ];
+  const result = await runStructuredWaterfall(
+    chain,
+    { systemPrompt: "s", userMessage: "u" },
+    {
+      runner,
+      env: { ...ALL_KEYS, CLOUDFLARE_API_TOKEN: "cf", CLOUDFLARE_ACCOUNT_ID: "acct" },
+    },
+  );
+  assert.equal(result.provider, "cf-workers-ai");
+  assert.equal(result.model, "cf-llama-3.3-70b");
+  assert.equal(calls[calls.length - 1], "cf-llama-3.3-70b");
+});
+
+test("defaultModelRunner routes a CF chat model to Workers AI with no LoRA field", async () => {
+  const priorFetch = globalThis.fetch;
+  const priorToken = process.env.CLOUDFLARE_API_TOKEN;
+  const priorAccount = process.env.CLOUDFLARE_ACCOUNT_ID;
+  process.env.CLOUDFLARE_API_TOKEN = "cf-test";
+  process.env.CLOUDFLARE_ACCOUNT_ID = "acct-test";
+
+  let capturedUrl = "";
+  let capturedBody: any = null;
+  globalThis.fetch = (async (url: string, init?: { body?: string }) => {
+    capturedUrl = String(url);
+    capturedBody = JSON.parse(init?.body ?? "{}");
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ result: { response: '{"ok":true}' } }),
+      text: async () => "",
+    };
+  }) as unknown as typeof globalThis.fetch;
+
+  try {
+    const text = await defaultModelRunner(
+      { provider: "cf-workers-ai", model: "cf-llama-3.3-70b" },
+      { systemPrompt: "s", userMessage: "u" },
+    );
+    assert.equal(text, '{"ok":true}');
+    // Hits the general chat base model, not a LoRA adapter.
+    assert.match(capturedUrl, /accounts\/acct-test\/ai\/run\/@cf\/meta\/llama-3\.3-70b/);
+    assert.equal("lora" in capturedBody, false);
+  } finally {
+    globalThis.fetch = priorFetch;
+    if (priorToken === undefined) delete process.env.CLOUDFLARE_API_TOKEN;
+    else process.env.CLOUDFLARE_API_TOKEN = priorToken;
+    if (priorAccount === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID;
+    else process.env.CLOUDFLARE_ACCOUNT_ID = priorAccount;
+  }
+});
+
 test("normalizeChainIds drops unknowns, dedupes, and back-fills omitted models", () => {
   assert.deepEqual(
     normalizeChainIds(["gpt-4.1", "bogus", "gpt-4.1"]),
-    // gpt-4.1 first, then the rest of the default order back-filled.
-    ["gpt-4.1", "claude-opus-4-8", "claude-sonnet-4-6", "grok-3"],
+    // gpt-4.1 first, then the rest of the default order back-filled (incl. the
+    // terminal free CF fallback).
+    ["gpt-4.1", "claude-opus-4-8", "claude-sonnet-4-6", "grok-3", "cf-llama-3.3-70b"],
   );
   assert.deepEqual(normalizeChainIds(undefined), defaultChainIds());
   assert.deepEqual(normalizeChainIds([]), defaultChainIds());

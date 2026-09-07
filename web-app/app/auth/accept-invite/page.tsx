@@ -45,6 +45,18 @@ function AcceptInviteContent() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [canSignOutAndRetry, setCanSignOutAndRetry] = useState(false)
+
+  const signOutAndRetry = async () => {
+    setIsSubmitting(true)
+    try {
+      const supabase = createClient()
+      await supabase.auth.signOut()
+    } finally {
+      // Reload the invite with no session so the correct step is chosen.
+      window.location.reload()
+    }
+  }
 
   const token = searchParams.get('token') || ''
   const email = (searchParams.get('email') || '').trim().toLowerCase()
@@ -147,8 +159,9 @@ function AcceptInviteContent() {
 
         if (nextStep === 'error' && session?.user?.email) {
           setMessage(
-            `You are signed in as ${session.user.email}. Sign out and open the invitation with ${invite.email}.`
+            `You are signed in as ${session.user.email}. Sign out to continue as ${invite.email}.`
           )
+          setCanSignOutAndRetry(true)
           setStep('error')
           return
         }
@@ -295,6 +308,16 @@ function AcceptInviteContent() {
           </div>
           <h2 className="text-xl font-semibold mb-2 text-red-500">Invitation Error</h2>
           <p className="text-zinc-400 mb-6">{message}</p>
+          {canSignOutAndRetry && (
+            <button
+              type="button"
+              onClick={signOutAndRetry}
+              disabled={isSubmitting}
+              className="mb-3 inline-block w-full rounded-lg bg-theme-primary px-6 py-2 text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {isSubmitting ? 'Signing out...' : 'Sign out & continue'}
+            </button>
+          )}
           <Link
             href={`/auth/login${email ? `?email=${encodeURIComponent(email)}` : ''}`}
             className="inline-block rounded-lg bg-theme-primary px-6 py-2 text-white transition-opacity hover:opacity-90"

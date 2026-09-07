@@ -1195,6 +1195,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "end_date",
       "end_time",
       "depends_on",
+      "sentry_issue_id",
+      "sentry_org_slug",
     ]);
 
     // Map camelCase fields to snake_case for Supabase
@@ -1239,6 +1241,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
       endDate: "end_date",
       endTime: "end_time",
       dependsOn: "depends_on",
+      sentryIssueId: "sentry_issue_id",
+      sentryOrgSlug: "sentry_org_slug",
     };
 
     const taskData: Record<string, any> = {};
@@ -1454,13 +1458,24 @@ export class SupabaseAdapter implements DatabaseAdapter {
     // Detect a not-completed -> completed transition so stakeholders get a
     // "task completed" email (threaded under the original "task created" one).
     // Checked before the write so we only fire on the actual transition.
+    // Also pull the Sentry linkage + owner so a completion can resolve back the
+    // linked Sentry issue (see below).
     let justCompleted = false;
+    let priorRow:
+      | {
+          completed: boolean | null;
+          sentry_issue_id: string | null;
+          sentry_org_slug: string | null;
+          created_by: string | null;
+        }
+      | null = null;
     if (taskData.completed === true) {
       const { data: prior } = await supabase
         .from("tasks")
-        .select("completed")
+        .select("completed, sentry_issue_id, sentry_org_slug, created_by")
         .eq("id", id)
         .maybeSingle();
+      priorRow = prior || null;
       justCompleted = prior ? prior.completed !== true : false;
     }
 
@@ -1491,6 +1506,42 @@ export class SupabaseAdapter implements DatabaseAdapter {
           });
         }
       })();
+
+      // Resolve-back: if this completed task is linked to a Sentry issue, mark
+      // that issue resolved in Sentry. Runs after the task row write already
+      // succeeded and is fully wrapped in try/catch so a Sentry failure never
+      // breaks the task update.
+      if (priorRow?.sentry_issue_id) {
+        void (async () => {
+          try {
+            const ownerId = priorRow?.created_by || this.userId;
+            const { data: profile } = await supabase
+              .from("profiles")
+              .select("sentry_auth_token, sentry_org_slug, sentry_base_url")
+              .eq("id", ownerId)
+              .maybeSingle();
+
+            const token = profile?.sentry_auth_token;
+            const orgSlug = priorRow?.sentry_org_slug || profile?.sentry_org_slug;
+            if (!token || !orgSlug) return;
+
+            const { SentryClient } = await import(
+              "../services/sentry-client"
+            );
+            const client = new SentryClient({
+              token,
+              orgSlug,
+              baseUrl: profile?.sentry_base_url || undefined,
+            });
+            await client.resolveIssue(priorRow.sentry_issue_id as string);
+          } catch (resolveError) {
+            console.warn("Failed to resolve linked Sentry issue", {
+              taskId: id,
+              error: resolveError,
+            });
+          }
+        })();
+      }
     }
 
     // Update tags if provided

@@ -15,7 +15,10 @@
  */
 
 import { resolveChain } from "@/lib/ai/model-chains";
-import { runStructuredWaterfall } from "@/lib/ai/structured-waterfall";
+import {
+  runStructuredWaterfall,
+  type ModelSpec,
+} from "@/lib/ai/structured-waterfall";
 
 export interface SpamAssessmentSignal {
   /** Short label for the signal, e.g. "Unknown sender domain". */
@@ -51,6 +54,10 @@ export interface SpamAssessmentInput {
   knnConfidence: number | null;
   /** The user's finalized policy statements. */
   policies: string[];
+  /** The recipient's own name(s) — first, last, full — for the greeting signal. */
+  recipientNames?: string[];
+  /** The recipient's business/organization name, if known. */
+  businessName?: string | null;
 }
 
 const SYSTEM_PROMPT = [
@@ -61,6 +68,10 @@ const SYSTEM_PROMPT = [
   "subscribed to, and inbound customer inquiries are NOT spam.",
   "Weigh the recipient's own saved policies above your general priors; they",
   "wrote those rules after reviewing their own mail.",
+  "If the greeting addresses the recipient by their business or organization",
+  "name rather than a personal name, treat that as a strong cold-outreach /",
+  "mass-merge spam signal — legitimate correspondents use a personal name or",
+  "none. Cite it as a signal when it applies.",
   "Cite concrete evidence from THIS email — a sender domain, a phrase, a",
   "pattern. Never invent details that are not in the text you were given.",
   "Give between 2 and 5 signals. Signals may point either way; include the ones",
@@ -109,6 +120,16 @@ export function buildAssessmentUserMessage(input: SpamAssessmentInput): string {
     `From: ${clip(input.senderName, 120)} <${clip(input.senderEmail, 200) || "unknown"}>`,
     `Body: ${clip(input.bodyText || input.previewText, 2500) || "(no body text)"}`,
   ];
+
+  const names = (input.recipientNames || [])
+    .map((n) => n.trim())
+    .filter(Boolean);
+  if (names.length > 0) {
+    lines.push(`Recipient's personal name(s): ${names.join(", ")}`);
+  }
+  if (input.businessName && input.businessName.trim()) {
+    lines.push(`Recipient's business/organization name: ${input.businessName.trim()}`);
+  }
 
   if (input.currentClassification) {
     lines.push(
@@ -207,16 +228,26 @@ export function parseAssessmentResponse(
   };
 }
 
-/** Run the assessment. Throws only when every provider is unavailable. */
+/**
+ * Run the assessment. Throws only when every provider is unavailable.
+ *
+ * `chain` overrides the model waterfall — the pipeline passes the org's email
+ * chain so auto-catch assessments use the same (DeepSeek-first) providers as
+ * triage; the on-demand Analyze button omits it and gets the assistant chain.
+ */
 export async function assessSpam(
   input: SpamAssessmentInput,
   now: string,
+  chain?: ModelSpec[],
 ): Promise<SpamAssessment | null> {
-  const result = await runStructuredWaterfall(resolveChain("assistant", null), {
-    systemPrompt: SYSTEM_PROMPT,
-    userMessage: buildAssessmentUserMessage(input),
-    jsonSchema: RESPONSE_SCHEMA,
-    temperature: 0,
-  });
+  const result = await runStructuredWaterfall(
+    chain && chain.length > 0 ? chain : resolveChain("assistant", null),
+    {
+      systemPrompt: SYSTEM_PROMPT,
+      userMessage: buildAssessmentUserMessage(input),
+      jsonSchema: RESPONSE_SCHEMA,
+      temperature: 0,
+    },
+  );
   return parseAssessmentResponse(result.text, result.model ?? null, now);
 }

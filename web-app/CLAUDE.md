@@ -244,8 +244,8 @@ A Todoist-like project management application built with Next.js, currently migr
 - Service role key available for admin operations
 
 #### User Accounts Plan
-1. **Super Administrator**: spencerdhill@protonmail.com (password: ***REMOVED***)
-2. **Demo Administrator**: demo@demo.com (password: Demo) - associated with Portland organization
+1. **Super Administrator**: spencerdhill@protonmail.com (password: in 1Password — item "Focus: Forge — Super Admin (spencerdhill)"; rotated 2026-09-07)
+2. **Demo Administrator**: demo@demo.com (password: in 1Password) - associated with Portland organization
 3. Default role for new users: Team Member
 4. Users can belong to multiple organizations
 

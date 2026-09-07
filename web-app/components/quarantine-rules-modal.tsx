@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Pencil, ShieldAlert, X } from "lucide-react";
+import { AlertTriangle, Pencil, ShieldAlert, Sparkles, X } from "lucide-react";
 import {
   RULE_PATTERN_HELP,
   templateHasPattern,
@@ -19,6 +19,15 @@ const FIELD_OPTIONS: Array<{ value: EmailRuleCondition["field"]; label: string }
     { value: "subject", label: "Subject" },
     { value: "body", label: "Body" },
   ];
+
+/**
+ * The field <select> also offers "AI Analyze" — NOT a persisted match field, so
+ * it lives only in this local union and is never written into
+ * `EmailRuleCondition.field`. Selecting it swaps the operator/value row for an
+ * "Analyze with AI" action that reads the body and explains why it is spam.
+ */
+const AI_ANALYZE = "ai_analyze" as const;
+type FieldChoice = EmailRuleCondition["field"] | typeof AI_ANALYZE;
 
 const OPERATOR_OPTIONS: Array<{
   value: EmailRuleCondition["operator"];
@@ -99,6 +108,11 @@ interface QuarantineRulesModalProps {
   } | null) => void;
   /** Open the full Rules panel to edit rules directly. */
   onEditRules?: () => void;
+  /**
+   * Open the AI explainability analysis for this email (why it's spam + train).
+   * Offered as the "AI Analyze" choice in the field dropdown.
+   */
+  onAnalyzeWithAi?: (item: InboxItem) => void;
 }
 
 /**
@@ -113,6 +127,7 @@ export function QuarantineRulesModal({
   onClose,
   onConfirm,
   onEditRules,
+  onAnalyzeWithAi,
 }: QuarantineRulesModalProps) {
   const modalWindow = useModalWindow({
     title: "Quarantine rules",
@@ -129,6 +144,10 @@ export function QuarantineRulesModal({
   // Once the value has been typed into by hand, the dropdowns stop rewriting
   // it — auto-fill is a convenience, not something that eats your input.
   const [valueEdited, setValueEdited] = useState(false);
+  // The field dropdown's selection, which can be "AI Analyze" — a UI-only choice
+  // that is never persisted into `condition.field`.
+  const [fieldChoice, setFieldChoice] = useState<FieldChoice>(condition.field);
+  const aiAnalyzeSelected = fieldChoice === AI_ANALYZE;
 
   // Rules already matching this email (informational).
   const matchedRules = useMemo(() => {
@@ -141,6 +160,12 @@ export function QuarantineRulesModal({
 
   const save = () => {
     setSaving(true);
+    // "AI Analyze" builds no rule — quarantine just this email (the AI analysis
+    // is a separate action opened from the button below).
+    if (aiAnalyzeSelected) {
+      onConfirm(null);
+      return;
+    }
     if (createRule && condition.value.trim()) {
       const label =
         condition.field === "sender_email"
@@ -234,17 +259,18 @@ export function QuarantineRulesModal({
             {createRule ? (
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <select
-                  value={condition.field}
+                  value={fieldChoice}
                   onChange={(e) => {
-                    const field = e.target
-                      .value as EmailRuleCondition["field"];
+                    const choice = e.target.value as FieldChoice;
+                    setFieldChoice(choice);
+                    if (choice === AI_ANALYZE) return; // UI-only, not a field
                     update({
-                      field,
+                      field: choice,
                       // Follow the field with the matching value off this email
                       // unless the box has been hand-edited.
                       ...(valueEdited
                         ? {}
-                        : { value: ruleValueForField(item, field) }),
+                        : { value: ruleValueForField(item, choice) }),
                     });
                   }}
                   className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
@@ -254,45 +280,68 @@ export function QuarantineRulesModal({
                       {o.label}
                     </option>
                   ))}
+                  <option value={AI_ANALYZE}>AI Analyze</option>
                 </select>
-                <select
-                  value={condition.operator}
-                  onChange={(e) =>
-                    update({
-                      operator: e.target
-                        .value as EmailRuleCondition["operator"],
-                      ...(valueEdited
-                        ? {}
-                        : {
-                            value: ruleValueForField(item, condition.field),
-                          }),
-                    })
-                  }
-                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
-                >
-                  {OPERATOR_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  value={condition.value}
-                  onChange={(e) => {
-                    setValueEdited(true);
-                    update({ value: e.target.value });
-                  }}
-                  placeholder="value"
-                  className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
-                />
+                {aiAnalyzeSelected ? (
+                  <button
+                    type="button"
+                    onClick={() => onAnalyzeWithAi?.(item)}
+                    disabled={!onAnalyzeWithAi}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-violet-500/40 bg-violet-500/10 px-2.5 py-1.5 text-xs font-medium text-violet-200 hover:bg-violet-500/20 disabled:opacity-50"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Analyze with AI
+                  </button>
+                ) : (
+                  <>
+                    <select
+                      value={condition.operator}
+                      onChange={(e) =>
+                        update({
+                          operator: e.target
+                            .value as EmailRuleCondition["operator"],
+                          ...(valueEdited
+                            ? {}
+                            : {
+                                value: ruleValueForField(item, condition.field),
+                              }),
+                        })
+                      }
+                      className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
+                    >
+                      {OPERATOR_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      value={condition.value}
+                      onChange={(e) => {
+                        setValueEdited(true);
+                        update({ value: e.target.value });
+                      }}
+                      placeholder="value"
+                      className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white"
+                    />
+                  </>
+                )}
               </div>
             ) : null}
+            {createRule && aiAnalyzeSelected ? (
+              <p className="mt-2 text-xs text-zinc-500">
+                AI reads the message body and explains why it looks like spam —
+                open it with “Analyze with AI”. Saving quarantines just this
+                email (no rule).
+              </p>
+            ) : null}
             {createRule &&
+            !aiAnalyzeSelected &&
             (condition.operator === "matches" ||
               templateHasPattern(condition.value)) ? (
               <p className="mt-2 text-xs text-zinc-500">{RULE_PATTERN_HELP}</p>
             ) : null}
-            {createRule && !condition.value.trim() ? (
+            {createRule && !aiAnalyzeSelected && !condition.value.trim() ? (
               <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-300">
                 <AlertTriangle className="h-3.5 w-3.5" />
                 Give the rule a value, or uncheck to quarantine just this email.
@@ -323,10 +372,13 @@ export function QuarantineRulesModal({
             </button>
             <button
               onClick={save}
-              disabled={saving || (createRule && !condition.value.trim())}
+              disabled={
+                saving ||
+                (createRule && !aiAnalyzeSelected && !condition.value.trim())
+              }
               className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-50"
             >
-              {createRule ? "Save & quarantine" : "Quarantine"}
+              {createRule && !aiAnalyzeSelected ? "Save & quarantine" : "Quarantine"}
             </button>
           </div>
         </div>
