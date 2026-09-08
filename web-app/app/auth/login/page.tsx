@@ -4,8 +4,7 @@ import { Suspense, useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Loader2, LogIn, Mail, MailCheck } from 'lucide-react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
-import { getMagicLinkCallbackUrl, sanitizeNextPath } from '@/lib/auth/urls'
+import { sanitizeNextPath } from '@/lib/auth/urls'
 
 function LoginContent() {
   const router = useRouter()
@@ -42,23 +41,23 @@ function LoginContent() {
     setLoading(true)
 
     try {
+      // Server generates the link with the admin API and sends it via Resend,
+      // bypassing Supabase's shared mailer. Response is always {sent:true}
+      // (never reveals whether the account exists) except on rate limit.
       const from = sanitizeNextPath(searchParams.get('from'))
-      const emailRedirectTo = getMagicLinkCallbackUrl({
-        requestUrl: typeof window !== 'undefined' ? window.location.href : null,
-        next: from,
+      const response = await fetch('/api/auth/magic-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, next: from }),
       })
 
-      const supabase = createClient()
-      const { error: otpError } = await supabase.auth.signInWithOtp({
-        email,
-        // Do not auto-create an account from the login screen — magic link
-        // signs in existing users only, matching the password path. New users
-        // still go through /auth/register.
-        options: { emailRedirectTo, shouldCreateUser: false },
-      })
-
-      if (otpError) {
-        throw new Error(otpError.message)
+      if (response.status === 429) {
+        throw new Error(
+          'Too many requests. Please wait a few minutes and try again.',
+        )
+      }
+      if (!response.ok) {
+        throw new Error('Could not send login link. Please try again.')
       }
 
       setLinkSent(true)

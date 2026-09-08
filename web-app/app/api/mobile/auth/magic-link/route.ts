@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAnonSupabase, mobileFailure, mobileSuccess } from '@/lib/mobile/api'
+import { mobileFailure, mobileSuccess } from '@/lib/mobile/api'
+import { sendMagicLink } from '@/lib/auth/send-magic-link'
 
-// Send a passwordless magic-link (email OTP) to the native app. Mirrors the
-// web login screen's default method. `shouldCreateUser: false` keeps signup
-// restricted — the login screen cannot mint new accounts.
+// Send a passwordless magic-link to the native app. Generates the link with the
+// admin API and sends it via Resend (NOT Supabase's shared mailer, capped at
+// 2/hour). The emailed link opens the app via the custom scheme
+// focusforge://auth-callback carrying token_hash; the app then posts to
+// /api/mobile/auth/magic-link/verify.
 //
-// The emailed link opens the app via the custom scheme focusforge://auth-callback
-// (also the Apple OAuth redirect). Default redirect_to matches that scheme so
-// the token_hash / implicit-fragment lands back in the app; the app then calls
-// /api/mobile/auth/magic-link/verify (token_hash path) or applies the session
-// directly (implicit-fragment path).
+// Always reports { sent: true } — never leaks whether the account exists.
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -24,22 +23,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = createAnonSupabase()
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: redirectTo,
-        shouldCreateUser: false,
-      },
-    })
+    const ip =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null
 
-    // Always report { sent: true } — never leak whether the account exists.
-    // With shouldCreateUser:false, signInWithOtp errors for an unknown email
-    // (and can rate-limit); surfacing that would enable account enumeration.
-    // Log server-side for diagnostics but return an identical response either
-    // way. A genuinely unknown email simply receives no email.
-    if (error) {
-      console.warn('magic-link send returned an error (suppressed):', error.message)
+    const { rateLimited } = await sendMagicLink({ email, redirectTo, ip })
+    if (rateLimited) {
+      return NextResponse.json(
+        mobileFailure('rate_limited', 'Too many requests. Please wait a few minutes and try again.'),
+        { status: 429 },
+      )
     }
 
     return NextResponse.json(mobileSuccess({ sent: true }), { status: 200 })

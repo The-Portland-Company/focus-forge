@@ -43,6 +43,7 @@ const publicRoutes = [
   "/api/auth/login",
   "/api/auth/register",
   "/api/auth/forgot-password",
+  "/api/auth/magic-link",
   "/api/auth/logout",
   "/api/users",
   "/api/mobile",

@@ -262,6 +262,93 @@ This is a one-time security setup.
   });
 }
 
+interface SendMagicLinkEmailParams {
+  to: string;
+  firstName?: string;
+  loginUrl: string;
+}
+
+export async function sendMagicLinkEmail({
+  to,
+  firstName,
+  loginUrl,
+}: SendMagicLinkEmailParams) {
+  const name = (firstName || "").trim() || "there";
+  return sendEmailMessage({
+    to,
+    subject: "Your Focus: Forge login link",
+    html: `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Your login link</title>
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #18181b; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #18181b; padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="100%" max-width="500" cellpadding="0" cellspacing="0" style="max-width: 500px; background-color: #27272a; border-radius: 12px; border: 1px solid #3f3f46;">
+                  <tr>
+                    <td style="padding: 32px 32px 24px 32px; text-align: center; border-bottom: 1px solid #3f3f46;">
+                      <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff;">Focus: Forge</h1>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 32px;">
+                      <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #ffffff;">
+                        Hi ${name},
+                      </h2>
+                      <p style="margin: 0 0 24px 0; font-size: 16px; line-height: 24px; color: #a1a1aa;">
+                        Click the button below to sign in to Focus: Forge. This link
+                        works once and expires shortly.
+                      </p>
+                      <table width="100%" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td align="center" style="padding: 8px 0 24px 0;">
+                            <a href="${loginUrl}" style="display: inline-block; padding: 14px 32px; background-color: #667eea; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 8px;">
+                              Sign in to Focus: Forge
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+                      <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 20px; color: #71717a;">
+                        Or copy and paste this link into your browser:
+                      </p>
+                      <p style="margin: 0; font-size: 12px; line-height: 18px; color: #52525b; word-break: break-all;">
+                        ${loginUrl}
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 24px 32px; border-top: 1px solid #3f3f46; text-align: center;">
+                      <p style="margin: 0; font-size: 12px; color: #71717a;">
+                        If you didn't request this, you can safely ignore this email.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+      </html>
+    `,
+    text: `
+Hi ${name},
+
+Click the link below to sign in to Focus: Forge. This link works once and expires shortly:
+
+${loginUrl}
+
+If you didn't request this, you can safely ignore this email.
+
+- Focus: Forge Team
+    `.trim(),
+  });
+}
+
 interface SendPasswordResetEmailParams {
   to: string;
   firstName: string;
