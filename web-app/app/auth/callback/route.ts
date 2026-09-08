@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { planMagicLinkCallback } from "@/lib/auth/magic-link-callback";
+import { getAppBaseUrl } from "@/lib/auth/urls";
 
 // Magic-link (passwordless email OTP) callback. Supabase redirects the email
 // link here; we establish the session cookie, then hand off to the app. The
@@ -12,8 +13,14 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const plan = planMagicLinkCallback(url.searchParams);
 
+  // Behind the Railway proxy `request.url`'s origin is the internal
+  // 0.0.0.0:8080, so redirecting to `url.origin` would bounce the browser to an
+  // unreachable host. Use the configured public base (NEXT_PUBLIC_APP_URL) —
+  // the same source the emailed callback link is built from.
+  const base = getAppBaseUrl({ requestUrl: request.url });
+
   const loginRedirect = (message: string) => {
-    const dest = new URL("/auth/login", url.origin);
+    const dest = new URL("/auth/login", base);
     dest.searchParams.set("message", message);
     return NextResponse.redirect(dest);
   };
@@ -31,7 +38,7 @@ export async function GET(request: Request) {
         "This sign-in link is invalid or has expired. Request a new login link.",
       );
     }
-    return NextResponse.redirect(new URL(plan.next, url.origin));
+    return NextResponse.redirect(new URL(plan.next, base));
   }
 
   // token_hash flow
@@ -44,5 +51,5 @@ export async function GET(request: Request) {
       "This sign-in link is invalid or has expired. Request a new login link.",
     );
   }
-  return NextResponse.redirect(new URL(plan.next, url.origin));
+  return NextResponse.redirect(new URL(plan.next, base));
 }
