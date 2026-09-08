@@ -68,6 +68,63 @@ function hasNewActivity(rendered: InboxItem, next: InboxItem): boolean {
   return false;
 }
 
+/**
+ * Newest activity timestamp on a row, across every field the list can sort by.
+ * Used to decide whether a fresh server snapshot carries mail that is strictly
+ * newer than anything currently painted.
+ */
+function rowActivityMs(item: InboxItem): number {
+  return Math.max(
+    ms(item.latestMessageAt),
+    ms(item.latestInboundAt),
+    ms(item.latestOutboundAt),
+    ms(item.createdAt),
+  );
+}
+
+/**
+ * True when `next` (the fresh server truth) contains a thread whose latest
+ * activity is strictly newer than the newest thread currently painted in
+ * `rendered`. This is the "genuinely new mail arrived at the top" signal that
+ * must surface even while the user is reading — the reconciler's additive freeze
+ * holds re-files and removals back, but brand-new top-of-inbox mail should never
+ * wait for a manual action.
+ */
+export function hasNewerServerActivity(
+  rendered: InboxItem[],
+  next: InboxItem[],
+): boolean {
+  let newestRendered = 0;
+  for (const row of rendered) {
+    const at = rowActivityMs(row);
+    if (at > newestRendered) newestRendered = at;
+  }
+  for (const row of next) {
+    if (rowActivityMs(row) > newestRendered) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the frozen on-screen list should auto-commit the deferred server truth
+ * without waiting for a user action.
+ *
+ * - Not reading a thread → always flush: re-files, removals and newly-promoted
+ *   threads surface within the poll cycle, so mail can never sit invisible.
+ * - Reading a thread → flush ONLY when genuinely newer mail arrived at the top
+ *   (`hasNewerServerActivity`). Otherwise stay frozen so the list doesn't
+ *   reshuffle under the user mid-read. The flush itself preserves the open /
+ *   just-read row, so surfacing newer top mail never yanks what they're reading.
+ */
+export function shouldAutoFlushInbox(params: {
+  reading: boolean;
+  rendered: InboxItem[];
+  serverTruth: InboxItem[];
+}): boolean {
+  if (!params.reading) return true;
+  return hasNewerServerActivity(params.rendered, params.serverTruth);
+}
+
 function freeze<K extends keyof InboxItem>(
   target: InboxItem,
   source: InboxItem,

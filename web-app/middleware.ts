@@ -51,6 +51,11 @@ const publicRoutes = [
   // server-to-server DevNotes path, or a member session) inside the route, like
   // /api/mobile — so it must bypass the session-only middleware gate.
   "/api/proof/upload",
+  // Sentry issue webhook self-authenticates via an HMAC-SHA256 signature
+  // (sentry-hook-signature) verified inside the route against the connection's
+  // shared secret — the caller (Sentry) has no Forge session, so it must bypass
+  // the session-only gate, like /api/mobile and /api/proof/upload.
+  "/api/sentry/webhook",
   "/api/sync/comments",
   "/api/accept-invite",
   "/api/health",
