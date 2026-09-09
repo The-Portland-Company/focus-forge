@@ -2499,6 +2499,7 @@ export type Database = {
           devnotes_meta: string | null
           end_date: string | null
           goal: string | null
+          mission: string | null
           id: string
           is_favorite: boolean | null
           last_todoist_sync: string | null
@@ -2532,6 +2533,7 @@ export type Database = {
           devnotes_meta?: string | null
           end_date?: string | null
           goal?: string | null
+          mission?: string | null
           id?: string
           is_favorite?: boolean | null
           last_todoist_sync?: string | null
@@ -2565,6 +2567,7 @@ export type Database = {
           devnotes_meta?: string | null
           end_date?: string | null
           goal?: string | null
+          mission?: string | null
           id?: string
           is_favorite?: boolean | null
           last_todoist_sync?: string | null

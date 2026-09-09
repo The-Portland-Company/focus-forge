@@ -35,6 +35,7 @@ type ProjectInput = {
   endDate?: string | null;
   end_date?: string | null;
   goal?: string | null;
+  mission?: string | null;
   isFavorite?: boolean;
   is_favorite?: boolean;
   organizationId?: string;
@@ -529,6 +530,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
     if (input.endDate !== undefined) payload.end_date = input.endDate;
     if (input.end_date !== undefined) payload.end_date = input.end_date;
     if (input.goal !== undefined) payload.goal = input.goal;
+    if (input.mission !== undefined) payload.mission = input.mission;
     if (input.isFavorite !== undefined) payload.is_favorite = input.isFavorite;
     if (input.is_favorite !== undefined)
       payload.is_favorite = input.is_favorite;
