@@ -44,6 +44,10 @@ export async function POST(request: NextRequest) {
     const name = String(body?.name || '').trim()
     const organizationId = String(body?.organization_id || body?.organizationId || '').trim()
     const color = String(body?.color || '#6B7280').trim() || '#6B7280'
+    const mission =
+      body?.mission === undefined || body?.mission === null
+        ? undefined
+        : String(body.mission)
 
     if (!name || !organizationId) {
       return NextResponse.json(
@@ -60,6 +64,7 @@ export async function POST(request: NextRequest) {
       archived: false,
       is_favorite: false,
       order_index: 0,
+      ...(mission !== undefined ? { mission } : {}),
     })
 
     return NextResponse.json(mobileSuccess(created), { status: 201 })

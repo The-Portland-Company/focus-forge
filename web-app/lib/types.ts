@@ -63,6 +63,7 @@ export interface Project {
   startDate?: string;
   endDate?: string;
   goal?: string;
+  mission?: string;
   order?: number;
   createdAt: string;
   updatedAt: string;

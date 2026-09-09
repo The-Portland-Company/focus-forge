@@ -110,6 +110,7 @@ export function EditProjectModal({
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [goal, setGoal] = useState("")
+  const [mission, setMission] = useState("")
   const [projectUserIds, setProjectUserIds] = useState<string[]>([])
   const [showInviteUser, setShowInviteUser] = useState(false)
   const [showAddUser, setShowAddUser] = useState(false)
@@ -146,6 +147,7 @@ export function EditProjectModal({
     const projectEnd = (project as any).end_date || project.endDate
     setEndDate(projectEnd ? String(projectEnd).split("T")[0] : "")
     setGoal(project.goal || (project as any).goal || "")
+    setMission((project as any).mission || "")
     setProjectUserIds(
       Array.from(new Set([...(project.memberIds || []), ...(project.ownerId ? [project.ownerId] : [])])),
     )
@@ -212,6 +214,7 @@ export function EditProjectModal({
         startDate: startDate || undefined,
         endDate: endDate || undefined,
         goal: goal.trim() || undefined,
+        mission: mission.trim() || undefined,
       })
       onClose()
     } finally {
@@ -452,6 +455,17 @@ export function EditProjectModal({
                     className="bg-zinc-800 border-zinc-700 themed-date-input"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="project-mission">Mission</Label>
+                <Input
+                  id="project-mission"
+                  value={mission}
+                  onChange={(e) => setMission(e.target.value)}
+                  placeholder="What is the enduring mission of this project?"
+                  className="bg-zinc-800 border-zinc-700"
+                />
               </div>
 
               <div className="space-y-2">

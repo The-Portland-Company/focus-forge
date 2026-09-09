@@ -32,9 +32,22 @@ export async function PATCH(
     const projectId = params.id;
     const body = await request.json();
 
-    if (typeof body?.archived !== "boolean") {
+    const updates: Record<string, unknown> = {};
+    if (typeof body?.archived === "boolean") updates.archived = body.archived;
+    if (body?.name !== undefined) updates.name = String(body.name);
+    if (body?.description !== undefined)
+      updates.description = body.description === null ? null : String(body.description);
+    if (body?.goal !== undefined)
+      updates.goal = body.goal === null ? null : String(body.goal);
+    if (body?.mission !== undefined)
+      updates.mission = body.mission === null ? null : String(body.mission);
+
+    if (Object.keys(updates).length === 0) {
       return NextResponse.json(
-        mobileFailure("validation_error", "archived (boolean) is required"),
+        mobileFailure(
+          "validation_error",
+          "At least one updatable field (archived, name, description, goal, mission) is required",
+        ),
         { status: 400 },
       );
     }
@@ -51,9 +64,7 @@ export async function PATCH(
       );
     }
 
-    const updated = await adapter.updateProject(projectId, {
-      archived: body.archived,
-    });
+    const updated = await adapter.updateProject(projectId, updates);
     return NextResponse.json(mobileSuccess(updated), { status: 200 });
   } catch (error) {
     return NextResponse.json(
