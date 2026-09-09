@@ -20,6 +20,10 @@ const publicRoutes = [
   "/auth/forgot-password",
   "/auth/reset-password",
   "/auth/accept-invite",
+  // Passwordless magic-link callback: the visitor has no session yet when the
+  // email link lands here, so it must be reachable logged-out. The handler
+  // establishes the session; middleware then enforces MFA on the next request.
+  "/auth/callback",
   // Public legal/support pages — must be reachable without an account
   // (App Store review requires a publicly accessible privacy policy).
   "/privacy",
@@ -39,6 +43,7 @@ const publicRoutes = [
   "/api/auth/login",
   "/api/auth/register",
   "/api/auth/forgot-password",
+  "/api/auth/magic-link",
   "/api/auth/logout",
   "/api/users",
   "/api/mobile",
