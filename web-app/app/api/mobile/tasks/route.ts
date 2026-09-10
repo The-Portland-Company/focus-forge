@@ -16,7 +16,10 @@ import {
   sendTaskLifecycleNotifications,
   sendTaskCreatedNotification,
 } from "@/lib/task-notifications";
-import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
+import {
+  decodeDevnotesMeta,
+  normalizeTaskContentFields,
+} from "@/lib/devnotes-meta";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
 import { BARTOK_USER_ID } from "@/lib/agents/bartok";
 
@@ -160,11 +163,43 @@ export async function POST(request: NextRequest) {
       if (payload.section_id === undefined) payload.section_id = goal.section_id;
     }
 
+    // DevNotes attribution: a bug report is created server-side through the
+    // shared Focus Forge PAT, so without this the task's `created_by` would be
+    // the PAT owner rather than the person who filed the report. The DevNotes
+    // package stamps the real reporter into the meta token (`creator_email`);
+    // resolve that to a Forge profile and credit them. Reporters authenticate
+    // through their app's own IdP, so their token subject is NOT a Forge user
+    // id — email is the only stable join. Falls back to the PAT owner (adapter
+    // default) when there is no meta email or it matches no Forge profile.
+    let reporterCreatedBy: string | undefined;
+    const reporterEmail = (() => {
+      const meta = decodeDevnotesMeta(
+        normalizedTaskContent?.devnotesMeta ||
+          (typeof payload.devnotes_meta === "string"
+            ? payload.devnotes_meta
+            : null) ||
+          (typeof payload.description === "string"
+            ? payload.description
+            : null),
+      );
+      const email = meta?.creator_email;
+      return typeof email === "string" && email.trim() ? email.trim() : null;
+    })();
+    if (reporterEmail) {
+      const { data: reporter } = await serviceSupabase
+        .from("profiles")
+        .select("id")
+        .ilike("email", reporterEmail)
+        .maybeSingle();
+      if (reporter?.id) reporterCreatedBy = String(reporter.id);
+    }
+
     const adapter = await getMobileAdapterForUser(auth.user.id);
     const now = new Date().toISOString();
 
     const newTask = await adapter.createTask({
       ...payload,
+      ...(reporterCreatedBy ? { created_by: reporterCreatedBy } : {}),
       ...(normalizedTaskContent
         ? {
             description: normalizedTaskContent.description,

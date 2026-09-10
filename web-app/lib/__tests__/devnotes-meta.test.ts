@@ -3,11 +3,45 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  decodeDevnotesMeta,
   extractDevnotesMeta,
   normalizeProjectContentFields,
   normalizeTaskContentFields,
   stripDevnotesMeta,
 } from "../devnotes-meta";
+
+function encodeMeta(obj: Record<string, unknown>): string {
+  return `[DEVNOTES_META:${Buffer.from(JSON.stringify(obj), "utf8").toString(
+    "base64",
+  )}]`;
+}
+
+test("decodeDevnotesMeta reads the reporter email from a bare token", () => {
+  const token = encodeMeta({
+    creator_email: "ben@politogyvrm.com",
+    creator_name: "Ben",
+  });
+  assert.equal(
+    decodeDevnotesMeta(token)?.creator_email,
+    "ben@politogyvrm.com",
+  );
+});
+
+test("decodeDevnotesMeta reads a token embedded in a description", () => {
+  const description = `Save button missing\n\n${encodeMeta({
+    creator_email: "ben@politogyvrm.com",
+  })}`;
+  assert.equal(
+    decodeDevnotesMeta(description)?.creator_email,
+    "ben@politogyvrm.com",
+  );
+});
+
+test("decodeDevnotesMeta returns null for missing or malformed tokens", () => {
+  assert.equal(decodeDevnotesMeta(null), null);
+  assert.equal(decodeDevnotesMeta("no token here"), null);
+  assert.equal(decodeDevnotesMeta("[DEVNOTES_META:not-base64-json!!]"), null);
+});
 
 test("extractDevnotesMeta returns the embedded DevNotes payload", () => {
   const description =
