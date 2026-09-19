@@ -9,6 +9,7 @@ import { MinimizedModalDock } from "@/components/ui/modal-window"
 import { DockBadgeSync } from "@/components/dock-badge-sync"
 import { EstimateReviewNudge } from "@/components/estimate-review-nudge"
 import { AgentIntroNudge } from "@/components/agent-intro-nudge"
+import { JevIntroNudge } from "@/components/jev-intro-nudge"
 import { TutorialCoachmarkLayer } from "@/components/tutorial-coachmark-layer"
 import { THEME_PREPAINT_SCRIPT } from "@/lib/theme-prepaint"
 import "./globals.css"
@@ -78,6 +79,7 @@ export default function RootLayout({
             <Suspense fallback={null}>
               <EstimateReviewNudge />
             </Suspense>
+            <JevIntroNudge />
             <Suspense fallback={null}>
               <AgentIntroNudge />
             </Suspense>
