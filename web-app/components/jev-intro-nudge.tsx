@@ -11,7 +11,7 @@ import { useAlertCenter } from "@/contexts/ToastContext";
  * browser; the localStorage key is versioned so a future announcement can
  * reuse this pattern without colliding.
  */
-const SEEN_KEY = "jevIntro:v1:seen";
+const SEEN_KEY = "jevIntro:v2:seen";
 const ALERT_ID = "jev-triage-intro";
 
 export function JevIntroNudge() {
@@ -38,6 +38,10 @@ export function JevIntroNudge() {
         "Only high-confidence calls change a priority; each change leaves a comment explaining why. Lower-confidence suggestions are listed for you to review, never auto-applied.",
       createdAt: Date.now(),
       duration: 0,
+      // Float it in the top-right stack (sticky, since duration 0) so it is
+      // seen on first load, not buried in the bell panel. Non-ephemeral alerts
+      // are panel-only and never surface on their own.
+      ephemeral: true,
     });
   }, [pathname, upsertAlert]);
 
