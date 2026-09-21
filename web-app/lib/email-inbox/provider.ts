@@ -1,6 +1,9 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
+// eslint-disable-next-line @typescript-eslint/no-var-requires -- nodemailer
+// doesn't export MailComposer from its public entrypoint/types.
+const MailComposer = require("nodemailer/lib/mail-composer");
 import { decryptMailboxCredentials } from "@/lib/email-inbox/crypto";
 
 export type MailboxTransportRow = {
@@ -55,6 +58,11 @@ export type NormalizedMailboxMessage = {
 export type MailboxSyncCursor = {
   highestUid: number | null;
   lastSeenAt: string | null;
+  // IMAP UIDVALIDITY for the synced folder (RFC 9051 §7.4.1). A UID is only
+  // stable to reuse as a resume point while this value is unchanged; when the
+  // server reassigns UIDVALIDITY, every previously-remembered UID is
+  // meaningless and the folder must be fully re-synced.
+  uidValidity: number | null;
 };
 
 export type FetchMailboxMessagesResult = {
@@ -121,7 +129,10 @@ function getImapSemaphore(mailbox: MailboxTransportRow): Semaphore {
   return semaphore;
 }
 
-function buildImapClient(mailbox: MailboxTransportRow): ImapFlow {
+function buildImapClient(
+  mailbox: MailboxTransportRow,
+  options?: { maxIdleTime?: number },
+): ImapFlow {
   return new ImapFlow({
     host: mailbox.imap_host,
     port: Number(mailbox.imap_port || 993),
@@ -135,6 +146,12 @@ function buildImapClient(mailbox: MailboxTransportRow): ImapFlow {
     greetingTimeout: 15_000,
     connectionTimeout: 20_000,
     socketTimeout: 60_000,
+    // Short-lived connections (the default) have no use for ImapFlow's
+    // auto-IDLE — every call here does its own fetch/search/append and hangs
+    // up immediately after, so idling would just add chatter. The long-lived
+    // watcher (watchMailboxForChanges) opts back in via maxIdleTime.
+    disableAutoIdle: options?.maxIdleTime ? false : true,
+    ...(options?.maxIdleTime ? { maxIdleTime: options.maxIdleTime } : {}),
   });
 }
 
@@ -144,10 +161,11 @@ function buildImapClient(mailbox: MailboxTransportRow): ImapFlow {
 // this lower-level form exists for sites that manage their own folder locks.
 async function acquireImapClient(
   mailbox: MailboxTransportRow,
+  options?: { maxIdleTime?: number },
 ): Promise<{ client: ImapFlow; release: () => Promise<void> }> {
   const semaphore = getImapSemaphore(mailbox);
   await semaphore.acquire();
-  const client = buildImapClient(mailbox);
+  const client = buildImapClient(mailbox, options);
   try {
     await client.connect();
   } catch (error) {
@@ -250,6 +268,146 @@ async function withImapConnection<T>(
   }
 }
 
+// --- IMAP IDLE (RFC 9051 §6.3.13) -------------------------------------------
+//
+// A live mailbox should learn about new mail the moment the server pushes it,
+// not wait for the next poll. watchMailboxForChanges() holds one long-lived
+// connection open (from the same per-account semaphore as every other call
+// here, so it still respects the connection cap) and lets ImapFlow's built-in
+// IDLE support push 'exists'/'expunge' events as they arrive.
+//
+// Servers cap how long a single IDLE command may stay open before the client
+// must re-issue it — RFC 9051 recommends clients re-issue at least every 29
+// minutes. ImapFlow's `maxIdleTime` option does this automatically (it breaks
+// and restarts IDLE on that interval), so no manual timer is needed here.
+//
+// If the server never advertises IDLE, there is nothing to watch — the caller
+// is told via onUnsupported() so it can fall back to the existing poll loop.
+// On an unexpected connection drop, this reconnects with a short backoff
+// until stop() is called or a non-transient (e.g. auth) error occurs.
+const IMAP_IDLE_REISSUE_MS = 28 * 60 * 1000; // under RFC 9051's ~29-minute limit
+const IMAP_IDLE_RECONNECT_DELAY_MS = 5_000;
+
+export type MailboxWatchHandle = {
+  stop: () => Promise<void>;
+};
+
+export async function watchMailboxForChanges(
+  mailbox: MailboxTransportRow,
+  options: {
+    // Called (debounced by the caller if desired) whenever the watched folder
+    // reports new or removed messages while idling.
+    onChange: () => void | Promise<void>;
+    // Called once, synchronously with returning, if the server doesn't
+    // advertise IDLE at all — the caller should keep polling.
+    onUnsupported?: () => void | Promise<void>;
+    // Called on any error while idling (including a dropped connection before
+    // it's reconnected). Non-fatal — watching keeps retrying unless the error
+    // is not transient (e.g. bad credentials), in which case it's rethrown
+    // from the returned handle's background loop and surfaces via this hook.
+    onError?: (error: unknown) => void;
+    folder?: string;
+  },
+): Promise<MailboxWatchHandle> {
+  let stopped = false;
+  let stopCurrentSession: (() => void) | null = null;
+
+  const runSession = async (): Promise<"unsupported" | "stopped"> => {
+    const { client, release } = await acquireImapClient(mailbox, {
+      maxIdleTime: IMAP_IDLE_REISSUE_MS,
+    });
+
+    try {
+      if (!client.capabilities || !client.capabilities.has("IDLE")) {
+        return "unsupported";
+      }
+
+      const lock = await client.getMailboxLock(options.folder || mailbox.sync_folder || "INBOX");
+      try {
+        return await new Promise<"stopped">((resolve, reject) => {
+          const onUpdate = () => {
+            Promise.resolve(options.onChange()).catch((error) =>
+              options.onError?.(error),
+            );
+          };
+          const onError = (error: unknown) => {
+            cleanup();
+            reject(error);
+          };
+          const onClose = () => {
+            cleanup();
+            reject(new Error("IMAP IDLE connection closed unexpectedly"));
+          };
+          const cleanup = () => {
+            client.off("exists", onUpdate);
+            client.off("expunge", onUpdate);
+            client.off("error", onError);
+            client.off("close", onClose);
+          };
+
+          client.on("exists", onUpdate);
+          client.on("expunge", onUpdate);
+          client.on("error", onError);
+          client.on("close", onClose);
+
+          stopCurrentSession = () => {
+            cleanup();
+            resolve("stopped");
+          };
+        });
+      } finally {
+        try {
+          lock.release();
+        } catch {
+          // Connection may already be closed; nothing more to release.
+        }
+      }
+    } finally {
+      stopCurrentSession = null;
+      await release();
+    }
+  };
+
+  const loop = (async () => {
+    while (!stopped) {
+      let outcome: "unsupported" | "stopped";
+      try {
+        outcome = await runSession();
+      } catch (error) {
+        options.onError?.(error);
+        if (!isTransientImapError(error) && stopped === false) {
+          // Auth/protocol errors won't clear on retry — surface and stop.
+          throw error;
+        }
+        if (stopped) break;
+        await sleep(IMAP_IDLE_RECONNECT_DELAY_MS);
+        continue;
+      }
+
+      if (outcome === "unsupported") {
+        await options.onUnsupported?.();
+        return;
+      }
+      if (outcome === "stopped") {
+        return;
+      }
+    }
+  })().catch((error) => {
+    if (!stopped) {
+      options.onError?.(error);
+    }
+  });
+
+  return {
+    stop: async () => {
+      if (stopped) return;
+      stopped = true;
+      stopCurrentSession?.();
+      await loop;
+    },
+  };
+}
+
 function normalizeAddressList(values: any[] = []): NormalizedMailboxAddress[] {
   return values
     .map((value) => ({
@@ -306,6 +464,16 @@ function normalizeDate(value: string | Date | undefined | null) {
   return parsed.toISOString();
 }
 
+// UIDVALIDITY is a 32-bit unsigned integer per RFC 9051, so Number is always
+// safe (well under Number.MAX_SAFE_INTEGER); ImapFlow reports it as a bigint.
+export function normalizeUidValidity(
+  value: number | string | bigint | null | undefined,
+): number | null {
+  if (value === null || value === undefined) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : null;
+}
+
 export function normalizeMailboxSyncCursor(value: unknown): MailboxSyncCursor {
   const raw =
     value && typeof value === "object" && !Array.isArray(value)
@@ -323,10 +491,28 @@ export function normalizeMailboxSyncCursor(value: unknown): MailboxSyncCursor {
       ? normalizeDate(raw.lastSeenAt)
       : null;
 
+  const uidValidity = normalizeUidValidity(
+    raw.uidValidity as number | string | bigint | null | undefined,
+  );
+
   return {
     highestUid,
     lastSeenAt,
+    uidValidity,
   };
+}
+
+// Whether a previously-persisted cursor is still safe to resume from. A
+// cursor with no remembered UIDVALIDITY (e.g. persisted before this field
+// existed) is treated as still valid — it will pick up UIDVALIDITY tracking
+// from this point on rather than forcing an immediate resync. Only an actual
+// mismatch between two known values forces a discard.
+export function isMailboxSyncCursorValidForUidValidity(
+  previousUidValidity: number | null,
+  currentUidValidity: number | null,
+): boolean {
+  if (previousUidValidity == null || currentUidValidity == null) return true;
+  return previousUidValidity === currentUidValidity;
 }
 
 export function buildMailboxSyncCursor(params: {
@@ -334,6 +520,7 @@ export function buildMailboxSyncCursor(params: {
   fallbackLastSeenAt?: string | null;
   messages?: Array<Pick<NormalizedMailboxMessage, "receivedAt" | "sentAt">>;
   highestUid?: number | null;
+  uidValidity?: number | string | bigint | null;
 }): MailboxSyncCursor {
   const previousCursor = normalizeMailboxSyncCursor(params.previousCursor);
   let lastSeenAt =
@@ -358,9 +545,13 @@ export function buildMailboxSyncCursor(params: {
         )
       : previousCursor.highestUid;
 
+  const uidValidity =
+    normalizeUidValidity(params.uidValidity) ?? previousCursor.uidValidity;
+
   return {
     highestUid: highestUid || null,
     lastSeenAt,
+    uidValidity,
   };
 }
 
@@ -422,11 +613,36 @@ export async function fetchMailboxMessages(
     syncCursor?: unknown;
   },
 ): Promise<FetchMailboxMessagesResult> {
-  const previousCursor = normalizeMailboxSyncCursor(options?.syncCursor);
+  const persistedCursor = normalizeMailboxSyncCursor(options?.syncCursor);
   const { client, release } = await acquireImapClient(mailbox);
   const lock = await client.getMailboxLock(mailbox.sync_folder || "INBOX");
 
   try {
+    const currentUidValidity = normalizeUidValidity(
+      (client.mailbox && client.mailbox.uidValidity) || undefined,
+    );
+    const cursorValid = isMailboxSyncCursorValidForUidValidity(
+      persistedCursor.uidValidity,
+      currentUidValidity,
+    );
+
+    if (!cursorValid) {
+      console.warn(
+        `[email] UIDVALIDITY changed for mailbox ${mailbox.id} folder ${mailbox.sync_folder || "INBOX"} (was ${persistedCursor.uidValidity}, now ${currentUidValidity}); discarding cursor and forcing a full resync`,
+      );
+    }
+
+    // When UIDVALIDITY changed, the remembered UID and lastSeenAt are both
+    // unsafe to resume from (every UID may now refer to a different message,
+    // or none at all) — drop both so the fetch below falls through to a full
+    // folder search instead of an incremental UID range or date filter.
+    const previousCursor: MailboxSyncCursor = cursorValid
+      ? persistedCursor
+      : { highestUid: null, lastSeenAt: null, uidValidity: currentUidValidity };
+    const effectiveLastSeenAt = cursorValid
+      ? options?.lastSeenAt ?? null
+      : null;
+
     let highestUid = previousCursor.highestUid;
     const messagePromises: Array<Promise<NormalizedMailboxMessage>> = [];
     const rangeStart =
@@ -437,8 +653,8 @@ export async function fetchMailboxMessages(
     const fetchSequence =
       rangeStart && Number.isFinite(rangeStart) ? `${rangeStart}:*` : null;
 
-    const fallbackSearchCriteria = options?.lastSeenAt
-      ? { since: new Date(options.lastSeenAt) }
+    const fallbackSearchCriteria = effectiveLastSeenAt
+      ? { since: new Date(effectiveLastSeenAt) }
       : { all: true };
     const fallbackUids = fetchSequence
       ? null
@@ -454,7 +670,8 @@ export async function fetchMailboxMessages(
         messages: [],
         syncCursor: buildMailboxSyncCursor({
           previousCursor,
-          fallbackLastSeenAt: options?.lastSeenAt ?? null,
+          fallbackLastSeenAt: effectiveLastSeenAt,
+          uidValidity: currentUidValidity,
         }),
       };
     }
@@ -490,9 +707,10 @@ export async function fetchMailboxMessages(
       messages,
       syncCursor: buildMailboxSyncCursor({
         previousCursor,
-        fallbackLastSeenAt: options?.lastSeenAt ?? null,
+        fallbackLastSeenAt: effectiveLastSeenAt,
         messages,
         highestUid,
+        uidValidity: currentUidValidity,
       }),
     };
   } finally {
@@ -1150,6 +1368,48 @@ function translateSmtpSendError(error: unknown, mailboxEmail: string): Error {
   return error instanceof Error ? error : new Error(raw);
 }
 
+// Best-effort copy of a just-sent message into the mailbox's Sent folder for
+// servers that don't do this themselves on SMTP submission (see
+// shouldAppendSentCopy). Never throws — the message has already been sent
+// successfully by the time this runs, so a Sent-folder mirroring failure is
+// logged and swallowed rather than surfaced as a send failure.
+async function appendSentCopyIfNeeded(params: {
+  mailbox: MailboxTransportRow;
+  raw: Buffer;
+  messageId: string;
+}): Promise<void> {
+  try {
+    await withImapConnection(params.mailbox, async (client) => {
+      const sentPath = await resolveSentMailboxPath(client);
+      if (!sentPath) {
+        return;
+      }
+
+      const lock = await client.getMailboxLock(sentPath);
+      try {
+        const existing = await client
+          .search({ header: { "message-id": params.messageId } } as any, {
+            uid: true,
+          })
+          .catch(() => null);
+
+        if (!shouldAppendSentCopy(existing as number[] | null)) {
+          return;
+        }
+
+        await client.append(sentPath, params.raw, ["\\Seen"]);
+      } finally {
+        lock.release();
+      }
+    });
+  } catch (error) {
+    console.error(
+      "[email] failed to append sent copy to Sent folder",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
 export async function sendMailboxReply(params: {
   mailbox: MailboxTransportRow;
   to: string[];
@@ -1178,29 +1438,46 @@ export async function sendMailboxReply(params: {
     },
   });
 
+  const mailOptions = {
+    from: params.mailbox.display_name
+      ? `"${params.mailbox.display_name}" <${params.mailbox.email_address}>`
+      : params.mailbox.email_address,
+    to: params.to,
+    cc: params.cc,
+    bcc: params.bcc,
+    subject: params.subject,
+    text: params.text,
+    ...(params.html ? { html: params.html } : {}),
+    ...(params.attachments && params.attachments.length > 0
+      ? { attachments: params.attachments }
+      : {}),
+    ...(params.inReplyTo ? { inReplyTo: params.inReplyTo } : {}),
+    ...(params.references && params.references.length > 0
+      ? { references: params.references }
+      : {}),
+  };
+
+  // Compose the raw RFC 5322 message ourselves so the exact bytes handed to
+  // SMTP are also what we APPEND into Sent (when needed) — building it twice
+  // (once for SMTP, once for IMAP) risks the two copies drifting, e.g. a
+  // different Message-ID each time, which would break the dedup search below.
+  const composed = new MailComposer(mailOptions).compile();
+  const messageId = composed.messageId();
+  const raw: Buffer = await new Promise((resolve, reject) => {
+    composed.build((error: Error | null, message: Buffer) => {
+      if (error) reject(error);
+      else resolve(message);
+    });
+  });
+
   let info;
   try {
-    info = await transport.sendMail({
-      from: params.mailbox.display_name
-        ? `"${params.mailbox.display_name}" <${params.mailbox.email_address}>`
-        : params.mailbox.email_address,
-      to: params.to,
-      cc: params.cc,
-      bcc: params.bcc,
-      subject: params.subject,
-      text: params.text,
-      ...(params.html ? { html: params.html } : {}),
-      ...(params.attachments && params.attachments.length > 0
-        ? { attachments: params.attachments }
-        : {}),
-      ...(params.inReplyTo ? { inReplyTo: params.inReplyTo } : {}),
-      ...(params.references && params.references.length > 0
-        ? { references: params.references }
-        : {}),
-    });
+    info = await transport.sendMail({ ...mailOptions, raw, messageId });
   } catch (error) {
     throw translateSmtpSendError(error, params.mailbox.email_address);
   }
+
+  await appendSentCopyIfNeeded({ mailbox: params.mailbox, raw, messageId });
 
   return info;
 }
@@ -1274,6 +1551,29 @@ function resolveJunkMailboxPath(client: ImapFlow) {
     "bulk mail",
     "[gmail]/spam",
   ]);
+}
+
+function resolveSentMailboxPath(client: ImapFlow) {
+  return resolveSpecialMailboxPath(client, "\\Sent", [
+    "sent",
+    "sent mail",
+    "sent items",
+    "sent messages",
+    "[gmail]/sent mail",
+  ]);
+}
+
+// Whether we need to APPEND our own copy of a just-sent message into Sent.
+// Many providers (Gmail's SMTP submission, some hosted IMAP) copy a sent
+// message into Sent automatically; others (plenty of generic/self-hosted IMAP
+// servers) never do, and the sender would otherwise be missing their own
+// outgoing mail. A Message-ID search of the Sent folder after sending tells us
+// which case we're in: any hit means the server already copied it in, so
+// appending again would create a duplicate.
+export function shouldAppendSentCopy(
+  existingSentSearchUids: number[] | null | undefined,
+): boolean {
+  return !Array.isArray(existingSentSearchUids) || existingSentSearchUids.length === 0;
 }
 
 // The folder an "archive" should move a message into. Providers with a dedicated

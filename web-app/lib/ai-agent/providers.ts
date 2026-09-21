@@ -10,6 +10,7 @@ import {
   type ImageBlock,
 } from "@/lib/ai-agent/image-ingest";
 import { renderToolResultForModel } from "@/lib/ai-agent/untrusted";
+import { SessionBudget } from "@/lib/ai-agent/budget";
 
 /**
  * Upstream LLM calls had no timeout, and the agent had no overall deadline. A
@@ -396,6 +397,13 @@ type RunInput = {
    * it passes, guaranteeing the route returns before the edge proxy timeout.
    */
   deadline?: number;
+  /**
+   * Resource ceilings shared across the whole turn (see budget.ts), alongside
+   * `deadline`. One instance is constructed per turn in runAgentWithFallback
+   * and threaded through every provider in the waterfall so a runaway loop
+   * across provider failover still hits a hard stop.
+   */
+  budget?: SessionBudget;
 };
 
 export interface AgentProvider {
@@ -415,7 +423,7 @@ function makeOpenAICompatibleProvider(opts: {
   return {
     name: opts.name,
     isConfigured: () => Boolean(opts.apiKey()),
-    async run({ systemPrompt, conversation, toolContext, deadline: deadlineInput }) {
+    async run({ systemPrompt, conversation, toolContext, deadline: deadlineInput, budget: budgetInput }) {
       const deadline = deadlineInput ?? Date.now() + AGENT_DEADLINE_MS;
       const apiKey = opts.apiKey();
       if (!apiKey) throw new Error(`${opts.name}: not configured`);
@@ -432,6 +440,7 @@ function makeOpenAICompatibleProvider(opts: {
       let mutated = false;
       let nudged = false;
       const guard = new RepeatedCallGuard();
+      const budget = budgetInput ?? new SessionBudget();
 
       // One tool-less completion through this same provider, used to synthesize a
       // useful final answer when the tool loop exhausts instead of dead-ending.
@@ -465,6 +474,10 @@ function makeOpenAICompatibleProvider(opts: {
         // Out of budget mid-loop: stop looping and synthesize a final answer
         // from what we have rather than risk dropping the connection.
         if (msUntil(deadline) <= MIN_CALL_TIMEOUT_MS) break;
+        // Session ceiling tripped (tokens/cost/depth/retries): stop looping the
+        // same way, rather than throwing — the route should still return a
+        // usable answer built from whatever was gathered so far.
+        if (budget.isTripped()) break;
         const response = await fetchWithTimeout(
           opts.baseUrl,
           {
@@ -482,6 +495,11 @@ function makeOpenAICompatibleProvider(opts: {
         const payload = await response.json();
         const msg = payload?.choices?.[0]?.message;
         if (!msg) throw new Error(`${opts.name}: response missing message`);
+
+        // No per-model pricing table exists in this codebase; track tokens
+        // (the ceiling that matters for runaway-loop protection) and leave
+        // cost at 0 rather than fabricate a price.
+        budget.recordUsage({ tokens: Number(payload?.usage?.total_tokens) || 0, costUsd: 0 });
 
         const toolCalls = msg.tool_calls;
         if (!toolCalls || toolCalls.length === 0) {
@@ -520,7 +538,21 @@ function makeOpenAICompatibleProvider(opts: {
             });
             continue;
           }
-          const result = await executeTool(toolContext, fnName, args);
+          const chainDecision = budget.enterToolChain();
+          if (!chainDecision.allowed) {
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              content: JSON.stringify({ ok: false, error: chainDecision.reason }),
+            });
+            continue;
+          }
+          let result: Awaited<ReturnType<typeof executeTool>>;
+          try {
+            result = await executeTool(toolContext, fnName, args);
+          } finally {
+            budget.exitToolChain();
+          }
           toolsUsed.push(fnName);
           if (result.ok && isMutatingTool(fnName)) mutated = true;
           // A tool that reads mail returns text strangers wrote; it is fenced
@@ -571,7 +603,7 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
   return {
     name: "anthropic",
     isConfigured: () => Boolean(opts.apiKey()),
-    async run({ systemPrompt, conversation, toolContext, deadline: deadlineInput }) {
+    async run({ systemPrompt, conversation, toolContext, deadline: deadlineInput, budget: budgetInput }) {
       const deadline = deadlineInput ?? Date.now() + AGENT_DEADLINE_MS;
       const apiKey = opts.apiKey();
       if (!apiKey) throw new Error("anthropic: not configured");
@@ -581,6 +613,7 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
       let mutated = false;
       let nudged = false;
       const guard = new RepeatedCallGuard();
+      const budget = budgetInput ?? new SessionBudget();
 
       const requestFinalSummary = async (): Promise<string> => {
         const summaryMessages = [
@@ -625,6 +658,9 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
         if (msUntil(deadline) <= MIN_CALL_TIMEOUT_MS) break;
+        // Session ceiling tripped: stop looping and fall through to the
+        // shared finishExhausted() summary below rather than throwing.
+        if (budget.isTripped()) break;
         const response = await fetchWithTimeout(
           "https://api.anthropic.com/v1/messages",
           {
@@ -652,6 +688,14 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
           throw new Error(`anthropic request failed (${response.status}): ${text.slice(0, 400)}`);
         }
         const payload = await response.json();
+
+        // No per-model pricing table exists in this codebase; track tokens
+        // (the ceiling that matters for runaway-loop protection) and leave
+        // cost at 0 rather than fabricate a price.
+        const inputTokens = Number(payload?.usage?.input_tokens) || 0;
+        const outputTokens = Number(payload?.usage?.output_tokens) || 0;
+        budget.recordUsage({ tokens: inputTokens + outputTokens, costUsd: 0 });
+
         const content: any[] = Array.isArray(payload?.content) ? payload.content : [];
         const textBlocks = content.filter((b) => b.type === "text").map((b) => b.text);
         const toolUses = content.filter((b) => b.type === "tool_use");
@@ -686,7 +730,21 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
             });
             continue;
           }
-          const result = await executeTool(toolContext, use.name, use.input || {});
+          const chainDecision = budget.enterToolChain();
+          if (!chainDecision.allowed) {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: use.id,
+              content: JSON.stringify({ ok: false, error: chainDecision.reason }),
+            });
+            continue;
+          }
+          let result: Awaited<ReturnType<typeof executeTool>>;
+          try {
+            result = await executeTool(toolContext, use.name, use.input || {});
+          } finally {
+            budget.exitToolChain();
+          }
           toolsUsed.push(use.name);
           if (result.ok && isMutatingTool(use.name)) mutated = true;
           toolResults.push({
@@ -952,17 +1010,42 @@ export async function runAgentWithFallback(
   // One shared deadline for the whole turn, so failing over between providers
   // can't accumulate past the edge proxy timeout.
   const deadline = input.deadline ?? Date.now() + AGENT_DEADLINE_MS;
+  // One SessionBudget for the whole turn (see budget.ts), shared across the
+  // provider waterfall the same way `deadline` is, so a runaway loop that
+  // spans a failover still hits a hard, fail-closed stop.
+  const budget = input.budget ?? new SessionBudget();
 
   const errors: string[] = [];
+  let attempted = false;
   for (const provider of providers) {
     if (msUntil(deadline) <= 0) break;
+    if (budget.isTripped()) break;
+    if (attempted) {
+      // About to retry with the next provider in the chain: count it against
+      // the retry ceiling before spending another LLM call.
+      const retryDecision = budget.recordRetry();
+      if (!retryDecision.allowed) break;
+    }
+    attempted = true;
     try {
-      return await provider.run({ ...input, deadline });
+      return await provider.run({ ...input, deadline, budget });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       errors.push(`${provider.name}: ${msg}`);
       // Fall through to the next provider for any failure.
     }
+  }
+
+  if (budget.isTripped()) {
+    const snapshot = budget.snapshot();
+    return {
+      assistantMessage:
+        `I stopped early — this turn hit its ${snapshot.tripped} limit. ` +
+        "Tell me which specific part to focus on and I'll take it from there.",
+      toolsUsed: [],
+      mutated: false,
+      provider: "budget",
+    };
   }
 
   throw new Error(`All AI providers failed. ${errors.join(" | ")}`);

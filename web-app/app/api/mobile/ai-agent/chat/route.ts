@@ -5,6 +5,19 @@ import { resolveAccessibleProjectIds } from "@/lib/ai-agent/tools";
 import { runAgent, type AgentChatMessage } from "@/lib/ai-agent/server";
 import { describeImagesInMessage } from "@/lib/ai-agent/providers";
 import { extractImageUrls } from "@/lib/ai-agent/image-ingest";
+import { HIGH_IMPACT_SEND_TOOLS, type SendApproval } from "@/lib/ai-agent/approval";
+import { findPendingSendDraft } from "@/lib/ai-agent/send-preview";
+
+// Approval passthrough mirrors app/api/ai-agent/chat/route.ts — see the
+// comment there. A native client relays back the opaque, server-minted
+// artifact from POST /api/ai-agent/approve-send verbatim; it can never mint
+// or alter one itself.
+function readPendingApproval(body: any): SendApproval | undefined {
+  const candidate = body?.approval;
+  if (!candidate || typeof candidate !== "object") return undefined;
+  if (typeof candidate.signature !== "string" || typeof candidate.draftId !== "string") return undefined;
+  return candidate as SendApproval;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -148,6 +161,7 @@ export async function POST(request: NextRequest) {
     const accessibleProjectIds = await resolveAccessibleProjectIds(admin, userId);
     const timezone =
       typeof pageContext.timezone === "string" && pageContext.timezone ? pageContext.timezone : null;
+    const pendingApproval = readPendingApproval(body);
 
     const result = await runAgent({
       conversation,
@@ -159,9 +173,23 @@ export async function POST(request: NextRequest) {
           typeof pageContext.visibleTaskCount === "number" ? pageContext.visibleTaskCount : null,
         timezone,
       },
-      toolContext: { admin, userId, accessibleProjectIds, timezone },
+      toolContext: {
+        admin,
+        userId,
+        accessibleProjectIds,
+        timezone,
+        ...(pendingApproval ? { sendApprovals: [pendingApproval] } : {}),
+      },
       preferredProvider,
     });
+
+    let pendingSend: Awaited<ReturnType<typeof findPendingSendDraft>> | null = null;
+    for (const toolName of result.toolsUsed) {
+      if ((HIGH_IMPACT_SEND_TOOLS as readonly string[]).includes(toolName)) {
+        pendingSend = await findPendingSendDraft(admin, userId, toolName as any);
+        if (pendingSend) break;
+      }
+    }
 
     await admin.from("ai_planner_messages").insert({
       session_id: agentSessionId,
@@ -181,6 +209,16 @@ export async function POST(request: NextRequest) {
       toolsUsed: result.toolsUsed,
       mutated: result.mutated,
       provider: result.provider,
+      pendingSend: pendingSend
+        ? {
+            tool: pendingSend.action.tool,
+            draftId: pendingSend.action.draftId,
+            subject: pendingSend.subject,
+            recipients: pendingSend.recipients,
+            bodyPreview: pendingSend.bodyPreview,
+            paramsHash: pendingSend.paramsHash,
+          }
+        : null,
     });
   } catch (error) {
     console.error("POST /api/mobile/ai-agent/chat error:", error);

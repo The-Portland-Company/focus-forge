@@ -19,6 +19,7 @@ import {
   type SpamClassification,
 } from "@/lib/spam/server";
 import { resolveEmailChain } from "@/lib/ai/email-provider";
+import { resolveAuthResultsVerdict } from "@/lib/email-inbox/auth-results";
 import {
   loadRecipientIdentity,
   listSpamPolicyStatements,
@@ -95,6 +96,7 @@ import {
   type MailboxTransportRow,
   type ReadMailboxFolderLiveResult,
 } from "@/lib/email-inbox/provider";
+import { MailboxWatchManager } from "@/lib/email-inbox/mailbox-watch";
 import { MAILBOX_PROVIDER_PRESETS } from "@/lib/email-inbox/provider-presets";
 import { partitionThreadsByUnseen } from "@/lib/email-inbox/partition-unseen-threads";
 import { matchInboxTab } from "@/lib/email-inbox/inbox-tabs";
@@ -951,6 +953,7 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
       replyTo: message.replyTo,
       isUnread: message.isUnread,
       attachments: message.attachments || [],
+      authResults: resolveAuthResultsVerdict(message.rawHeaders),
     },
   };
 
@@ -4487,6 +4490,86 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
 // on the server than a long-lived IDLE connection on Railway). Mailboxes
 // configured to sync *less* often than the floor still honor their setting.
 const BACKGROUND_SYNC_FLOOR_MS = 60 * 1000;
+
+// Process-global so a hot reload (dev) or a repeated call from a worker's
+// refresh loop doesn't spawn duplicate IMAP IDLE connections for the same
+// mailbox. Keyed on globalThis (rather than a module-level `let`) because
+// Next.js dev can reload this module while old IMAP sockets are still open.
+const MAILBOX_WATCH_MANAGER_KEY = Symbol.for(
+  "focus-forge.email-inbox.mailboxWatchManager",
+);
+
+function getMailboxWatchManager(): MailboxWatchManager {
+  const globalRef = globalThis as typeof globalThis & {
+    [MAILBOX_WATCH_MANAGER_KEY]?: MailboxWatchManager;
+  };
+  if (!globalRef[MAILBOX_WATCH_MANAGER_KEY]) {
+    globalRef[MAILBOX_WATCH_MANAGER_KEY] = new MailboxWatchManager({
+      // Reuse the same fast-path sync every poll uses — IDLE only decides
+      // *when* to call it, never how syncing works. syncMailboxById() already
+      // no-ops if a sync for this mailbox is already in progress elsewhere
+      // (DB-backed `email_sync_state` guard), so this is safe even if a poll
+      // and a watch-triggered sync race.
+      runSync: (userId, mailboxId) => syncMailboxById(userId, mailboxId),
+      onFallbackToPolling: (mailboxId, reason) => {
+        console.warn(
+          "[email-inbox] IMAP IDLE unavailable for mailbox, falling back to polling",
+          { mailboxId, reason },
+        );
+      },
+      onSyncError: (mailboxId, error) => {
+        console.error(
+          "[email-inbox] IMAP IDLE watcher error",
+          mailboxId,
+          extractMailboxErrorMessage(error),
+        );
+      },
+    });
+  }
+  return globalRef[MAILBOX_WATCH_MANAGER_KEY]!;
+}
+
+/**
+ * Starts a live IMAP IDLE watcher for a mailbox: new mail fires the same
+ * sync a poll would have run, without waiting for the next poll tick.
+ * Bursts of IDLE events are debounced and two syncs for the same mailbox
+ * never run concurrently (see lib/email-inbox/mailbox-watch.ts). If the
+ * server doesn't support IDLE, or IDLE keeps erroring, this automatically
+ * falls back to leaving the mailbox on poll-only — `syncDueMailboxesForUser`
+ * remains the safety net for every mailbox regardless of watch state.
+ *
+ * IMPORTANT: this holds a long-lived IMAP connection open for as long as the
+ * watcher runs. A Next.js route handler must NOT call this directly — there
+ * is no guarantee the process/instance handling one request is still alive
+ * to service that connection's events, and on a serverless or edge runtime
+ * the connection would simply leak. This is meant to be driven by a
+ * long-running worker process (see email-live-sync-worker.js, which already
+ * owns a persistent process and per-mailbox lifecycle refresh loop today).
+ */
+export async function startMailboxLiveWatch(
+  userId: string,
+  mailboxId: string,
+): Promise<{ started: boolean }> {
+  const manager = getMailboxWatchManager();
+  if (manager.isWatching(mailboxId)) {
+    return { started: false };
+  }
+  const mailbox = await ensureMailboxManage(userId, mailboxId);
+  await manager.start({
+    userId,
+    mailboxId,
+    mailbox: mailbox as MailboxTransportRow,
+  });
+  return { started: true };
+}
+
+export async function stopMailboxLiveWatch(mailboxId: string): Promise<void> {
+  await getMailboxWatchManager().stop(mailboxId);
+}
+
+export async function stopAllMailboxLiveWatches(): Promise<void> {
+  await getMailboxWatchManager().stopAll();
+}
 
 export async function syncDueMailboxesForUser(userId: string) {
   const mailboxes = await listMailboxesForUser(userId);

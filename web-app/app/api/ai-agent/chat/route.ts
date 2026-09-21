@@ -5,6 +5,23 @@ import { resolveAccessibleProjectIds } from "@/lib/ai-agent/tools";
 import { runAgent, type AgentChatMessage } from "@/lib/ai-agent/server";
 import { describeImagesInMessage } from "@/lib/ai-agent/providers";
 import { extractImageUrls } from "@/lib/ai-agent/image-ingest";
+import { HIGH_IMPACT_SEND_TOOLS, type SendApproval } from "@/lib/ai-agent/approval";
+import { findPendingSendDraft } from "@/lib/ai-agent/send-preview";
+
+/**
+ * The approval, if any, that a prior turn's approve-send call minted. It
+ * arrives from the browser as an opaque, server-signed artifact (never
+ * constructed or alterable client-side — see app/api/ai-agent/approve-send)
+ * and is only ever attached to the tool context, out-of-band from the model.
+ * A tampered or stale one simply fails validation inside the tool layer and
+ * the send is refused — this route does no trust decision of its own here.
+ */
+function readPendingApproval(body: any): SendApproval | undefined {
+  const candidate = body?.approval;
+  if (!candidate || typeof candidate !== "object") return undefined;
+  if (typeof candidate.signature !== "string" || typeof candidate.draftId !== "string") return undefined;
+  return candidate as SendApproval;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -144,6 +161,7 @@ export async function POST(request: NextRequest) {
     const accessibleProjectIds = await resolveAccessibleProjectIds(admin, session.user.id);
     const timezone =
       typeof pageContext.timezone === "string" && pageContext.timezone ? pageContext.timezone : null;
+    const pendingApproval = readPendingApproval(body);
 
     const result = await runAgent({
       conversation,
@@ -155,9 +173,26 @@ export async function POST(request: NextRequest) {
           typeof pageContext.visibleTaskCount === "number" ? pageContext.visibleTaskCount : null,
         timezone,
       },
-      toolContext: { admin, userId: session.user.id, accessibleProjectIds, timezone },
+      toolContext: {
+        admin,
+        userId: session.user.id,
+        accessibleProjectIds,
+        timezone,
+        ...(pendingApproval ? { sendApprovals: [pendingApproval] } : {}),
+      },
       preferredProvider,
     });
+
+    // A send tool that ran but did not (yet) transmit means it's waiting on
+    // human approval — surface the exact draft it's waiting on so the UI can
+    // render an approve/deny preview instead of just the model's prose.
+    let pendingSend: Awaited<ReturnType<typeof findPendingSendDraft>> | null = null;
+    for (const toolName of result.toolsUsed) {
+      if ((HIGH_IMPACT_SEND_TOOLS as readonly string[]).includes(toolName)) {
+        pendingSend = await findPendingSendDraft(admin, session.user.id, toolName as any);
+        if (pendingSend) break;
+      }
+    }
 
     await admin.from("ai_planner_messages").insert({
       session_id: agentSessionId,
@@ -177,6 +212,16 @@ export async function POST(request: NextRequest) {
       toolsUsed: result.toolsUsed,
       mutated: result.mutated,
       provider: result.provider,
+      pendingSend: pendingSend
+        ? {
+            tool: pendingSend.action.tool,
+            draftId: pendingSend.action.draftId,
+            subject: pendingSend.subject,
+            recipients: pendingSend.recipients,
+            bodyPreview: pendingSend.bodyPreview,
+            paramsHash: pendingSend.paramsHash,
+          }
+        : null,
     });
   } catch (error) {
     console.error("POST /api/ai-agent/chat error:", error);

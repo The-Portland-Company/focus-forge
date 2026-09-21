@@ -5,6 +5,7 @@ import {
   mobileSuccess,
   verifyMobileAccessTokenOrPat,
 } from "@/lib/mobile/api";
+import { checkApiTokenRateLimit } from "@/lib/api/rate-limit";
 
 // Mobile endpoint to READ and SET the `public` flag on email-linked tasks.
 //
@@ -37,6 +38,14 @@ export async function GET(request: NextRequest) {
     );
     if (!auth.ok) {
       return NextResponse.json(auth.error, { status: auth.status });
+    }
+
+    const rl = checkApiTokenRateLimit("mobile", auth.user.id);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        mobileFailure("rate_limited", "Too many requests. Please slow down.", { retryAfterMs: rl.retryAfterMs }),
+        { status: 429 },
+      );
     }
 
     const supabase = createServiceSupabase();
@@ -98,6 +107,14 @@ export async function PATCH(request: NextRequest) {
     );
     if (!auth.ok) {
       return NextResponse.json(auth.error, { status: auth.status });
+    }
+
+    const rl = checkApiTokenRateLimit("mobile", auth.user.id);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        mobileFailure("rate_limited", "Too many requests. Please slow down.", { retryAfterMs: rl.retryAfterMs }),
+        { status: 429 },
+      );
     }
 
     let body: { taskId?: unknown; public?: unknown };

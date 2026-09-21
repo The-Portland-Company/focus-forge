@@ -4,6 +4,7 @@ import {
   mobileSuccess,
   verifyMobileAccessTokenOrPat,
 } from "@/lib/mobile/api";
+import { checkApiTokenRateLimit } from "@/lib/api/rate-limit";
 import { readMailboxLiveForUser } from "@/lib/email-inbox/server";
 
 // GET /api/mobile/email/live
@@ -31,6 +32,14 @@ export async function GET(request: NextRequest) {
     );
     if (!auth.ok) {
       return NextResponse.json(auth.error, { status: auth.status });
+    }
+
+    const rl = checkApiTokenRateLimit("mobile", auth.user.id);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        mobileFailure("rate_limited", "Too many requests. Please slow down.", { retryAfterMs: rl.retryAfterMs }),
+        { status: 429 },
+      );
     }
 
     const sp = request.nextUrl.searchParams;

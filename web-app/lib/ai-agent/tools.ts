@@ -28,6 +28,10 @@ import {
   type SendTargetState,
 } from "@/lib/ai-agent/approval";
 import { selectTodayTasks } from "@/lib/daily-plan/today-selection";
+import {
+  recordAgentToolCallAudit,
+  type ToolCallClassification,
+} from "@/lib/ai-agent/audit";
 
 /**
  * Tool layer for the in-app AI agent.
@@ -679,12 +683,63 @@ export const AGENT_TOOL_DEFS = AGENT_TOOLS.map((t) => t.function);
 
 // ---- Executors ----
 
+// Decision-audit policy version for buildAgentToolCallAuditRow (audit.ts).
+// Bump whenever the classification/risk mapping below changes meaningfully.
+const AUDIT_POLICY_VERSION = "v1";
+
+// send_reply / send_message already write their own decision-audit rows via
+// the high-impact-send approval flow in approval.ts (executeApprovedSend) —
+// auditing them again here would double-log the same call.
+const AUDIT_SKIP_TOOLS = new Set(["send_reply", "send_message"]);
+
+const DESTRUCTIVE_TOOLS = new Set(["delete_project", "delete_organization", "delete_task"]);
+
+/** Best-effort classification + risk score for the decision audit log. */
+function classifyToolCall(name: string): { classification: ToolCallClassification; riskScore: number } {
+  if (DESTRUCTIVE_TOOLS.has(name)) return { classification: "destructive", riskScore: 0.9 };
+  if (/^(create|update|complete)_/.test(name) || MUTATING_TOOL_EXTRAS.has(name)) {
+    return { classification: "write_low_risk", riskScore: 0.3 };
+  }
+  return { classification: "read", riskScore: 0.1 };
+}
+
+// Mirrors providers.ts's MUTATING_TOOL_EXTRAS naming convention (not
+// exported there), kept local so tools.ts doesn't depend on providers.ts.
+const MUTATING_TOOL_EXTRAS = new Set(["add_task_to_today", "set_task_estimate", "inbox_action"]);
+
 export async function executeTool(
   ctx: AgentToolContext,
   name: string,
   args: Record<string, any>,
 ): Promise<AgentToolResult> {
   try {
+    const result = await dispatchTool(ctx, name, args);
+    if (!AUDIT_SKIP_TOOLS.has(name)) {
+      const { classification, riskScore } = classifyToolCall(name);
+      const needsConfirmation = Boolean((result.data as any)?.needsConfirmation);
+      void recordAgentToolCallAudit(ctx.admin, {
+        userId: ctx.userId,
+        agentName: ctx.agentName ?? null,
+        agentModel: ctx.agentModel ?? null,
+        toolName: name,
+        classification,
+        riskScore,
+        authorizationOutcome: needsConfirmation ? "needs_confirmation" : result.ok ? "allowed" : "denied",
+        executionResult: result.ok ? "success" : "failure",
+        policyVersion: AUDIT_POLICY_VERSION,
+      });
+    }
+    return result;
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Tool execution failed" };
+  }
+}
+
+async function dispatchTool(
+  ctx: AgentToolContext,
+  name: string,
+  args: Record<string, any>,
+): Promise<AgentToolResult> {
     switch (name) {
       case "list_tasks":
         return await listTasks(ctx, args);
@@ -745,9 +800,6 @@ export async function executeTool(
       default:
         return { ok: false, error: `Unknown tool: ${name}` };
     }
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Tool execution failed" };
-  }
 }
 
 async function listTasks(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
