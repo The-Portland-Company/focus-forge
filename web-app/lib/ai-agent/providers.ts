@@ -9,6 +9,7 @@ import {
   fetchImageForVision,
   type ImageBlock,
 } from "@/lib/ai-agent/image-ingest";
+import { renderToolResultForModel } from "@/lib/ai-agent/untrusted";
 
 /**
  * Upstream LLM calls had no timeout, and the agent had no overall deadline. A
@@ -522,7 +523,9 @@ function makeOpenAICompatibleProvider(opts: {
           const result = await executeTool(toolContext, fnName, args);
           toolsUsed.push(fnName);
           if (result.ok && isMutatingTool(fnName)) mutated = true;
-          messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result).slice(0, 8000) });
+          // A tool that reads mail returns text strangers wrote; it is fenced
+          // as data before it enters the transcript. Other tools are unchanged.
+          messages.push({ role: "tool", tool_call_id: call.id, content: renderToolResultForModel(fnName, result) });
         }
       }
 
@@ -689,7 +692,8 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
           toolResults.push({
             type: "tool_result",
             tool_use_id: use.id,
-            content: JSON.stringify(result).slice(0, 8000),
+            // Mail-bearing results are fenced as data — see untrusted.ts.
+            content: renderToolResultForModel(use.name, result),
           });
         }
         messages.push({ role: "user", content: toolResults });

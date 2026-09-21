@@ -15,6 +15,7 @@
 import { resolveChain } from "@/lib/ai/model-chains";
 import { runStructuredWaterfall } from "@/lib/ai/structured-waterfall";
 import type { SpamAssessment } from "@/lib/spam/assessment";
+import { createUntrustedFence } from "@/lib/ai-agent/untrusted";
 
 export interface SpamTrainerTurn {
   role: "user" | "assistant";
@@ -96,15 +97,25 @@ export function buildChatUserMessage(params: {
   senderEmail: string | null;
   turns: SpamTrainerTurn[];
 }): string {
+  // The email's own words — and the assessment written by reading them — are
+  // fenced. The conversation is the recipient talking to us, and stays outside:
+  // their corrections are exactly what this call is supposed to follow.
+  const fence = createUntrustedFence();
+  const email = [
+    `Subject: ${fence.sanitize(params.subject) || "(no subject)"}`,
+    `From: ${fence.sanitize(params.senderEmail) || "(unknown)"}`,
+    "",
+    "Your assessment of it:",
+    fence.sanitize(describeAssessment(params.assessment)),
+  ].join("\n");
+
   return [
+    fence.notice,
+    "",
     "The email under discussion:",
-    `Subject: ${params.subject || "(no subject)"}`,
-    `From: ${params.senderEmail || "(unknown)"}`,
+    fence.wrap(email, "email message and its assessment"),
     "",
-    "Your assessment:",
-    describeAssessment(params.assessment),
-    "",
-    "Conversation so far:",
+    "Conversation so far (the recipient's side is the instruction you follow):",
     ...params.turns.map(
       (turn) => `${turn.role === "user" ? "User" : "You"}: ${turn.content}`,
     ),

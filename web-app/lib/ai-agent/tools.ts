@@ -5,6 +5,11 @@ import {
   applyThreadAction,
   listRulesForUser,
   createRule,
+  createReplyDraft,
+  createOutboundDraft,
+  sendReplyDraftNow,
+  sendOutboundDraftNow,
+  listMailboxesForUser,
 } from "@/lib/email-inbox/server";
 import { writeAuditLog } from "@/lib/audit/log";
 import { BARTOK_USER_ID } from "@/lib/agents/bartok";
@@ -12,6 +17,16 @@ import {
   evaluateConfirmGate,
   type DestructiveAction,
 } from "@/lib/ai-agent/confirm-gate";
+import {
+  executeApprovedSend,
+  hashSendParams,
+  normalizeRecipients,
+  selectApprovalForAction,
+  type HighImpactSendTool,
+  type SendAction,
+  type SendApproval,
+  type SendTargetState,
+} from "@/lib/ai-agent/approval";
 import { selectTodayTasks } from "@/lib/daily-plan/today-selection";
 
 /**
@@ -44,6 +59,13 @@ export type AgentToolContext = {
    */
   agentName?: string | null;
   agentModel?: string | null;
+  /**
+   * Human-minted approvals for high-impact sends (lib/ai-agent/approval.ts).
+   * Supplied by the host AFTER the user approved a specific previewed send —
+   * never by the model, which only ever receives the approval *request*. With
+   * no matching approval here, send_reply / send_message cannot transmit.
+   */
+  sendApprovals?: SendApproval[];
 };
 
 export type AgentToolResult = {
@@ -581,6 +603,74 @@ export const AGENT_TOOLS = [
       },
     },
   },
+  // ---- Composing and sending mail ----
+  {
+    type: "function" as const,
+    function: {
+      name: "draft_reply",
+      description:
+        "Write a reply to an email thread and save it as a draft. SAFE: nothing is transmitted — the draft is stored for the user to review, edit or approve. Use this whenever the user asks you to answer an email. Returns a draftId; sending it afterwards requires the user's explicit approval via send_reply.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          threadId: { type: "string", description: "Thread to reply to (from list_inbox)." },
+          body: { type: "string", description: "Plain-text reply body, without a signature." },
+          subject: { type: "string", description: "Optional. Defaults to Re: <thread subject>." },
+          to: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional recipient override. Defaults to the thread's reply-all envelope.",
+          },
+          cc: { type: "array", items: { type: "string" }, description: "Optional cc override." },
+        },
+        required: ["threadId", "body"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "send_reply",
+      description:
+        "Transmit a saved reply draft. HIGH-IMPACT and irreversible: it only sends if the user has already approved this exact draft (same recipients, same subject, same body). Without that approval this returns needsApproval and sends nothing — relay the preview to the user and ask them to approve it in the app; you cannot approve it yourself, and editing the draft voids an approval.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          draftId: { type: "string", description: "Reply draft id from draft_reply." },
+        },
+        required: ["draftId"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "send_message",
+      description:
+        "Send a NEW email (not a reply). HIGH-IMPACT and irreversible. Call it with to/subject/body to save an outbound draft and get an approval request back — nothing is transmitted. Once the user approves that exact draft in the app, call it again with the returned draftId to transmit. You cannot approve your own send.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          draftId: {
+            type: "string",
+            description: "Existing outbound draft to send. Omit on the first call.",
+          },
+          to: { type: "array", items: { type: "string" }, description: "Recipient addresses." },
+          cc: { type: "array", items: { type: "string" } },
+          bcc: { type: "array", items: { type: "string" } },
+          subject: { type: "string" },
+          body: { type: "string", description: "Plain-text message body, without a signature." },
+          mailboxId: {
+            type: "string",
+            description: "Mailbox to send from. Optional when the user has exactly one.",
+          },
+        },
+      },
+    },
+  },
 ];
 
 /** Raw tool definitions (name/description/parameters), used to build
@@ -646,6 +736,12 @@ export async function executeTool(
         return await listInboxRules(ctx);
       case "create_inbox_rule":
         return await createInboxRule(ctx, args);
+      case "draft_reply":
+        return await draftReply(ctx, args);
+      case "send_reply":
+        return await sendReplyGated(ctx, args);
+      case "send_message":
+        return await sendMessageGated(ctx, args);
       default:
         return { ok: false, error: `Unknown tool: ${name}` };
     }
@@ -1549,5 +1645,270 @@ async function createInboxRule(ctx: AgentToolContext, args: Record<string, any>)
     return { ok: true, data: { id: rule.id, name: rule.name } };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Failed to create rule" };
+  }
+}
+
+// ---- Composing and sending mail ----
+//
+// Split by design (OWASP high-impact action integrity): draft_reply DECIDES
+// and persists, send_reply / send_message EXECUTE and can only do so with a
+// human-minted approval bound to that exact draft. Both send tools reuse the
+// same send path as the outbound-drafts / reply-drafts send routes
+// (sendReplyDraftNow / sendOutboundDraftNow) — no second transport.
+
+type SendDraftKind = "reply" | "outbound";
+
+const SEND_DRAFT_TABLES: Record<SendDraftKind, string> = {
+  reply: "email_reply_drafts",
+  outbound: "email_outbound_drafts",
+};
+
+const SEND_DRAFT_ENTITY_TYPES: Record<SendDraftKind, string> = {
+  reply: "email_reply_draft",
+  outbound: "email_outbound_draft",
+};
+
+function toAddressList(value: unknown): { email: string; name?: string | null }[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) =>
+      typeof entry === "string"
+        ? { email: entry.trim() }
+        : entry && typeof entry === "object" && typeof (entry as any).email === "string"
+          ? { email: String((entry as any).email).trim(), name: (entry as any).name ?? null }
+          : null,
+    )
+    .filter((entry): entry is { email: string; name?: string | null } => Boolean(entry?.email));
+}
+
+/** Plain text -> minimal HTML so line breaks survive transmission. */
+function plainTextToHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return escaped
+    .split(/\n{2,}/)
+    .map((para) => `<p>${para.replace(/\n/g, "<br />")}</p>`)
+    .join("");
+}
+
+type LoadedSendTarget = {
+  row: any;
+  action: SendAction;
+  state: SendTargetState;
+};
+
+/**
+ * Read the persisted draft and rebuild the exact action it would transmit.
+ * Scoped to drafts the acting user created — the send path re-checks access,
+ * this keeps another user's draft from ever being previewed here.
+ */
+async function loadSendTarget(
+  ctx: AgentToolContext,
+  kind: SendDraftKind,
+  tool: HighImpactSendTool,
+  draftId: string,
+): Promise<LoadedSendTarget | null> {
+  const { data: row } = await ctx.admin
+    .from(SEND_DRAFT_TABLES[kind])
+    .select("*")
+    .eq("id", draftId)
+    .eq("created_by_user_id", ctx.userId)
+    .maybeSingle();
+
+  if (!row) return null;
+
+  const recipients = normalizeRecipients([
+    ...toAddressList(row.to_json),
+    ...toAddressList(row.cc_json),
+    ...(kind === "outbound" ? toAddressList(row.bcc_json) : []),
+  ]);
+
+  const action: SendAction = {
+    actorUserId: ctx.userId,
+    tool,
+    draftId: String(row.id),
+    mailboxId: String(row.mailbox_id),
+    threadId: row.thread_id ? String(row.thread_id) : null,
+    recipients,
+    subject: String(row.subject || ""),
+    body: String(row.content_html || row.content_text || ""),
+    bodyText: row.content_text ?? null,
+  };
+
+  return {
+    row,
+    action,
+    state: {
+      status: String(row.status || ""),
+      paramsHash: hashSendParams(action),
+      sentAt: row.sent_at ?? null,
+      entityType: SEND_DRAFT_ENTITY_TYPES[kind],
+    },
+  };
+}
+
+function sendPreview(target: LoadedSendTarget) {
+  const body = target.action.bodyText || richTextToPlainText(target.action.body);
+  return {
+    draftId: target.action.draftId,
+    subject: target.action.subject,
+    recipients: target.action.recipients,
+    bodyPreview: body.slice(0, 600),
+    status: target.state.status,
+  };
+}
+
+/**
+ * Single gated path for both send tools. With no matching approval on the
+ * context, this transmits nothing and hands back an approval REQUEST for the
+ * user to act on; the model never receives anything it could replay as an
+ * approval.
+ */
+async function transmitDraftGated(
+  ctx: AgentToolContext,
+  kind: SendDraftKind,
+  tool: HighImpactSendTool,
+  draftId: string,
+): Promise<AgentToolResult> {
+  const target = await loadSendTarget(ctx, kind, tool, draftId);
+  if (!target) return { ok: false, error: "Draft not found (or not yours to send)." };
+
+  const approval = selectApprovalForAction(ctx.sendApprovals, target.action);
+
+  const result = await executeApprovedSend({
+    admin: ctx.admin,
+    action: target.action,
+    approval,
+    agentName: ctx.agentName,
+    agentModel: ctx.agentModel,
+    loadTarget: async () => {
+      const fresh = await loadSendTarget(ctx, kind, tool, draftId);
+      return fresh ? fresh.state : null;
+    },
+    transmit: async () =>
+      kind === "reply"
+        ? await sendReplyDraftNow({ userId: ctx.userId, draftId })
+        : await sendOutboundDraftNow({ userId: ctx.userId, draftId }),
+  });
+
+  if (!result.ok) {
+    if (result.reason === "missing") {
+      return {
+        ok: true,
+        data: {
+          needsApproval: true,
+          sent: false,
+          tool,
+          ...sendPreview(target),
+          paramsHash: target.state.paramsHash,
+          instruction:
+            "Nothing was sent. Show the user exactly who this goes to, the subject and the body, and ask them to approve this send in the app. Approval is bound to this exact draft — any edit requires a fresh approval, and you cannot approve it yourself.",
+        },
+      };
+    }
+    return { ok: false, error: result.error };
+  }
+
+  return {
+    ok: true,
+    data: {
+      sent: result.sent,
+      idempotent: result.idempotent,
+      draftId,
+      approvalId: result.approvalId,
+      note: result.idempotent
+        ? "This message was already sent — nothing was sent again."
+        : "Message sent.",
+    },
+  };
+}
+
+async function draftReply(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
+  const threadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
+  const body = typeof args.body === "string" ? args.body.trim() : "";
+  if (!threadId) return { ok: false, error: "threadId is required." };
+  if (!body) return { ok: false, error: "body is required." };
+
+  try {
+    const draft = await createReplyDraft({
+      userId: ctx.userId,
+      threadId,
+      source: "ai",
+      replyMode: "reply_all",
+      subject: typeof args.subject === "string" ? args.subject : null,
+      contentText: body,
+      contentHtml: plainTextToHtml(body),
+      to: args.to ? toAddressList(args.to) : undefined,
+      cc: args.cc ? toAddressList(args.cc) : undefined,
+      status: "draft",
+    });
+
+    return {
+      ok: true,
+      data: {
+        draftId: draft.id,
+        transmitted: false,
+        status: draft.status,
+        subject: draft.subject,
+        to: draft.to.map((a) => a.email),
+        cc: draft.cc.map((a) => a.email),
+        note: "Draft saved — nothing was sent. To transmit it, the user must approve this exact draft, then call send_reply with this draftId.",
+      },
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to save reply draft." };
+  }
+}
+
+async function sendReplyGated(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
+  const draftId = typeof args.draftId === "string" ? args.draftId.trim() : "";
+  if (!draftId) return { ok: false, error: "draftId is required — write the reply with draft_reply first." };
+  return await transmitDraftGated(ctx, "reply", "send_reply", draftId);
+}
+
+async function sendMessageGated(ctx: AgentToolContext, args: Record<string, any>): Promise<AgentToolResult> {
+  const draftId = typeof args.draftId === "string" ? args.draftId.trim() : "";
+  if (draftId) return await transmitDraftGated(ctx, "outbound", "send_message", draftId);
+
+  // First call: persist the proposed message as a draft (no transmission) so
+  // the approval can bind to a stored, reviewable artifact.
+  const to = toAddressList(args.to);
+  const body = typeof args.body === "string" ? args.body.trim() : "";
+  const subject = typeof args.subject === "string" ? args.subject.trim() : "";
+  if (to.length === 0) return { ok: false, error: "to[] is required." };
+  if (!body) return { ok: false, error: "body is required." };
+
+  let mailboxId = typeof args.mailboxId === "string" ? args.mailboxId.trim() : "";
+  if (!mailboxId) {
+    const mailboxes = await listMailboxesForUser(ctx.userId);
+    if (mailboxes.length === 0) return { ok: false, error: "No mailbox is connected." };
+    if (mailboxes.length > 1) {
+      return {
+        ok: false,
+        error: `Multiple mailboxes — pass mailboxId. Options: ${mailboxes
+          .map((m: any) => `${m.id} (${m.emailAddress || m.displayName || "mailbox"})`)
+          .join(", ")}`,
+      };
+    }
+    mailboxId = String(mailboxes[0].id);
+  }
+
+  try {
+    const draft = await createOutboundDraft({
+      userId: ctx.userId,
+      mailboxId,
+      subject,
+      contentText: body,
+      contentHtml: plainTextToHtml(body),
+      to,
+      cc: toAddressList(args.cc),
+      bcc: toAddressList(args.bcc),
+      status: "draft",
+    });
+    return await transmitDraftGated(ctx, "outbound", "send_message", draft.id);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to save outbound draft." };
   }
 }

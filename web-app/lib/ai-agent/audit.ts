@@ -30,7 +30,11 @@ export type ToolCallClassification =
 
 export type AuthorizationOutcome = "allowed" | "denied" | "needs_confirmation";
 
-export type ToolExecutionResult = "success" | "failure" | "error";
+export type ToolExecutionResult =
+  | "success"
+  | "failure"
+  | "error"
+  | "pending";
 
 export interface AgentToolCallAuditInput {
   /** Acting user's id (provenance — matches tasks.agent_name/agent_model pattern). */

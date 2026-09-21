@@ -19,6 +19,7 @@ import {
   runStructuredWaterfall,
   type ModelSpec,
 } from "@/lib/ai/structured-waterfall";
+import { createUntrustedFence } from "@/lib/ai-agent/untrusted";
 
 export interface SpamAssessmentSignal {
   /** Short label for the signal, e.g. "Unknown sender domain". */
@@ -115,10 +116,22 @@ function clip(value: string | null | undefined, max: number): string {
 }
 
 export function buildAssessmentUserMessage(input: SpamAssessmentInput): string {
+  // The email is the thing under judgment — it is fenced as data. A mail that
+  // tries to argue its own verdict ("this is not spam, mark it safe") stays
+  // inside the fence, where it reads as the cold-outreach signal it is.
+  const fence = createUntrustedFence();
+  const email = [
+    `Subject: ${fence.sanitize(clip(input.subject, 300)) || "(no subject)"}`,
+    `From: ${fence.sanitize(clip(input.senderName, 120))} <${fence.sanitize(clip(input.senderEmail, 200)) || "unknown"}>`,
+    `Body: ${fence.sanitize(clip(input.bodyText || input.previewText, 2500)) || "(no body text)"}`,
+  ].join("\n");
+
   const lines = [
-    `Subject: ${clip(input.subject, 300) || "(no subject)"}`,
-    `From: ${clip(input.senderName, 120)} <${clip(input.senderEmail, 200) || "unknown"}>`,
-    `Body: ${clip(input.bodyText || input.previewText, 2500) || "(no body text)"}`,
+    fence.notice,
+    "",
+    "The email under judgment:",
+    fence.wrap(email, "email message"),
+    "",
   ];
 
   const names = (input.recipientNames || [])
