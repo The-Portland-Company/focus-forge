@@ -30,6 +30,7 @@ import {
   StickyNote,
   Sparkles,
   UserCheck,
+  Cpu,
   ShoppingCart,
   ExternalLink,
   Spline,
@@ -1515,6 +1516,26 @@ export function TaskList({
                   >
                     <UserCheck className="h-3 w-3" />
                     HITL
+                  </span>
+                ) : null}
+
+                {((task as any).llm_model ?? task.llmModel) ||
+                ((task as any).llm_effort ?? task.llmEffort) ? (
+                  <span
+                    className="inline-flex items-center gap-1 flex-shrink-0 rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-xs sm:text-[10px] font-medium text-sky-300"
+                    title={`LLM: ${[
+                      (task as any).llm_provider ?? task.llmProvider,
+                      (task as any).llm_model ?? task.llmModel,
+                      (task as any).llm_effort ?? task.llmEffort,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}`}
+                  >
+                    <Cpu className="h-3 w-3" />
+                    {(task as any).llm_model ?? task.llmModel ?? "LLM"}
+                    {((task as any).llm_effort ?? task.llmEffort)
+                      ? ` · ${(task as any).llm_effort ?? task.llmEffort}`
+                      : ""}
                   </span>
                 ) : null}
 

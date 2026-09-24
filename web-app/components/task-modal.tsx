@@ -39,7 +39,14 @@ import {
   Maximize2,
   ChevronLeft,
   ChevronRight,
+  Cpu,
 } from "lucide-react";
+import {
+  LLM_PROVIDERS,
+  LLM_EFFORT_LEVELS,
+  LLM_MODEL_SUGGESTIONS,
+  type LlmEffort,
+} from "@/lib/llm/assignment";
 import { deriveSupplyName, formatCurrency, supplyLineTotal } from "@/lib/supply";
 import { shouldDismissOnOutsidePointer } from "@/lib/modal-dismiss";
 import type {
@@ -442,6 +449,10 @@ export function TaskModal({
   // silently made un-completable by automation. Edit mode overwrites this from
   // the task's own stored value below.
   const [requiresHitl, setRequiresHitl] = useState(DEFAULT_REQUIRES_HITL_IN_UI);
+  // LLM assignment (provider / model / effort) — null = unassigned.
+  const [llmProvider, setLlmProvider] = useState<string>("");
+  const [llmModel, setLlmModel] = useState<string>("");
+  const [llmEffort, setLlmEffort] = useState<"" | LlmEffort>("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -493,6 +504,9 @@ export function TaskModal({
       setRequiresHitl(
         Boolean((task as any).requires_hitl ?? task.requiresHitl ?? false),
       );
+      setLlmProvider((task as any).llm_provider ?? task.llmProvider ?? "");
+      setLlmModel((task as any).llm_model ?? task.llmModel ?? "");
+      setLlmEffort(((task as any).llm_effort ?? task.llmEffort ?? "") as "" | LlmEffort);
       // Handle both snake_case and camelCase for projectId
       const projectId = (task as any).project_id || task.projectId || "";
       // If no project, try to select the first available project as default
@@ -588,6 +602,9 @@ export function TaskModal({
       setDeadlineTime("");
       setPriority(4);
       setRequiresHitl(DEFAULT_REQUIRES_HITL_IN_UI);
+      setLlmProvider("");
+      setLlmModel("");
+      setLlmEffort("");
       setSelectedProject(defaultProjectId || "");
       setSelectedParentTask(null);
       setSelectedGoalId(defaultGoalId || "");
@@ -818,6 +835,9 @@ export function TaskModal({
         : emptyEditValue,
       priority,
       requiresHitl,
+      llmProvider: llmProvider || null,
+      llmModel: llmModel.trim() || null,
+      llmEffort: llmEffort || null,
       projectId: effectiveProjectId,
       parentId: selectedParentTask || emptyEditValue,
       tags: selectedTags,
@@ -3631,6 +3651,69 @@ export function TaskModal({
                 />
               </span>
             </button>
+          </div>
+
+          {/* LLM assignment: provider / model / effort an agent should use */}
+          <div className="mt-4">
+            <div className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
+              <Cpu className="w-4 h-4" />
+              LLM assignment
+            </div>
+            <div className="text-[11px] text-zinc-500 mb-2">
+              Which provider, model and effort level an AI agent should use when it
+              picks this task up. Leave blank to use the agent&apos;s default.
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <label className="flex flex-col gap-1 text-[11px] text-zinc-500">
+                Provider
+                <select
+                  value={llmProvider}
+                  onChange={(e) => setLlmProvider(e.target.value)}
+                  className="w-full bg-zinc-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme"
+                >
+                  <option value="">Unassigned</option>
+                  {LLM_PROVIDERS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] text-zinc-500">
+                Model
+                <input
+                  list="task-llm-model-suggestions"
+                  value={llmModel}
+                  onChange={(e) => setLlmModel(e.target.value)}
+                  placeholder="e.g. claude-sonnet-5"
+                  className="w-full bg-zinc-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme"
+                />
+                <datalist id="task-llm-model-suggestions">
+                  {(LLM_MODEL_SUGGESTIONS[llmProvider] ??
+                    Object.values(LLM_MODEL_SUGGESTIONS).flat()
+                  ).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </datalist>
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] text-zinc-500">
+                Effort
+                <select
+                  value={llmEffort}
+                  onChange={(e) => setLlmEffort(e.target.value as "" | LlmEffort)}
+                  className="w-full bg-zinc-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme"
+                >
+                  <option value="">Unassigned</option>
+                  {LLM_EFFORT_LEVELS.map((lvl) => (
+                    <option key={lvl} value={lvl}>
+                      {lvl}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
 
           </div>

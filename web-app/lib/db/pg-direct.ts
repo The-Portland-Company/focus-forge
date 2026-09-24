@@ -88,7 +88,7 @@ export async function loadCoreDatabaseViaPostgres(
       SELECT
         id, name, description, priority, completed, completed_at,
         due_date, due_time, project_id, section_id, goal_id, parent_id,
-        assigned_to, created_by, agent_name, agent_model, created_at, updated_at,
+        assigned_to, created_by, agent_name, agent_model, llm_provider, llm_model, llm_effort, created_at, updated_at,
         deleted_at, todoist_id, recurring_pattern, time_estimate,
         devnotes_meta, requires_hitl, todoist_order, snoozed_until,
         start_date, start_time, end_date, end_time,
@@ -280,6 +280,9 @@ export async function loadCoreDatabaseViaPostgres(
     requiresHitl: task.requires_hitl ?? false,
     agentName: task.agent_name,
     agentModel: task.agent_model,
+    llmProvider: task.llm_provider ?? null,
+    llmModel: task.llm_model ?? null,
+    llmEffort: task.llm_effort ?? null,
     tags: [],
     tagBadges: [],
     reminders: [],

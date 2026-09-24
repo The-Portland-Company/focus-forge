@@ -99,6 +99,10 @@ export interface Task {
   createdBy?: string; // User who created this task
   agentName?: string | null; // AI agent that created this task (via API/agent)
   agentModel?: string | null; // Model that produced it (e.g. "Claude Sonnet 4.5")
+  /** LLM assignment: which provider/model/effort an agent should use for this task. */
+  llmProvider?: string | null;
+  llmModel?: string | null;
+  llmEffort?: "low" | "medium" | "high" | "max" | null;
   tags: string[];
   tagBadges?: Tag[];
   completed: boolean;

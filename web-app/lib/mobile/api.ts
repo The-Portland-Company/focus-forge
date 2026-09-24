@@ -3,6 +3,7 @@ import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
 import { getAdminClient } from '@/lib/supabase/admin'
 import { hashApiKeySecret } from '@/lib/api/keys/utils'
 import type { ApiKeyScope } from '@/lib/api/keys/types'
+import { normalizeLlmAssignment } from '@/lib/llm/assignment'
 
 export type MobileApiError = {
   code: string
@@ -215,6 +216,9 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
     assignedTo: 'assigned_to',
     agentName: 'agent_name',
     agentModel: 'agent_model',
+    llmProvider: 'llm_provider',
+    llmModel: 'llm_model',
+    llmEffort: 'llm_effort',
     completedAt: 'completed_at',
     createdAt: 'created_at',
     updatedAt: 'updated_at',
@@ -251,6 +255,9 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
     'assigned_to',
     'agent_name',
     'agent_model',
+    'llm_provider',
+    'llm_model',
+    'llm_effort',
     'completed',
     'completed_at',
     'todoist_id',
@@ -286,6 +293,13 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
     if (!allowedFields.has(mappedKey)) return
     normalized[mappedKey] = value
   })
+
+  if ('llm_provider' in normalized || 'llm_model' in normalized || 'llm_effort' in normalized) {
+    const llm = normalizeLlmAssignment(normalized)
+    for (const key of ['llm_provider', 'llm_model', 'llm_effort'] as const) {
+      if (llm[key] !== undefined) normalized[key] = llm[key]
+    }
+  }
 
   return normalized
 }
@@ -339,6 +353,9 @@ export const serializeMobileTask = <T extends Record<string, any>>(
   created_by_name: string | null
   agent_name: string | null
   agent_model: string | null
+  llm_provider: string | null
+  llm_model: string | null
+  llm_effort: string | null
   goal_id: string | null
 } => ({
   ...task,
@@ -348,6 +365,9 @@ export const serializeMobileTask = <T extends Record<string, any>>(
   created_by_name: task?.createdByName ?? null,
   agent_name: task?.agent_name ?? task?.agentName ?? null,
   agent_model: task?.agent_model ?? task?.agentModel ?? null,
+  llm_provider: task?.llm_provider ?? task?.llmProvider ?? null,
+  llm_model: task?.llm_model ?? task?.llmModel ?? null,
+  llm_effort: task?.llm_effort ?? task?.llmEffort ?? null,
   goal_id: task?.goal_id ?? task?.goalId ?? null,
 })
 

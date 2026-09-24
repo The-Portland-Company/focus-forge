@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useRef, useEffect } from 'react'
-import { X, Calendar, Flag, User, Folder, Repeat2, Trash2, Plus, Mail, Loader2, Check, Merge, Search, UserCheck, Clock } from 'lucide-react'
+import { X, Calendar, Flag, User, Folder, Repeat2, Trash2, Plus, Mail, Loader2, Check, Merge, Search, UserCheck, Clock, Cpu } from 'lucide-react'
+import { LLM_PROVIDERS, LLM_EFFORT_LEVELS, LLM_MODEL_SUGGESTIONS } from '@/lib/llm/assignment'
 import { Task, Project, Database, RecurringConfig } from '@/lib/types'
 import { RecurringPicker } from '@/components/recurring-picker'
 import { serializeRecurringConfig } from '@/lib/recurring-utils'
@@ -39,6 +40,9 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
   // default for a bulk edit — a plain checkbox would force every selected task
   // to one value the moment the modal opened.
   const [requiresHitl, setRequiresHitl] = useState<'' | 'true' | 'false'>('')
+  const [llmProvider, setLlmProvider] = useState('')
+  const [llmModel, setLlmModel] = useState('')
+  const [llmEffort, setLlmEffort] = useState('')
   const [timeEstimate, setTimeEstimate] = useState<string>('')
   const [deadline, setDeadline] = useState<string>('')
   const [startDate, setStartDate] = useState<string>('')
@@ -196,6 +200,15 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
     if (requiresHitl !== '') {
       updates.requires_hitl = requiresHitl === 'true'
     }
+    if (llmProvider !== '') {
+      updates.llm_provider = llmProvider === '__clear__' ? null : llmProvider
+    }
+    if (llmModel.trim() !== '') {
+      updates.llm_model = llmModel.trim() === '__clear__' ? null : llmModel.trim()
+    }
+    if (llmEffort !== '') {
+      updates.llm_effort = llmEffort === '__clear__' ? null : llmEffort
+    }
     if (timeEstimate.trim() !== '') {
       const parsed = parseInt(timeEstimate, 10)
       if (Number.isFinite(parsed)) {
@@ -227,6 +240,9 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
     priority ||
     recurringConfig ||
     requiresHitl !== '' ||
+    llmProvider !== '' ||
+    llmModel.trim() !== '' ||
+    llmEffort !== '' ||
     timeEstimate.trim() !== '' ||
     deadline ||
     startDate ||
@@ -667,6 +683,55 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
                   {option.label}
                 </button>
               ))}
+            </div>
+          </div>
+
+
+          {/* LLM assignment */}
+          <div>
+            <label className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
+              <Cpu className="w-4 h-4" />
+              LLM assignment
+            </label>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <select
+                value={llmProvider}
+                onChange={(e) => setLlmProvider(e.target.value)}
+                aria-label="LLM provider"
+                className="w-full bg-zinc-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme"
+              >
+                <option value="">Provider: leave unchanged</option>
+                <option value="__clear__">Clear provider</option>
+                {LLM_PROVIDERS.map((p) => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </select>
+              <input
+                list="bulk-llm-model-suggestions"
+                value={llmModel}
+                onChange={(e) => setLlmModel(e.target.value)}
+                aria-label="LLM model"
+                placeholder="Model: leave unchanged"
+                className="w-full bg-zinc-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme"
+              />
+              <datalist id="bulk-llm-model-suggestions">
+                <option value="__clear__">Clear model</option>
+                {(LLM_MODEL_SUGGESTIONS[llmProvider] ?? Object.values(LLM_MODEL_SUGGESTIONS).flat()).map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </datalist>
+              <select
+                value={llmEffort}
+                onChange={(e) => setLlmEffort(e.target.value)}
+                aria-label="LLM effort"
+                className="w-full bg-zinc-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-theme"
+              >
+                <option value="">Effort: leave unchanged</option>
+                <option value="__clear__">Clear effort</option>
+                {LLM_EFFORT_LEVELS.map((lvl) => (
+                  <option key={lvl} value={lvl}>{lvl}</option>
+                ))}
+              </select>
             </div>
           </div>
 

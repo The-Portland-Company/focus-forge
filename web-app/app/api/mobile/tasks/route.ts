@@ -81,7 +81,15 @@ export async function POST(request: NextRequest) {
     }
 
     const raw = await request.json();
-    const payload = normalizeTaskInput(raw);
+    let payload: ReturnType<typeof normalizeTaskInput>;
+    try {
+      payload = normalizeTaskInput(raw);
+    } catch (validationError) {
+      return NextResponse.json(
+        { error: validationError instanceof Error ? validationError.message : "Invalid task payload" },
+        { status: 400 },
+      );
+    }
     const normalizedTaskContent =
       payload.description !== undefined ||
       payload.devnotes_meta !== undefined ||

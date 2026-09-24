@@ -879,7 +879,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       let query = supabase
         .from("tasks")
         .select(
-          "id,name,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,time_estimate,devnotes_meta,requires_hitl,todoist_order,is_supply,supply_quantity,supply_price,supply_vendor,supply_make,supply_model,supply_type,depends_on",
+          "id,name,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,llm_provider,llm_model,llm_effort,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,time_estimate,devnotes_meta,requires_hitl,todoist_order,is_supply,supply_quantity,supply_price,supply_vendor,supply_make,supply_model,supply_type,depends_on",
         )
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
@@ -985,6 +985,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
         createdByName: creatorName,
         agentName: task.agent_name,
         agentModel: task.agent_model,
+        llmProvider: task.llm_provider ?? null,
+        llmModel: task.llm_model ?? null,
+        llmEffort: task.llm_effort ?? null,
         completedAt: task.completed_at,
         createdAt: task.created_at,
         updatedAt: task.updated_at,
@@ -1081,6 +1084,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       createdByName: creatorName,
       agentName: data.agent_name,
       agentModel: data.agent_model,
+      llmProvider: data.llm_provider ?? null,
+      llmModel: data.llm_model ?? null,
+      llmEffort: data.llm_effort ?? null,
       completedAt: data.completed_at,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
@@ -1160,6 +1166,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "assigned_to",
       "agent_name",
       "agent_model",
+      "llm_provider",
+      "llm_model",
+      "llm_effort",
       "completed",
       "completed_at",
       "todoist_id",
@@ -1212,6 +1221,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       assignedTo: "assigned_to",
       agentName: "agent_name",
       agentModel: "agent_model",
+      llmProvider: "llm_provider",
+      llmModel: "llm_model",
+      llmEffort: "llm_effort",
       createdBy: "created_by",
       completedAt: "completed_at",
       createdAt: "created_at",
@@ -1371,6 +1383,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "assigned_to",
       "agent_name",
       "agent_model",
+      "llm_provider",
+      "llm_model",
+      "llm_effort",
       "completed",
       "completed_at",
       "todoist_id",
@@ -1418,6 +1433,9 @@ export class SupabaseAdapter implements DatabaseAdapter {
       dueTime: "due_time",
       parentId: "parent_id",
       assignedTo: "assigned_to",
+      llmProvider: "llm_provider",
+      llmModel: "llm_model",
+      llmEffort: "llm_effort",
       completedAt: "completed_at",
       createdAt: "created_at",
       updatedAt: "updated_at",
