@@ -81,7 +81,7 @@ export async function resolveAccessibleProjectIds(
 }
 
 const TASK_SELECT =
-  "id, name, description, priority, due_date, due_time, deadline, completed, completed_at, requires_hitl, project_id, section_id, parent_id, created_at, updated_at";
+  "id, name, description, priority, due_date, due_time, deadline, completed, completed_at, requires_hitl, llm_provider, llm_model, llm_effort, project_id, section_id, parent_id, created_at, updated_at";
 
 function shapeTask(row: any) {
   return {
@@ -94,6 +94,9 @@ function shapeTask(row: any) {
     deadline: row.deadline ?? null,
     completed: Boolean(row.completed),
     requiresHitl: Boolean(row.requires_hitl),
+    llmProvider: row.llm_provider ?? null,
+    llmModel: row.llm_model ?? null,
+    llmEffort: row.llm_effort ?? null,
     projectId: row.project_id ?? null,
     sectionId: row.section_id ?? null,
     parentId: row.parent_id ?? null,

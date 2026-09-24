@@ -3231,6 +3231,9 @@ export type Database = {
           priority: number | null
           project_id: string | null
           recurring_pattern: string | null
+          llm_effort: string | null
+          llm_model: string | null
+          llm_provider: string | null
           requires_hitl: boolean
           section_id: string | null
           snoozed_until: string | null
@@ -3278,6 +3281,9 @@ export type Database = {
           priority?: number | null
           project_id?: string | null
           recurring_pattern?: string | null
+          llm_effort?: string | null
+          llm_model?: string | null
+          llm_provider?: string | null
           requires_hitl?: boolean
           section_id?: string | null
           snoozed_until?: string | null
@@ -3325,6 +3331,9 @@ export type Database = {
           priority?: number | null
           project_id?: string | null
           recurring_pattern?: string | null
+          llm_effort?: string | null
+          llm_model?: string | null
+          llm_provider?: string | null
           requires_hitl?: boolean
           section_id?: string | null
           snoozed_until?: string | null
