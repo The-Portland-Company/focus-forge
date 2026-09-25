@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 function toTaskSectionResponse(row: any) {
   return {
@@ -12,16 +12,10 @@ function toTaskSectionResponse(row: any) {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { supabase } = viewerResult;
     const db = supabase as any;
-
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const taskId = request.nextUrl.searchParams.get("taskId");
     const sectionId = request.nextUrl.searchParams.get("sectionId");
@@ -52,16 +46,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { supabase } = viewerResult;
     const db = supabase as any;
-
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const body = await request.json();
     const taskId = typeof body?.taskId === "string" ? body.taskId : "";
@@ -107,16 +95,10 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { supabase } = viewerResult;
     const db = supabase as any;
-
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const taskId = request.nextUrl.searchParams.get("taskId");
     const sectionId = request.nextUrl.searchParams.get("sectionId");

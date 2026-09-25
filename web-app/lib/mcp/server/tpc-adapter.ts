@@ -36,7 +36,7 @@ export async function authenticateFromHeader(
     headers: authHeader ? { authorization: authHeader } : {},
   });
 
-  const ctx = await authenticate(request, { resource: `${TPC_RESOURCE}/mcp` });
+  const ctx = await authenticate(request, { resource: TPC_RESOURCE });
   if (!ctx) {
     return { ok: false, status: 401, message: "Missing or invalid access token" };
   }

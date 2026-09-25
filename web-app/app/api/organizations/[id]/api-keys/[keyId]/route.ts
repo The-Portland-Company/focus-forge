@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgAdmin } from "@/lib/api/authz";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export async function DELETE(
   request: NextRequest,
@@ -8,15 +9,13 @@ export async function DELETE(
 ) {
   try {
     const params = await props.params;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const authz = await requireOrgAdmin(supabase, session.user.id, params.id);
     if (!authz.authorized) {

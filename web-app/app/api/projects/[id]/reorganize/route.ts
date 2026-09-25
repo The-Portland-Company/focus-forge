@@ -7,6 +7,7 @@ import {
   type ReorgCandidateProject,
 } from "@/lib/task-reorg/classify";
 import { applyReorgBatch, type ReorgMove } from "@/lib/task-reorg/apply";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 /**
  * POST /api/projects/[id]/reorganize
@@ -26,15 +27,13 @@ export async function POST(
   try {
     const params = await props.params;
     const projectId = params.id;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const authz = await requireProjectAdmin(
       supabase,

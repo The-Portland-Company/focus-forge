@@ -43,16 +43,28 @@ export async function clearSessionCookies() {
   store.delete(REFRESH_COOKIE);
 }
 
+export interface Viewer {
+  sub: string;
+  email?: string;
+  orgs: AuthContext["orgs"];
+}
+
+/**
+ * The app-wide replacement for `supabase.auth.getUser()`/`getSession()`.
+ * Returns `{ sub, email, orgs }` from the caller's TPC session (cookies) —
+ * every route that used to read the Supabase session should call this
+ * instead. Returns null when there is no valid session.
+ */
+export async function getViewer(): Promise<Viewer | null> {
+  const ctx = await getTpcSession();
+  if (!ctx) return null;
+  return { sub: ctx.sub, email: ctx.email, orgs: ctx.orgs };
+}
+
 /**
  * Resolve the current request's TPC session, transparently refreshing an
  * expired access token from the refresh cookie. Returns null when there is
  * no valid session (caller should redirect to /auth/login).
- *
- * NOTE: this only covers the `getServerSession`-shaped call sites this
- * change updated. See the final report — most of the ~90 files that called
- * `supabase.auth.getUser()`/`getSession()` directly still need to be moved
- * onto this helper as a follow-up; they still run on the old Supabase
- * session today.
  */
 export async function getTpcSession(): Promise<AuthContext | null> {
   const store = await cookies();

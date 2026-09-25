@@ -5,6 +5,7 @@ import {
   hashPasscode,
   normalizePermission,
 } from "@/lib/project-share";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 // Shape returned to the client. NEVER includes passcode_hash.
 function toClientShare(row: any) {
@@ -28,14 +29,10 @@ export async function GET(
 ) {
   try {
     const { id: projectId } = await props.params;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { supabase, user } = viewerResult;
+    const session = { user };
 
     // RLS (project_shares_member_all) scopes visibility to project members.
     const { data, error } = await supabase
@@ -66,14 +63,10 @@ export async function POST(
 ) {
   try {
     const { id: projectId } = await props.params;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { supabase, user } = viewerResult;
+    const session = { user };
 
     const body = await request.json().catch(() => ({}));
     const passcode =

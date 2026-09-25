@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 // DELETE: revoke a share link (soft — sets revoked_at).
 export async function DELETE(
@@ -8,14 +9,10 @@ export async function DELETE(
 ) {
   try {
     const { id: projectId, shareId } = await props.params;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { supabase, user } = viewerResult;
+    const session = { user };
 
     // RLS (project_shares_member_all) enforces that only project members can
     // update rows for this project.

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export async function POST(
   request: NextRequest,
@@ -8,12 +9,9 @@ export async function POST(
 ) {
   try {
     const { id } = await params
-    const supabase = await createClient()
-    
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { supabase, user } = viewerResult;
 
     const adapter = new SupabaseAdapter(supabase, user.id)
     const { taskId } = await request.json()
@@ -36,12 +34,9 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params
-    const supabase = await createClient()
-    
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { supabase, user } = viewerResult;
 
     const adapter = new SupabaseAdapter(supabase, user.id)
     const { taskId } = await request.json()

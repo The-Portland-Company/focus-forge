@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { SupabaseAdapter } from "@/lib/db/supabase-adapter";
 import { loadDatabaseForUser } from "@/lib/db/load-database";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export async function GET(request: NextRequest) {
   try {
@@ -63,15 +64,13 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const body = await request.json();
     const adapter = new SupabaseAdapter(supabase, session.user.id);

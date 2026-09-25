@@ -7,6 +7,7 @@ import { describeImagesInMessage } from "@/lib/ai-agent/providers";
 import { extractImageUrls } from "@/lib/ai-agent/image-ingest";
 import { HIGH_IMPACT_SEND_TOOLS, type SendApproval } from "@/lib/ai-agent/approval";
 import { findPendingSendDraft } from "@/lib/ai-agent/send-preview";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 /**
  * The approval, if any, that a prior turn's approve-send call minted. It
@@ -27,15 +28,13 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const body = await request.json();
     const forceNewSession = body?.newConversation === true;

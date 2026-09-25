@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { getViewer } from "@/lib/auth/tpc-session";
+import { resolveLocalUser, scopedSupabaseClient } from "@/lib/auth/local-identity";
 import { uploadToOrgStorage } from "@/lib/media-storage/upload";
 import { resolveOrgApiKey, orgKeyCanWrite } from "@/lib/media-storage/auth";
 import { v4 as uuidv4 } from "uuid";
@@ -37,16 +38,15 @@ export async function POST(request: NextRequest) {
       organizationId = orgKey.organizationId;
     }
 
-    const supabase = await createClient();
+    let supabase: Awaited<ReturnType<typeof scopedSupabaseClient>> | null = null;
     if (!orgKey) {
-      const {
-        data: { session },
-        error: authError,
-      } = await supabase.auth.getSession();
-      if (authError || !session?.user) {
+      const viewer = await getViewer();
+      const localUser = viewer ? await resolveLocalUser(viewer) : null;
+      if (!localUser) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
-      sessionUserId = session.user.id;
+      sessionUserId = localUser.id;
+      supabase = scopedSupabaseClient(localUser.id);
     }
 
     const formData = await request.formData();
@@ -65,7 +65,9 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
-      const { data: membership } = await supabase
+      // Non-null: this branch only runs when `!orgKey`, which is exactly when
+      // `supabase` was assigned above.
+      const { data: membership } = await supabase!
         .from("user_organizations")
         .select("organization_id")
         .eq("user_id", sessionUserId as string)

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { createClient } from "@/lib/supabase/server";
+import { getViewer } from "@/lib/auth/tpc-session";
+import { resolveLocalUser, scopedSupabaseClient } from "@/lib/auth/local-identity";
 
 // This page is per-user and auth-gated (middleware), so render dynamically.
 export const dynamic = "force-dynamic";
@@ -19,14 +20,14 @@ type PlanRow = {
 };
 
 async function loadPlan(id: string): Promise<PlanRow | null> {
-  const supabase = await createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const viewer = await getViewer();
+  const localUser = viewer ? await resolveLocalUser(viewer) : null;
 
   // Auth is enforced by middleware, but guard here too so a missing session
   // reads as "not found" rather than leaking the query.
-  if (!session?.user) return null;
+  if (!localUser) return null;
+
+  const supabase = scopedSupabaseClient(localUser.id);
 
   // RLS scopes this to plans the signed-in user can see.
   const { data } = await supabase

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export async function DELETE(
   request: NextRequest,
@@ -7,15 +8,10 @@ export async function DELETE(
 ) {
   try {
     const params = await props.params;
-    const supabase = await createClient();
-
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { supabase, user } = viewerResult;
+    const session = { user };
 
     // Fetch the attachment row to get the storage path
     const { data: attachment, error: fetchError } = await supabase

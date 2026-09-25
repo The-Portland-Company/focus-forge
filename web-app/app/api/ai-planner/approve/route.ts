@@ -5,6 +5,7 @@ import {
   createPlannerAdminClient,
   getAuthorizedProject,
 } from "@/lib/ai-planner/persistence";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 type CreationFailure = {
   stage: "section" | "task" | "subtask";
@@ -14,15 +15,13 @@ type CreationFailure = {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const body = await request.json();
     const sessionId = typeof body?.sessionId === "string" ? body.sessionId : "";

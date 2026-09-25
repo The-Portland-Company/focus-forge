@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createPlannerAdminClient } from "@/lib/ai-planner/persistence";
 import { HIGH_IMPACT_SEND_TOOLS, DEFAULT_APPROVAL_TTL_MS, mintSendApproval, type HighImpactSendTool } from "@/lib/ai-agent/approval";
 import { loadSendPreview } from "@/lib/ai-agent/send-preview";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export const dynamic = "force-dynamic";
 
@@ -21,16 +22,9 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    // getUser() revalidates the JWT with the auth server; getSession() only
-    // decodes the cookie. Minting send authority is worth the round trip.
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { supabase, user } = viewerResult;
 
     const body = await request.json().catch(() => ({}));
     const tool = body?.tool as HighImpactSendTool;

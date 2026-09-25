@@ -7,18 +7,17 @@ import {
 } from "@/lib/task-notifications";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
 import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const adapter = new SupabaseAdapter(supabase, session.user.id);
     const tasks = await adapter.getTasks();
@@ -34,15 +33,13 @@ export async function POST(request: NextRequest) {
     const taskData = await request.json();
 
     // Get the Supabase client and authenticated user
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     // Initialize the Supabase adapter
     const adapter = new SupabaseAdapter(supabase, session.user.id);

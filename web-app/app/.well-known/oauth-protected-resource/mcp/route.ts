@@ -5,8 +5,9 @@ import { TPC_RESOURCE } from "@/src/vendor/tpc-auth/config";
 // client can discover which authorization server (TPC Auth) to register
 // with, with nothing pre-shared.
 export async function GET() {
-  return protectedResourceMetadata(`${TPC_RESOURCE}/mcp`, [
-    "mcp:read",
-    "mcp:write",
-  ]);
+  // Resource must be exactly apps.resource_uri for "forge"
+  // (https://focusforge.theportlandcompany.com) — TPC Auth matches it
+  // exactly, so a "/mcp" suffix here would make every PAT exchange and JWT
+  // audience check fail (this bit Ads Control the same way).
+  return protectedResourceMetadata(TPC_RESOURCE, ["forge:read", "forge:write"]);
 }

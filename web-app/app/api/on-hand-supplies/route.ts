@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 /**
  * On-hand supplies: an itemized list of general supplies already available,
@@ -27,14 +28,9 @@ function toResponse(row: any) {
 }
 
 export async function GET(request: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const viewerResult = await requireViewerOrUnauthorized();
+  if (viewerResult instanceof NextResponse) return viewerResult;
+  const { supabase, user } = viewerResult;
 
   // The generated Supabase types don't include this table yet, so the typed
   // client infers `never`; cast to reach it until types are regenerated.
@@ -55,14 +51,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const viewerResult = await requireViewerOrUnauthorized();
+  if (viewerResult instanceof NextResponse) return viewerResult;
+  const { supabase, user } = viewerResult;
 
   const body = await request.json();
   const name = typeof body?.name === "string" ? body.name.trim() : "";

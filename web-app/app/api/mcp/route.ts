@@ -29,9 +29,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const ctx = await authenticate(request, { resource: `${TPC_RESOURCE}/mcp` });
+  const ctx = await authenticate(request, { resource: TPC_RESOURCE });
   if (!ctx) {
-    return unauthorized(`${TPC_RESOURCE}/mcp`);
+    return unauthorized(TPC_RESOURCE);
   }
 
   // handleMcpRequest re-derives auth per-call (via lib/mcp/server/tpc-adapter.ts,

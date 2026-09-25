@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getViewer } from "@/lib/auth/tpc-session";
+import { resolveLocalUser, scopedSupabaseClient } from "@/lib/auth/local-identity";
 import { requireOrgAdmin } from "@/lib/api/authz";
 import { getAdminClient } from "@/lib/supabase/admin";
 import {
@@ -31,13 +32,10 @@ function providerStatus() {
 async function authorize(
   organizationId: string,
 ): Promise<{ errorResponse?: NextResponse; userId?: string }> {
-  const supabase = await createClient();
-  const {
-    data: { session },
-    error: authError,
-  } = await supabase.auth.getSession();
+  const viewer = await getViewer();
+  const localUser = viewer ? await resolveLocalUser(viewer) : null;
 
-  if (authError || !session?.user) {
+  if (!localUser) {
     return {
       errorResponse: NextResponse.json(
         { error: "Unauthorized" },
@@ -46,14 +44,15 @@ async function authorize(
     };
   }
 
-  const authz = await requireOrgAdmin(supabase, session.user.id, organizationId);
+  const supabase = scopedSupabaseClient(localUser.id);
+  const authz = await requireOrgAdmin(supabase, localUser.id, organizationId);
   if (!authz.authorized) {
     return {
       errorResponse: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
     };
   }
 
-  return { userId: session.user.id };
+  return { userId: localUser.id };
 }
 
 export async function GET(_request: Request, props: Ctx) {
