@@ -34,6 +34,8 @@ import {
   FileText,
   UserCheck,
   Sparkles,
+  Bug,
+  ListTodo,
   Target,
   ShoppingCart,
   Maximize2,
@@ -52,6 +54,7 @@ import { shouldDismissOnOutsidePointer } from "@/lib/modal-dismiss";
 import type {
   Database,
   Task,
+  TaskType,
   Reminder,
   Attachment,
   Project as ProjectType,
@@ -318,6 +321,7 @@ export function TaskModal({
   const [deadline, setDeadline] = useState("");
   const [deadlineTime, setDeadlineTime] = useState<string>("");
   const [priority, setPriority] = useState<1 | 2 | 3 | 4>(4);
+  const [taskType, setTaskType] = useState<TaskType>("task");
   const [selectedProject, setSelectedProject] = useState(
     defaultProjectId || "",
   );
@@ -500,6 +504,7 @@ export function TaskModal({
           : "",
       );
       setPriority(task.priority);
+      setTaskType((task as any).type || "task");
       // Handle both snake_case and camelCase for the HITL flag
       setRequiresHitl(
         Boolean((task as any).requires_hitl ?? task.requiresHitl ?? false),
@@ -601,6 +606,7 @@ export function TaskModal({
       setDeadline("");
       setDeadlineTime("");
       setPriority(4);
+      setTaskType("task");
       setRequiresHitl(DEFAULT_REQUIRES_HITL_IN_UI);
       setLlmProvider("");
       setLlmModel("");
@@ -834,6 +840,7 @@ export function TaskModal({
           : deadline
         : emptyEditValue,
       priority,
+      type: taskType,
       requiresHitl,
       llmProvider: llmProvider || null,
       llmModel: llmModel.trim() || null,
@@ -3608,6 +3615,36 @@ export function TaskModal({
                       )}
                   </div>
                 )}
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 mb-2 text-sm text-zinc-400">
+                <ListTodo className="w-4 h-4" />
+                Type
+              </div>
+              <div className="flex gap-1.5">
+                {(
+                  [
+                    { value: "task", label: "Task", icon: ListTodo },
+                    { value: "bug", label: "Bug", icon: Bug },
+                    { value: "feature", label: "Feature", icon: Sparkles },
+                  ] as const
+                ).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setTaskType(option.value)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-sm transition-colors ${
+                      taskType === option.value
+                        ? "bg-[rgb(var(--theme-primary-rgb))]/20 text-white border border-[rgb(var(--theme-primary-rgb))]/50"
+                        : "bg-zinc-800 text-zinc-400 hover:text-white border border-transparent"
+                    }`}
+                  >
+                    <option.icon className="w-3.5 h-3.5" />
+                    {option.label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
