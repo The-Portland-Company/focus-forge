@@ -1117,6 +1117,18 @@ export function TaskList({
                           />
                         )
                       ) : null}
+                      {(task as any).type === "bug" ||
+                      (task as any).type === "feature" ? (
+                        <span
+                          className={`mr-1.5 inline-block rounded px-1 py-0.5 align-middle text-[10px] font-semibold uppercase leading-none ${
+                            (task as any).type === "bug"
+                              ? "bg-red-500/20 text-red-400"
+                              : "bg-emerald-500/20 text-emerald-400"
+                          }`}
+                        >
+                          {(task as any).type}
+                        </span>
+                      ) : null}
                       {/* A supply is identified by its make/model or type, not
                           by a free-text title, so the identity is the primary
                           label. Falls back to the stored name for supplies
