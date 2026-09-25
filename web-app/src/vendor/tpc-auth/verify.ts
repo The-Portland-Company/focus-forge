@@ -1,7 +1,7 @@
 // Vendored from tpc-auth/packages/auth/src (@the-portland-company/auth 0.1.0, tpc-auth@906bd06).
 // Do not edit here. Replace with the published package once it exists.
 import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload } from "jose";
-import { resolveIssuer, TpcAuthError, type AuthContext, type OrgClaim } from "./types.js";
+import { resolveIssuer, TpcAuthError, type AuthContext, type OrgClaim } from "./types";
 
 /**
  * JWKS sets are cached per issuer for the life of the isolate. jose handles the

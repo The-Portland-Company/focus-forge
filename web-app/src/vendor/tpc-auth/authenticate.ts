@@ -1,7 +1,7 @@
 // Vendored from tpc-auth/packages/auth/src (@the-portland-company/auth 0.1.0, tpc-auth@906bd06).
 // Do not edit here. Replace with the published package once it exists.
-import { PAT_PREFIX, resolveIssuer, TpcAuthError, type AuthContext, type OrgClaim } from "./types.js";
-import { contextFromClaims, verifyAccessToken } from "./verify.js";
+import { PAT_PREFIX, resolveIssuer, TpcAuthError, type AuthContext, type OrgClaim } from "./types";
+import { contextFromClaims, verifyAccessToken } from "./verify";
 
 const TOKEN_EXCHANGE = "urn:ietf:params:oauth:grant-type:token-exchange";
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";

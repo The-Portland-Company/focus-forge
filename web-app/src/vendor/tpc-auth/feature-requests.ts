@@ -1,6 +1,6 @@
 // Vendored from tpc-auth/packages/auth/src (@the-portland-company/auth 0.1.0, tpc-auth@906bd06).
 // Do not edit here. Replace with the published package once it exists.
-import { resolveIssuer } from "./types.js";
+import { resolveIssuer } from "./types";
 
 export interface FeatureRequestInput {
   /** A PAT or an access token identifying who is asking. */
