@@ -1,5 +1,5 @@
 import type { ApiKeyScope } from "@/lib/api/keys/types";
-import { verifyMobileAccessTokenOrPat } from "@/lib/mobile/api";
+import { authenticateFromHeader } from "./tpc-adapter";
 import {
   JSON_RPC_ERRORS,
   jsonRpcError,
@@ -93,19 +93,18 @@ const authenticate = async (
 ): Promise<
   { ok: true; userId: string } | { ok: false; result: McpHandlerResult }
 > => {
-  const auth = await verifyMobileAccessTokenOrPat(authHeader, requiredScopes);
+  const auth = await authenticateFromHeader(authHeader, requiredScopes);
   if (!auth.ok) {
     const code =
       auth.status === 403
         ? JSON_RPC_ERRORS.FORBIDDEN
         : JSON_RPC_ERRORS.UNAUTHORIZED;
-    const message = auth.error.error?.message || "Authentication failed";
     return {
       ok: false,
-      result: errorResult(auth.status, id, code, message, auth.error),
+      result: errorResult(auth.status, id, code, auth.message),
     };
   }
-  return { ok: true, userId: auth.user.id };
+  return { ok: true, userId: auth.userId };
 };
 
 const handleInitialize = (id: JsonRpcId): McpHandlerResult =>
