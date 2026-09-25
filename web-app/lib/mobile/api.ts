@@ -6,6 +6,8 @@ import type { ApiKeyScope } from '@/lib/api/keys/types'
 import { normalizeLlmAssignment } from '@/lib/llm/assignment'
 import { authenticate as authenticateTpc } from '@/src/vendor/tpc-auth/authenticate'
 import { TPC_RESOURCE } from '@/src/vendor/tpc-auth/config'
+import { resolveIssuer } from '@/src/vendor/tpc-auth/types'
+import { sourceForTpcClientId } from '@/lib/task-sources'
 
 export type MobileApiError = {
   code: string
@@ -112,26 +114,78 @@ const TPC_SCOPE: Record<ApiKeyScope, string> = {
   admin: 'forge:write',
 }
 
-// Build a User-shaped object from a TPC Auth AuthContext so downstream
+// Build a User-shaped object from a resolved Forge profile so downstream
 // mobile handlers (which expect the same shape `supabase.auth.getUser()`
-// returns) can use `auth.user.id` / `auth.user.email` unchanged. TPC's `sub`
-// is used directly as the Focus Forge user id — see lib/mcp/server/handler.ts,
-// which does the same for MCP callers.
-const userFromTpcContext = (ctx: {
-  sub: string
-  email?: string
-}): User =>
+// returns) can use `auth.user.id` / `auth.user.email` unchanged.
+const userFromForgeProfile = (profile: { id: string; email: string | null }): User =>
   ({
-    id: ctx.sub,
+    id: profile.id,
     aud: 'authenticated',
     role: 'authenticated',
-    email: ctx.email,
+    email: profile.email ?? undefined,
     app_metadata: {},
     user_metadata: {},
     identities: [],
     created_at: '',
     updated_at: '',
   }) as unknown as User
+
+// Best-effort fetch of the caller's verified email from the TPC Auth
+// userinfo endpoint, for access tokens that don't carry an `email` claim.
+const fetchTpcUserinfoEmail = async (accessToken: string): Promise<string | null> => {
+  try {
+    const issuer = resolveIssuer()
+    const res = await fetch(`${issuer}/oauth/userinfo`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    })
+    if (!res.ok) return null
+    const body = (await res.json()) as { email?: unknown }
+    return typeof body?.email === 'string' && body.email ? body.email : null
+  } catch {
+    return null
+  }
+}
+
+// TPC subs are NOT Forge ids — a TPC access token authenticates a real
+// person or service, but Forge's `created_by`/`assigned_to` etc. are FKs
+// into `profiles`. Resolve the caller's Forge profile by `tpc_sub` first
+// (fast path, set once we've matched by email), falling back to a
+// case-insensitive email match, persisting the mapping on a hit. Returns
+// null when no Forge profile can be found — callers must not proceed with
+// an unmapped id.
+const resolveForgeProfileForTpcContext = async (
+  ctx: { sub: string; email?: string },
+  accessToken: string,
+): Promise<{ id: string; email: string | null } | null> => {
+  const admin = getAdminClient()
+
+  const { data: bySub } = await admin
+    .from('profiles')
+    .select('id, email')
+    .eq('tpc_sub', ctx.sub)
+    .maybeSingle()
+  if (bySub?.id) return { id: String(bySub.id), email: bySub.email ?? null }
+
+  const email = ctx.email || (await fetchTpcUserinfoEmail(accessToken))
+  if (!email) return null
+
+  const { data: byEmail } = await admin
+    .from('profiles')
+    .select('id, email')
+    .ilike('email', email)
+    .maybeSingle()
+  if (!byEmail?.id) return null
+
+  // Persist the mapping so future calls hit the tpc_sub fast path. Awaited
+  // (not fire-and-forget): supabase-js query builders are lazy thenables and
+  // never issue the request unless awaited/`.then()`-ed.
+  await admin
+    .from('profiles')
+    .update({ tpc_sub: ctx.sub })
+    .eq('id', byEmail.id)
+
+  return { id: String(byEmail.id), email: byEmail.email ?? null }
+}
 
 // Verify a TPC Auth access token (RFC 9068 JWT bound to the Focus Forge
 // resource). Returns null (not an error result) when the bearer token isn't
@@ -158,10 +212,27 @@ const verifyTpcAccessToken = async (
     }
   }
 
+  const profile = await resolveForgeProfileForTpcContext(ctx, token)
+  if (!profile) {
+    return {
+      ok: false as const,
+      status: 403 as const,
+      error: mobileFailure(
+        'no_forge_account',
+        'No Focus Forge account is linked to this identity',
+      ),
+    }
+  }
+
+  const clientId =
+    typeof ctx.claims?.client_id === 'string' ? ctx.claims.client_id : null
+
   return {
     ok: true as const,
     accessToken: token,
-    user: userFromTpcContext(ctx),
+    user: userFromForgeProfile(profile),
+    tpcClientId: clientId,
+    tpcSource: sourceForTpcClientId(clientId),
   }
 }
 
@@ -310,6 +381,7 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
     startTime: 'start_time',
     endDate: 'end_date',
     endTime: 'end_time',
+    sourceUrl: 'source_url',
   }
 
   const allowedFields = new Set([
@@ -354,6 +426,7 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
     'reminders',
     'attachments',
     'type',
+    'source_url',
   ])
 
   const normalized: Record<string, unknown> = {}
@@ -361,10 +434,25 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
   Object.entries(payload).forEach(([key, value]) => {
     if (value === undefined) return
     const mappedKey = fieldMap[key] || key
+    // `source` is always derived server-side from the authenticated client —
+    // never accepted from a request body, on create or update.
+    if (mappedKey === 'source') return
     if (!allowedFields.has(mappedKey)) return
     if (mappedKey === 'type' && !TASK_TYPES.includes(value as any)) return
     normalized[mappedKey] = value
   })
+
+  if (typeof normalized.source_url === 'string' && normalized.source_url.trim()) {
+    let valid = false
+    try {
+      valid = ['http:', 'https:'].includes(new URL(normalized.source_url).protocol)
+    } catch {
+      valid = false
+    }
+    if (!valid) {
+      throw new Error('source_url must be a valid http(s) URL')
+    }
+  }
 
   if ('llm_provider' in normalized || 'llm_model' in normalized || 'llm_effort' in normalized) {
     const llm = normalizeLlmAssignment(normalized)
@@ -430,6 +518,8 @@ export const serializeMobileTask = <T extends Record<string, any>>(
   llm_effort: string | null
   goal_id: string | null
   type: TaskType
+  source: string | null
+  source_url: string | null
 } => ({
   ...task,
   assigned_to: task?.assigned_to ?? task?.assignedTo ?? null,
@@ -443,6 +533,8 @@ export const serializeMobileTask = <T extends Record<string, any>>(
   llm_effort: task?.llm_effort ?? task?.llmEffort ?? null,
   goal_id: task?.goal_id ?? task?.goalId ?? null,
   type: TASK_TYPES.includes(task?.type) ? task.type : 'task',
+  source: task?.source ?? null,
+  source_url: task?.source_url ?? task?.sourceUrl ?? null,
 })
 
 export const serializeMobileTasks = <T extends Record<string, any>>(

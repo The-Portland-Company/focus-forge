@@ -93,7 +93,7 @@ export async function loadCoreDatabaseViaPostgres(
         devnotes_meta, requires_hitl, todoist_order, snoozed_until,
         start_date, start_time, end_date, end_time,
         is_supply, supply_quantity, supply_price, supply_vendor,
-        supply_make, supply_model, supply_type
+        supply_make, supply_model, supply_type, source, source_url
       FROM tasks
       WHERE deleted_at IS NULL
         AND project_id = ANY(${projectIds})
@@ -283,6 +283,8 @@ export async function loadCoreDatabaseViaPostgres(
     llmProvider: task.llm_provider ?? null,
     llmModel: task.llm_model ?? null,
     llmEffort: task.llm_effort ?? null,
+    source: task.source ?? null,
+    sourceUrl: task.source_url ?? null,
     tags: [],
     tagBadges: [],
     reminders: [],

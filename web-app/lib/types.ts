@@ -139,6 +139,11 @@ export interface Task {
   supplyMake?: string | null;
   supplyModel?: string | null;
   supplyType?: string | null;
+  // Where this task came from, when created by a TPC Auth client (e.g.
+  // "swarm-tester"). See lib/task-sources.ts. Always server-derived — never
+  // accepted from a request body.
+  source?: string | null;
+  sourceUrl?: string | null;
   snoozedUntil?: string | null;
   startDate?: string;
   startTime?: string;
