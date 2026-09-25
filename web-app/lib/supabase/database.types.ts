@@ -3249,6 +3249,7 @@ export type Database = {
           todoist_order: number | null
           todoist_sync_token: string | null
           todoist_url: string | null
+          type: string
           updated_at: string | null
         }
         Insert: {
@@ -3296,6 +3297,7 @@ export type Database = {
           todoist_order?: number | null
           todoist_sync_token?: string | null
           todoist_url?: string | null
+          type?: string
           updated_at?: string | null
         }
         Update: {
@@ -3343,6 +3345,7 @@ export type Database = {
           todoist_order?: number | null
           todoist_sync_token?: string | null
           todoist_url?: string | null
+          type?: string
           updated_at?: string | null
         }
         Relationships: [

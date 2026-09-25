@@ -879,7 +879,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       let query = supabase
         .from("tasks")
         .select(
-          "id,name,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,time_estimate,devnotes_meta,requires_hitl,todoist_order,is_supply,supply_quantity,supply_price,supply_vendor,supply_make,supply_model,supply_type,depends_on",
+          "id,name,type,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,time_estimate,devnotes_meta,requires_hitl,todoist_order,is_supply,supply_quantity,supply_price,supply_vendor,supply_make,supply_model,supply_type,depends_on",
         )
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
@@ -968,6 +968,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       return {
         ...task,
         // Map snake_case to camelCase for frontend compatibility
+        type: task.type ?? "task",
         devnotesMeta: task.devnotes_meta,
         requiresHitl: task.requires_hitl ?? false,
         projectId: task.project_id,
@@ -1199,6 +1200,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "depends_on",
       "sentry_issue_id",
       "sentry_org_slug",
+      "type",
     ]);
 
     // Map camelCase fields to snake_case for Supabase
@@ -1408,6 +1410,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "end_date",
       "end_time",
       "depends_on",
+      "type",
     ]);
 
     const fieldMap: Record<string, string> = {

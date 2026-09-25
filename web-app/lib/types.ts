@@ -77,9 +77,12 @@ export interface Project {
   lastTodoistSync?: string;
 }
 
+export type TaskType = "task" | "bug" | "feature";
+
 export interface Task {
   id: string;
   name: string;
+  type?: TaskType;
   description?: string;
   devnotesMeta?: string | null;
   /**

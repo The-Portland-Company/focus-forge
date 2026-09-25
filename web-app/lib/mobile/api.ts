@@ -1,8 +1,10 @@
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient as createSupabaseClient, type User } from '@supabase/supabase-js'
 import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
 import { getAdminClient } from '@/lib/supabase/admin'
 import { hashApiKeySecret } from '@/lib/api/keys/utils'
 import type { ApiKeyScope } from '@/lib/api/keys/types'
+import { authenticate as authenticateTpc } from '@/src/vendor/tpc-auth/authenticate'
+import { TPC_RESOURCE } from '@/src/vendor/tpc-auth/config'
 
 export type MobileApiError = {
   code: string
@@ -100,12 +102,77 @@ const hasAnyRequiredScope = (
   requiredScopes.some((scope) => scopes.includes(scope)) ||
   scopes.includes('admin')
 
+// TPC Auth's app-level scopes for the `forge` app are just forge:read and
+// forge:write; there is no "admin" at the IdP. Mirrors the mapping in
+// lib/mcp/server/tpc-adapter.ts.
+const TPC_SCOPE: Record<ApiKeyScope, string> = {
+  read: 'forge:read',
+  write: 'forge:write',
+  admin: 'forge:write',
+}
+
+// Build a User-shaped object from a TPC Auth AuthContext so downstream
+// mobile handlers (which expect the same shape `supabase.auth.getUser()`
+// returns) can use `auth.user.id` / `auth.user.email` unchanged. TPC's `sub`
+// is used directly as the Focus Forge user id — see lib/mcp/server/handler.ts,
+// which does the same for MCP callers.
+const userFromTpcContext = (ctx: {
+  sub: string
+  email?: string
+}): User =>
+  ({
+    id: ctx.sub,
+    aud: 'authenticated',
+    role: 'authenticated',
+    email: ctx.email,
+    app_metadata: {},
+    user_metadata: {},
+    identities: [],
+    created_at: '',
+    updated_at: '',
+  }) as unknown as User
+
+// Verify a TPC Auth access token (RFC 9068 JWT bound to the Focus Forge
+// resource). Returns null (not an error result) when the bearer token isn't
+// a TPC Auth token at all, so callers can fall through to the PAT check.
+const verifyTpcAccessToken = async (
+  authHeader: string | null,
+  requiredScopes: ApiKeyScope[],
+) => {
+  const token = getBearerToken(authHeader)
+  if (!token) return null
+
+  const request = new Request('https://internal.invalid/mobile', {
+    headers: { authorization: `Bearer ${token}` },
+  })
+  const ctx = await authenticateTpc(request, { resource: TPC_RESOURCE })
+  if (!ctx) return null
+
+  const wanted = requiredScopes.map((scope) => TPC_SCOPE[scope])
+  if (!wanted.some((scope) => ctx.scopes.includes(scope))) {
+    return {
+      ok: false as const,
+      status: 403 as const,
+      error: mobileFailure('insufficient_scope', 'Access token is missing required scope'),
+    }
+  }
+
+  return {
+    ok: true as const,
+    accessToken: token,
+    user: userFromTpcContext(ctx),
+  }
+}
+
 export const verifyMobileAccessTokenOrPat = async (
   authHeader: string | null,
   requiredPatScopes: ApiKeyScope[] = ['read', 'write', 'admin'],
 ) => {
   const jwtAuth = await verifyMobileAccessToken(authHeader)
   if (jwtAuth.ok) return jwtAuth
+
+  const tpcAuth = await verifyTpcAccessToken(authHeader, requiredPatScopes)
+  if (tpcAuth) return tpcAuth
 
   const token = getBearerToken(authHeader)
   if (!token) return jwtAuth
@@ -204,6 +271,9 @@ export const getVisibleMobileUserIds = async (targetUserId: string) => {
   return [targetUserId, ...linked]
 }
 
+export const TASK_TYPES = ['task', 'bug', 'feature'] as const
+export type TaskType = (typeof TASK_TYPES)[number]
+
 export const normalizeTaskInput = (payload: Record<string, unknown>) => {
   const fieldMap: Record<string, string> = {
     devnotesMeta: 'devnotes_meta',
@@ -276,6 +346,7 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
     'tags',
     'reminders',
     'attachments',
+    'type',
   ])
 
   const normalized: Record<string, unknown> = {}
@@ -284,6 +355,7 @@ export const normalizeTaskInput = (payload: Record<string, unknown>) => {
     if (value === undefined) return
     const mappedKey = fieldMap[key] || key
     if (!allowedFields.has(mappedKey)) return
+    if (mappedKey === 'type' && !TASK_TYPES.includes(value as any)) return
     normalized[mappedKey] = value
   })
 
@@ -340,6 +412,7 @@ export const serializeMobileTask = <T extends Record<string, any>>(
   agent_name: string | null
   agent_model: string | null
   goal_id: string | null
+  type: TaskType
 } => ({
   ...task,
   assigned_to: task?.assigned_to ?? task?.assignedTo ?? null,
@@ -349,6 +422,7 @@ export const serializeMobileTask = <T extends Record<string, any>>(
   agent_name: task?.agent_name ?? task?.agentName ?? null,
   agent_model: task?.agent_model ?? task?.agentModel ?? null,
   goal_id: task?.goal_id ?? task?.goalId ?? null,
+  type: TASK_TYPES.includes(task?.type) ? task.type : 'task',
 })
 
 export const serializeMobileTasks = <T extends Record<string, any>>(
