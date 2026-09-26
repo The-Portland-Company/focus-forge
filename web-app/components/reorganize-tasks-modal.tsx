@@ -447,7 +447,6 @@ export function ReorganizeTasksModal({
                               {item.reason}
                             </div>
                           )}
-                          </div>
                         </div>
                       </li>
                     ))}
