@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button"
 import { Check, ChevronDown } from 'lucide-react'
 import { Project, Task } from '@/lib/types'
+import { TaskSourceIcon } from '@/components/task-source-icon'
 
 type Step = 'choose' | 'reassign' | 'confirm-delete'
 
@@ -177,6 +178,7 @@ export function DeleteProjectModal({
                     }`}>
                       {selectedTaskIds.has(task.id) && <Check className="w-3 h-3 text-white" />}
                     </div>
+                    <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
                     <span className="text-sm text-zinc-200 truncate">{task.name}</span>
                   </button>
                 ))}

@@ -6,6 +6,7 @@ import { LLM_PROVIDERS, LLM_EFFORT_LEVELS, LLM_MODEL_SUGGESTIONS } from '@/lib/l
 import { Task, Project, Database, RecurringConfig } from '@/lib/types'
 import { RecurringPicker } from '@/components/recurring-picker'
 import { serializeRecurringConfig } from '@/lib/recurring-utils'
+import { TaskSourceIcon } from '@/components/task-source-icon'
 import {
   ModalMinimizeButton,
   useModalWindow,
@@ -907,6 +908,7 @@ export function BulkEditModal({ isOpen, onClose, selectedTaskIds, database, onAp
                                 }}
                                 className="w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-700 transition-colors flex items-center gap-2"
                               >
+                                <TaskSourceIcon source={(t as any).source} sourceUrl={(t as any).sourceUrl} />
                                 <span className="truncate">{t.name}</span>
                                 {t.completed && (
                                   <span className="text-xs text-zinc-500 flex-shrink-0">Done</span>

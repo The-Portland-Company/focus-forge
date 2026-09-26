@@ -3,8 +3,9 @@
 import { useMemo, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Send, Clock, CheckSquare, Loader2 } from "lucide-react";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 
-type LinkedTask = { id: string; name: string };
+type LinkedTask = { id: string; name: string; source?: string | null; sourceUrl?: string | null };
 
 export interface BoomerangResult {
   boomerangUntil?: string;
@@ -201,6 +202,7 @@ export function BoomerangPopover({
                     className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-zinc-800"
                   >
                     <CheckSquare className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                    <TaskSourceIcon source={t.source} sourceUrl={t.sourceUrl} />
                     <span className="truncate">{t.name}</span>
                   </button>
                 ))}

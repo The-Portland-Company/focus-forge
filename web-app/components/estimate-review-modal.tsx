@@ -27,6 +27,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 
 interface UnestimatedTask {
   id: string;
@@ -41,6 +42,8 @@ interface UnestimatedTask {
   subtaskCount?: number | null;
   recurringPattern?: string | null;
   isRecurring?: boolean;
+  source?: string | null;
+  sourceUrl?: string | null;
 }
 
 interface AiSuggestion {
@@ -508,8 +511,11 @@ export function EstimateReviewModal({
                 )}
                 {current.projectName && <span>{current.projectName}</span>}
               </div>
-              <div className="text-base text-white font-medium leading-snug">
-                {current.name}
+              <div className="flex items-center gap-2">
+                <TaskSourceIcon source={current.source} sourceUrl={current.sourceUrl} />
+                <div className="text-base text-white font-medium leading-snug">
+                  {current.name}
+                </div>
               </div>
               {current.description && (
                 <div className="mt-2 text-sm text-zinc-400 line-clamp-3 whitespace-pre-wrap">

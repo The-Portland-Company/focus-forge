@@ -3013,6 +3013,7 @@ export function TaskModal({
                         .map((t) => (
                           <SelectItem key={t.id} value={t.id}>
                             <div className="flex items-center gap-2">
+                              <TaskSourceIcon source={t.source} sourceUrl={t.sourceUrl} />
                               <span>
                                 {t.parentId ? "↳ " : ""}
                                 {t.name}

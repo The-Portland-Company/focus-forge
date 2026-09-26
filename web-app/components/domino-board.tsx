@@ -30,6 +30,7 @@ import {
   STAKE_EXAMPLES,
 } from "@/lib/domino/help";
 import { Tooltip } from "@/components/tooltip";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 import { DominoGantt, type GanttStake } from "@/components/domino-gantt";
 import {
   DominoFilterBar,
@@ -104,6 +105,8 @@ interface BoardResolver {
   taskId: string;
   resolutionType: string;
   taskName?: string | null;
+  source?: string | null;
+  sourceUrl?: string | null;
 }
 
 interface BoardStake {
@@ -683,6 +686,7 @@ export function DominoBoard() {
                     >
                       <span className="flex items-center gap-1.5 text-zinc-200">
                         <Wrench className="h-3 w-3 text-sky-300" />
+                        <TaskSourceIcon source={r.source} sourceUrl={r.sourceUrl} />
                         {r.taskName || "Linked task"}
                       </span>
                       <Tooltip content={HELP_RESOLVER} className="inline-flex" side="top">
