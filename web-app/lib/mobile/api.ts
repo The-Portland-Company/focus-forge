@@ -139,7 +139,8 @@ const fetchTpcUserinfoEmail = async (accessToken: string): Promise<string | null
       headers: { authorization: `Bearer ${accessToken}` },
     })
     if (!res.ok) return null
-    const body = (await res.json()) as { email?: unknown }
+    const body = (await res.json()) as { email?: unknown; email_verified?: unknown }
+    if (body?.email_verified === false) return null
     return typeof body?.email === 'string' && body.email ? body.email : null
   } catch {
     return null
@@ -154,7 +155,7 @@ const fetchTpcUserinfoEmail = async (accessToken: string): Promise<string | null
 // null when no Forge profile can be found — callers must not proceed with
 // an unmapped id.
 const resolveForgeProfileForTpcContext = async (
-  ctx: { sub: string; email?: string },
+  ctx: { sub: string; email?: string; claims?: Record<string, unknown> },
   accessToken: string,
 ): Promise<{ id: string; email: string | null } | null> => {
   const admin = getAdminClient()
@@ -166,7 +167,11 @@ const resolveForgeProfileForTpcContext = async (
     .maybeSingle()
   if (bySub?.id) return { id: String(bySub.id), email: bySub.email ?? null }
 
-  const email = ctx.email || (await fetchTpcUserinfoEmail(accessToken))
+  // Only a verified email may link a TPC identity to an existing profile.
+  // The token carries `email` only when the client requested the `email`
+  // scope; app-bound tokens are rejected by userinfo, so that is a fallback.
+  const tokenEmail = ctx.claims?.email_verified === false ? undefined : ctx.email
+  const email = tokenEmail || (await fetchTpcUserinfoEmail(accessToken))
   if (!email) return null
 
   const { data: byEmail } = await admin
