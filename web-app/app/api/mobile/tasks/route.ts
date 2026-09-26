@@ -208,6 +208,10 @@ export async function POST(request: NextRequest) {
     const newTask = await adapter.createTask({
       ...payload,
       ...(reporterCreatedBy ? { created_by: reporterCreatedBy } : {}),
+      // `source` is never taken from the request body (normalizeTaskInput
+      // strips it); it's derived from the authenticated TPC Auth client, if
+      // any.
+      ...("tpcSource" in auth && auth.tpcSource ? { source: auth.tpcSource } : {}),
       ...(normalizedTaskContent
         ? {
             description: normalizedTaskContent.description,

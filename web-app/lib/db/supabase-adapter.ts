@@ -879,7 +879,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       let query = supabase
         .from("tasks")
         .select(
-          "id,name,type,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,llm_provider,llm_model,llm_effort,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,time_estimate,devnotes_meta,requires_hitl,todoist_order,is_supply,supply_quantity,supply_price,supply_vendor,supply_make,supply_model,supply_type,depends_on",
+          "id,name,type,description,priority,completed,completed_at,due_date,due_time,project_id,section_id,goal_id,parent_id,assigned_to,created_by,agent_name,agent_model,llm_provider,llm_model,llm_effort,created_at,updated_at,deleted_at,todoist_id,recurring_pattern,time_estimate,devnotes_meta,requires_hitl,todoist_order,is_supply,supply_quantity,supply_price,supply_vendor,supply_make,supply_model,supply_type,depends_on,source,source_url",
         )
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
@@ -1008,6 +1008,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
         startTime: task.start_time,
         endDate: task.end_date,
         endTime: task.end_time,
+        source: task.source ?? null,
+        sourceUrl: task.source_url ?? null,
         // Tags/reminders/attachments loaded lazily elsewhere; empty keeps UI up.
         tags: [],
         tagBadges: [],
@@ -1108,6 +1110,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
       startTime: data.start_time,
       endDate: data.end_date,
       endTime: data.end_time,
+      source: data.source ?? null,
+      sourceUrl: data.source_url ?? null,
       tags: data.tags?.map((t: any) => t.tag.id) || [],
       tagBadges:
         data.tags
@@ -1210,6 +1214,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "sentry_issue_id",
       "sentry_org_slug",
       "type",
+      "source",
+      "source_url",
     ]);
 
     // Map camelCase fields to snake_case for Supabase
@@ -1259,6 +1265,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       dependsOn: "depends_on",
       sentryIssueId: "sentry_issue_id",
       sentryOrgSlug: "sentry_org_slug",
+      sourceUrl: "source_url",
     };
 
     const taskData: Record<string, any> = {};
@@ -1426,6 +1433,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
       "end_time",
       "depends_on",
       "type",
+      "source",
+      "source_url",
     ]);
 
     const fieldMap: Record<string, string> = {
@@ -1469,6 +1478,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       endDate: "end_date",
       endTime: "end_time",
       dependsOn: "depends_on",
+      sourceUrl: "source_url",
     };
 
     const taskData: Record<string, any> = {};
