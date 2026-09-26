@@ -59,28 +59,36 @@ export async function GET(request: NextRequest) {
     ) as string[];
 
     const taskNameById = new Map<string, string>();
+    const taskSourceById = new Map<string, { source: string | null; sourceUrl: string | null }>();
     if (resolverTaskIds.length > 0) {
       const { data: taskRows } = await auth.supabase
         .from("tasks")
-        .select("id, name")
+        .select("id, name, source, source_url")
         .in("id", resolverTaskIds)
         .is("deleted_at", null);
       for (const row of (taskRows as any[]) ?? []) {
         taskNameById.set(String(row.id), row.name ?? "");
+        taskSourceById.set(String(row.id), {
+          source: row.source ?? null,
+          sourceUrl: row.source_url ?? null,
+        });
       }
     }
 
     // Resolver tasks per stake, from the links.
     const resolversByStake = new Map<
       string,
-      { taskId: string; resolutionType: string; taskName: string | null }[]
+      { taskId: string; resolutionType: string; taskName: string | null; source: string | null; sourceUrl: string | null }[]
     >();
     for (const link of graph.links as any[]) {
       const list = resolversByStake.get(link.stake_id) ?? [];
+      const taskSource = taskSourceById.get(String(link.task_id));
       list.push({
         taskId: link.task_id,
         resolutionType: link.resolution_type,
         taskName: taskNameById.get(String(link.task_id)) ?? null,
+        source: taskSource?.source ?? null,
+        sourceUrl: taskSource?.sourceUrl ?? null,
       });
       resolversByStake.set(link.stake_id, list);
     }

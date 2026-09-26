@@ -52,6 +52,8 @@ export interface DailyPlanCardItemContext {
     id: string;
     name: string;
     projectName?: string | null;
+    source?: string | null;
+    sourceUrl?: string | null;
   };
   inboxItem?: {
     id: string;

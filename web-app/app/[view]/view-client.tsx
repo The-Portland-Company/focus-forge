@@ -5516,6 +5516,8 @@ export default function ViewPage({
                         id: task.id,
                         name: task.name,
                         projectName: project?.name || null,
+                        source: (task as any).source ?? null,
+                        sourceUrl: (task as any).sourceUrl ?? null,
                       },
                     };
                   }

@@ -4655,7 +4655,10 @@ export async function getThreadDetailForUser(userId: string, threadId: string) {
       bcc: attachContactsToRecipients(entry.bcc, contactsByEmail),
       participants: participantMap.get(entry.id) || [],
     })),
-    linkedTasks: tasks || [],
+    linkedTasks: (tasks || []).map((row: any) => ({
+      ...row,
+      sourceUrl: row.source_url ?? null,
+    })),
     activeReplyDraft,
   };
 }

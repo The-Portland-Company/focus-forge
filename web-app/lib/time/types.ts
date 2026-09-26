@@ -46,6 +46,8 @@ export interface TimeTrackingTaskOption {
   name: string;
   projectId: string | null;
   sectionId: string | null;
+  source?: string | null;
+  sourceUrl?: string | null;
 }
 
 export interface TimeTrackingSectionOption {

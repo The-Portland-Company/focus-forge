@@ -133,6 +133,8 @@ export function mapTimeTask(row: any): TimeTrackingTaskOption {
       typeof row.section_id === "string" && row.section_id.length > 0
         ? row.section_id
         : null,
+    source: row.source ?? null,
+    sourceUrl: row.source_url ?? null,
   };
 }
 
