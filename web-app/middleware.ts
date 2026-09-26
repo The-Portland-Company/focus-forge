@@ -15,6 +15,9 @@ const publicRoutes = [
   "/icon-192.png",
   "/icon-512.png",
   "/icon-maskable-512.png",
+  // Integration logos (e.g. task-source icons) must be publicly fetchable so
+  // they render on logged-out share pages.
+  "/integrations",
   "/auth/login",
   "/auth/register",
   "/auth/forgot-password",

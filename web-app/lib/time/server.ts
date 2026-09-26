@@ -154,7 +154,9 @@ const TIME_ENTRY_SELECT_SQL = `
                 'id', t.id,
                 'name', t.name,
                 'project_id', t.project_id,
-                'section_id', t.section_id
+                'section_id', t.section_id,
+                'source', t.source,
+                'source_url', t.source_url
               )
             END
           )
@@ -257,7 +259,7 @@ export async function getTimeBootstrap(userId: string): Promise<TimeTrackingBoot
   ] = await Promise.all([
     admin.from("organizations").select("id,name").in("id", organizationIds).order("name"),
     admin.from("sections").select("id,name,project_id").in("project_id", projectIds).order("name"),
-    admin.from("tasks").select("id,name,project_id,section_id").in("project_id", projectIds).order("name"),
+    admin.from("tasks").select("id,name,project_id,section_id,source,source_url").in("project_id", projectIds).order("name"),
     admin
       .from("user_organizations")
       .select("organization_id,user_id,profiles!inner(id,email,first_name,last_name,role)")

@@ -82,7 +82,7 @@ export async function POST(
     // Open, non-deleted tasks in the project.
     const { data: taskRows, error: taskError } = await (supabase as any)
       .from("tasks")
-      .select("id,name,description,project_id,section_id")
+      .select("id,name,description,project_id,section_id,source,source_url")
       .eq("project_id", projectId)
       .eq("completed", false)
       .is("deleted_at", null);
@@ -100,6 +100,8 @@ export async function POST(
       description: string | null;
       project_id: string;
       section_id: string | null;
+      source: string | null;
+      source_url: string | null;
     }>).filter(
       (t) => !requestedTaskIds || requestedTaskIds.has(t.id),
     );
@@ -139,8 +141,19 @@ export async function POST(
       chain,
     });
 
+    // Attach source/sourceUrl (not part of the LLM classification) so the
+    // review UI can show each task's origin icon.
+    const sourceByTask = new Map(
+      tasks.map((t) => [t.id, { source: t.source, sourceUrl: t.source_url }]),
+    );
+    const proposalWithSource = proposal.map((p) => ({
+      ...p,
+      source: sourceByTask.get(p.taskId)?.source ?? null,
+      sourceUrl: sourceByTask.get(p.taskId)?.sourceUrl ?? null,
+    }));
+
     if (!apply) {
-      return NextResponse.json({ projectId, proposal });
+      return NextResponse.json({ projectId, proposal: proposalWithSource });
     }
 
     // Apply: build moves from the proposal (respecting an explicit taskIds set).
@@ -184,7 +197,12 @@ export async function POST(
       moves,
     });
 
-    return NextResponse.json({ projectId, batchId, movedCount, proposal });
+    return NextResponse.json({
+      projectId,
+      batchId,
+      movedCount,
+      proposal: proposalWithSource,
+    });
   } catch (error) {
     console.error("Error reorganizing project tasks:", error);
     return NextResponse.json(

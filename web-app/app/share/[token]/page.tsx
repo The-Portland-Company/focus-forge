@@ -159,6 +159,8 @@ export default async function SharePage(props: {
     supply_make: string | null;
     supply_model: string | null;
     supply_type: string | null;
+    source: string | null;
+    source_url: string | null;
   }> | null = null;
   let onHandSupplies: Array<{
     id: string;
@@ -193,7 +195,7 @@ export default async function SharePage(props: {
       admin
         .from("tasks")
         .select(
-          "id,name,completed,section_id,todoist_order,parent_id,is_supply,supply_quantity,supply_price,supply_vendor,supply_make,supply_model,supply_type",
+          "id,name,completed,section_id,todoist_order,parent_id,is_supply,supply_quantity,supply_price,supply_vendor,supply_make,supply_model,supply_type,source,source_url",
         )
         .eq("project_id", project.id)
         .is("deleted_at", null)
@@ -216,7 +218,7 @@ export default async function SharePage(props: {
     return <Unavailable />;
   }
 
-  const allTasks = (tasks || []) as Array<{
+  const allTasks = ((tasks || []) as Array<{
     id: string;
     name: string;
     completed: boolean | null;
@@ -229,7 +231,9 @@ export default async function SharePage(props: {
     supply_make: string | null;
     supply_model: string | null;
     supply_type: string | null;
-  }>;
+    source: string | null;
+    source_url: string | null;
+  }>).map((t) => ({ ...t, sourceUrl: t.source_url }));
 
 
   // Re-derived from the row on every request, so revoking or downgrading a link
