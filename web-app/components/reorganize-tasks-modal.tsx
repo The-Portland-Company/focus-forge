@@ -16,6 +16,7 @@ import {
   ModalResizeHandle,
   useModalWindow,
 } from "@/components/ui/modal-window";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 
 /**
  * "Reorganize misfiled tasks" — a reusable modal available on any project.
@@ -424,8 +425,11 @@ export function ReorganizeTasksModal({
                           className="mt-1 h-4 w-4 rounded border-zinc-600 bg-zinc-800"
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm text-zinc-200">
-                            {item.name}
+                          <div className="flex items-center gap-1.5">
+                            <TaskSourceIcon source={(item as any).source} sourceUrl={(item as any).sourceUrl} />
+                            <div className="truncate text-sm text-zinc-200">
+                              {item.name}
+                            </div>
                           </div>
                           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
                             <span className="truncate">{projectName}</span>

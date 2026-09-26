@@ -12,8 +12,9 @@ import {
   type SupplyLike,
 } from "@/lib/supply";
 import { SupplyTotal } from "@/components/supply-total";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 
-type SupplyRow = SupplyLike & { id: string; name: string };
+type SupplyRow = SupplyLike & { id: string; name: string; source?: string | null; sourceUrl?: string | null };
 
 /**
  * The supplies half of one section row on the public share page: the section's
@@ -50,6 +51,7 @@ export function ShareSupplyPanel({ items }: { items: SupplyRow[] }) {
                     acquired ? "line-through" : ""
                   }`}
                 >
+                  <TaskSourceIcon source={item.source} sourceUrl={item.sourceUrl} />
                   {item.name}
                 </span>
                 <span

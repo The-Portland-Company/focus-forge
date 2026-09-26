@@ -6,6 +6,7 @@ import { Task, Project, Database } from '@/lib/types'
 import { format, isToday, isTomorrow, isThisWeek, addDays, startOfWeek, endOfWeek, isPast, isFuture } from 'date-fns'
 import { getBlockedTaskIds } from '@/lib/dependency-utils'
 import { useIsMobile } from '@/hooks/use-is-mobile'
+import { TaskSourceIcon } from '@/components/task-source-icon'
 
 interface KanbanViewProps {
   tasks: Task[]
@@ -222,6 +223,7 @@ export function KanbanView({ tasks, allTasks, projects, onTaskToggle, onTaskEdit
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
+                        <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
                         <div
                           onClick={() => onTaskEdit(task)}
                           className={`text-sm cursor-pointer ${

@@ -6,6 +6,7 @@ import { SupplyTotal } from "./supply-total";
 import { ShareSupplyPanel } from "./share-supply-panel";
 import { SupplyLine } from "./supply-line";
 import { taskDisplayName } from "@/lib/supply";
+import { TaskSourceIcon } from "./task-source-icon";
 
 interface ShareTask {
   id: string;
@@ -17,6 +18,8 @@ interface ShareTask {
   supply_quantity?: number | string | null;
   supply_price?: number | string | null;
   supply_vendor?: string | null;
+  source?: string | null;
+  sourceUrl?: string | null;
 }
 
 interface ShareGroup {
@@ -157,6 +160,7 @@ export function ShareTaskBoard({
               <Circle className="h-4 w-4" />
             )}
           </button>
+          <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
           <span
             className={
               task.completed

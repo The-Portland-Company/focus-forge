@@ -8,6 +8,7 @@ import {
 } from "@/components/estimate-help-modal";
 import { Hourglass, Pencil, Play, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 import { useUserProfile } from "@/lib/supabase/hooks";
 import {
   Dialog,
@@ -25,6 +26,8 @@ interface PreviewTask {
   dueDate?: string | null;
   projectName?: string | null;
   organizationName?: string | null;
+  source?: string | null;
+  sourceUrl?: string | null;
 }
 
 interface CalibrationExample {
@@ -328,6 +331,7 @@ export function EstimatesView() {
                             }`}
                           />
                         )}
+                        <TaskSourceIcon source={t.source} sourceUrl={t.sourceUrl} />
                         {t.name}
                       </span>
                     </td>

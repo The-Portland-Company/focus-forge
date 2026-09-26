@@ -28,6 +28,7 @@ import { GoalEdits } from "@/components/edit-goal-modal";
 import { getBlockedTaskIds } from "@/lib/dependency-utils";
 import { richTextToPlainText } from "@/lib/rich-text";
 import { UserAvatar } from "@/components/user-avatar";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 
 type TaskWithSnakeCase = Task & {
@@ -292,6 +293,7 @@ function BoardTaskCard({
                 style={{ animation: "task-save-check-fade 3s ease-out forwards" }}
               />
             )}
+            <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
             <span className="min-w-0 flex-1">{task.name}</span>
           </div>
           {description ? (

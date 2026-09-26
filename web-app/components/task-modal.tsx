@@ -80,6 +80,7 @@ import { HistoryTimelineScrubber } from "@/components/history-timeline-scrubber"
 import { OnHandSuppliesCard } from "@/components/on-hand-supplies-card";
 import { TimePicker } from "@/components/time-picker";
 import { UserAvatar } from "@/components/user-avatar";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 import { RecurringPicker } from "@/components/recurring-picker";
 import {
   parseRecurringPattern,
@@ -1686,6 +1687,7 @@ export function TaskModal({
                 }`}
               >
                 <Link2 className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
+                <TaskSourceIcon source={t.source} sourceUrl={t.sourceUrl} />
                 <span className="text-sm text-zinc-200 truncate flex-1">
                   {t.name}
                 </span>
@@ -2302,7 +2304,7 @@ export function TaskModal({
               onClick={() => onTaskSelect(parentTask)}
               className="text-sm text-zinc-400 hover:text-zinc-200 flex items-center gap-2"
             >
-              ← Go to parent task: {parentTask.name}
+              ← Go to parent task: <TaskSourceIcon source={parentTask.source} sourceUrl={parentTask.sourceUrl} /> {parentTask.name}
             </button>
           )}
 
@@ -2359,11 +2361,13 @@ export function TaskModal({
               renderSupplyFields()
             ) : (
             <>
-            <input
-              id={titleInputId}
-              ref={titleInputRef}
-              type="text"
-              value={taskName}
+            <div className="flex items-center gap-2">
+              <TaskSourceIcon source={task?.source} sourceUrl={task?.sourceUrl} className="!mr-0" />
+              <input
+                id={titleInputId}
+                ref={titleInputRef}
+                type="text"
+                value={taskName}
               onChange={(e) => {
                 const value = e.target.value;
                 const cursorPos = e.target.selectionStart || 0;
@@ -2425,7 +2429,8 @@ export function TaskModal({
               placeholder="Title"
               className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-medium text-white transition-colors placeholder-zinc-500 focus-theme"
               autoFocus
-            />
+              />
+            </div>
 
             {renderBlockerMentionPopover("title")}
             {renderUserMentionPopover("title")}
@@ -3008,6 +3013,7 @@ export function TaskModal({
                         .map((t) => (
                           <SelectItem key={t.id} value={t.id}>
                             <div className="flex items-center gap-2">
+                              <TaskSourceIcon source={t.source} sourceUrl={t.sourceUrl} />
                               <span>
                                 {t.parentId ? "↳ " : ""}
                                 {t.name}
@@ -4162,6 +4168,7 @@ export function TaskModal({
                           {depth > 0 && (
                             <CornerDownRight className="w-3 h-3 text-zinc-500 shrink-0" />
                           )}
+                          <TaskSourceIcon source={t.source} sourceUrl={t.sourceUrl} />
                           <div className="flex-1 min-w-0">
                             <div
                               className={`text-sm truncate ${
@@ -4295,6 +4302,7 @@ export function TaskModal({
                       <Circle className="w-4 h-4" />
                     )}
                   </button>
+                  <TaskSourceIcon source={subtask.source} sourceUrl={subtask.sourceUrl} />
                   {editingSubtaskKey === subtask.id ? (
                     <input
                       ref={editingSubtaskInputRef}

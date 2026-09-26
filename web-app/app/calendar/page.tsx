@@ -8,6 +8,7 @@ import { Trash2, Plus, Clock, Calendar, GripVertical, Rss, Copy, Check, X } from
 import { useToast } from '@/contexts/ToastContext'
 import { CalendarChat } from '@/components/calendar-chat'
 import { Skeleton } from '@/components/ui/skeleton'
+import { TaskSourceIcon } from '@/components/task-source-icon'
 
 export default function CalendarPage() {
   const { user } = useAuth()
@@ -319,6 +320,7 @@ export default function CalendarPage() {
                 >
                   <div className="flex items-center gap-2">
                     <GripVertical className="w-4 h-4 text-gray-400" />
+                    <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
                     <span className="text-sm text-gray-200">{task.name}</span>
                   </div>
                 </div>
@@ -506,8 +508,9 @@ export default function CalendarPage() {
                                 {block.tasks?.map((task: any) => (
                                   <span
                                     key={task.id}
-                                    className="bg-gray-700 text-gray-200 px-2 py-1 rounded text-xs"
+                                    className="bg-gray-700 text-gray-200 px-2 py-1 rounded text-xs flex items-center gap-1"
                                   >
+                                    <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
                                     {task.name}
                                   </span>
                                 ))}
