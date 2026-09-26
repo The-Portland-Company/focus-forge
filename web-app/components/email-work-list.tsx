@@ -74,11 +74,14 @@ import type {
 import type { ThreadAction } from "@/lib/email-inbox/thread-actions";
 import { EmailSpamExplainabilityModal } from "@/components/email-spam-explainability-modal";
 import { EmailContextMenu } from "@/components/email-context-menu";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 import { cn } from "@/lib/utils";
 
 type LinkedTaskSummary = {
   id: string;
   name: string;
+  source?: string | null;
+  sourceUrl?: string | null;
 };
 
 type EmailWorkListProps = {
@@ -2331,6 +2334,7 @@ export function EmailWorkList({
                     className="flex items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3"
                   >
                     <SquareCheckBig className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
+                    <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
                     <div className="min-w-0">
                       <div className="break-words text-sm font-medium text-zinc-100">
                         {task.name}
@@ -2399,6 +2403,7 @@ export function EmailWorkList({
                     className="flex items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3"
                   >
                     <SquareCheckBig className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                    <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
                     <div className="min-w-0">
                       <div className="break-words text-sm font-medium text-zinc-100">
                         {task.name}

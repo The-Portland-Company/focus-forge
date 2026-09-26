@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 
 /**
  * Badge wrapper for the left-nav org/project task counts. Clicking the count
@@ -156,6 +157,7 @@ export function NavTasksBadge({
                     className="flex items-center gap-2 rounded-md px-2 py-1 text-xs"
                   >
                     <Flag className={`h-3 w-3 shrink-0 ${meta.className}`} />
+                    <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
                     <span className="min-w-0 flex-1 truncate">{task.name}</span>
                     {label ? (
                       <span className="shrink-0 truncate text-xs sm:text-[10px] text-muted-foreground">
@@ -258,6 +260,7 @@ export function NavTasksBadge({
                       ) : (
                         <Circle className="h-4 w-4 shrink-0 text-muted-foreground" />
                       )}
+                      <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
                       <span
                         className={`min-w-0 flex-1 truncate ${task.completed ? "text-muted-foreground line-through" : ""}`}
                       >

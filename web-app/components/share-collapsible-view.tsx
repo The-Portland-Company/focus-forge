@@ -11,6 +11,7 @@ import {
 import { SupplyLine } from "@/components/supply-line";
 import { SupplyTotal } from "@/components/supply-total";
 import { ShareSupplyPanel } from "@/components/share-supply-panel";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 
 export type ShareTask = SupplyLike & {
   id: string;
@@ -18,6 +19,8 @@ export type ShareTask = SupplyLike & {
   completed: boolean | null;
   section_id: string | null;
   parent_id: string | null;
+  source?: string | null;
+  sourceUrl?: string | null;
 };
 
 /**
@@ -151,6 +154,7 @@ export function ShareCollapsibleView({
           ) : (
             <Circle className="h-4 w-4 shrink-0 text-zinc-600" />
           )}
+          <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
           <span
             className={
               task.completed

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
+import { TaskGoalRow } from "./task-goal-row";
 
 // This page is per-user and auth-gated (middleware), so render dynamically.
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ type GoalRow = {
 };
 
 type PlanRow = { id: string; name: string; updated_at: string };
-type TaskRow = { id: string; name: string; completed: boolean };
+type TaskRow = { id: string; name: string; completed: boolean; source?: string | null; source_url?: string | null };
 
 async function loadGoal(id: string) {
   const supabase = await createClient();
@@ -50,7 +51,7 @@ async function loadGoal(id: string) {
       .order("created_at", { ascending: true }),
     supabase
       .from("tasks")
-      .select("id,name,completed")
+      .select("id,name,completed,source,source_url")
       .eq("goal_id", id)
       .is("deleted_at", null)
       .order("order_index", { ascending: true }),
@@ -134,15 +135,14 @@ export default async function GoalRoutePage(props: {
           ) : (
             <ul className="divide-y divide-border rounded-lg border border-border bg-card">
               {tasks.map((t) => (
-                <li
+                <TaskGoalRow
                   key={t.id}
-                  className="flex items-center gap-3 px-4 py-3 text-sm"
-                >
-                  <span aria-hidden>{t.completed ? "☑" : "☐"}</span>
-                  <span className={t.completed ? "text-muted-foreground line-through" : ""}>
-                    {t.name}
-                  </span>
-                </li>
+                  id={t.id}
+                  name={t.name}
+                  completed={t.completed}
+                  source={t.source}
+                  sourceUrl={t.source_url}
+                />
               ))}
             </ul>
           )}

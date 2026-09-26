@@ -56,6 +56,7 @@ import { EmailThreadAttachments } from "@/components/email-thread-attachments";
 import { FloatingPanel } from "@/components/floating-panel";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Tooltip } from "@/components/tooltip";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 import { EmailSignatureContent } from "@/components/email-signature-content";
 import { resolveAttachmentUrl } from "@/lib/email-inbox/attachments";
 import {
@@ -2652,6 +2653,7 @@ export function EmailThreadModal({
                                         )}
                                       </button>
                                     </Tooltip>
+                                    <TaskSourceIcon source={(task as any).source} sourceUrl={(task as any).sourceUrl} />
                                     <span
                                       className={cn(
                                         "min-w-0 flex-1 truncate",

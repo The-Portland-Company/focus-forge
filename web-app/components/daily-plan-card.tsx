@@ -16,6 +16,7 @@ import {
 import { SnoozePopover } from "@/components/snooze-popover";
 import { Tooltip } from "@/components/tooltip";
 import { DominoBadge } from "@/components/domino-badge";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 import { normalizeInboxActionTitle } from "@/components/email-work-list";
 import {
   Dialog,
@@ -304,6 +305,7 @@ export function DailyPlanCard({
       currentItem.kind === "task" ? (
         <div className="flex items-center gap-2">
           <ListChecks className="h-4 w-4 text-theme-primary" />
+          <TaskSourceIcon source={(currentContext?.task as any)?.source} sourceUrl={(currentContext?.task as any)?.sourceUrl} />
           <span className="text-base font-medium text-white">
             {currentContext?.task?.name || "Task"}
           </span>

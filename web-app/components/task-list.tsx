@@ -59,6 +59,7 @@ import {
 } from "@/components/dependency-link-overlay";
 import { UserAvatar } from "@/components/user-avatar";
 import { DominoBadge } from "@/components/domino-badge";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 import type { DominoTaskSummary } from "@/lib/daily-plan/types";
 import * as Popover from "@radix-ui/react-popover";
 
@@ -1070,6 +1071,7 @@ export function TaskList({
                       </button>
                     )}
                     <span className="min-w-0 flex-1 whitespace-normal break-words">
+                      <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
                       {isAiCreatedTask(task.id, aiCreatedByTaskId) ? (
                         <button
                           type="button"

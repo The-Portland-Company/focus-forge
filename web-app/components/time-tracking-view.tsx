@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { TaskSourceIcon } from "@/components/task-source-icon";
 import type {
   TimeTrackingBootstrap,
   TimeTrackingEntry,
@@ -640,6 +641,7 @@ export function TimeTrackingView() {
                             }))
                           }
                         />
+                        <TaskSourceIcon source={(task as any).source} sourceUrl={(task as any).sourceUrl} />
                         <span>{task.name}</span>
                       </label>
                     );
