@@ -116,7 +116,10 @@ const applySecurityHeaders = (response: NextResponse) => {
 };
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname, search } = request.nextUrl;
+  // Full path + query (e.g. "/project-<id>?task=<id>") so a deep link survives
+  // the login/MFA redirect round trip instead of losing its query string.
+  const pathWithQuery = `${pathname}${search}`;
   const host = request.headers.get("host")?.toLowerCase();
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -253,7 +256,7 @@ export async function middleware(request: NextRequest) {
 
     // For page routes, redirect to login
     const loginUrl = new URL("/auth/login", request.url);
-    loginUrl.searchParams.set("from", pathname);
+    loginUrl.searchParams.set("from", pathWithQuery);
     return carryAuthCookies(NextResponse.redirect(loginUrl));
   }
 
@@ -268,7 +271,7 @@ export async function middleware(request: NextRequest) {
       );
     }
     const loginUrl = new URL("/auth/login", request.url);
-    loginUrl.searchParams.set("from", pathname);
+    loginUrl.searchParams.set("from", pathWithQuery);
     return carryAuthCookies(NextResponse.redirect(loginUrl));
   }
 
@@ -288,7 +291,7 @@ export async function middleware(request: NextRequest) {
     }
     const mfaUrl = new URL(MFA_GATE_PATH, request.url);
     if (pathname && pathname !== "/") {
-      mfaUrl.searchParams.set("from", pathname);
+      mfaUrl.searchParams.set("from", pathWithQuery);
     }
     return carryAuthCookies(NextResponse.redirect(mfaUrl));
   }
