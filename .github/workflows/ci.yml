@@ -20,7 +20,7 @@ defaults:
 jobs:
   verify:
     name: Test, typecheck, build
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
@@ -48,7 +48,7 @@ jobs:
 
   secrets-scan:
     name: Secret scan (gitleaks)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 10
     defaults:
       run:
@@ -70,7 +70,7 @@ jobs:
 
   supabase-advisor:
     name: Supabase Advisor
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 10
     defaults:
       run:
@@ -99,7 +99,7 @@ jobs:
 
   migrations:
     name: Migrations replay
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 15
     defaults:
       run:
