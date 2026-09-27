@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { authenticate, bearerToken } from "@/src/vendor/tpc-auth/authenticate";
+import { authenticate } from "@/src/vendor/tpc-auth/authenticate";
 import { refresh as refreshTokens } from "@/src/vendor/tpc-auth/oidc";
 import { TPC_CLIENT_ID, TPC_RESOURCE } from "@/src/vendor/tpc-auth/config";
 import type { AuthContext } from "@/src/vendor/tpc-auth/types";
@@ -63,7 +63,6 @@ const publicRoutes = [
   // the session-only gate, like /api/mobile and /api/proof/upload.
   "/api/sentry/webhook",
   "/api/sync/comments",
-  "/api/accept-invite",
   "/api/health",
   "/api/calendar/feed",
   "/api/v1/time",
@@ -189,14 +188,6 @@ export async function middleware(request: NextRequest) {
     const canonicalUrl = new URL(request.url);
     canonicalUrl.host = "focusforge.theportlandcompany.com";
     return NextResponse.redirect(canonicalUrl, 301);
-  }
-
-  // A request carrying its own Authorization: Bearer credential (a mobile
-  // access token or a Forge PAT) authenticates itself at the route via
-  // verifyMobileAccessTokenOrPat — same as /api/mobile always has. Middleware
-  // only gates the cookie session, so let these through unconditionally.
-  if (bearerToken(request)) {
-    return applySecurityHeaders(NextResponse.next());
   }
 
   // Check if the route is public

@@ -373,7 +373,6 @@ const parseMethods = (fileContent: string): HttpMethod[] => {
 const defaultAuthForPath = (pathValue: string): ApiAuthType => {
   if (
     pathValue === "/api/health" ||
-    pathValue === "/api/accept-invite" ||
     pathValue === "/api/calendar/feed" ||
     pathValue === "/api/auth/login" ||
     pathValue === "/api/auth/register" ||

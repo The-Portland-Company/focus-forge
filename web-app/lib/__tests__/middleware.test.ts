@@ -4,8 +4,9 @@
 //
 // Cases: no cookie -> redirect (page) / 401 (API); a valid TPC access-token
 // cookie -> passes through; an expired/tampered cookie with no usable refresh
-// token -> rejected; a request carrying its own `Authorization: Bearer`
-// bypasses the cookie gate entirely, as the mobile/PAT bearer path always has.
+// token -> rejected; a junk `Authorization: Bearer` header does NOT bypass the
+// gate on an ordinary route (only the explicit `publicRoutes` prefixes do,
+// and only because the routes behind them self-authenticate the bearer).
 import test, { before } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPair, exportJWK, SignJWT, type JWK, type CryptoKey } from "jose";
@@ -191,10 +192,25 @@ test("expired cookie with a working refresh token rotates and passes", async () 
   });
 });
 
-test("Authorization: Bearer header bypasses the cookie gate entirely", async () => {
+test("a junk bearer on a gated route does NOT bypass the cookie gate: 401", async () => {
+  // Regression test: middleware previously let ANY Authorization header
+  // through unconditionally, which let an unauthenticated caller reach
+  // routes (invite-user, todoist/*, test-data, etc.) that had no auth check
+  // of their own. Only the explicit public-route prefixes (/api/mobile,
+  // /api/sync/comments, ...) may accept a bearer credential; every other
+  // route must still see a valid session cookie.
   await withStubbedFetch({}, async () => {
     const res = await middleware(
-      req("/api/tasks", { headers: { authorization: "Bearer some-mobile-or-pat-token" } }),
+      req("/api/tasks", { headers: { authorization: "Bearer some-junk-token" } }),
+    );
+    assert.equal(res.status, 401);
+  });
+});
+
+test("Authorization: Bearer header on an explicitly public/self-authing route bypasses the cookie gate", async () => {
+  await withStubbedFetch({}, async () => {
+    const res = await middleware(
+      req("/api/mobile/tasks", { headers: { authorization: "Bearer some-mobile-or-pat-token" } }),
     );
     assert.equal(res.headers.get("x-middleware-next"), "1");
   });

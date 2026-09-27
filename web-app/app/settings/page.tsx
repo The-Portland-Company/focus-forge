@@ -3180,59 +3180,6 @@ export default function SettingsPage() {
               console.error("Error updating project association:", error);
             }
           }}
-          onUserInvite={async (email, organizationId, firstName, lastName) => {
-            try {
-              // Get organization name for the invitation
-              const org = database.organizations.find(
-                (o) => o.id === organizationId,
-              );
-              const organizationName = org?.name || "Organization";
-
-              const response = await fetch("/api/invite-user", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  email,
-                  organizationId,
-                  organizationName,
-                  firstName,
-                  lastName,
-                }),
-              });
-
-              const result = await response.json();
-
-              if (response.ok) {
-                // Refresh data to show the pending user
-                await fetchData();
-
-                // Show appropriate message based on whether email was sent
-                showSuccess(
-                  "Invitation sent!",
-                  `Email sent to ${firstName} ${lastName} (${email})`,
-                );
-              } else {
-                // Show error with helpful information
-                if (result.helpUrl) {
-                  showError(
-                    "Email not configured",
-                    "Please configure SMTP settings in Supabase dashboard to send invitation emails",
-                  );
-                } else {
-                  showError(
-                    "Invitation failed",
-                    result.error || "Failed to send invitation",
-                  );
-                }
-              }
-            } catch (error) {
-              console.error("Error inviting user:", error);
-              showError(
-                "Invitation failed",
-                "Failed to send invitation. Please try again.",
-              );
-            }
-          }}
           onUserAdd={async (userId, organizationId) => {
             try {
               // Get current organization
@@ -3322,35 +3269,6 @@ export default function SettingsPage() {
             } catch (error) {
               console.error("Error updating user role:", error);
               showError("Role update failed", "Failed to update user role.");
-            }
-          }}
-          onResendInvite={async (userId) => {
-            try {
-              const user = database.users.find((u) => u.id === userId);
-              if (!user) {
-                throw new Error("User not found");
-              }
-
-              const response = await fetch("/api/resend-invite", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ userId }),
-              });
-
-              const result = await response.json();
-
-              if (response.ok) {
-                await fetchData();
-                return {
-                  message: result.message,
-                  emailDelivery: result.emailDelivery || null,
-                };
-              }
-
-              throw new Error(result.error || "Failed to resend invite");
-            } catch (error) {
-              console.error("Error resending invite:", error);
-              throw error;
             }
           }}
           onCancelInvite={async (userId, organizationId) => {

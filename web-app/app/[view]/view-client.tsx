@@ -2451,168 +2451,6 @@ export default function ViewPage({
     }
   };
 
-  const handleInviteUser = async (
-    email: string,
-    firstName: string,
-    lastName: string,
-  ): Promise<{ userId: string } | null> => {
-    if (!database) return null;
-
-    // Get organization from the first selected task's project
-    const firstTaskId = Array.from(selectedTaskIds)[0];
-    const firstTask = database.tasks.find((t) => t.id === firstTaskId);
-    const projectId = firstTask
-      ? (firstTask as any).project_id || firstTask.projectId
-      : null;
-    const project = projectId
-      ? database.projects.find((p) => p.id === projectId)
-      : null;
-
-    // Handle both snake_case and camelCase for organization ID
-    const projectOrgId = project
-      ? (project as any).organization_id || project.organizationId
-      : null;
-
-    let organization = projectOrgId
-      ? database.organizations.find((o) => o.id === projectOrgId)
-      : null;
-
-    // Fallback to first organization if none found from project
-    if (
-      !organization &&
-      database.organizations &&
-      database.organizations.length > 0
-    ) {
-      organization = database.organizations[0];
-    }
-
-    if (!organization) {
-      console.error(
-        "No organization found for invite. Organizations:",
-        database.organizations,
-      );
-      throw new Error(
-        "No organization available. Please create an organization first.",
-      );
-    }
-
-    try {
-      const response = await fetch("/api/invite-user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          email,
-          firstName,
-          lastName,
-          organizationId: organization.id,
-          organizationName: organization.name,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to invite user");
-      }
-
-      // Refresh data to get the new user in the list
-      await fetchData();
-
-      if (data.user?.id) {
-        return { userId: data.user.id };
-      }
-
-      return null;
-    } catch (error) {
-      console.error("Error inviting user:", error);
-      throw error;
-    }
-  };
-
-  const inviteUserToScope = async ({
-    email,
-    firstName,
-    lastName,
-    organizationId,
-    projectId,
-  }: {
-    email: string;
-    firstName: string;
-    lastName: string;
-    organizationId: string;
-    projectId?: string;
-  }): Promise<{
-    userId?: string;
-    email: string;
-    firstName: string;
-    lastName: string;
-    emailDelivery?: {
-      provider?: string | null;
-      messageId?: string | null;
-    } | null;
-  } | null> => {
-    if (!database) return null;
-
-    const organization = database.organizations.find(
-      (candidate) => candidate.id === organizationId,
-    );
-
-    if (!organization) {
-      throw new Error("Organization not found for invite.");
-    }
-
-    const response = await fetch("/api/invite-user", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        email,
-        firstName,
-        lastName,
-        organizationId,
-        organizationName: organization.name,
-        projectId,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || "Failed to invite user");
-    }
-
-    await fetchData();
-
-    return {
-      userId: data.user?.id,
-      email,
-      firstName,
-      lastName,
-      emailDelivery: data.emailDelivery || null,
-    };
-  };
-
-  const resendInvite = async (userId: string) => {
-    const response = await fetch("/api/resend-invite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ userId }),
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || "Failed to resend invite");
-    }
-
-    await fetchData();
-    return {
-      message: data.message,
-      emailDelivery: data.emailDelivery || null,
-    };
-  };
-
   const cancelInvite = async ({
     userId,
     organizationId,
@@ -8008,7 +7846,6 @@ export default function ViewPage({
       onProjectsReorder={handleProjectsReorder}
       onOrganizationsReorder={handleOrganizationsReorder}
       onCancelInvite={cancelInvite}
-      onInviteUser={handleInviteUser}
       isAddingTask={showAddTask}
       isLoading={isDataLoading}
       isRefreshing={isRefreshing}
@@ -8230,7 +8067,6 @@ export default function ViewPage({
           onDelete={handleBulkDelete}
           onMerge={handleBulkMerge}
           onCreateAndMerge={handleBulkCreateAndMerge}
-          onInviteUser={handleInviteUser}
         />
       )}
 
@@ -8282,14 +8118,6 @@ export default function ViewPage({
           onProjectAssociation={async (projectId, organizationIds) => {
             await handleProjectUpdate(projectId, {
               organizationId: organizationIds[0],
-            });
-          }}
-          onUserInvite={async (email, organizationId, firstName, lastName) => {
-            return await inviteUserToScope({
-              email,
-              firstName,
-              lastName,
-              organizationId,
             });
           }}
           onUserAdd={async (userId, organizationId) => {
@@ -8348,9 +8176,6 @@ export default function ViewPage({
 
             await fetchData();
           }}
-          onResendInvite={async (userId) => {
-            return await resendInvite(userId);
-          }}
           onCancelInvite={async (userId, organizationId) => {
             return await cancelInvite({ userId, organizationId });
           }}
@@ -8383,23 +8208,6 @@ export default function ViewPage({
               handleProjectUpdate(editingProject.id, updates);
             }
           }}
-          onUserInvite={async (email, projectId, firstName, lastName) => {
-            const project = database?.projects.find(
-              (candidate) => candidate.id === projectId,
-            );
-            if (!project) {
-              throw new Error("Project not found for invite.");
-            }
-
-            return await inviteUserToScope({
-              email,
-              firstName,
-              lastName,
-              organizationId:
-                (project as any).organization_id || project.organizationId,
-              projectId: project.id,
-            });
-          }}
           onUserAdd={async (userId, projectId) => {
             const project = database?.projects.find(
               (candidate) => candidate.id === projectId,
@@ -8421,9 +8229,6 @@ export default function ViewPage({
               (memberId) => memberId !== userId,
             );
             await handleProjectUpdate(projectId, { memberIds });
-          }}
-          onResendInvite={async (userId) => {
-            return await resendInvite(userId);
           }}
           onCancelInvite={async (userId, projectId) => {
             return await cancelInvite({ userId, projectId });

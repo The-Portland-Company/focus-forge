@@ -1,20 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TodoistSyncService } from '@/lib/services/todoist-sync'
+import { requireViewerOrUnauthorized } from '@/lib/auth/require-viewer'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, syncType = 'incremental' } = await request.json()
+    const viewerResult = await requireViewerOrUnauthorized()
+    if (viewerResult instanceof NextResponse) return viewerResult
+    const userId = viewerResult.user.id
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
-      )
-    }
+    const { syncType = 'incremental' } = await request.json()
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
@@ -141,15 +139,9 @@ export async function POST(request: NextRequest) {
 // GET endpoint to check sync status
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get('userId')
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
-      )
-    }
+    const viewerResult = await requireViewerOrUnauthorized()
+    if (viewerResult instanceof NextResponse) return viewerResult
+    const userId = viewerResult.user.id
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
