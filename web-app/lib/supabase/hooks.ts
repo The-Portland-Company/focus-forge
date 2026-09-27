@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
+import { createClient } from './client'
+import { authenticateRealtime } from './realtime-auth'
 
 // The browser no longer holds a Supabase session — auth is via TPC Auth
 // (httpOnly cookies; see lib/auth/tpc-session.ts), and there is no client-side
-// Supabase JWT to read `supabase.auth.getSession()` out of, or to authenticate
-// a `postgres_changes` realtime subscription with. `/api/auth/me` is the
-// browser-side replacement: it resolves the viewer server-side (RLS-scoped)
-// and returns their identity plus `profiles` / `user_preferences` rows in one
-// call. Realtime push is gone for now — data refreshes on mount and after any
-// mutation this hook makes; see the final report for the gap this leaves.
+// Supabase JWT to read `supabase.auth.getSession()` out of. `/api/auth/me` is
+// the browser-side replacement: it resolves the viewer server-side
+// (RLS-scoped) and returns their identity plus `profiles` / `user_preferences`
+// rows in one call. Live updates come from a realtime subscription
+// authenticated via /api/auth/realtime-token (lib/supabase/realtime-auth.ts),
+// same as hooks/use-tasks-realtime.ts / use-email-realtime.ts.
 export type ViewerUser = { id: string; email: string | null }
 
 type MeResponse = {
@@ -48,6 +50,79 @@ export function refreshViewer() {
   return fetchMe(true)
 }
 
+/**
+ * Subscribe to the shared `/api/auth/me` result outside a component (e.g.
+ * AuthContext applying the viewer's theme once their profile loads). Fires
+ * once immediately with the current snapshot if one exists, then on every
+ * refresh. Returns an unsubscribe function.
+ */
+export function subscribeViewer(listener: (data: MeResponse | null) => void) {
+  listeners.add(listener)
+  if (sharedData) listener(sharedData)
+  else void fetchMe().then(listener)
+  return () => listeners.delete(listener)
+}
+
+/**
+ * Ref-counted realtime subscription for the viewer's own `profiles` /
+ * `user_preferences` rows, shared across every mounted `useMe()` consumer so
+ * only one channel is ever open per tab. Mirrors hooks/use-tasks-realtime.ts:
+ * authenticate the socket via /api/auth/realtime-token before subscribing,
+ * then refetch /api/auth/me on any change.
+ */
+let realtimeUserId: string | null = null
+let realtimeRefCount = 0
+let realtimeAuthHandle: ReturnType<typeof authenticateRealtime> | null = null
+let realtimeClient: ReturnType<typeof createClient> | null = null
+let realtimeChannel: ReturnType<ReturnType<typeof createClient>['channel']> | null = null
+
+function acquireRealtime(userId: string) {
+  if (realtimeUserId === userId) {
+    realtimeRefCount++
+    return
+  }
+  releaseRealtimeChannel()
+  realtimeUserId = userId
+  realtimeRefCount = 1
+
+  const supabase = createClient()
+  realtimeClient = supabase
+  const auth = authenticateRealtime(supabase)
+  realtimeAuthHandle = auth
+
+  void auth.ready.then(() => {
+    if (realtimeUserId !== userId || realtimeClient !== supabase) return
+    realtimeChannel = supabase
+      .channel(`viewer-${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
+        () => void refreshViewer(),
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_preferences', filter: `user_id=eq.${userId}` },
+        () => void refreshViewer(),
+      )
+      .subscribe()
+  })
+}
+
+function releaseRealtimeChannel() {
+  if (realtimeAuthHandle) realtimeAuthHandle.stop()
+  if (realtimeClient && realtimeChannel) void realtimeClient.removeChannel(realtimeChannel)
+  realtimeAuthHandle = null
+  realtimeClient = null
+  realtimeChannel = null
+  realtimeUserId = null
+}
+
+function releaseRealtime(userId: string) {
+  if (realtimeUserId !== userId) return
+  realtimeRefCount--
+  if (realtimeRefCount <= 0) releaseRealtimeChannel()
+}
+
 function useMe() {
   const [data, setData] = useState<MeResponse | null>(sharedData)
   const [loading, setLoading] = useState(!sharedData)
@@ -70,6 +145,13 @@ function useMe() {
       listeners.delete(listener)
     }
   }, [])
+
+  const userId = data?.user?.id ?? null
+  useEffect(() => {
+    if (typeof window === 'undefined' || !userId) return
+    acquireRealtime(userId)
+    return () => releaseRealtime(userId)
+  }, [userId])
 
   return { data, loading }
 }

@@ -25,7 +25,6 @@ import {
   Folder
 } from 'lucide-react'
 import { useToast } from '@/contexts/ToastContext'
-import { createClient } from '@/lib/supabase/client'
 import { TodoistSyncPreviewModal } from './todoist-sync-preview-modal'
 
 interface TodoistIntegrationProps {
@@ -95,21 +94,16 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
 
   const checkConnectionStatus = async () => {
     try {
-      const supabase = createClient() as any
-      
-      // Get user profile with Todoist settings
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('todoist_api_token, todoist_sync_enabled, todoist_auto_sync, todoist_sync_frequency, todoist_email, todoist_full_name, todoist_premium, last_todoist_sync')
-        .eq('id', userId)
-        .single()
+      const res = await fetch('/api/integrations/todoist/status', { credentials: 'include' })
+      if (!res.ok) return
+      const { profile, stats, history: historyRows } = await res.json()
 
       if (profile?.todoist_api_token) {
         setIsConnected(true)
         setAutoSyncEnabled(profile.todoist_auto_sync || false)
         setSyncFrequency(profile.todoist_sync_frequency || 30)
         setLastSyncTime(profile.last_todoist_sync)
-        
+
         setTodoistProfile({
           email: profile.todoist_email,
           fullName: profile.todoist_full_name,
@@ -123,62 +117,26 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
           setNextSyncTime(nextSync.toISOString())
         }
 
-        // Load sync stats
-        await loadSyncStats()
-        
-        // Load sync history
-        await loadSyncHistory()
+        const completedTasks = stats.completedTasks || 0
+        const activeTasks = (stats.totalTasks || 0) - completedTasks
+        setSyncStats({
+          totalProjects: stats.totalProjects || 0,
+          totalTasks: stats.totalTasks || 0,
+          totalSections: stats.totalSections || 0,
+          totalComments: stats.totalComments || 0,
+          totalTags: stats.totalTags || 0,
+          completedTasks,
+          activeTasks
+        })
+
+        applySyncHistory(historyRows || [])
       }
     } catch (error) {
       console.error('Error checking connection status:', error)
     }
   }
 
-  const loadSyncStats = async () => {
-    try {
-      const supabase = createClient()
-      
-      // Get counts from database. Use head:true so PostgREST returns ONLY the
-      // count in the Content-Range header and zero row payload — previously
-      // these pulled every id (and every task row) just to compute totals,
-      // which was real per-load egress for users with many tasks.
-      const [projects, tasks, completed, sections, comments, tags] = await Promise.all([
-        supabase.from('projects').select('id', { count: 'exact', head: true }),
-        supabase.from('tasks').select('id', { count: 'exact', head: true }),
-        supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('completed', true),
-        supabase.from('sections').select('id', { count: 'exact', head: true }),
-        supabase.from('comments').select('id', { count: 'exact', head: true }),
-        supabase.from('tags').select('id', { count: 'exact', head: true })
-      ])
-
-      const completedTasks = completed.count || 0
-      const activeTasks = (tasks.count || 0) - completedTasks
-
-      setSyncStats({
-        totalProjects: projects.count || 0,
-        totalTasks: tasks.count || 0,
-        totalSections: sections.count || 0,
-        totalComments: comments.count || 0,
-        totalTags: tags.count || 0,
-        completedTasks,
-        activeTasks
-      })
-    } catch (error) {
-      console.error('Error loading sync stats:', error)
-    }
-  }
-
-  const loadSyncHistory = async () => {
-    try {
-      const supabase = createClient()
-      
-      const { data } = await supabase
-        .from('todoist_sync_history')
-        .select('*')
-        .eq('user_id', userId)
-        .order('started_at', { ascending: false })
-        .limit(10)
-
+  const applySyncHistory = (data: any[]) => {
       const history: SyncHistory[] = (data || []).map((row) => {
         const errorDetails = row.error_details
         let errors: string[] | undefined
@@ -207,9 +165,6 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
       })
 
       setSyncHistory(history)
-    } catch (error) {
-      console.error('Error loading sync history:', error)
-    }
   }
 
   const handleConnect = async () => {
@@ -363,18 +318,21 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
     }
 
     try {
-      const supabase = createClient()
-      
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          todoist_api_token: null,
-          todoist_sync_enabled: false,
-          todoist_auto_sync: false
+      const res = await fetch('/api/auth/me', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          table: 'profile',
+          updates: {
+            todoist_api_token: null,
+            todoist_sync_enabled: false,
+            todoist_auto_sync: false
+          }
         })
-        .eq('id', userId)
+      })
 
-      if (!error) {
+      if (res.ok) {
         showSuccess('Disconnected', 'Disconnected from Todoist successfully')
         setIsConnected(false)
         setTodoistProfile(null)
@@ -388,15 +346,16 @@ export function TodoistIntegration({ userId }: TodoistIntegrationProps) {
 
   const toggleAutoSync = async () => {
     try {
-      const supabase = createClient()
       const newValue = !autoSyncEnabled
-      
-      const { error } = await supabase
-        .from('profiles')
-        .update({ todoist_auto_sync: newValue })
-        .eq('id', userId)
 
-      if (!error) {
+      const res = await fetch('/api/auth/me', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table: 'profile', updates: { todoist_auto_sync: newValue } })
+      })
+
+      if (res.ok) {
         setAutoSyncEnabled(newValue)
         showSuccess('Updated', `Auto-sync ${newValue ? 'enabled' : 'disabled'}`)
       }

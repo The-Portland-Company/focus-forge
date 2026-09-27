@@ -125,6 +125,32 @@ export async function resolveLocalUser(viewer: Viewer): Promise<LocalUser | null
   return user;
 }
 
+/** Seconds a `mintScopedJwt` token stays valid for. Keep in sync with the sign call below. */
+export const SCOPED_JWT_TTL_S = 5 * 60;
+
+/**
+ * Mints the same short-lived HS256 JWT `scopedSupabaseClient` hands to
+ * server-side supabase-js clients, for a caller that needs the raw token —
+ * currently `/api/auth/realtime-token`, which hands it to the browser so
+ * `supabase.realtime.setAuth(token)` can authenticate a `postgres_changes`
+ * subscription as this user (Realtime enforces RLS using the socket's JWT,
+ * same as PostgREST does for REST requests).
+ */
+export function mintScopedJwt(localUserId: string): string {
+  const secret = process.env.SUPABASE_JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      "SUPABASE_JWT_SECRET is not set — required to bridge a TPC viewer onto Supabase RLS. " +
+        "Same value as the project's JWT secret (Supabase dashboard > Settings > API).",
+    );
+  }
+  return jwt.sign(
+    { sub: localUserId, role: "authenticated", aud: "authenticated" },
+    secret,
+    { expiresIn: SCOPED_JWT_TTL_S },
+  );
+}
+
 /**
  * A Supabase client whose requests carry a JWT asserting `auth.uid() =
  * localUserId`, so existing RLS policies apply exactly as they did under a
@@ -133,18 +159,7 @@ export async function resolveLocalUser(viewer: Viewer): Promise<LocalUser | null
  * cookie session.
  */
 export function scopedSupabaseClient(localUserId: string) {
-  const secret = process.env.SUPABASE_JWT_SECRET;
-  if (!secret) {
-    throw new Error(
-      "SUPABASE_JWT_SECRET is not set — required to bridge a TPC viewer onto Supabase RLS. " +
-        "Same value as the project's JWT secret (Supabase dashboard > Settings > API).",
-    );
-  }
-  const token = jwt.sign(
-    { sub: localUserId, role: "authenticated", aud: "authenticated" },
-    secret,
-    { expiresIn: "5m" },
-  );
+  const token = mintScopedJwt(localUserId);
   return createSupabaseJsClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

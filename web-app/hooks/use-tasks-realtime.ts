@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { createClient } from "@/lib/supabase/client";
+import { authenticateRealtime } from "@/lib/supabase/realtime-auth";
 
 const REALTIME_REFRESH_DEBOUNCE_MS = 700;
 
@@ -73,6 +74,8 @@ export function useTasksRealtime({
     let isActive = true;
 
     const supabase = createClient();
+    const realtimeAuth = authenticateRealtime(supabase);
+    let channel: ReturnType<typeof supabase.channel> | null = null;
 
     const scheduleRefresh = () => {
       if (debounceTimer) {
@@ -86,43 +89,47 @@ export function useTasksRealtime({
       }, REALTIME_REFRESH_DEBOUNCE_MS);
     };
 
-    const channel = supabase
-      .channel(`tasks-${userId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "tasks",
-          filter: `project_id=in.(${sortedProjectIds.join(",")})`,
-        },
-        () => {
-          scheduleRefresh();
-        },
-      )
-      .subscribe((status) => {
-        if (!isActive) {
-          return;
-        }
+    void realtimeAuth.ready.then(() => {
+      if (!isActive) return;
+      channel = supabase
+        .channel(`tasks-${userId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "tasks",
+            filter: `project_id=in.(${sortedProjectIds.join(",")})`,
+          },
+          () => {
+            scheduleRefresh();
+          },
+        )
+        .subscribe((status) => {
+          if (!isActive) {
+            return;
+          }
 
-        if (status === "SUBSCRIBED") {
-          setConnected(true);
-        } else if (
-          status === "CHANNEL_ERROR" ||
-          status === "TIMED_OUT" ||
-          status === "CLOSED"
-        ) {
-          setConnected(false);
-        }
-      });
+          if (status === "SUBSCRIBED") {
+            setConnected(true);
+          } else if (
+            status === "CHANNEL_ERROR" ||
+            status === "TIMED_OUT" ||
+            status === "CLOSED"
+          ) {
+            setConnected(false);
+          }
+        });
+    });
 
     return () => {
       isActive = false;
       setConnected(false);
+      realtimeAuth.stop();
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
-      void supabase.removeChannel(channel);
+      if (channel) void supabase.removeChannel(channel);
     };
     // sortedProjectIds is derived from projectIdsKey; depending on the key keeps
     // the effect stable across array identity churn.

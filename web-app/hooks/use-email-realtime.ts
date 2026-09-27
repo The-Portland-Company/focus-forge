@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { createClient } from "@/lib/supabase/client";
+import { authenticateRealtime } from "@/lib/supabase/realtime-auth";
 import type { EmailThreadRealtimeChange } from "@/lib/email-inbox/apply-realtime-patch";
 
 type UseEmailRealtimeOptions = {
@@ -58,58 +59,64 @@ export function useEmailRealtime({
     let isActive = true;
 
     const supabase = createClient();
+    const realtimeAuth = authenticateRealtime(supabase);
+    let channel: ReturnType<typeof supabase.channel> | null = null;
 
-    const channel = supabase
-      .channel(`email-threads-${userId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "email_threads",
-          filter: `owner_user_id=eq.${userId}`,
-        },
-        (payload) => {
+    void realtimeAuth.ready.then(() => {
+      if (!isActive) return;
+      channel = supabase
+        .channel(`email-threads-${userId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "email_threads",
+            filter: `owner_user_id=eq.${userId}`,
+          },
+          (payload) => {
+            if (!isActive) {
+              return;
+            }
+            // Surface the per-event payload so the consumer can patch the single
+            // changed row in place (REPLICA IDENTITY FULL carries the full row),
+            // falling back to a targeted hydrate or full refetch as needed.
+            onChangeRef.current({
+              eventType: payload.eventType as EmailThreadRealtimeChange["eventType"],
+              new:
+                payload.new && Object.keys(payload.new).length > 0
+                  ? (payload.new as Record<string, unknown>)
+                  : null,
+              old:
+                payload.old && Object.keys(payload.old).length > 0
+                  ? (payload.old as Record<string, unknown>)
+                  : null,
+            });
+          },
+        )
+        .subscribe((status) => {
           if (!isActive) {
             return;
           }
-          // Surface the per-event payload so the consumer can patch the single
-          // changed row in place (REPLICA IDENTITY FULL carries the full row),
-          // falling back to a targeted hydrate or full refetch as needed.
-          onChangeRef.current({
-            eventType: payload.eventType as EmailThreadRealtimeChange["eventType"],
-            new:
-              payload.new && Object.keys(payload.new).length > 0
-                ? (payload.new as Record<string, unknown>)
-                : null,
-            old:
-              payload.old && Object.keys(payload.old).length > 0
-                ? (payload.old as Record<string, unknown>)
-                : null,
-          });
-        },
-      )
-      .subscribe((status) => {
-        if (!isActive) {
-          return;
-        }
 
-        if (status === "SUBSCRIBED") {
-          setConnected(true);
-        } else if (
-          status === "CHANNEL_ERROR" ||
-          status === "TIMED_OUT" ||
-          status === "CLOSED"
-        ) {
-          // Fall back to polling: the caller keeps its 30s poll running.
-          setConnected(false);
-        }
-      });
+          if (status === "SUBSCRIBED") {
+            setConnected(true);
+          } else if (
+            status === "CHANNEL_ERROR" ||
+            status === "TIMED_OUT" ||
+            status === "CLOSED"
+          ) {
+            // Fall back to polling: the caller keeps its 30s poll running.
+            setConnected(false);
+          }
+        });
+    });
 
     return () => {
       isActive = false;
+      realtimeAuth.stop();
       setConnected(false);
-      void supabase.removeChannel(channel);
+      if (channel) void supabase.removeChannel(channel);
     };
   }, [userId, enabled]);
 
