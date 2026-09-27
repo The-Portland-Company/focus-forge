@@ -45,9 +45,7 @@ alter table if exists public.project_shares      add column if not exists tpc_su
 create index if not exists idx_projects_tpc_org_id           on public.projects (tpc_org_id);
 create index if not exists idx_goals_tpc_org_id              on public.goals (tpc_org_id);
 create index if not exists idx_plans_tpc_org_id              on public.plans (tpc_org_id);
-create index if not exists idx_groups_tpc_org_id             on public.groups (tpc_org_id);
 create index if not exists idx_mailboxes_tpc_org_id          on public.mailboxes (tpc_org_id);
-create index if not exists idx_email_mailboxes_tpc_org_id    on public.email_mailboxes (tpc_org_id);
 create index if not exists idx_contacts_tpc_org_id           on public.contacts (tpc_org_id);
 create index if not exists idx_audit_logs_tpc_org_id         on public.audit_logs (tpc_org_id);
 create index if not exists idx_audit_logs_tpc_sub            on public.audit_logs (tpc_sub);
