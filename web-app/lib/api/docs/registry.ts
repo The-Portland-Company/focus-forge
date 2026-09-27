@@ -96,7 +96,15 @@ const endpointOverrides: Record<
   "/api/mobile/tasks": {
     auth: "bearer",
     summary:
-      "List/create mobile tasks. Accepts mobile access JWT or PAT bearer token.",
+      "List/create mobile tasks. Accepts mobile access JWT or PAT bearer token. " +
+      "A created task's `source` (integration provenance, e.g. \"swarm-tester\") is " +
+      "always derived server-side from the authenticated TPC Auth OAuth client id " +
+      "(see lib/task-sources.ts) — it is never read from the request body, so it " +
+      "can't be spoofed. `source_url` MAY be passed in the body as an http(s) link " +
+      "back to the originating record; it renders as the task-source icon's click " +
+      "target. New integrations register a { label, logo, initials } entry in " +
+      "TASK_SOURCES plus a TPC_CLIENT_SOURCE client-id mapping — no app code changes " +
+      "beyond that registry are needed for the icon/tooltip to appear.",
     tags: ["mobile", "tasks"],
   },
   "/api/mobile/tasks/{id}": {
