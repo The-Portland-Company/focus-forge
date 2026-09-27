@@ -68,6 +68,17 @@ const publicRoutes = [
   "/api/v1/time",
   "/api/v1/time/prompt",
   "/api/v1/time/openapi",
+  // MCP server: a TPC Auth protected resource (RFC 9728/8707), not a Forge
+  // session. It self-authenticates via authenticate() against a TPC access
+  // token or `tpc_pat_…` PAT bound to TPC_RESOURCE and returns its own 401
+  // (with WWW-Authenticate pointing at the metadata below) on failure — the
+  // session-only gate here must not intercept that with a bare 401 first.
+  "/api/mcp",
+  // RFC 9728 protected-resource metadata for the MCP server: static JSON (the
+  // authorization server + supported scopes) that an MCP client fetches
+  // BEFORE it has any credential, to learn where to authenticate. No session,
+  // no secret — this is the doorway, not a door.
+  "/.well-known/oauth-protected-resource",
 ];
 
 const securityHeaders = {

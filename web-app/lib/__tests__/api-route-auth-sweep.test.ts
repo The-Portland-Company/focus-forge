@@ -53,6 +53,9 @@ const PUBLIC_API_PREFIXES = [
   "/api/health",
   "/api/calendar/feed",
   "/api/v1/time",
+  // TPC Auth protected resource (RFC 9728/8707) — self-authenticates via
+  // authenticate() against a TPC access token / PAT, not a Forge session.
+  "/api/mcp",
 ];
 
 function apiPathFor(routeFile: string): string {

@@ -215,3 +215,25 @@ test("Authorization: Bearer header on an explicitly public/self-authing route by
     assert.equal(res.headers.get("x-middleware-next"), "1");
   });
 });
+
+test("a bearer on /api/mcp reaches the route (no Forge session required)", async () => {
+  // /api/mcp is a TPC Auth protected resource, not a Forge-session route — an
+  // MCP client authenticates with a TPC access token / PAT, never a Forge
+  // cookie. The route's own authenticate() call (not this middleware) is
+  // what validates the token; middleware must just get out of the way.
+  await withStubbedFetch({}, async () => {
+    const res = await middleware(
+      req("/api/mcp", { headers: { authorization: "Bearer some-tpc-token-or-pat" } }),
+    );
+    assert.equal(res.headers.get("x-middleware-next"), "1");
+  });
+});
+
+test("the MCP protected-resource metadata is reachable with no credential at all", async () => {
+  // RFC 9728 discovery: a fresh MCP client fetches this BEFORE it has any
+  // token, to learn which authorization server to register with.
+  await withStubbedFetch({}, async () => {
+    const res = await middleware(req("/.well-known/oauth-protected-resource/mcp"));
+    assert.equal(res.headers.get("x-middleware-next"), "1");
+  });
+});
