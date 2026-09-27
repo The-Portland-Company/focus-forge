@@ -1071,7 +1071,6 @@ export function TaskList({
                       </button>
                     )}
                     <span className="min-w-0 flex-1 whitespace-normal break-words">
-                      <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
                       {isAiCreatedTask(task.id, aiCreatedByTaskId) ? (
                         <button
                           type="button"
@@ -1333,6 +1332,10 @@ export function TaskList({
               </div>
 
               <div className="flex items-center gap-2">
+                {/* Integration provenance (e.g. Swarm Tester) — right end of the
+                    row, before the other trailing metadata/action icons. */}
+                <TaskSourceIcon source={task.source} sourceUrl={task.sourceUrl} />
+
                 {(task as any).devnotesMeta || (task as any).devnotes_meta ? (
                   <span className="relative group/devnotes flex items-center justify-center w-4">
                     <StickyNote className="w-4 h-4 text-amber-400" />
