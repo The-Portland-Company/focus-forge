@@ -3,7 +3,7 @@ import { getAdminClient } from "@/lib/supabase/admin";
 import {
   getMobileAdapterForUser,
   getVisibleMobileUserIds,
-  verifyMobileAccessTokenOrPat,
+  verifyMobileAccessTokenOrPatOrCookie,
 } from "@/lib/mobile/api";
 import { createApiResponse, createErrorResponse } from "@/lib/api/auth";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
@@ -123,7 +123,7 @@ const canAccessTaskOrProject = async (
 
 // GET /api/sync/comments - List comments
 export async function GET(request: NextRequest) {
-  const auth = await verifyMobileAccessTokenOrPat(
+  const auth = await verifyMobileAccessTokenOrPatOrCookie(
     request.headers.get("authorization"),
     ["read", "write", "admin"],
   );
@@ -177,7 +177,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/sync/comments - Create new comment
 export async function POST(request: NextRequest) {
-  const auth = await verifyMobileAccessTokenOrPat(
+  const auth = await verifyMobileAccessTokenOrPatOrCookie(
     request.headers.get("authorization"),
     ["write", "admin"],
   );

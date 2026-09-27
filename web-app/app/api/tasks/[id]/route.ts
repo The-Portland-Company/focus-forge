@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { SupabaseAdapter } from "@/lib/db/supabase-adapter";
 import { sendTaskLifecycleNotifications } from "@/lib/task-notifications";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
@@ -44,19 +43,10 @@ export async function PUT(
   try {
     const params = await props.params;
     const updates = await request.json();
-    const supabase = await createClient();
 
-    // Check authentication
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
-    if (authError || !session?.user) {
-      console.error("PUT /api/tasks/[id] auth error:", authError);
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const user = session.user;
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { supabase, user } = viewerResult;
     const { data: existingTask } = (await (supabase as any)
       .from("tasks")
       .select(
@@ -64,7 +54,7 @@ export async function PUT(
       )
       .eq("id", params.id)
       .maybeSingle()) as { data: any };
-    const adapter = new SupabaseAdapter(supabase, session.user.id);
+    const adapter = new SupabaseAdapter(supabase, user.id);
 
     // If a goal is (re)assigned to a non-null value, it must be a live goal in
     // the task's project (mirrors how sectionId moves are validated elsewhere).
@@ -266,7 +256,10 @@ export async function DELETE(
 ) {
   try {
     const params = await props.params;
-    const supabase = await createClient();
+
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { supabase, user } = viewerResult;
 
     // Snapshot the task (org via its project + name) for the audit entry
     // before the soft-delete runs. Best-effort: a failure here is ignored.
@@ -293,13 +286,10 @@ export async function DELETE(
 
     const organizationId = taskRow?.projects?.organization_id ?? null;
     if (organizationId) {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const adapter = new SupabaseAdapter(supabase, session?.user?.id ?? "");
+      const adapter = new SupabaseAdapter(supabase, user.id);
       await adapter.writeAuditLog({
         organizationId,
-        actorUserId: session?.user?.id ?? null,
+        actorUserId: user.id,
         action: "task.delete",
         entityType: "task",
         entityId: params.id,

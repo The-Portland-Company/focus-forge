@@ -3,7 +3,7 @@ import { getAdminClient } from '@/lib/supabase/admin'
 import {
   getMobileAdapterForUser,
   getVisibleMobileUserIds,
-  verifyMobileAccessTokenOrPat,
+  verifyMobileAccessTokenOrPatOrCookie,
 } from '@/lib/mobile/api'
 import { createApiResponse, createErrorResponse } from '@/lib/api/auth'
 import { normalizeRichText } from '@/lib/rich-text-sanitize'
@@ -98,7 +98,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await verifyMobileAccessTokenOrPat(
+  const auth = await verifyMobileAccessTokenOrPatOrCookie(
     request.headers.get('authorization'),
     ['read', 'write', 'admin'],
   )
@@ -125,7 +125,7 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await verifyMobileAccessTokenOrPat(
+  const auth = await verifyMobileAccessTokenOrPatOrCookie(
     request.headers.get('authorization'),
     ['write', 'admin'],
   )
@@ -179,7 +179,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await verifyMobileAccessTokenOrPat(
+  const auth = await verifyMobileAccessTokenOrPatOrCookie(
     request.headers.get('authorization'),
     ['write', 'admin'],
   )

@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { authenticate, bearerToken } from "@/src/vendor/tpc-auth/authenticate";
+import { refresh as refreshTokens } from "@/src/vendor/tpc-auth/oidc";
+import { TPC_CLIENT_ID, TPC_RESOURCE } from "@/src/vendor/tpc-auth/config";
+import type { AuthContext } from "@/src/vendor/tpc-auth/types";
+
+// TPC Auth session cookies. Duplicated (not imported) from
+// lib/auth/tpc-session.ts: that module reaches for `cookies()` from
+// next/headers, which is only valid inside a Server Component / Route
+// Handler request scope, not the separate Edge middleware runtime — this file
+// reads/writes the same two cookies via NextRequest/NextResponse instead.
+const ACCESS_COOKIE = "ff_at";
+const REFRESH_COOKIE = "ff_rt";
+const REFRESH_TTL_S = 30 * 86400;
 
 // Public routes that don't require authentication
 const publicRoutes = [
@@ -18,14 +30,9 @@ const publicRoutes = [
   // Integration logos (e.g. task-source icons) must be publicly fetchable so
   // they render on logged-out share pages.
   "/integrations",
+  // TPC Auth login redirect + its callback — both must be reachable with no
+  // session yet (that's the point of them).
   "/auth/login",
-  "/auth/register",
-  "/auth/forgot-password",
-  "/auth/reset-password",
-  "/auth/accept-invite",
-  // Passwordless magic-link callback: the visitor has no session yet when the
-  // email link lands here, so it must be reachable logged-out. The handler
-  // establishes the session; middleware then enforces MFA on the next request.
   "/auth/callback",
   // Public legal/support pages — must be reachable without an account
   // (App Store review requires a publicly accessible privacy policy).
@@ -34,7 +41,7 @@ const publicRoutes = [
   // Public marketing page for the Focus: Time macOS desktop app.
   "/desktop",
   // Public read-only project share pages + their passcode-verify endpoint must
-  // render for logged-out visitors (no session / no MFA required).
+  // render for logged-out visitors (no session required).
   "/share",
   "/api/share",
   // Public email-attachment share links — an unguessable token gates each one;
@@ -43,10 +50,6 @@ const publicRoutes = [
   "/docs/focus-time-agent",
   "/docs/focus-time-openapi",
   "/developer/api",
-  "/api/auth/login",
-  "/api/auth/register",
-  "/api/auth/forgot-password",
-  "/api/auth/magic-link",
   "/api/auth/logout",
   "/api/users",
   "/api/mobile",
@@ -73,41 +76,6 @@ const securityHeaders = {
   "Content-Security-Policy": "frame-ancestors 'self'",
 };
 
-// The unified MFA gate page: handles both first-time TOTP enrollment and the
-// per-login OTP challenge, elevating the session to aal2. Reachable while aal1.
-const MFA_GATE_PATH = "/auth/mfa";
-
-// Global "logged out before" cutoff (unix seconds). Any access token issued
-// (`iat`) before this instant is treated as logged out — this is the only way
-// to immediately invalidate already-issued stateless JWTs (deleting server-side
-// sessions only stops refresh; a live access token keeps working until it
-// expires). Bump this to force-log-everyone-out again. Set 2026-07-14 when all
-// sessions were revoked ahead of the MFA rollout.
-const SESSION_MIN_IAT = 1784069036;
-
-// Read the aal + iat claims from a Supabase access token (JWT) without
-// verifying it — used only to route to the MFA gate and enforce the logout
-// cutoff; a tampered token is rejected by Supabase on the next real API call.
-function decodeAccessToken(accessToken: string | undefined): {
-  aal: string;
-  iat: number;
-} {
-  if (!accessToken) return { aal: "aal1", iat: 0 };
-  try {
-    const part = accessToken.split(".")[1];
-    if (!part) return { aal: "aal1", iat: 0 };
-    let b64 = part.replace(/-/g, "+").replace(/_/g, "/");
-    b64 += "=".repeat((4 - (b64.length % 4)) % 4);
-    const payload = JSON.parse(atob(b64));
-    return {
-      aal: typeof payload?.aal === "string" ? payload.aal : "aal1",
-      iat: typeof payload?.iat === "number" ? payload.iat : 0,
-    };
-  } catch {
-    return { aal: "aal1", iat: 0 };
-  }
-}
-
 const applySecurityHeaders = (response: NextResponse) => {
   Object.entries(securityHeaders).forEach(([key, value]) => {
     response.headers.set(key, value);
@@ -115,11 +83,74 @@ const applySecurityHeaders = (response: NextResponse) => {
   return response;
 };
 
+/**
+ * Verify the caller's TPC session cookie, transparently refreshing an expired
+ * access token from the refresh cookie — the Edge-runtime mirror of
+ * lib/auth/tpc-session.ts#getTpcSession(). `authenticate()` and `refresh()`
+ * only use `fetch`/`crypto.subtle` (via `jose`), so both run fine here.
+ * Returns the verified session plus any rotated tokens middleware must write
+ * back onto the response, or null when there is no valid session.
+ */
+async function getEdgeSession(request: NextRequest): Promise<{
+  ctx: AuthContext;
+  rotated?: { access_token: string; refresh_token?: string; expires_in?: number };
+} | null> {
+  const accessToken = request.cookies.get(ACCESS_COOKIE)?.value;
+  if (accessToken) {
+    const req = new Request(TPC_RESOURCE, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    const ctx = await authenticate(req, { resource: TPC_RESOURCE });
+    if (ctx) return { ctx };
+  }
+
+  const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
+  if (!refreshToken) return null;
+
+  try {
+    const tokens = await refreshTokens({
+      clientId: TPC_CLIENT_ID,
+      refreshToken,
+      resource: TPC_RESOURCE,
+    });
+    const req = new Request(TPC_RESOURCE, {
+      headers: { authorization: `Bearer ${tokens.access_token}` },
+    });
+    const ctx = await authenticate(req, { resource: TPC_RESOURCE });
+    if (!ctx) return null;
+    return { ctx, rotated: tokens };
+  } catch {
+    return null;
+  }
+}
+
+/** Write a rotated access/refresh token pair onto the outgoing response. */
+function applyRotatedCookies(
+  target: NextResponse,
+  rotated: { access_token: string; refresh_token?: string; expires_in?: number },
+) {
+  target.cookies.set(ACCESS_COOKIE, rotated.access_token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: Math.max(60, rotated.expires_in ?? 900),
+  });
+  if (rotated.refresh_token) {
+    target.cookies.set(REFRESH_COOKIE, rotated.refresh_token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: REFRESH_TTL_S,
+    });
+  }
+  return target;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const host = request.headers.get("host")?.toLowerCase();
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   // Allow server actions to bypass auth middleware
   if (request.headers.has("next-action")) {
@@ -133,7 +164,7 @@ export async function middleware(request: NextRequest) {
 
   // Internal loopback endpoints (the in-process EmailLiveSync worker POSTing to
   // 127.0.0.1) authenticate with their own token and must bypass the HTTPS-enforce
-  // redirect and the auth/MFA gates. Without this the worker's plain-HTTP request
+  // redirect and the auth gate. Without this the worker's plain-HTTP request
   // got a 301 to https://, so autonomous sync never reached the route.
   if (pathname.startsWith("/api/internal/")) {
     return applySecurityHeaders(NextResponse.next());
@@ -160,6 +191,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(canonicalUrl, 301);
   }
 
+  // A request carrying its own Authorization: Bearer credential (a mobile
+  // access token or a Forge PAT) authenticates itself at the route via
+  // verifyMobileAccessTokenOrPat — same as /api/mobile always has. Middleware
+  // only gates the cookie session, so let these through unconditionally.
+  if (bearerToken(request)) {
+    return applySecurityHeaders(NextResponse.next());
+  }
+
   // Check if the route is public
   const isPublicRoute = publicRoutes.some((route) =>
     pathname.startsWith(route),
@@ -169,145 +208,28 @@ export async function middleware(request: NextRequest) {
     return applySecurityHeaders(NextResponse.next());
   }
 
-  // Fail clearly when env is missing instead of throwing at createServerClient.
-  if (!supabaseUrl || !supabaseAnonKey) {
-    const message =
-      "Missing Supabase env: NEXT_PUBLIC_SUPABASE_URL and/or NEXT_PUBLIC_SUPABASE_ANON_KEY";
+  const session = await getEdgeSession(request);
+
+  if (!session) {
     if (pathname.startsWith("/api/")) {
       return applySecurityHeaders(
-        NextResponse.json({ error: message }, { status: 500 }),
-      );
-    }
-    return applySecurityHeaders(
-      new NextResponse(message, { status: 500, headers: { "content-type": "text/plain" } }),
-    );
-  }
-
-  // Create a response that we'll modify
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
-  });
-
-  // Create a Supabase client for authentication
-  const supabase = createServerClient(
-    supabaseUrl,
-    supabaseAnonKey,
-    {
-      cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value;
-        },
-        set(name: string, value: string, options: any) {
-          const secureOptions =
-            process.env.NODE_ENV === "production"
-              ? { ...options, secure: true, sameSite: "lax" as const }
-              : options;
-          request.cookies.set(name, value);
-          response.cookies.set(name, value, secureOptions);
-        },
-        remove(name: string, options: any) {
-          const secureOptions =
-            process.env.NODE_ENV === "production"
-              ? { ...options, secure: true, sameSite: "lax" as const }
-              : options;
-          request.cookies.delete(name);
-          response.cookies.set(name, "", { ...secureOptions, maxAge: 0 });
-        },
-      },
-    },
-  );
-
-  // Carry any auth cookies Supabase refreshed onto whatever response we return.
-  //
-  // getSession() below auto-refreshes the access token and writes the rotated
-  // session cookies onto `response` (via the set/remove callbacks above). Every
-  // branch that returns a DIFFERENT response object — the redirects and the
-  // /api/ response that adds x-user-id — would otherwise silently drop those
-  // Set-Cookie headers, so the rotated refresh token never reaches the browser.
-  // On concurrent requests (the client loads /api/sync/database and
-  // /api/organizations at once) each one then rotates the token and invalidates
-  // its siblings → intermittent 401s (organizations fails to load) and a
-  // redirect loop back to /auth/login. Copying the cookies through fixes both.
-  const carryAuthCookies = (target: NextResponse) => {
-    response.cookies.getAll().forEach((cookie) => target.cookies.set(cookie));
-    return applySecurityHeaders(target);
-  };
-
-  // Check for authenticated user using getSession instead of getUser
-  // getSession doesn't verify the JWT, avoiding refresh token issues
-  const {
-    data: { session },
-    error,
-  } = await supabase.auth.getSession();
-
-  if (error || !session?.user) {
-    // Redirect to login page if not authenticated
-    if (pathname.startsWith("/api/")) {
-      // For API routes, return 401
-      return carryAuthCookies(
         NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
       );
     }
-
-    // For page routes, redirect to login
+    // No session: send the browser through the TPC Auth login flow,
+    // preserving where it was headed via /auth/login's `next` param.
     const loginUrl = new URL("/auth/login", request.url);
-    loginUrl.searchParams.set("from", pathname);
-    return carryAuthCookies(NextResponse.redirect(loginUrl));
-  }
-
-  const { aal, iat } = decodeAccessToken(session.access_token);
-
-  // Hard logout cutoff: reject tokens issued before the global cutoff so a
-  // revoked/older session cannot keep using a still-valid access token.
-  if (iat && iat < SESSION_MIN_IAT) {
-    if (pathname.startsWith("/api/")) {
-      return carryAuthCookies(
-        NextResponse.json({ error: "Session expired" }, { status: 401 }),
-      );
-    }
-    const loginUrl = new URL("/auth/login", request.url);
-    loginUrl.searchParams.set("from", pathname);
-    return carryAuthCookies(NextResponse.redirect(loginUrl));
-  }
-
-  // MFA gate: any authenticated session below aal2 must complete TOTP MFA
-  // (first-time enrollment or the per-login OTP challenge) at the gate page
-  // before it can reach the app. The gate page itself, and the logout route,
-  // stay reachable while aal1 so the user can finish or bail out.
-  const isMfaExempt =
-    pathname.startsWith(MFA_GATE_PATH) ||
-    pathname.startsWith("/api/auth/mfa") ||
-    pathname.startsWith("/api/auth/logout");
-  if (aal !== "aal2" && !isMfaExempt) {
-    if (pathname.startsWith("/api/")) {
-      return carryAuthCookies(
-        NextResponse.json({ error: "MFA required" }, { status: 403 }),
-      );
-    }
-    const mfaUrl = new URL(MFA_GATE_PATH, request.url);
     if (pathname && pathname !== "/") {
-      mfaUrl.searchParams.set("from", pathname);
+      loginUrl.searchParams.set("next", pathname + request.nextUrl.search);
     }
-    return carryAuthCookies(NextResponse.redirect(mfaUrl));
+    return applySecurityHeaders(NextResponse.redirect(loginUrl));
   }
 
-  // Add user ID to headers for API routes
-  if (pathname.startsWith("/api/")) {
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-user-id", session.user.id);
-
-    return carryAuthCookies(
-      NextResponse.next({
-        request: {
-          headers: requestHeaders,
-        },
-      }),
-    );
+  let response = applySecurityHeaders(NextResponse.next());
+  if (session.rotated) {
+    response = applyRotatedCookies(response, session.rotated);
   }
-
-  return applySecurityHeaders(response);
+  return response;
 }
 
 export const config = {

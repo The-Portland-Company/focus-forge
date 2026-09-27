@@ -8,6 +8,7 @@ import { authenticate as authenticateTpc } from '@/src/vendor/tpc-auth/authentic
 import { TPC_RESOURCE } from '@/src/vendor/tpc-auth/config'
 import { sourceForTpcClientId } from '@/lib/task-sources'
 import { resolveForgeProfile } from '@/lib/auth/local-identity'
+import { requireViewer } from '@/lib/auth/require-viewer'
 
 export type MobileApiError = {
   code: string
@@ -246,6 +247,41 @@ export const verifyMobileAccessTokenOrPat = async (
     ok: true as const,
     accessToken: token,
     user: authUserResult.user,
+  }
+}
+
+// Same-origin browser callers (e.g. project-notes-modal.tsx, project-share-
+// modal.tsx) have no Authorization header to send under TPC Auth — the
+// session lives in httpOnly cookies the browser can't read, only send. This
+// wraps verifyMobileAccessTokenOrPat with a fallback to the caller's TPC
+// cookie session (requireViewer) when there is no Authorization header at
+// all, for the couple of /api/sync/* routes both a mobile client (bearer) and
+// the web app itself (cookies) call. A request that DOES send a bearer token
+// is verified exactly as verifyMobileAccessTokenOrPat always has — this never
+// weakens that path.
+export const verifyMobileAccessTokenOrPatOrCookie = async (
+  authHeader: string | null,
+  requiredPatScopes: ApiKeyScope[] = ['read', 'write', 'admin'],
+) => {
+  if (authHeader) {
+    return verifyMobileAccessTokenOrPat(authHeader, requiredPatScopes)
+  }
+
+  const viewer = await requireViewer()
+  if (!viewer) {
+    return {
+      ok: false as const,
+      status: 401 as const,
+      error: mobileFailure('invalid_access_token', 'Access token is invalid or expired'),
+    }
+  }
+
+  return {
+    ok: true as const,
+    accessToken: '',
+    user: userFromForgeProfile(viewer.user),
+    tpcClientId: null,
+    tpcSource: null,
   }
 }
 
