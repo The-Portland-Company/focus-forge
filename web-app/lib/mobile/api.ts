@@ -290,6 +290,83 @@ export const getMobileAdapterForUser = async (userId: string) => {
   return new SupabaseAdapter(serviceSupabase, userId)
 }
 
+// The mobile/MCP task write routes use a service-role client, which bypasses
+// Postgres RLS entirely — the app-layer check below is the only thing that
+// stops a caller from writing tasks into a project their account has no
+// membership in. This mirrors the exact access rule already used by the
+// (already-safe) sibling routes GET/POST /api/mobile/projects/[id]/tasks and
+// GET/POST /api/mobile/projects/[id]/goals: a project is accessible when it
+// shows up in adapter.getProjects(), which resolves org membership
+// (user_organizations) + explicit project shares (user_projects) — see
+// SupabaseAdapter._getProjects in lib/db/supabase-adapter.ts.
+export const hasProjectAccess = (
+  projects: Array<{ id: string }>,
+  projectId: string,
+): boolean => projects.some((project) => project.id === projectId)
+
+export const isMobileProjectAccessible = async (
+  userId: string,
+  projectId: string,
+): Promise<boolean> => {
+  const adapter = await getMobileAdapterForUser(userId)
+  const projects = await adapter.getProjects()
+  return hasProjectAccess(projects, projectId)
+}
+
+// Same error shape already used for this failure mode by
+// /api/mobile/projects/[id]/tasks and /api/mobile/projects/[id]/goals.
+export const mobileProjectNotFound = () =>
+  mobileFailure('project_not_found', 'Project not found for current user')
+
+/**
+ * Resolve the project a task write is targeting from whichever of
+ * project_id / goal_id / section_id / parent_id the caller supplied, so a
+ * caller can't bypass a project_id access check by instead pointing at a
+ * section_id, goal_id or parent_id that belongs to a project they can't
+ * access. Returns null when the write is project-less (an inbox task),
+ * which requires no access check.
+ */
+export const resolveMobileTaskProjectId = async (
+  serviceSupabase: ReturnType<typeof createServiceSupabase>,
+  payload: {
+    project_id?: unknown
+    section_id?: unknown
+    goal_id?: unknown
+    parent_id?: unknown
+  },
+): Promise<string | null> => {
+  if (typeof payload.project_id === 'string' && payload.project_id) {
+    return payload.project_id
+  }
+
+  if (typeof payload.goal_id === 'string' && payload.goal_id) {
+    const goal = await fetchLiveGoal(serviceSupabase, payload.goal_id)
+    if (goal?.project_id) return goal.project_id as string
+  }
+
+  if (typeof payload.section_id === 'string' && payload.section_id) {
+    const { data: section } = await serviceSupabase
+      .from('sections')
+      .select('project_id')
+      .eq('id', payload.section_id)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (section?.project_id) return section.project_id as string
+  }
+
+  if (typeof payload.parent_id === 'string' && payload.parent_id) {
+    const { data: parent } = await serviceSupabase
+      .from('tasks')
+      .select('project_id')
+      .eq('id', payload.parent_id)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (parent?.project_id) return parent.project_id as string
+  }
+
+  return null
+}
+
 export const getLinkedSourceUserIds = async (targetUserId: string) => {
   const admin = getAdminClient()
   const linkedIds: string[] = []
