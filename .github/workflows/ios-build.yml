@@ -23,7 +23,7 @@ concurrency:
 jobs:
   mobile-export:
     name: Mobile Export
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       ios-app-exists: ${{ steps.mobile-project.outputs.exists }}
     steps:
