@@ -10,18 +10,17 @@ import {
   buildPlaybookPromptBlock,
 } from "@/lib/ai-memory/prompt";
 import { recordDecisionTrace } from "@/lib/ai-memory/trace";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const body = await request.json();
     const projectId = typeof body?.projectId === "string" ? body.projectId : "";

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { SentryClient } from "@/lib/services/sentry-client";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -21,15 +22,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Authenticate the web session and resolve the acting user.
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     // Validate the credentials against the Sentry API before storing.
     const normalizedBaseUrl =

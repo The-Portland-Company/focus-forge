@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { getViewer } from "@/lib/auth/tpc-session";
+import { resolveLocalUser } from "@/lib/auth/local-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -14,13 +15,10 @@ const STATUSES = ["active", "defused", "eliminated", "expired"];
 // then verify the user belongs to the stake's organization.
 // Returns either { errorResponse } or { user, db, stake }.
 async function authorizeStake(id: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
+  const viewer = await getViewer();
+  const user = viewer ? await resolveLocalUser(viewer) : null;
 
-  if (authError || !user) {
+  if (!user) {
     return {
       errorResponse: NextResponse.json(
         { error: "Unauthorized" },

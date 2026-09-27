@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { X, MessageSquare, Send, Loader2 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { useSupabaseUser } from "@/lib/supabase/hooks";
 import { UserAvatar } from "@/components/user-avatar";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { RichTextContent } from "@/components/ui/rich-text-content";
@@ -50,20 +50,13 @@ export function ProjectNotesModal({
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [addingNote, setAddingNote] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const supabase = useMemo(() => createClient(), []);
+  const { user } = useSupabaseUser();
+  const currentUserId = user?.id ?? null;
 
   useEffect(() => {
     if (!isOpen) return;
     setDescription(initialDescription || "");
   }, [initialDescription, isOpen]);
-
-  const getAccessToken = useCallback(async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    return session?.access_token || null;
-  }, [supabase]);
 
   const getAuthorName = (note: ProjectNote) => {
     const explicit = (note.author_name || "").trim();
@@ -77,17 +70,8 @@ export function ProjectNotesModal({
     setLoadingNotes(true);
     setError(null);
     try {
-      const token = await getAccessToken();
-      if (!token) {
-        setError("No session token found. Please sign in again.");
-        setLoadingNotes(false);
-        return;
-      }
-
       const response = await fetch(`/api/sync/comments?projectId=${projectId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
       });
 
       const payload = await response.json();
@@ -101,20 +85,12 @@ export function ProjectNotesModal({
     } finally {
       setLoadingNotes(false);
     }
-  }, [getAccessToken, projectId]);
+  }, [projectId]);
 
   useEffect(() => {
     if (!isOpen) return;
     void loadNotes();
   }, [isOpen, loadNotes]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    void (async () => {
-      const { data } = await supabase.auth.getUser();
-      setCurrentUserId(data.user?.id || null);
-    })();
-  }, [isOpen, supabase]);
 
   const handleSaveDescription = async () => {
     setSavingDescription(true);
@@ -135,18 +111,11 @@ export function ProjectNotesModal({
     setAddingNote(true);
     setError(null);
     try {
-      const token = await getAccessToken();
-      if (!token) {
-        setError("No session token found. Please sign in again.");
-        setAddingNote(false);
-        return;
-      }
-
       const response = await fetch("/api/sync/comments", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           projectId,

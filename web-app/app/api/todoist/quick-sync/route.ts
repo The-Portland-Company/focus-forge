@@ -1,19 +1,17 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TodoistClient } from '@/lib/services/todoist-client'
+import { requireViewerOrUnauthorized } from '@/lib/auth/require-viewer'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function POST(request: NextRequest) {
-  const { userId, mode = 'merge' } = await request.json()
+  const viewerResult = await requireViewerOrUnauthorized()
+  if (viewerResult instanceof NextResponse) return viewerResult
+  const userId = viewerResult.user.id
 
-  if (!userId) {
-    return new Response(JSON.stringify({ error: 'User ID is required' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' }
-    })
-  }
+  const { mode = 'merge' } = await request.json()
 
   // Create a readable stream for SSE
   const encoder = new TextEncoder()

@@ -3,19 +3,18 @@ import { createClient } from "@/lib/supabase/server"
 import { getAdminClient } from "@/lib/supabase/admin"
 import { recordAIMemoryEvent } from "@/lib/ai-memory/write"
 import { generateEmbedding } from "@/lib/ai-core/embeddings"
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 // GET /api/ai-memory/memories — all non-deleted memories for the user
 export async function GET() {
   try {
-    const supabase = await createClient()
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession()
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const admin = getAdminClient()
     const { data, error } = await admin
@@ -42,15 +41,13 @@ export async function GET() {
 // POST /api/ai-memory/memories — manually create a memory
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession()
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const body = await request.json()
     const { memoryType, inputText, outcome, normalizedSummary } = body ?? {}

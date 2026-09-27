@@ -1,18 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TodoistClient } from '@/lib/services/todoist-client'
+import { requireViewerOrUnauthorized } from '@/lib/auth/require-viewer'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function POST(request: NextRequest) {
   try {
-    const { apiToken, userId } = await request.json()
+    const viewerResult = await requireViewerOrUnauthorized()
+    if (viewerResult instanceof NextResponse) return viewerResult
+    const userId = viewerResult.user.id
+
+    const { apiToken } = await request.json()
     const trimmedToken = typeof apiToken === 'string' ? apiToken.trim() : apiToken
 
-    if (!trimmedToken || !userId) {
+    if (!trimmedToken) {
       return NextResponse.json(
-        { error: 'API token and user ID are required' },
+        { error: 'API token is required' },
         { status: 400 }
       )
     }
@@ -124,14 +129,11 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { userId, keepData } = await request.json()
+    const viewerResult = await requireViewerOrUnauthorized()
+    if (viewerResult instanceof NextResponse) return viewerResult
+    const userId = viewerResult.user.id
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
-      )
-    }
+    const { keepData } = await request.json()
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 

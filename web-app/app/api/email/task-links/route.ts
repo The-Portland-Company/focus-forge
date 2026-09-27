@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { buildTaskLinkMaps } from "@/lib/email-inbox/task-links";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 // GET /api/email/task-links — map of task_id -> thread_id for tasks created
 // from / linked to email threads (RLS scopes rows to the current user).
@@ -10,15 +11,13 @@ import { buildTaskLinkMaps } from "@/lib/email-inbox/task-links";
 // the clickable AI-origin indicator + refinement modal on the Today view.
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     // email_thread_tasks isn't in the generated DB types yet
     const { data, error } = await (supabase as any)
@@ -76,15 +75,13 @@ export async function GET() {
 // This only flips a flag on the link row; it never exposes email content.
 export async function PATCH(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     let body: { taskId?: unknown; public?: unknown };
     try {

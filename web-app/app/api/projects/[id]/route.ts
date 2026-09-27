@@ -9,6 +9,7 @@ import {
   computeAddedMembershipUserIds,
   sendProjectMembershipNotifications,
 } from "@/lib/task-notifications";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export async function PUT(
   request: NextRequest,
@@ -16,15 +17,13 @@ export async function PUT(
 ) {
   try {
     const params = await props.params;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const authz = await requireProjectAdmin(
       supabase,
@@ -120,15 +119,13 @@ export async function DELETE(
 ) {
   try {
     const params = await props.params;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const authz = await requireProjectAdmin(
       supabase,

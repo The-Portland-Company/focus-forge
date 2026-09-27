@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   X,
   Copy,
@@ -12,7 +12,6 @@ import {
   FileJson,
   ExternalLink,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format-date";
 import {
   MODAL_INSET_CLASS,
@@ -52,7 +51,6 @@ export function ProjectShareModal({
     title: "Share project",
     onRequestClose: onClose,
   });
-  const supabase = useMemo(() => createClient(), []);
   const [shares, setShares] = useState<ProjectShare[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -86,20 +84,12 @@ export function ProjectShareModal({
     [origin],
   );
 
-  const getToken = useCallback(async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    return session?.access_token || null;
-  }, [supabase]);
-
   const loadShares = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const token = await getToken();
       const res = await fetch(`/api/projects/${projectId}/shares`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload?.error || "Failed to load links");
@@ -109,7 +99,7 @@ export function ProjectShareModal({
     } finally {
       setLoading(false);
     }
-  }, [getToken, projectId]);
+  }, [projectId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -129,12 +119,11 @@ export function ProjectShareModal({
     setCreating(true);
     setError(null);
     try {
-      const token = await getToken();
       const res = await fetch(`/api/projects/${projectId}/shares`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           passcode: passcode.trim() || undefined,
@@ -160,12 +149,11 @@ export function ProjectShareModal({
   const handleRevoke = async (shareId: string) => {
     setError(null);
     try {
-      const token = await getToken();
       const res = await fetch(
         `/api/projects/${projectId}/shares/${shareId}`,
         {
           method: "DELETE",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
         },
       );
       if (!res.ok) {

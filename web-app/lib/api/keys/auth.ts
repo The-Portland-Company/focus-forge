@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { getViewer } from "@/lib/auth/tpc-session";
+import { resolveLocalUser, scopedSupabaseClient } from "@/lib/auth/local-identity";
 import { hashApiKeySecret } from "./utils";
 import type { ApiKeyScope } from "./types";
 
@@ -37,23 +38,22 @@ const authError = (message: string, status = 401) =>
 export async function requireAdminSessionOrPatAdminScope(
   request: NextRequest,
 ): Promise<{ principal?: AdminProvisioningPrincipal; errorResponse?: NextResponse }> {
-  const supabase = await createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const viewer = await getViewer();
+  const localUser = viewer ? await resolveLocalUser(viewer) : null;
 
-  if (session?.user) {
+  if (localUser) {
+    const supabase = scopedSupabaseClient(localUser.id);
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
-      .eq("id", session.user.id)
+      .eq("id", localUser.id)
       .single();
 
     if (profile?.role === "admin" || profile?.role === "super_admin") {
       return {
         principal: {
           type: "session",
-          userId: session.user.id,
+          userId: localUser.id,
           role: profile.role,
           canAssignElevatedRoles: true,
         },

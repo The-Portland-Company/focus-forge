@@ -1,21 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireViewerOrUnauthorized } from '@/lib/auth/require-viewer'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get('userId')
-    const resolved = searchParams.get('resolved') === 'true'
+    const viewerResult = await requireViewerOrUnauthorized()
+    if (viewerResult instanceof NextResponse) return viewerResult
+    const userId = viewerResult.user.id
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
-      )
-    }
+    const { searchParams } = new URL(request.url)
+    const resolved = searchParams.get('resolved') === 'true'
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
@@ -53,11 +50,15 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { conflictId, resolution, userId } = await request.json()
+    const viewerResult = await requireViewerOrUnauthorized()
+    if (viewerResult instanceof NextResponse) return viewerResult
+    const userId = viewerResult.user.id
 
-    if (!conflictId || !resolution || !userId) {
+    const { conflictId, resolution } = await request.json()
+
+    if (!conflictId || !resolution) {
       return NextResponse.json(
-        { error: 'Conflict ID, resolution, and user ID are required' },
+        { error: 'Conflict ID and resolution are required' },
         { status: 400 }
       )
     }

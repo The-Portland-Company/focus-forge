@@ -1,5 +1,6 @@
 import { ApiDocsPage } from "@/components/api-docs-page";
-import { createClient } from "@/lib/supabase/server";
+import { getViewer } from "@/lib/auth/tpc-session";
+import { resolveLocalUser, scopedSupabaseClient } from "@/lib/auth/local-identity";
 import { toApiKeyMeta } from "@/lib/api/keys/queries";
 import type { ApiKeyMeta } from "@/lib/api/keys/types";
 import { buildApiDocsRegistry } from "@/lib/api/docs/registry";
@@ -8,21 +9,19 @@ export const dynamic = "force-dynamic";
 
 export default async function DeveloperApiDocsPage() {
   const entries = await buildApiDocsRegistry();
-  const supabase = await createClient();
 
-  const {
-    data: { session },
-    error: authError,
-  } = await supabase.auth.getSession();
+  const viewer = await getViewer();
+  const localUser = viewer ? await resolveLocalUser(viewer) : null;
 
   let personalAccessTokens: ApiKeyMeta[] = [];
   let organizationApiKeys: ApiKeyMeta[] = [];
 
-  if (!authError && session?.user) {
+  if (localUser) {
+    const supabase = scopedSupabaseClient(localUser.id);
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
-      .eq("id", session.user.id)
+      .eq("id", localUser.id)
       .single();
     const isGlobalAdmin = ["admin", "super_admin"].includes(profile?.role || "");
 
@@ -30,7 +29,7 @@ export default async function DeveloperApiDocsPage() {
       supabase
         .from("user_organizations")
         .select("organization_id")
-        .eq("user_id", session.user.id)
+        .eq("user_id", localUser.id)
         .eq("is_owner", true),
       isGlobalAdmin
         ? supabase
@@ -45,7 +44,7 @@ export default async function DeveloperApiDocsPage() {
         .select(
           "id, name, prefix, scopes, expires_at, last_used_at, created_at, created_by, is_active",
         )
-        .eq("created_by", session.user.id)
+        .eq("created_by", localUser.id)
         .order("created_at", { ascending: false }),
     ]);
 
@@ -67,7 +66,7 @@ export default async function DeveloperApiDocsPage() {
   return (
     <ApiDocsPage
       entries={entries}
-      isAuthenticated={Boolean(session?.user)}
+      isAuthenticated={Boolean(localUser)}
       personalAccessTokens={personalAccessTokens}
       organizationApiKeys={organizationApiKeys}
     />

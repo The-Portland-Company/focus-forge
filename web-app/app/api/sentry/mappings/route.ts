@@ -1,20 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { getViewer } from "@/lib/auth/tpc-session";
+import { resolveLocalUser } from "@/lib/auth/local-identity";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 async function requireUser() {
-  const supabase = await createClient();
-  const {
-    data: { session },
-    error,
-  } = await supabase.auth.getSession();
-  if (error || !session?.user) {
-    return null;
-  }
-  return session.user;
+  const viewer = await getViewer();
+  if (!viewer) return null;
+  return resolveLocalUser(viewer);
 }
 
 // List the caller's Sentry -> Forge project mappings.

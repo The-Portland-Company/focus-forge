@@ -22,12 +22,25 @@ const CONFIRM_SALT = "focus-forge:ai-agent:destructive-confirm:v1";
 
 export type DestructiveAction = "delete_project" | "delete_organization";
 
+/**
+ * Shared token derivation for every agent gate (this double-confirm gate and
+ * the high-impact send approval in lib/ai-agent/approval.ts). Salt + ordered
+ * parts are joined with "|" and hashed, so a token is only reproducible by
+ * code that knows the salt AND the exact parts — change any part and the
+ * token changes.
+ */
+export function deriveGateToken(
+  salt: string,
+  parts: string[],
+  options: { length?: number } = {},
+): string {
+  const digest = createHash("sha256").update([salt, ...parts].join("|")).digest("hex");
+  return digest.slice(0, options.length ?? 32);
+}
+
 /** Deterministic, target-specific confirmation token. */
 export function deriveConfirmToken(action: DestructiveAction, entityId: string): string {
-  return createHash("sha256")
-    .update(`${CONFIRM_SALT}|${action}|${entityId}`)
-    .digest("hex")
-    .slice(0, 32);
+  return deriveGateToken(CONFIRM_SALT, [action, entityId]);
 }
 
 export type ConfirmGateInput = {

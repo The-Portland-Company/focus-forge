@@ -19,13 +19,51 @@ import {
 import { useRecorder } from "@/lib/voice/use-recorder";
 import { STT_PROVIDER_OPTIONS, type SttProviderPreference } from "@/lib/voice/stt";
 
+type PendingSend = {
+  tool: "send_reply" | "send_message";
+  draftId: string;
+  subject: string;
+  recipients: string[];
+  bodyPreview: string;
+  paramsHash: string;
+};
+
 type AgentMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   provider?: string | null;
   origin?: "voice" | "text";
+  /** A send tool on this turn came back needing human approval — render a preview. */
+  pendingSend?: PendingSend | null;
 };
+
+/** Countdown "mm:ss" until `expiresAt`, or "expired" once past it. */
+function useCountdown(expiresAt: string | null): string | null {
+  const [label, setLabel] = useState<string | null>(null);
+  useEffect(() => {
+    if (!expiresAt) {
+      setLabel(null);
+      return;
+    }
+    const target = new Date(expiresAt).getTime();
+    const tick = () => {
+      const remainingMs = target - Date.now();
+      if (remainingMs <= 0) {
+        setLabel("expired");
+        return;
+      }
+      const totalSec = Math.ceil(remainingMs / 1000);
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      setLabel(`${m}:${String(s).padStart(2, "0")}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+  return label;
+}
 
 const PROVIDER_META: Record<string, { name: string; bg: string }> = {
   openai: { name: "GPT-4.1", bg: "#0f0f0f" },
@@ -135,6 +173,11 @@ export function AiPlannerFloatingChat({
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
+  // Message id currently minting/sending an approved send, and that
+  // approval's expiry — drives the approve button's spinner + countdown.
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [approvalExpiry, setApprovalExpiry] = useState<string | null>(null);
+  const approvalCountdown = useCountdown(approvalExpiry);
   // The out-of-credit failure also renders in-thread (same alert as the bell
   // panel), because that is where the user is looking when the send fails.
   const [creditError, setCreditError] = useState<string | null>(null);
@@ -194,16 +237,22 @@ export function AiPlannerFloatingChat({
       .finally(() => setLoadingSession(false));
   }, [isOpen, storageKey]);
 
-  const send = async (text: string, origin: "voice" | "text" = "text") => {
+  const send = async (
+    text: string,
+    origin: "voice" | "text" = "text",
+    options?: { approval?: unknown; hideUserMessage?: boolean },
+  ) => {
     const message = text.trim();
     if (!message || sending) return;
 
     setInput("");
     setSending(true);
-    setMessages((prev) => [
-      ...prev,
-      { id: `local-${Date.now()}`, role: "user", content: message, origin },
-    ]);
+    if (!options?.hideUserMessage) {
+      setMessages((prev) => [
+        ...prev,
+        { id: `local-${Date.now()}`, role: "user", content: message, origin },
+      ]);
+    }
     setCreditError(null);
 
     try {
@@ -217,6 +266,7 @@ export function AiPlannerFloatingChat({
           ...(newConversationRef.current ? { newConversation: true } : {}),
           message,
           provider: model,
+          ...(options?.approval ? { approval: options.approval } : {}),
           pageContext: {
             view,
             visibleTaskCount: typeof visibleTaskCount === "number" ? visibleTaskCount : undefined,
@@ -251,6 +301,7 @@ export function AiPlannerFloatingChat({
           role: "assistant",
           content: String(data.assistantMessage || ""),
           provider: data.provider ?? null,
+          pendingSend: data.pendingSend ?? null,
         },
       ]);
 
@@ -288,6 +339,48 @@ export function AiPlannerFloatingChat({
       }
     } finally {
       setSending(false);
+    }
+  };
+
+  /**
+   * Approve exactly one previewed send. Mints the approval server-side
+   * (POST /api/ai-agent/approve-send — the only place an approval is ever
+   * created), then immediately relays the resulting opaque artifact back on
+   * the next agent turn so the same send tool call can actually transmit.
+   * The client never constructs or edits the approval itself.
+   */
+  const approveSend = async (msg: AgentMessage) => {
+    const pending = msg.pendingSend;
+    if (!pending || approvingId) return;
+    setApprovingId(msg.id);
+    try {
+      const res = await fetch("/api/ai-agent/approve-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          draftId: pending.draftId,
+          tool: pending.tool,
+          paramsHash: pending.paramsHash,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Approval failed");
+
+      setApprovalExpiry(data.expiresAt ?? null);
+      // Consume the preview immediately — it's single-use and the countdown
+      // above now tracks the minted approval instead.
+      setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, pendingSend: null } : m)));
+
+      await send("Approved — send it now.", "text", {
+        approval: data.approval,
+        hideUserMessage: true,
+      });
+    } catch (error: any) {
+      showError("Couldn't approve the send", error?.message || "Unknown error");
+    } finally {
+      setApprovingId(null);
+      setApprovalExpiry(null);
     }
   };
 
@@ -493,6 +586,49 @@ export function AiPlannerFloatingChat({
                           </span>
                         )}
                         <p className="whitespace-pre-wrap">{msg.content}</p>
+
+                        {msg.pendingSend && (
+                          <div className="mt-2 rounded-xl border border-amber-500/40 bg-amber-950/30 p-3 text-zinc-100">
+                            <p className="text-xs font-medium uppercase tracking-wide text-amber-400">
+                              Send approval needed
+                            </p>
+                            <dl className="mt-2 space-y-1 text-xs">
+                              <div className="flex gap-1.5">
+                                <dt className="shrink-0 text-zinc-400">To:</dt>
+                                <dd className="break-all">{msg.pendingSend.recipients.join(", ") || "(no recipients)"}</dd>
+                              </div>
+                              {msg.pendingSend.subject && (
+                                <div className="flex gap-1.5">
+                                  <dt className="shrink-0 text-zinc-400">Subject:</dt>
+                                  <dd className="break-words">{msg.pendingSend.subject}</dd>
+                                </div>
+                              )}
+                            </dl>
+                            <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md bg-black/30 p-2 text-xs text-zinc-300">
+                              {msg.pendingSend.bodyPreview || "(empty message)"}
+                            </p>
+                            <p className="mt-2 text-[11px] text-zinc-400">
+                              Approving sends this exact message only — any edit needs a fresh approval.
+                            </p>
+                            <div className="mt-2 flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => approveSend(msg)}
+                                disabled={approvingId === msg.id || sending}
+                                className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-zinc-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {approvingId === msg.id ? "Sending…" : "Approve & send"}
+                              </button>
+                              {approvingId === msg.id && approvalCountdown && (
+                                <span className="text-[11px] text-zinc-400">
+                                  {approvalCountdown === "expired"
+                                    ? "Approval expired"
+                                    : `Approval expires in ${approvalCountdown}`}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

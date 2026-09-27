@@ -12,7 +12,6 @@ import {
   Trash2,
 } from 'lucide-react'
 import { useToast } from '@/contexts/ToastContext'
-import { createClient } from '@/lib/supabase/client'
 
 interface SentryIntegrationProps {
   userId: string
@@ -63,12 +62,8 @@ export function SentryIntegration({ userId }: SentryIntegrationProps) {
 
   const checkConnectionStatus = async () => {
     try {
-      const supabase = createClient() as any
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('sentry_auth_token, sentry_org_slug, sentry_base_url, sentry_sync_enabled')
-        .eq('id', userId)
-        .single()
+      const res = await fetch('/api/auth/me', { credentials: 'include' })
+      const { profile } = res.ok ? await res.json() : { profile: null }
 
       if (profile?.sentry_auth_token) {
         setIsConnected(true)
@@ -236,14 +231,15 @@ export function SentryIntegration({ userId }: SentryIntegrationProps) {
 
   const toggleSync = async () => {
     try {
-      const supabase = createClient() as any
       const newValue = !syncEnabled
-      const { error } = await supabase
-        .from('profiles')
-        .update({ sentry_sync_enabled: newValue })
-        .eq('id', userId)
+      const res = await fetch('/api/auth/me', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table: 'profile', updates: { sentry_sync_enabled: newValue } })
+      })
 
-      if (!error) {
+      if (res.ok) {
         setSyncEnabled(newValue)
         showSuccess('Updated', `Sync ${newValue ? 'enabled' : 'disabled'}`)
       } else {
@@ -259,13 +255,14 @@ export function SentryIntegration({ userId }: SentryIntegrationProps) {
       return
     }
     try {
-      const supabase = createClient() as any
-      const { error } = await supabase
-        .from('profiles')
-        .update({ sentry_auth_token: null, sentry_sync_enabled: false })
-        .eq('id', userId)
+      const res = await fetch('/api/auth/me', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table: 'profile', updates: { sentry_auth_token: null, sentry_sync_enabled: false } })
+      })
 
-      if (!error) {
+      if (res.ok) {
         showSuccess('Disconnected', 'Disconnected from Sentry')
         setIsConnected(false)
         setSentryProjects([])

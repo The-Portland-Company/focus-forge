@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { requireProjectAdmin } from "@/lib/api/authz";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 /**
  * GET /api/projects/[id]/reorganize/batches
@@ -16,15 +17,13 @@ export async function GET(
   try {
     const params = await props.params;
     const projectId = params.id;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const authz = await requireProjectAdmin(
       supabase,

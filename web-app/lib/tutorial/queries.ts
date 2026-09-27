@@ -1,57 +1,26 @@
-// Client-side data access for tutorial content. RLS already restricts reads to
-// published rows (admins additionally see drafts), so these queries stay simple.
+// Client-side data access for tutorial content. Reads go through server
+// routes (app/api/tutorial/*) rather than a direct Supabase client — the
+// browser no longer holds a Supabase session under TPC Auth (see
+// lib/auth/tpc-session.ts), so the tutorial_* tables' RLS (published rows to
+// `authenticated`) can only be satisfied server-side via requireViewer().
 
 import { createClient } from "@/lib/supabase/client";
-import type {
-  TutorialChapter,
-  TutorialSection,
-  TutorialTooltip,
-} from "./types";
+import type { TutorialChapter, TutorialTooltip } from "./types";
 
-// The tutorial_* tables ship ahead of a regenerated database.types.ts (types
-// gen is privilege-gated on this project), so we cast the client to `any` for
-// these reads — matching the repo's "cast until types regenerated" convention.
 /** All published chapters with their sections, ordered for the reader. */
 export async function fetchChapters(): Promise<TutorialChapter[]> {
-  const supabase = createClient() as any;
-
-  const [{ data: chapters, error: cErr }, { data: sections, error: sErr }] =
-    await Promise.all([
-      supabase
-        .from("tutorial_chapters")
-        .select("*")
-        .order("order_index", { ascending: true }),
-      supabase
-        .from("tutorial_sections")
-        .select("*")
-        .order("order_index", { ascending: true }),
-    ]);
-
-  if (cErr) throw cErr;
-  if (sErr) throw sErr;
-
-  const byChapter = new Map<string, TutorialSection[]>();
-  for (const s of (sections ?? []) as TutorialSection[]) {
-    const list = byChapter.get(s.chapter_id) ?? [];
-    list.push(s);
-    byChapter.set(s.chapter_id, list);
-  }
-
-  return ((chapters ?? []) as Omit<TutorialChapter, "sections">[]).map((c) => ({
-    ...c,
-    sections: byChapter.get(c.id) ?? [],
-  }));
+  const res = await fetch("/api/tutorial/chapters", { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to load tutorial chapters");
+  const { chapters } = await res.json();
+  return (chapters ?? []) as TutorialChapter[];
 }
 
 /** Published contextual tooltips, ordered. */
 export async function fetchTooltips(): Promise<TutorialTooltip[]> {
-  const supabase = createClient() as any;
-  const { data, error } = await supabase
-    .from("tutorial_tooltips")
-    .select("*")
-    .order("order_index", { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as TutorialTooltip[];
+  const res = await fetch("/api/tutorial/tooltips", { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to load tutorial tooltips");
+  const { tooltips } = await res.json();
+  return (tooltips ?? []) as TutorialTooltip[];
 }
 
 /** A public URL for a tutorial video stored in the `tutorial-videos` bucket. */

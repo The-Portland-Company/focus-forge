@@ -5,21 +5,20 @@ import {
   normalizeSttPreference,
   transcribeWithFallback,
 } from "@/lib/voice/stt";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     if (getConfiguredSttProviders().length === 0) {
       return NextResponse.json(

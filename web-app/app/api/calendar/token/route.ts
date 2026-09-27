@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { randomBytes } from "crypto";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 function generateToken(): string {
   return randomBytes(32).toString("hex");
@@ -8,16 +9,13 @@ function generateToken(): string {
 
 export async function GET() {
   try {
-    const supabase = await createClient();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    if (viewerResult instanceof NextResponse) return viewerResult;
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const userId = session.user.id;
 
@@ -65,16 +63,13 @@ export async function GET() {
 
 export async function POST() {
   try {
-    const supabase = await createClient();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    if (viewerResult instanceof NextResponse) return viewerResult;
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const userId = session.user.id;
     const newToken = generateToken();

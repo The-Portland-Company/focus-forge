@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { getViewer } from "@/lib/auth/tpc-session";
+import { resolveLocalUser, scopedSupabaseClient } from "@/lib/auth/local-identity";
 import { hashApiKeySecret } from "@/lib/api/keys/utils";
 import { createAnonSupabase } from "@/lib/mobile/api";
 import { mapTimeScopes } from "./utils";
@@ -43,7 +44,7 @@ function hasRequiredScope(granted: TimeScope[], required: TimeScope[]) {
 }
 
 async function buildSessionPrincipal(userId: string) {
-  const supabase = await createClient();
+  const supabase = scopedSupabaseClient(userId);
   const { data: profile } = await supabase
     .from("profiles")
     .select("role")
@@ -71,13 +72,11 @@ export async function requireTimePrincipal(
   request: NextRequest,
   requiredScopes: TimeScope[] = ["read"],
 ): Promise<{ principal?: TimePrincipal; errorResponse?: NextResponse }> {
-  const supabase = await createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const viewer = await getViewer();
+  const localUser = viewer ? await resolveLocalUser(viewer) : null;
 
-  if (session?.user) {
-    const sessionPrincipal = await buildSessionPrincipal(session.user.id);
+  if (localUser) {
+    const sessionPrincipal = await buildSessionPrincipal(localUser.id);
 
     if (!hasRequiredScope(sessionPrincipal.scopes, requiredScopes)) {
       return {

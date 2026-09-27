@@ -7,6 +7,7 @@ import {
   computeAddedMembershipUserIds,
   sendOrganizationMembershipNotifications,
 } from "@/lib/task-notifications";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export async function PUT(
   request: Request,
@@ -14,15 +15,13 @@ export async function PUT(
 ) {
   try {
     const params = await props.params;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const authz = await requireOrgAdmin(supabase, session.user.id, params.id);
     if (!authz.authorized) {
@@ -90,15 +89,13 @@ export async function DELETE(
 ) {
   try {
     const params = await props.params;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const adapter = new SupabaseAdapter(supabase, session.user.id);
     const { batchId } = await adapter.deleteOrganization(params.id);
