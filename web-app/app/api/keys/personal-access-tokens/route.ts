@@ -5,23 +5,17 @@ import { toApiKeyMeta } from "@/lib/api/keys/queries";
 import { generateApiKeySecret, hashApiKeySecret, extractPrefixFromSecret } from "@/lib/api/keys/utils";
 import { normalizeApiKeyCreateRequest } from "@/lib/api/keys/validation";
 import type { ApiKeyWithSecret } from "@/lib/api/keys/types";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 const MAX_ACTIVE_PATS_PER_USER = 20;
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    // Use getUser() (not getSession()) — it revalidates against the Auth server
-    // and refreshes the access token on the client, so RLS reads/writes that
-    // depend on auth.uid() use a valid, non-expired token.
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
 
     // Data ops run through the service client, explicitly scoped to the
     // authenticated user.id. The cookie-bound user client does not reliably
@@ -55,18 +49,11 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    // getUser() revalidates + refreshes the token so the INSERT below carries a
-    // valid JWT; otherwise a stale access token makes auth.uid() NULL and the
-    // RLS WITH CHECK (created_by = auth.uid()) rejects the row.
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
 
     const normalized = normalizeApiKeyCreateRequest(await request.json());
     if (normalized.error || !normalized.payload) {

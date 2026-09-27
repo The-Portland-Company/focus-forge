@@ -1,44 +1,24 @@
-import { NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { revoke } from "@/src/vendor/tpc-auth/oidc";
+import { REFRESH_COOKIE, clearSessionCookies } from "@/lib/auth/tpc-session";
 
+// POST /api/auth/logout — revokes the TPC refresh token (RFC 7009) and clears
+// the session cookies. This ends Focus Forge's own cookie session; ending the
+// IdP session too (single sign-out) happens by sending the browser to TPC
+// Auth's logout endpoint, which the client does separately via
+// `oidc.logoutUrl()` when a full sign-out (not just this app) is intended.
 export async function POST() {
   try {
-    const cookieStore = await cookies()
-    
-    // Create Supabase client
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value
-          },
-          set(name: string, value: string, options: any) {
-            cookieStore.set(name, value, options)
-          },
-          remove(name: string, options: any) {
-            cookieStore.set(name, '', { ...options, maxAge: 0 })
-          },
-        },
-      }
-    )
-    
-    // Sign out with Supabase
-    await supabase.auth.signOut()
-    
-    const response = NextResponse.json(
-      { success: true, message: 'Logged out successfully' },
-      { status: 200 }
-    )
-    
-    return response
+    const store = await cookies();
+    const refreshToken = store.get(REFRESH_COOKIE)?.value;
+    if (refreshToken) {
+      await revoke(refreshToken).catch(() => {});
+    }
+    await clearSessionCookies();
+    return NextResponse.json({ success: true, message: "Logged out successfully" });
   } catch (error) {
-    console.error('Logout error:', error)
-    return NextResponse.json(
-      { error: 'Logout failed' },
-      { status: 500 }
-    )
+    console.error("Logout error:", error);
+    return NextResponse.json({ error: "Logout failed" }, { status: 500 });
   }
 }

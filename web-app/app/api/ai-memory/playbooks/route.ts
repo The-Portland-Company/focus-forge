@@ -2,19 +2,18 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { getAdminClient } from "@/lib/supabase/admin"
 import { distillPlaybookFromMemories } from "@/lib/ai-memory/playbook"
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 // GET /api/ai-memory/playbooks — all playbook versions for the user
 export async function GET() {
   try {
-    const supabase = await createClient()
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession()
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const admin = getAdminClient()
     const { data, error } = await admin
@@ -55,15 +54,13 @@ export async function GET() {
 // POST /api/ai-memory/playbooks — distill a new playbook from memories
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession()
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const body = await request.json()
     const { playbookType } = body ?? {}

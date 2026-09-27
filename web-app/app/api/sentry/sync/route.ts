@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { SupabaseAdapter } from "@/lib/db/supabase-adapter";
 import { SentryClient } from "@/lib/services/sentry-client";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -13,15 +14,13 @@ export async function POST(request: NextRequest) {
     const connectionId: string | undefined = body?.connectionId;
 
     // Authenticate the web session.
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const userId = session.user.id;
     const service = createServiceClient(supabaseUrl, supabaseServiceKey);

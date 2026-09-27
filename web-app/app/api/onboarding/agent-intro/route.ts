@@ -6,6 +6,7 @@ import {
   hashApiKeySecret,
   extractPrefixFromSecret,
 } from "@/lib/api/keys/utils";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 const DEFAULT_TOKEN_NAME = "default";
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
@@ -35,15 +36,11 @@ Always confirm destructive actions before performing them, and keep this token s
 // report that onboarding is already complete and never re-mint or re-reveal.
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
 
     const db = getAdminClient();
 

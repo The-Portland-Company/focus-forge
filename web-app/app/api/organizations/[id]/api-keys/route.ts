@@ -10,6 +10,7 @@ import {
 } from "@/lib/api/keys/utils";
 import { normalizeApiKeyCreateRequest } from "@/lib/api/keys/validation";
 import type { ApiKeyWithSecret } from "@/lib/api/keys/types";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export async function GET(
   request: NextRequest,
@@ -17,15 +18,11 @@ export async function GET(
 ) {
   try {
     const params = await props.params;
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
 
     // Authorize and read with the cookie-less admin client: the cookie-bound
     // user client doesn't reliably forward the JWT to PostgREST here
@@ -69,15 +66,11 @@ export async function POST(
 ) {
   try {
     const params = await props.params;
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
 
     // See GET note — authorize + write via the cookie-less admin client.
     const db = getAdminClient();

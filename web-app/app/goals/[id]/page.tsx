@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { createClient } from "@/lib/supabase/server";
 import { TaskGoalRow } from "./task-goal-row";
+import { getViewer } from "@/lib/auth/tpc-session";
+import { resolveLocalUser, scopedSupabaseClient } from "@/lib/auth/local-identity";
 
 // This page is per-user and auth-gated (middleware), so render dynamically.
 export const dynamic = "force-dynamic";
@@ -22,12 +23,12 @@ type PlanRow = { id: string; name: string; updated_at: string };
 type TaskRow = { id: string; name: string; completed: boolean; source?: string | null; source_url?: string | null };
 
 async function loadGoal(id: string) {
-  const supabase = await createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const viewer = await getViewer();
+  const localUser = viewer ? await resolveLocalUser(viewer) : null;
 
-  if (!session?.user) return null;
+  if (!localUser) return null;
+
+  const supabase = scopedSupabaseClient(localUser.id);
 
   // RLS scopes each query to what the signed-in user can see.
   const { data: goal } = await supabase

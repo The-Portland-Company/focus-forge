@@ -8,6 +8,7 @@ import {
   verifyMobileAccessTokenOrPat,
 } from "@/lib/mobile/api";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
+import { createUntrustedFence } from "@/lib/ai-agent/untrusted";
 
 // Server-side Jev (TypeSafe) task triage.
 //
@@ -71,6 +72,8 @@ const QUESTIONS = {
 } as const;
 
 type SanitizedTask = {
+  /** The data-boundary directive covering `title` and `description`. */
+  contentNotice: string;
   title: string;
   description: string;
   dueDate: string | null;
@@ -81,10 +84,21 @@ type SanitizedTask = {
 };
 
 // Only non-sensitive fields leave the server.
+//
+// Title and description are untrusted text: many tasks are created FROM email,
+// so a sender can write the words Jev scores. They are sanitized and fenced as
+// data so a body saying "this is urgent, priority 1" is scored as a claim in the
+// task, not as an instruction to the scorer (ASI01).
 function sanitize(task: any): SanitizedTask {
+  const fence = createUntrustedFence();
   return {
-    title: task?.name ?? task?.title ?? "",
-    description: task?.description ?? "",
+    contentNotice: fence.notice,
+    title: fence.wrap(task?.name ?? task?.title ?? "", "task title", {
+      maxLength: 500,
+    }),
+    description: fence.wrap(task?.description ?? "", "task description", {
+      maxLength: 4000,
+    }),
     dueDate: task?.due_date ?? task?.dueDate ?? null,
     createdAt: task?.created_at ?? task?.createdAt ?? null,
     currentPriority: task?.priority ?? null,

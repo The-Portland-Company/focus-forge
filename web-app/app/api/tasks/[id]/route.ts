@@ -7,6 +7,7 @@ import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
 import { getAdminClient } from "@/lib/supabase/admin";
 import { maybeCreateAIMemoryFromEvent } from "@/lib/ai-memory/write";
 import type { EventType } from "@/lib/ai-memory/types";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export async function GET(
   request: NextRequest,
@@ -14,15 +15,13 @@ export async function GET(
 ) {
   try {
     const params = await props.params;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const adapter = new SupabaseAdapter(supabase, session.user.id);
     const task = await adapter.getTask(params.id).catch(() => null);

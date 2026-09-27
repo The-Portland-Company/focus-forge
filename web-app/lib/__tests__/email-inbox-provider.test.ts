@@ -3,9 +3,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildMailboxSyncCursor,
+  isMailboxSyncCursorValidForUidValidity,
   normalizeMailboxSyncCursor,
+  normalizeUidValidity,
   resolveOrCreateLabelMailboxPath,
   resolveSpecialMailboxPath,
+  shouldAppendSentCopy,
   Semaphore,
 } from "../email-inbox/provider";
 
@@ -14,10 +17,12 @@ test("normalizeMailboxSyncCursor keeps only valid incremental cursor values", ()
     normalizeMailboxSyncCursor({
       highestUid: 42,
       lastSeenAt: "2026-04-13T14:56:40.000Z",
+      uidValidity: 1700000000,
     }),
     {
       highestUid: 42,
       lastSeenAt: "2026-04-13T14:56:40.000Z",
+      uidValidity: 1700000000,
     },
   );
 
@@ -25,12 +30,24 @@ test("normalizeMailboxSyncCursor keeps only valid incremental cursor values", ()
     normalizeMailboxSyncCursor({
       highestUid: "not-a-number",
       lastSeenAt: "not-a-date",
+      uidValidity: "not-a-number",
     }),
     {
       highestUid: null,
       lastSeenAt: null,
+      uidValidity: null,
     },
   );
+});
+
+test("normalizeUidValidity accepts bigint (ImapFlow's mailbox.uidValidity type) and rejects junk", () => {
+  assert.equal(normalizeUidValidity(BigInt(1700000000)), 1700000000);
+  assert.equal(normalizeUidValidity(1700000000), 1700000000);
+  assert.equal(normalizeUidValidity("1700000000"), 1700000000);
+  assert.equal(normalizeUidValidity(0), null);
+  assert.equal(normalizeUidValidity(-5), null);
+  assert.equal(normalizeUidValidity(undefined), null);
+  assert.equal(normalizeUidValidity(null), null);
 });
 
 test("buildMailboxSyncCursor advances highest UID and newest message timestamp", () => {
@@ -39,9 +56,11 @@ test("buildMailboxSyncCursor advances highest UID and newest message timestamp",
       previousCursor: {
         highestUid: 40,
         lastSeenAt: "2026-04-13T14:30:00.000Z",
+        uidValidity: 1700000000,
       },
       fallbackLastSeenAt: "2026-04-13T14:00:00.000Z",
       highestUid: 44,
+      uidValidity: 1700000000,
       messages: [
         {
           receivedAt: "2026-04-13T14:56:40.000Z",
@@ -52,6 +71,7 @@ test("buildMailboxSyncCursor advances highest UID and newest message timestamp",
     {
       highestUid: 44,
       lastSeenAt: "2026-04-13T14:56:40.000Z",
+      uidValidity: 1700000000,
     },
   );
 });
@@ -62,16 +82,100 @@ test("buildMailboxSyncCursor preserves prior cursor when no new messages arrive"
       previousCursor: {
         highestUid: 44,
         lastSeenAt: "2026-04-13T14:56:40.000Z",
+        uidValidity: 1700000000,
       },
       fallbackLastSeenAt: "2026-04-13T14:00:00.000Z",
       messages: [],
       highestUid: null,
+      uidValidity: 1700000000,
     }),
     {
       highestUid: 44,
       lastSeenAt: "2026-04-13T14:56:40.000Z",
+      uidValidity: 1700000000,
     },
   );
+});
+
+test("buildMailboxSyncCursor carries forward uidValidity even when a fetch omits it", () => {
+  // fetchMailboxMessages always passes the freshly-observed uidValidity, but
+  // buildMailboxSyncCursor should still fall back to the persisted value if a
+  // caller ever omits it (e.g. an empty-folder short-circuit).
+  assert.deepEqual(
+    buildMailboxSyncCursor({
+      previousCursor: {
+        highestUid: 10,
+        lastSeenAt: "2026-04-13T14:00:00.000Z",
+        uidValidity: 1700000000,
+      },
+      messages: [],
+    }),
+    {
+      highestUid: 10,
+      lastSeenAt: "2026-04-13T14:00:00.000Z",
+      uidValidity: 1700000000,
+    },
+  );
+});
+
+test("isMailboxSyncCursorValidForUidValidity: unknown previous/current values don't force a resync", () => {
+  assert.equal(isMailboxSyncCursorValidForUidValidity(null, 1700000000), true);
+  assert.equal(isMailboxSyncCursorValidForUidValidity(1700000000, null), true);
+  assert.equal(isMailboxSyncCursorValidForUidValidity(null, null), true);
+});
+
+test("isMailboxSyncCursorValidForUidValidity: matching values stay valid, a mismatch forces resync", () => {
+  assert.equal(
+    isMailboxSyncCursorValidForUidValidity(1700000000, 1700000000),
+    true,
+  );
+  assert.equal(
+    isMailboxSyncCursorValidForUidValidity(1700000000, 1700000001),
+    false,
+  );
+});
+
+test("a UIDVALIDITY change discards the cursor and forces a full resync via buildMailboxSyncCursor", () => {
+  // Mirrors what fetchMailboxMessages does: on a UIDVALIDITY mismatch it
+  // rebuilds the previousCursor as { highestUid: null, lastSeenAt: null,
+  // uidValidity: current } before calling buildMailboxSyncCursor, so a stale
+  // highestUid can never leak through and silently skip or duplicate mail.
+  const persistedCursor = {
+    highestUid: 500,
+    lastSeenAt: "2026-04-13T14:56:40.000Z",
+    uidValidity: 1700000000,
+  };
+  const currentUidValidity = 1700000099;
+  const cursorValid = isMailboxSyncCursorValidForUidValidity(
+    persistedCursor.uidValidity,
+    currentUidValidity,
+  );
+  assert.equal(cursorValid, false);
+
+  const previousCursor = cursorValid
+    ? persistedCursor
+    : { highestUid: null, lastSeenAt: null, uidValidity: currentUidValidity };
+
+  const rebuilt = buildMailboxSyncCursor({
+    previousCursor,
+    highestUid: 3,
+    uidValidity: currentUidValidity,
+    messages: [{ receivedAt: "2026-09-20T00:00:00.000Z", sentAt: null }],
+  });
+
+  assert.deepEqual(rebuilt, {
+    highestUid: 3,
+    lastSeenAt: "2026-09-20T00:00:00.000Z",
+    uidValidity: currentUidValidity,
+  });
+});
+
+test("shouldAppendSentCopy: appends only when the Sent-folder Message-ID search found nothing", () => {
+  assert.equal(shouldAppendSentCopy(null), true);
+  assert.equal(shouldAppendSentCopy(undefined), true);
+  assert.equal(shouldAppendSentCopy([]), true);
+  assert.equal(shouldAppendSentCopy([42]), false);
+  assert.equal(shouldAppendSentCopy([1, 2, 3]), false);
 });
 
 test("resolveSpecialMailboxPath prefers \\Special-Use over folder names (Gmail)", async () => {

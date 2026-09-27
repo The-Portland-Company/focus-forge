@@ -4,6 +4,7 @@ import {
   mobileSuccess,
   verifyMobileAccessTokenOrPat,
 } from "@/lib/mobile/api";
+import { checkApiTokenRateLimit } from "@/lib/api/rate-limit";
 import { createOrGetAttachmentPublicLink } from "@/lib/email-inbox/attachment-public-links";
 
 // POST /api/mobile/email/attachments/public-link
@@ -20,6 +21,14 @@ export async function POST(request: NextRequest) {
     );
     if (!auth.ok) {
       return NextResponse.json(auth.error, { status: auth.status });
+    }
+
+    const rl = checkApiTokenRateLimit("mobile", auth.user.id);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        mobileFailure("rate_limited", "Too many requests. Please slow down.", { retryAfterMs: rl.retryAfterMs }),
+        { status: 429 },
+      );
     }
 
     const body = await request.json().catch(() => ({}));

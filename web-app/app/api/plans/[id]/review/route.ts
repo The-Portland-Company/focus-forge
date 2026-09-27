@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resolveChain } from "@/lib/ai/model-chains";
 import { runStructuredWaterfall } from "@/lib/ai/structured-waterfall";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 const SYSTEM_PROMPT = `You are a senior planning reviewer for the Focus Forge project manager.
 You are given a plan written in Markdown. Review it and return concise, actionable feedback.
@@ -18,15 +19,13 @@ export async function POST(
 ) {
   try {
     const params = await props.params;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     const { data: plan, error } = await supabase
       .from("plans")

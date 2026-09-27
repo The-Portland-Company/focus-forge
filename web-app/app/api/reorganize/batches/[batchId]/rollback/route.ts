@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { requireProjectAdmin } from "@/lib/api/authz";
 import { rollbackReorgMoves } from "@/lib/task-reorg/apply";
+import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 /**
  * POST /api/reorganize/batches/[batchId]/rollback
@@ -17,15 +18,13 @@ export async function POST(
   try {
     const params = await props.params;
     const batchId = params.batchId;
-    const supabase = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await supabase.auth.getSession();
+    const viewerResult = await requireViewerOrUnauthorized();
 
-    if (authError || !session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (viewerResult instanceof NextResponse) return viewerResult;
+
+    const { supabase, user } = viewerResult;
+
+    const session = { user };
 
     // The batch carries the source project; authorize the caller against it.
     const { data: batch } = (await (supabase as any)

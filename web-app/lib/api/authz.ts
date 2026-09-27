@@ -1,15 +1,23 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { getViewer } from '@/lib/auth/tpc-session'
+import { resolveLocalUser, scopedSupabaseClient } from '@/lib/auth/local-identity'
 
-export async function requireAuth(request: NextRequest) {
-  const supabase = await createClient()
-  const { data: { session }, error } = await supabase.auth.getSession()
+// `_request` is unused now that identity comes from the TPC session cookies
+// rather than an inbound Supabase cookie header, but kept so call sites don't
+// need to change their call signature.
+export async function requireAuth(_request: NextRequest) {
+  const viewer = await getViewer()
+  const localUser = viewer ? await resolveLocalUser(viewer) : null
 
-  if (error || !session?.user) {
+  if (!localUser) {
     return { errorResponse: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   }
 
-  return { supabase, user: session.user }
+  const supabase = scopedSupabaseClient(localUser.id)
+
+  // Shaped like the old Supabase Auth `User` object (id/email) so existing
+  // call sites reading `user.id` / `user.email` keep working unchanged.
+  return { supabase, user: { id: localUser.id, email: localUser.email } }
 }
 
 export async function requireOrgAdmin(supabase: any, userId: string, organizationId: string) {
