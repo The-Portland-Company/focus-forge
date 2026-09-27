@@ -4,16 +4,22 @@
 // supabase/migrations/20260924000000_tpc_auth_additive.sql /
 // 20260924000001_tpc_auth_deferred_drop.sql).
 //
-// Two things happen here:
+// Three things happen here:
 //
-// 1. `resolveLocalUser(viewer)` maps a TPC `sub`/`email` to the existing
-//    local `profiles.id` (== the old `auth.users.id`) by email match. This
-//    is a stand-in for the real identity-link table TPC Auth's own backfill
-//    produces (`tpc_sub` column) — once that backfill has run, this should
-//    look up `profiles.tpc_sub = viewer.sub` directly instead of by email,
-//    and this file's email-matching path should be deleted.
+// 1. `resolveForgeProfile(ctx, accessToken?)` is the single identity-mapping
+//    rule for the whole app: resolve by `profiles.tpc_sub` first (fast path),
+//    then fall back to a case-insensitive match on a *verified* email
+//    (from the token's `email` claim, or — when the caller passes an access
+//    token — TPC Auth's userinfo endpoint), persisting the mapping on a hit.
+//    An unverified/absent email never links an identity. This mirrors
+//    lib/mobile/api.ts's `verifyMobileAccessTokenOrPat`, which is the other
+//    caller of this function — previously the two had separately-maintained
+//    copies of this logic; don't let a third one grow back.
 //
-// 2. `scopedSupabaseClient(localUserId)` mints a short-lived Supabase-
+// 2. `resolveLocalUser(viewer)` is the web-session wrapper around it, for
+//    routes/pages using `getViewer()`.
+//
+// 3. `scopedSupabaseClient(localUserId)` mints a short-lived Supabase-
 //    compatible JWT (HS256, signed with SUPABASE_JWT_SECRET, `sub =
 //    localUserId`) and hands it to a plain supabase-js client via the
 //    Authorization header. PostgREST reads `sub` out of that JWT into
@@ -27,8 +33,9 @@
 //    viewer instead of a Supabase cookie session.
 import jwt from "jsonwebtoken";
 import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
-import { createServiceClient } from "@/lib/supabase/server";
+import { getAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
+import { resolveIssuer } from "@/src/vendor/tpc-auth/types";
 import type { Viewer } from "./tpc-session";
 
 export interface LocalUser {
@@ -36,24 +43,85 @@ export interface LocalUser {
   email: string;
 }
 
+export interface TpcIdentity {
+  sub: string;
+  email?: string;
+  claims?: Record<string, unknown>;
+}
+
 const localUserCache = new Map<string, { expires: number; user: LocalUser | null }>();
 const CACHE_TTL_MS = 30_000;
 
-/** Look up the local `profiles` row for a TPC viewer, by email. */
-export async function resolveLocalUser(viewer: Viewer): Promise<LocalUser | null> {
-  if (!viewer.email) return null;
-  const cached = localUserCache.get(viewer.email);
-  if (cached && cached.expires > Date.now()) return cached.user;
+/**
+ * Best-effort fetch of the caller's verified email from the TPC Auth
+ * userinfo endpoint, for access tokens that don't carry an `email` claim.
+ */
+async function fetchTpcUserinfoEmail(accessToken: string): Promise<string | null> {
+  try {
+    const issuer = resolveIssuer();
+    const res = await fetch(`${issuer}/oauth/userinfo`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { email?: unknown; email_verified?: unknown };
+    if (body?.email_verified === false) return null;
+    return typeof body?.email === "string" && body.email ? body.email : null;
+  } catch {
+    return null;
+  }
+}
 
-  const svc = createServiceClient();
-  const { data, error } = await svc
+/**
+ * TPC subs are NOT Forge ids — a TPC access token authenticates a real
+ * person or service, but Forge's `created_by`/`assigned_to`/`profiles.id`
+ * etc. are the pre-existing local ids. Resolve the caller's Forge profile by
+ * `tpc_sub` first (fast path, set once we've matched by email), falling back
+ * to a case-insensitive email match, persisting the mapping on a hit.
+ * Returns null when no Forge profile can be found — callers must not proceed
+ * with an unmapped id. `accessToken`, when given, lets a token without an
+ * `email` claim resolve its verified email via userinfo.
+ */
+export async function resolveForgeProfile(
+  ctx: TpcIdentity,
+  accessToken?: string,
+): Promise<LocalUser | null> {
+  const svc = getAdminClient();
+
+  const { data: bySub } = await svc
     .from("profiles")
     .select("id, email")
-    .eq("email", viewer.email)
+    .eq("tpc_sub", ctx.sub)
     .maybeSingle();
+  if (bySub?.id) return { id: String(bySub.id), email: bySub.email ?? "" };
 
-  const user = !error && data ? { id: data.id, email: data.email } : null;
-  localUserCache.set(viewer.email, { expires: Date.now() + CACHE_TTL_MS, user });
+  // Only a verified email may link a TPC identity to an existing profile.
+  const tokenEmail = ctx.claims?.email_verified === false ? undefined : ctx.email;
+  const email = tokenEmail || (accessToken ? await fetchTpcUserinfoEmail(accessToken) : null);
+  if (!email) return null;
+
+  const { data: byEmail } = await svc
+    .from("profiles")
+    .select("id, email")
+    .ilike("email", email)
+    .maybeSingle();
+  if (!byEmail?.id) return null;
+
+  // Persist the mapping so future calls hit the tpc_sub fast path. Awaited
+  // (not fire-and-forget): supabase-js query builders are lazy thenables and
+  // never issue the request unless awaited/`.then()`-ed.
+  await svc.from("profiles").update({ tpc_sub: ctx.sub }).eq("id", byEmail.id);
+
+  return { id: String(byEmail.id), email: byEmail.email ?? "" };
+}
+
+/** Look up the local `profiles` row for a TPC viewer. See `resolveForgeProfile`. */
+export async function resolveLocalUser(viewer: Viewer): Promise<LocalUser | null> {
+  const cacheKey = viewer.sub;
+  const cached = localUserCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.user;
+
+  const user = await resolveForgeProfile({ sub: viewer.sub, email: viewer.email });
+  localUserCache.set(cacheKey, { expires: Date.now() + CACHE_TTL_MS, user });
   return user;
 }
 

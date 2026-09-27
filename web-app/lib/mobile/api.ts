@@ -6,8 +6,8 @@ import type { ApiKeyScope } from '@/lib/api/keys/types'
 import { normalizeLlmAssignment } from '@/lib/llm/assignment'
 import { authenticate as authenticateTpc } from '@/src/vendor/tpc-auth/authenticate'
 import { TPC_RESOURCE } from '@/src/vendor/tpc-auth/config'
-import { resolveIssuer } from '@/src/vendor/tpc-auth/types'
 import { sourceForTpcClientId } from '@/lib/task-sources'
+import { resolveForgeProfile } from '@/lib/auth/local-identity'
 
 export type MobileApiError = {
   code: string
@@ -130,68 +130,6 @@ const userFromForgeProfile = (profile: { id: string; email: string | null }): Us
     updated_at: '',
   }) as unknown as User
 
-// Best-effort fetch of the caller's verified email from the TPC Auth
-// userinfo endpoint, for access tokens that don't carry an `email` claim.
-const fetchTpcUserinfoEmail = async (accessToken: string): Promise<string | null> => {
-  try {
-    const issuer = resolveIssuer()
-    const res = await fetch(`${issuer}/oauth/userinfo`, {
-      headers: { authorization: `Bearer ${accessToken}` },
-    })
-    if (!res.ok) return null
-    const body = (await res.json()) as { email?: unknown; email_verified?: unknown }
-    if (body?.email_verified === false) return null
-    return typeof body?.email === 'string' && body.email ? body.email : null
-  } catch {
-    return null
-  }
-}
-
-// TPC subs are NOT Forge ids — a TPC access token authenticates a real
-// person or service, but Forge's `created_by`/`assigned_to` etc. are FKs
-// into `profiles`. Resolve the caller's Forge profile by `tpc_sub` first
-// (fast path, set once we've matched by email), falling back to a
-// case-insensitive email match, persisting the mapping on a hit. Returns
-// null when no Forge profile can be found — callers must not proceed with
-// an unmapped id.
-const resolveForgeProfileForTpcContext = async (
-  ctx: { sub: string; email?: string; claims?: Record<string, unknown> },
-  accessToken: string,
-): Promise<{ id: string; email: string | null } | null> => {
-  const admin = getAdminClient()
-
-  const { data: bySub } = await admin
-    .from('profiles')
-    .select('id, email')
-    .eq('tpc_sub', ctx.sub)
-    .maybeSingle()
-  if (bySub?.id) return { id: String(bySub.id), email: bySub.email ?? null }
-
-  // Only a verified email may link a TPC identity to an existing profile.
-  // The token carries `email` only when the client requested the `email`
-  // scope; app-bound tokens are rejected by userinfo, so that is a fallback.
-  const tokenEmail = ctx.claims?.email_verified === false ? undefined : ctx.email
-  const email = tokenEmail || (await fetchTpcUserinfoEmail(accessToken))
-  if (!email) return null
-
-  const { data: byEmail } = await admin
-    .from('profiles')
-    .select('id, email')
-    .ilike('email', email)
-    .maybeSingle()
-  if (!byEmail?.id) return null
-
-  // Persist the mapping so future calls hit the tpc_sub fast path. Awaited
-  // (not fire-and-forget): supabase-js query builders are lazy thenables and
-  // never issue the request unless awaited/`.then()`-ed.
-  await admin
-    .from('profiles')
-    .update({ tpc_sub: ctx.sub })
-    .eq('id', byEmail.id)
-
-  return { id: String(byEmail.id), email: byEmail.email ?? null }
-}
-
 // Verify a TPC Auth access token (RFC 9068 JWT bound to the Focus Forge
 // resource). Returns null (not an error result) when the bearer token isn't
 // a TPC Auth token at all, so callers can fall through to the PAT check.
@@ -217,7 +155,7 @@ const verifyTpcAccessToken = async (
     }
   }
 
-  const profile = await resolveForgeProfileForTpcContext(ctx, token)
+  const profile = await resolveForgeProfile(ctx, token)
   if (!profile) {
     return {
       ok: false as const,
