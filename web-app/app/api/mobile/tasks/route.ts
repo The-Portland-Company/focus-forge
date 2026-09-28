@@ -5,9 +5,12 @@ import {
   filterTasksByView,
   getMobileAdapterForUser,
   getVisibleMobileUserIds,
+  isMobileProjectAccessible,
   mobileFailure,
+  mobileProjectNotFound,
   mobileSuccess,
   normalizeTaskInput,
+  resolveMobileTaskProjectId,
   serializeMobileTask,
   serializeMobileTasks,
   verifyMobileAccessTokenOrPat,
@@ -200,6 +203,26 @@ export async function POST(request: NextRequest) {
         .ilike("email", reporterEmail)
         .maybeSingle();
       if (reporter?.id) reporterCreatedBy = String(reporter.id);
+    }
+
+    // Resolve which project this write targets (from project_id, or from
+    // goal_id/section_id/parent_id when the caller only supplied one of
+    // those) and confirm the caller can access it. Tasks use a service-role
+    // client, so this app-layer check is the only thing standing between an
+    // authenticated-but-unrelated-org caller and writing into someone else's
+    // project. project-less (inbox) tasks are exempt.
+    const targetProjectId = await resolveMobileTaskProjectId(
+      serviceSupabase,
+      payload,
+    );
+    if (targetProjectId) {
+      const hasAccess = await isMobileProjectAccessible(
+        auth.user.id,
+        targetProjectId,
+      );
+      if (!hasAccess) {
+        return NextResponse.json(mobileProjectNotFound(), { status: 404 });
+      }
     }
 
     const adapter = await getMobileAdapterForUser(auth.user.id);

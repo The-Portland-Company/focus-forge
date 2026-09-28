@@ -3,9 +3,12 @@ import {
   createServiceSupabase,
   fetchLiveGoal,
   getMobileAdapterForUser,
+  isMobileProjectAccessible,
   mobileFailure,
+  mobileProjectNotFound,
   mobileSuccess,
   normalizeTaskInput,
+  resolveMobileTaskProjectId,
   serializeMobileTask,
   verifyMobileAccessTokenOrPat,
 } from "@/lib/mobile/api";
@@ -90,6 +93,7 @@ export async function PATCH(
           })
         : null;
     const admin = getAdminClient();
+    const serviceSupabase = createServiceSupabase();
     const { data: existingTask } = await admin
       .from("tasks")
       .select("id,name,description,assigned_to,project_id")
@@ -99,7 +103,6 @@ export async function PATCH(
     // Goal association: when goal_id is set, it must reference a live goal in
     // the same project as the task.
     if (typeof payload.goal_id === "string" && payload.goal_id) {
-      const serviceSupabase = createServiceSupabase();
       const goal = await fetchLiveGoal(serviceSupabase, payload.goal_id);
       if (!goal) {
         return NextResponse.json(
@@ -119,6 +122,33 @@ export async function PATCH(
           ),
           { status: 400 },
         );
+      }
+    }
+
+    // Confirm project access on both the task's current project (in case the
+    // caller never had access to it in the first place) and the project the
+    // update is moving it to / associating it with via project_id, goal_id,
+    // section_id or parent_id. Tasks are written with a service-role client,
+    // so this is the only access check that matters here — see
+    // resolveMobileTaskProjectId / isMobileProjectAccessible for the shared
+    // rule reused from GET/POST /api/mobile/projects/[id]/tasks.
+    const projectIdsToCheck = new Set<string>();
+    if (typeof existingTask?.project_id === "string" && existingTask.project_id) {
+      projectIdsToCheck.add(existingTask.project_id);
+    }
+    const targetProjectId = await resolveMobileTaskProjectId(
+      serviceSupabase,
+      payload,
+    );
+    if (targetProjectId) projectIdsToCheck.add(targetProjectId);
+
+    for (const projectId of projectIdsToCheck) {
+      const hasAccess = await isMobileProjectAccessible(
+        auth.user.id,
+        projectId,
+      );
+      if (!hasAccess) {
+        return NextResponse.json(mobileProjectNotFound(), { status: 404 });
       }
     }
 
