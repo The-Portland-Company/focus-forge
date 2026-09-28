@@ -375,10 +375,11 @@ export const resolveMobileTaskProjectId = async (
  * *different*, inaccessible project (e.g. reassigning a task to a goal that
  * lives in a project the caller has no access to); checking only the first
  * resolved id misses that. Returns the distinct set of project ids so every
- * one can be access-checked. An entity id that doesn't resolve to a live
- * row (already deleted, or simply doesn't exist) contributes nothing here,
- * matching resolveMobileTaskProjectId's existing behavior of not treating a
- * dangling reference as an access failure by itself.
+ * one can be access-checked. Soft-deleted rows still count: a caller must
+ * not be able to hang a task off another org's trashed section, goal or
+ * parent (it would reappear there on restore). An id that matches no row at
+ * all contributes nothing, so a dangling reference is not an access failure
+ * by itself.
  */
 export const resolveMobileTaskProjectIds = async (
   serviceSupabase: ReturnType<typeof createServiceSupabase>,
@@ -396,7 +397,11 @@ export const resolveMobileTaskProjectIds = async (
   }
 
   if (typeof payload.goal_id === 'string' && payload.goal_id) {
-    const goal = await fetchLiveGoal(serviceSupabase, payload.goal_id)
+    const { data: goal } = await serviceSupabase
+      .from('goals')
+      .select('project_id')
+      .eq('id', payload.goal_id)
+      .maybeSingle()
     if (goal?.project_id) projectIds.add(goal.project_id as string)
   }
 
@@ -405,7 +410,6 @@ export const resolveMobileTaskProjectIds = async (
       .from('sections')
       .select('project_id')
       .eq('id', payload.section_id)
-      .is('deleted_at', null)
       .maybeSingle()
     if (section?.project_id) projectIds.add(section.project_id as string)
   }
@@ -415,7 +419,6 @@ export const resolveMobileTaskProjectIds = async (
       .from('tasks')
       .select('project_id')
       .eq('id', payload.parent_id)
-      .is('deleted_at', null)
       .maybeSingle()
     if (parent?.project_id) projectIds.add(parent.project_id as string)
   }
