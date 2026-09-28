@@ -38,7 +38,7 @@ export async function GET(
     const { data: tasks, error } = await serviceSupabase
       .from('tasks')
       .select(
-        'id,name,description,due_date,due_time,priority,project_id,section_id,completed',
+        'id,name,description,due_date,due_time,priority,project_id,section_id,completed,source,source_url',
       )
       .eq('project_id', projectId)
       .eq('completed', false)
