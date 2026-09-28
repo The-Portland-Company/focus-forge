@@ -55,7 +55,9 @@ async function loadGoal(id: string) {
       .select("id,name,completed,source,source_url")
       .eq("goal_id", id)
       .is("deleted_at", null)
-      .order("order_index", { ascending: true }),
+      // tasks has no order_index; ordering by it failed the query and
+      // every goal page showed "No tasks yet".
+      .order("created_at", { ascending: true }),
   ]);
 
   return {
