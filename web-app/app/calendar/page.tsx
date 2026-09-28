@@ -113,7 +113,8 @@ export default function CalendarPage() {
       const res = await fetch('/api/tasks')
       if (res.ok) {
         const data = await res.json()
-        setTasks(data.tasks || [])
+        // /api/tasks returns a bare array; `.tasks` left this list always empty.
+        setTasks(Array.isArray(data) ? data : data.tasks || [])
       }
     } catch (error) {
       console.error('Error fetching tasks:', error)
