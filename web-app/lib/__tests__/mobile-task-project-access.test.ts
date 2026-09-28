@@ -24,6 +24,7 @@ const fakeServiceSupabase = (tables: Record<string, Record<string, any>>) => {
   return {
     from(table: string) {
       let filterId: string | undefined;
+      let liveOnly = false;
       const builder: any = {
         select() {
           return builder;
@@ -32,11 +33,13 @@ const fakeServiceSupabase = (tables: Record<string, Record<string, any>>) => {
           if (column === "id") filterId = value;
           return builder;
         },
-        is() {
+        is(column: string, value: unknown) {
+          if (column === "deleted_at" && value === null) liveOnly = true;
           return builder;
         },
         async maybeSingle() {
-          const row = filterId ? tables[table]?.[filterId] : undefined;
+          let row = filterId ? tables[table]?.[filterId] : undefined;
+          if (row && liveOnly && row.deleted_at) row = undefined;
           return { data: row ?? null, error: null };
         },
       };
@@ -200,4 +203,25 @@ test("resolveMobileTaskProjectIds: ignores a goal_id that doesn't resolve to a l
     goal_id: "goal-missing",
   });
   assert.deepEqual(projectIds, ["project-explicit"]);
+});
+
+test("resolveMobileTaskProjectIds: still checks a soft-deleted goal, section or parent in another project", async () => {
+  // Seen in prod: an accessible project_id plus a trashed section and parent
+  // task from another org's project skipped the access check entirely.
+  const deleted_at = "2026-06-12T00:00:00Z";
+  const supabase = fakeServiceSupabase({
+    goals: { "goal-1": { project_id: "project-foreign", deleted_at } },
+    sections: { "section-1": { project_id: "project-foreign", deleted_at } },
+    tasks: { "parent-1": { project_id: "project-foreign-2", deleted_at } },
+  });
+  const projectIds = await resolveMobileTaskProjectIds(supabase as any, {
+    project_id: "project-explicit",
+    goal_id: "goal-1",
+    section_id: "section-1",
+    parent_id: "parent-1",
+  });
+  assert.deepEqual(
+    [...projectIds].sort(),
+    ["project-explicit", "project-foreign", "project-foreign-2"].sort(),
+  );
 });
