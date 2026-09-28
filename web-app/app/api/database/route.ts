@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { SupabaseAdapter } from "@/lib/db/supabase-adapter";
 import { loadDatabaseForUser } from "@/lib/db/load-database";
 import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
@@ -13,21 +12,15 @@ export async function GET(request: NextRequest) {
       includeEmailData &&
       request.nextUrl.searchParams.get("includeInboxItems") !== "false";
 
-    // Check authentication first
-    const authClient = await createClient();
-    const {
-      data: { session },
-      error: authError,
-    } = await authClient.auth.getSession();
-
-    if (authError || !session?.user) {
-      console.error("❌ Auth error in database route:", authError);
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    // The browser holds no Supabase session since the TPC Auth cutover, so
+    // resolve the viewer from the TPC session like every other route.
+    const viewerResult = await requireViewerOrUnauthorized();
+    if (viewerResult instanceof NextResponse) return viewerResult;
+    const { user } = viewerResult;
 
     const loadPromise = loadDatabaseForUser(
-      session.user.id,
-      session.user.email,
+      user.id,
+      user.email,
       { includeEmailData, includeInboxItems },
     );
 
