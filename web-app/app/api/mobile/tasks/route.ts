@@ -10,7 +10,7 @@ import {
   mobileProjectNotFound,
   mobileSuccess,
   normalizeTaskInput,
-  resolveMobileTaskProjectId,
+  resolveMobileTaskProjectIds,
   serializeMobileTask,
   serializeMobileTasks,
   verifyMobileAccessTokenOrPat,
@@ -205,17 +205,19 @@ export async function POST(request: NextRequest) {
       if (reporter?.id) reporterCreatedBy = String(reporter.id);
     }
 
-    // Resolve which project this write targets (from project_id, or from
-    // goal_id/section_id/parent_id when the caller only supplied one of
-    // those) and confirm the caller can access it. Tasks use a service-role
-    // client, so this app-layer check is the only thing standing between an
+    // Resolve every project this write references (project_id, plus
+    // goal_id/section_id/parent_id when supplied — a caller could otherwise
+    // send an accessible project_id alongside a goal_id/section_id/parent_id
+    // belonging to a *different*, inaccessible project) and confirm the
+    // caller can access all of them. Tasks use a service-role client, so
+    // this app-layer check is the only thing standing between an
     // authenticated-but-unrelated-org caller and writing into someone else's
     // project. project-less (inbox) tasks are exempt.
-    const targetProjectId = await resolveMobileTaskProjectId(
+    const targetProjectIds = await resolveMobileTaskProjectIds(
       serviceSupabase,
       payload,
     );
-    if (targetProjectId) {
+    for (const targetProjectId of targetProjectIds) {
       const hasAccess = await isMobileProjectAccessible(
         auth.user.id,
         targetProjectId,

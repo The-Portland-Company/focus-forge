@@ -11,7 +11,11 @@
 // which belongs to a different org ("Politogy") the user is not a member of.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hasProjectAccess, resolveMobileTaskProjectId } from "@/lib/mobile/api";
+import {
+  hasProjectAccess,
+  resolveMobileTaskProjectId,
+  resolveMobileTaskProjectIds,
+} from "@/lib/mobile/api";
 
 // A minimal fake of the Supabase query-builder surface resolveMobileTaskProjectId
 // uses: `.from(table).select(cols).eq(col, val).is(col, val).maybeSingle()`.
@@ -114,4 +118,86 @@ test("resolveMobileTaskProjectId: a caller-supplied project_id is never overridd
     goal_id: "goal-1",
   });
   assert.equal(projectId, "project-explicit");
+});
+
+// resolveMobileTaskProjectIds closes the gap resolveMobileTaskProjectId's
+// single-winner priority order leaves open: a caller sends an accessible
+// project_id plus a goal_id/section_id/parent_id belonging to a *different*
+// project the caller can't access. The single-value resolver only ever
+// checked project_id in that case, so the route never noticed the mismatched
+// reference. resolveMobileTaskProjectIds returns every referenced project so
+// callers can require access to all of them.
+
+test("resolveMobileTaskProjectIds: returns only project_id when no other reference is present", async () => {
+  const supabase = fakeServiceSupabase({});
+  const projectIds = await resolveMobileTaskProjectIds(supabase as any, {
+    project_id: "project-a",
+  });
+  assert.deepEqual(projectIds, ["project-a"]);
+});
+
+test("resolveMobileTaskProjectIds: returns an empty array for a project-less (inbox) task", async () => {
+  const supabase = fakeServiceSupabase({});
+  const projectIds = await resolveMobileTaskProjectIds(supabase as any, {});
+  assert.deepEqual(projectIds, []);
+});
+
+test("resolveMobileTaskProjectIds: includes both project_id and the goal's project when they differ", async () => {
+  // The mixed case this fix targets: an accessible project_id paired with a
+  // goal_id that lives in a different, inaccessible project. Both must be
+  // returned so the caller can be denied access to the goal's project.
+  const supabase = fakeServiceSupabase({
+    goals: { "goal-1": { id: "goal-1", project_id: "project-from-goal" } },
+  });
+  const projectIds = await resolveMobileTaskProjectIds(supabase as any, {
+    project_id: "project-explicit",
+    goal_id: "goal-1",
+  });
+  assert.deepEqual(
+    [...projectIds].sort(),
+    ["project-explicit", "project-from-goal"].sort(),
+  );
+});
+
+test("resolveMobileTaskProjectIds: includes project_id, goal's project, section's project and parent's project all at once", async () => {
+  const supabase = fakeServiceSupabase({
+    goals: { "goal-1": { id: "goal-1", project_id: "project-from-goal" } },
+    sections: { "section-1": { project_id: "project-from-section" } },
+    tasks: { "parent-1": { project_id: "project-from-parent" } },
+  });
+  const projectIds = await resolveMobileTaskProjectIds(supabase as any, {
+    project_id: "project-explicit",
+    goal_id: "goal-1",
+    section_id: "section-1",
+    parent_id: "parent-1",
+  });
+  assert.deepEqual(
+    [...projectIds].sort(),
+    [
+      "project-explicit",
+      "project-from-goal",
+      "project-from-section",
+      "project-from-parent",
+    ].sort(),
+  );
+});
+
+test("resolveMobileTaskProjectIds: deduplicates when references resolve to the same project", async () => {
+  const supabase = fakeServiceSupabase({
+    goals: { "goal-1": { id: "goal-1", project_id: "project-a" } },
+  });
+  const projectIds = await resolveMobileTaskProjectIds(supabase as any, {
+    project_id: "project-a",
+    goal_id: "goal-1",
+  });
+  assert.deepEqual(projectIds, ["project-a"]);
+});
+
+test("resolveMobileTaskProjectIds: ignores a goal_id that doesn't resolve to a live goal", async () => {
+  const supabase = fakeServiceSupabase({});
+  const projectIds = await resolveMobileTaskProjectIds(supabase as any, {
+    project_id: "project-explicit",
+    goal_id: "goal-missing",
+  });
+  assert.deepEqual(projectIds, ["project-explicit"]);
 });

@@ -8,7 +8,7 @@ import {
   mobileProjectNotFound,
   mobileSuccess,
   normalizeTaskInput,
-  resolveMobileTaskProjectId,
+  resolveMobileTaskProjectIds,
   serializeMobileTask,
   verifyMobileAccessTokenOrPat,
 } from "@/lib/mobile/api";
@@ -126,21 +126,23 @@ export async function PATCH(
     }
 
     // Confirm project access on both the task's current project (in case the
-    // caller never had access to it in the first place) and the project the
-    // update is moving it to / associating it with via project_id, goal_id,
-    // section_id or parent_id. Tasks are written with a service-role client,
-    // so this is the only access check that matters here — see
-    // resolveMobileTaskProjectId / isMobileProjectAccessible for the shared
+    // caller never had access to it in the first place) and every project
+    // the update references via project_id, goal_id, section_id or
+    // parent_id — a caller could otherwise send an accessible project_id
+    // alongside a goal_id/section_id/parent_id belonging to a *different*,
+    // inaccessible project. Tasks are written with a service-role client, so
+    // this is the only access check that matters here — see
+    // resolveMobileTaskProjectIds / isMobileProjectAccessible for the shared
     // rule reused from GET/POST /api/mobile/projects/[id]/tasks.
     const projectIdsToCheck = new Set<string>();
     if (typeof existingTask?.project_id === "string" && existingTask.project_id) {
       projectIdsToCheck.add(existingTask.project_id);
     }
-    const targetProjectId = await resolveMobileTaskProjectId(
+    const targetProjectIds = await resolveMobileTaskProjectIds(
       serviceSupabase,
       payload,
     );
-    if (targetProjectId) projectIdsToCheck.add(targetProjectId);
+    targetProjectIds.forEach((id) => projectIdsToCheck.add(id));
 
     for (const projectId of projectIdsToCheck) {
       const hasAccess = await isMobileProjectAccessible(

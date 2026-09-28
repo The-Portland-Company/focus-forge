@@ -367,6 +367,62 @@ export const resolveMobileTaskProjectId = async (
   return null
 }
 
+/**
+ * Resolve every project referenced by a task write payload — not just the
+ * first hit in the project_id > goal_id > section_id > parent_id priority
+ * order resolveMobileTaskProjectId uses. A caller can send an accessible
+ * project_id alongside a goal_id/section_id/parent_id that belongs to a
+ * *different*, inaccessible project (e.g. reassigning a task to a goal that
+ * lives in a project the caller has no access to); checking only the first
+ * resolved id misses that. Returns the distinct set of project ids so every
+ * one can be access-checked. An entity id that doesn't resolve to a live
+ * row (already deleted, or simply doesn't exist) contributes nothing here,
+ * matching resolveMobileTaskProjectId's existing behavior of not treating a
+ * dangling reference as an access failure by itself.
+ */
+export const resolveMobileTaskProjectIds = async (
+  serviceSupabase: ReturnType<typeof createServiceSupabase>,
+  payload: {
+    project_id?: unknown
+    section_id?: unknown
+    goal_id?: unknown
+    parent_id?: unknown
+  },
+): Promise<string[]> => {
+  const projectIds = new Set<string>()
+
+  if (typeof payload.project_id === 'string' && payload.project_id) {
+    projectIds.add(payload.project_id)
+  }
+
+  if (typeof payload.goal_id === 'string' && payload.goal_id) {
+    const goal = await fetchLiveGoal(serviceSupabase, payload.goal_id)
+    if (goal?.project_id) projectIds.add(goal.project_id as string)
+  }
+
+  if (typeof payload.section_id === 'string' && payload.section_id) {
+    const { data: section } = await serviceSupabase
+      .from('sections')
+      .select('project_id')
+      .eq('id', payload.section_id)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (section?.project_id) projectIds.add(section.project_id as string)
+  }
+
+  if (typeof payload.parent_id === 'string' && payload.parent_id) {
+    const { data: parent } = await serviceSupabase
+      .from('tasks')
+      .select('project_id')
+      .eq('id', payload.parent_id)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (parent?.project_id) projectIds.add(parent.project_id as string)
+  }
+
+  return [...projectIds]
+}
+
 export const getLinkedSourceUserIds = async (targetUserId: string) => {
   const admin = getAdminClient()
   const linkedIds: string[] = []
