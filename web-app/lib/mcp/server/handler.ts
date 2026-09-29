@@ -9,6 +9,8 @@ import {
 } from "./protocol";
 import { findMcpTool, MCP_TOOLS } from "./registry";
 import type { McpToolResult } from "./types";
+import type { AuthContext } from "@/src/vendor/tpc-auth/types";
+import { checkMcpRateLimit, checkMcpWriteDailyCap, isWriteLockedDown } from "./quota";
 
 export const MCP_PROTOCOL_VERSION = "2026-07-28";
 
@@ -91,7 +93,8 @@ const authenticate = async (
   requiredScopes: ApiKeyScope[],
   id: JsonRpcId,
 ): Promise<
-  { ok: true; userId: string } | { ok: false; result: McpHandlerResult }
+  | { ok: true; userId: string; ctx: AuthContext }
+  | { ok: false; result: McpHandlerResult }
 > => {
   const auth = await authenticateFromHeader(authHeader, requiredScopes);
   if (!auth.ok) {
@@ -104,7 +107,7 @@ const authenticate = async (
       result: errorResult(auth.status, id, code, auth.message),
     };
   }
-  return { ok: true, userId: auth.userId };
+  return { ok: true, userId: auth.userId, ctx: auth.ctx };
 };
 
 const handleInitialize = (id: JsonRpcId): McpHandlerResult =>
@@ -154,6 +157,44 @@ const handleToolsCall = async (
   // scopes, fail closed if the token lacks them.
   const auth = await authenticate(authHeader, tool.requiredScopes, id);
   if (!auth.ok) return auth.result;
+
+  // 60 req/min per credential (PAT/token id + actor), backed by Postgres —
+  // fails the request rather than the whole route on a limiter error, same
+  // as rateLimit()'s own fail-open-on-no-backend contract inverted here to
+  // fail closed on a thrown error from the store.
+  const rl = await checkMcpRateLimit(auth.ctx);
+  if (!rl.ok) {
+    return errorResult(429, id, JSON_RPC_ERRORS.INTERNAL_ERROR, "Too many requests. Please slow down.", {
+      retryAfterSec: rl.retryAfter,
+    });
+  }
+
+  const isWrite = tool.requiredScopes.includes("write") || tool.requiredScopes.includes("admin");
+
+  if (isWrite) {
+    // Lockdown: reject writes (fail OPEN if the check itself can't run) for
+    // every caller except the one bypass sub. Org roles never bypass.
+    if (await isWriteLockedDown(auth.ctx)) {
+      return errorResult(503, id, JSON_RPC_ERRORS.INTERNAL_ERROR, "Writes are temporarily locked down.");
+    }
+
+    // Agent callers (ctx.actor set) get a UTC-day write cap; humans are a
+    // no-op per dailyCap's own contract.
+    const cap = await checkMcpWriteDailyCap(auth.ctx);
+    if (!cap.ok) {
+      return errorResult(429, id, JSON_RPC_ERRORS.INTERNAL_ERROR, "Daily write cap exceeded for this agent.", {
+        retryAfterSec: cap.retryAfter,
+      });
+    }
+
+    // Log the actor (RFC 8693 `act` claim) on every write, so "agent X on
+    // behalf of Y" is reconstructable from logs alone.
+    console.log("[mcp] write", {
+      tool: tool.name,
+      sub: auth.ctx.sub,
+      actor: auth.ctx.actor?.sub ?? null,
+    });
+  }
 
   try {
     const toolResult: McpToolResult = await tool.handler(args, {

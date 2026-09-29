@@ -1,7 +1,5 @@
-// Vendored from tpc-auth/packages/auth/src (@the-portland-company/auth 0.1.0, tpc-auth@906bd06).
-// Do not edit here. Replace with the published package once it exists.
 import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload } from "jose";
-import { resolveIssuer, TpcAuthError, type AuthContext, type OrgClaim } from "./types";
+import { resolveIssuer, TpcAuthError, type AuthContext, type OrgClaim } from "./types.js";
 
 /**
  * JWKS sets are cached per issuer for the life of the isolate. jose handles the
@@ -82,6 +80,9 @@ export function contextFromClaims(payload: JWTPayload, via: AuthContext["via"]):
   if (typeof p.picture === "string") ctx.picture = p.picture;
   if (typeof p.client_id === "string" && p.client_id.startsWith("pat:")) {
     ctx.patPrefix = p.client_id.slice(4);
+  }
+  if (p.act && typeof p.act === "object" && typeof (p.act as { sub?: unknown }).sub === "string") {
+    ctx.actor = { sub: (p.act as { sub: string }).sub };
   }
   return ctx;
 }

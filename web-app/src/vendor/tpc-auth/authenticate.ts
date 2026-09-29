@@ -1,7 +1,6 @@
-// Vendored from tpc-auth/packages/auth/src (@the-portland-company/auth 0.1.0, tpc-auth@906bd06).
-// Do not edit here. Replace with the published package once it exists.
-import { PAT_PREFIX, resolveIssuer, TpcAuthError, type AuthContext, type OrgClaim } from "./types";
-import { contextFromClaims, verifyAccessToken } from "./verify";
+import { PAT_PREFIX, resolveIssuer, TpcAuthError, type AuthContext, type OrgClaim } from "./types.js";
+import { contextFromClaims, verifyAccessToken } from "./verify.js";
+import { isPolledRevoked } from "./revocation-poll.js";
 
 const TOKEN_EXCHANGE = "urn:ietf:params:oauth:grant-type:token-exchange";
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
@@ -16,7 +15,11 @@ export interface AuthenticateOptions {
    * default because it needs no secret in your app.
    */
   introspect?: { clientId: string; clientSecret: string };
-  /** PAT resolution cache lifetime in ms. Default 60_000. Set 0 to disable. */
+  /**
+   * PAT resolution cache lifetime in ms. Default 15_000 (dropped from 60s in
+   * Phase 2 so a revoked PAT stops working within 15s instead of a minute).
+   * Set 0 to disable.
+   */
   cacheTtlMs?: number;
 }
 
@@ -70,6 +73,7 @@ async function exchangePat(pat: string, issuer: string, resource: string): Promi
   const json = (await res.json()) as { access_token?: string };
   if (!json.access_token) throw new TpcAuthError("token exchange returned no access token");
   const payload = await verifyAccessToken(json.access_token, { resource, issuer });
+  if (isPolledRevoked(payload)) throw new TpcAuthError("token is revoked");
   return contextFromClaims(payload, "pat");
 }
 
@@ -100,6 +104,9 @@ async function introspectToken(
     claims: data,
   };
   if (typeof data.username === "string") ctx.email = data.username;
+  if (data.act && typeof data.act === "object" && typeof (data.act as { sub?: unknown }).sub === "string") {
+    ctx.actor = { sub: (data.act as { sub: string }).sub };
+  }
   return ctx;
 }
 
@@ -120,7 +127,7 @@ export async function authenticate(request: Request, opts: AuthenticateOptions):
   const resource = opts.resource.replace(/\/$/, "");
 
   if (token.startsWith(PAT_PREFIX)) {
-    const ttl = opts.cacheTtlMs ?? 60_000;
+    const ttl = opts.cacheTtlMs ?? 15_000;
     const key = `${resource}:${await sha256Hex(token)}`;
     if (ttl > 0) {
       const hit = patCache.get(key);
@@ -140,6 +147,7 @@ export async function authenticate(request: Request, opts: AuthenticateOptions):
 
   try {
     const payload = await verifyAccessToken(token, { resource, issuer });
+    if (isPolledRevoked(payload)) return null;
     return contextFromClaims(payload, "jwt");
   } catch {
     return null;

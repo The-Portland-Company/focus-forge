@@ -1,5 +1,3 @@
-// Vendored from tpc-auth/packages/auth/src (@the-portland-company/auth 0.1.0, tpc-auth@906bd06).
-// Do not edit here. Replace with the published package once it exists.
 /** PKCE (RFC 7636) helpers. WebCrypto only — same code on Workers and Node 18+. */
 
 function base64url(bytes: Uint8Array): string {

@@ -1,23 +1,39 @@
-// Vendored from tpc-auth/packages/auth/src (@the-portland-company/auth 0.1.0, tpc-auth@906bd06).
-// Do not edit here. Replace with the published package once it exists.
-export { DEFAULT_ISSUER, PAT_PREFIX, ROLE_RANK, TpcAuthError, resolveIssuer } from "./types";
-export type { AuthContext, OrgClaim, Role } from "./types";
+export { DEFAULT_ISSUER, PAT_PREFIX, ROLE_RANK, TpcAuthError, resolveIssuer } from "./types.js";
+export type { AuthContext, OrgClaim, Role } from "./types.js";
 
-export { verifyAccessToken, contextFromClaims } from "./verify";
-export type { VerifyOptions } from "./verify";
+export { verifyAccessToken, contextFromClaims } from "./verify.js";
+export type { VerifyOptions } from "./verify.js";
 
-export { authenticate, bearerToken, clearPatCache } from "./authenticate";
-export type { AuthenticateOptions } from "./authenticate";
+export { authenticate, bearerToken, clearPatCache } from "./authenticate.js";
+export type { AuthenticateOptions } from "./authenticate.js";
 
-export { requireApp, requireOrgRole, requireScope, orgRole } from "./guards";
+export { startRevocationPoll, isPolledRevoked, clearRevocationPollState } from "./revocation-poll.js";
+export type { StartRevocationPollOptions, RevocationPollHandle } from "./revocation-poll.js";
 
-export { protectedResourceMetadata, unauthorized, errorResponse } from "./resource";
-export type { ResourceMetadataOptions, UnauthorizedOptions } from "./resource";
+export { requireApp, requireOrgRole, requireScope, orgRole } from "./guards.js";
 
-export { oidc, authorizeUrl, exchangeCode, refresh, revoke, logoutUrl, discover } from "./oidc";
-export type { AuthorizeParams, ExchangeCodeParams, RefreshParams, TokenResponse } from "./oidc";
+export { protectedResourceMetadata, unauthorized, errorResponse } from "./resource.js";
+export type { ResourceMetadataOptions, UnauthorizedOptions } from "./resource.js";
 
-export { createPkcePair, generateCodeVerifier, codeChallenge, randomState } from "./pkce";
+export { oidc, authorizeUrl, exchangeCode, refresh, revoke, logoutUrl, discover } from "./oidc.js";
+export type { AuthorizeParams, ExchangeCodeParams, RefreshParams, TokenResponse } from "./oidc.js";
 
-export { reportFeatureRequest } from "./feature-requests";
-export type { FeatureRequestInput, FeatureRequestKind, FeatureRequestResult } from "./feature-requests";
+export { createPkcePair, generateCodeVerifier, codeChallenge, randomState } from "./pkce.js";
+
+export { reportFeatureRequest } from "./feature-requests.js";
+export type { FeatureRequestInput, FeatureRequestKind, FeatureRequestResult } from "./feature-requests.js";
+
+export { requireApproval, canonicalParamsHash } from "./approval.js";
+export type { RequireApprovalOptions, RequireApprovalResult, ApprovalRequiredBody } from "./approval.js";
+
+export { isLockedDown, clearLockdownCache } from "./lockdown.js";
+
+export {
+  rateLimit,
+  rateLimitResponse,
+  dailyCap,
+  DEFAULT_AGENT_CAPS,
+  kvCounterStore,
+  postgresCounterStore,
+} from "./rate-limit.js";
+export type { RateLimitBinding, CounterStore, RateLimitOptions, RateLimitResult, DailyCapOptions } from "./rate-limit.js";

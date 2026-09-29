@@ -1,5 +1,3 @@
-// Vendored from tpc-auth/packages/auth/src (@the-portland-company/auth 0.1.0, tpc-auth@906bd06).
-// Do not edit here. Replace with the published package once it exists.
 /** The canonical issuer. Override per environment with TPC_AUTH_ISSUER. */
 export const DEFAULT_ISSUER = "https://auth.theportlandcompany.com";
 
@@ -41,6 +39,13 @@ export interface AuthContext {
   claims: Record<string, unknown>;
   /** Present when `via` is "pat" — the token that was exchanged, if known. */
   patPrefix?: string;
+  /**
+   * RFC 8693 `act` claim — who's actually driving this credential, when it's
+   * not the person named by `sub`. `agent:<agent_name>` for an agent PAT
+   * exchange, `client:<client_id>` for an MCP dynamic client. Log this
+   * alongside `sub` so "agent X on behalf of Spencer" is always reconstructable.
+   */
+  actor?: { sub: string };
 }
 
 export function resolveIssuer(issuer?: string): string {
