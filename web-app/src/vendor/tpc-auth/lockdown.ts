@@ -1,4 +1,4 @@
-import { resolveIssuer } from "./types.js";
+import { resolveIssuer } from "./types";
 
 /**
  * Polls GET /api/v1/lockdown — the `lockdown` KV flag an IdP super admin can

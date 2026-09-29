@@ -1,5 +1,5 @@
-import { resolveIssuer } from "./types.js";
-import { bearerToken } from "./authenticate.js";
+import { resolveIssuer } from "./types";
+import { bearerToken } from "./authenticate";
 
 /**
  * Human-in-the-loop approvals. An app calls `requireApproval` before running

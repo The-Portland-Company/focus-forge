@@ -1,4 +1,4 @@
-import type { AuthContext } from "./types.js";
+import type { AuthContext } from "./types";
 
 /**
  * Rate limiting and per-agent daily caps.

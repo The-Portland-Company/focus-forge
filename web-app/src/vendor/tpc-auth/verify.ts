@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload } from "jose";
-import { resolveIssuer, TpcAuthError, type AuthContext, type OrgClaim } from "./types.js";
+import { resolveIssuer, TpcAuthError, type AuthContext, type OrgClaim } from "./types";
 
 /**
  * JWKS sets are cached per issuer for the life of the isolate. jose handles the
