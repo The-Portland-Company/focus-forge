@@ -1,4 +1,4 @@
-import { resolveIssuer, TpcAuthError } from "./types.js";
+import { resolveIssuer, TpcAuthError } from "./types";
 
 export interface ResourceMetadataOptions {
   issuer?: string;

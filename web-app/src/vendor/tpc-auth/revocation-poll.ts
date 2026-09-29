@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
-import { resolveIssuer } from "./types.js";
+import { resolveIssuer } from "./types";
 
 /**
  * Optional background poll of GET /oauth/revocations (Phase 2 "faster

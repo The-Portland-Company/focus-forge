@@ -1,6 +1,6 @@
-import { authenticate, type AuthenticateOptions } from "../authenticate.js";
-import { errorResponse, protectedResourceMetadata, unauthorized } from "../resource.js";
-import type { AuthContext } from "../types.js";
+import { authenticate, type AuthenticateOptions } from "../authenticate";
+import { errorResponse, protectedResourceMetadata, unauthorized } from "../resource";
+import type { AuthContext } from "../types";
 
 /**
  * Next.js App Router helpers.

@@ -1,5 +1,5 @@
-import { resolveIssuer, TpcAuthError } from "./types.js";
-import { codeChallenge } from "./pkce.js";
+import { resolveIssuer, TpcAuthError } from "./types";
+import { codeChallenge } from "./pkce";
 
 export interface AuthorizeParams {
   clientId: string;

@@ -1,6 +1,6 @@
-import { PAT_PREFIX, resolveIssuer, TpcAuthError, type AuthContext, type OrgClaim } from "./types.js";
-import { contextFromClaims, verifyAccessToken } from "./verify.js";
-import { isPolledRevoked } from "./revocation-poll.js";
+import { PAT_PREFIX, resolveIssuer, TpcAuthError, type AuthContext, type OrgClaim } from "./types";
+import { contextFromClaims, verifyAccessToken } from "./verify";
+import { isPolledRevoked } from "./revocation-poll";
 
 const TOKEN_EXCHANGE = "urn:ietf:params:oauth:grant-type:token-exchange";
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";

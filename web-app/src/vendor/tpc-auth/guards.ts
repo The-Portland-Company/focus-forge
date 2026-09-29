@@ -1,4 +1,4 @@
-import { ROLE_RANK, TpcAuthError, type AuthContext, type OrgClaim, type Role } from "./types.js";
+import { ROLE_RANK, TpcAuthError, type AuthContext, type OrgClaim, type Role } from "./types";
 
 /**
  * Assert the token was minted for this app. A token for another app never

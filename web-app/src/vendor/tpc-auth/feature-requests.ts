@@ -1,4 +1,4 @@
-import { resolveIssuer } from "./types.js";
+import { resolveIssuer } from "./types";
 
 export interface FeatureRequestInput {
   /** A PAT or an access token identifying who is asking. */
