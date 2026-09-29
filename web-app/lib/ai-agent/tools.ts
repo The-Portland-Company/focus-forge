@@ -1,3 +1,4 @@
+import { ensureAgentTaskEstimate } from "@/lib/ai-estimator/auto-estimate";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { richTextToPlainText } from "@/lib/rich-text";
 import {
@@ -107,7 +108,7 @@ export async function resolveAccessibleProjectIds(
 }
 
 const TASK_SELECT =
-  "id, name, description, priority, due_date, due_time, deadline, completed, completed_at, requires_hitl, llm_provider, llm_model, llm_effort, project_id, section_id, parent_id, created_at, updated_at";
+  "id, name, description, priority, due_date, due_time, deadline, completed, completed_at, requires_hitl, llm_provider, llm_model, llm_effort, time_estimate, project_id, section_id, parent_id, created_at, updated_at";
 
 function shapeTask(row: any) {
   return {
@@ -123,6 +124,7 @@ function shapeTask(row: any) {
     llmProvider: row.llm_provider ?? null,
     llmModel: row.llm_model ?? null,
     llmEffort: row.llm_effort ?? null,
+    timeEstimate: typeof row.time_estimate === "number" ? row.time_estimate : null,
     projectId: row.project_id ?? null,
     sectionId: row.section_id ?? null,
     parentId: row.parent_id ?? null,
@@ -227,6 +229,7 @@ export const AGENT_TOOLS = [
           deadline: { type: "string", description: "ISO date YYYY-MM-DD hard deadline." },
           sectionId: { type: "string", description: "Optional section/list id within the project." },
           parentId: { type: "string", description: "Optional parent task id to create this as a subtask." },
+          timeEstimate: { type: "integer", minimum: 1, maximum: 480, description: "Your estimate of minutes this task will take. Always provide it." },
         },
         required: ["name", "projectId"],
       },
@@ -885,6 +888,9 @@ async function createTask(ctx: AgentToolContext, args: Record<string, any>): Pro
   if (typeof args.dueTime === "string") insert.due_time = args.dueTime;
   if (typeof args.deadline === "string") insert.deadline = args.deadline;
   if (typeof args.sectionId === "string") insert.section_id = args.sectionId;
+  if (Number.isInteger(args.timeEstimate) && args.timeEstimate >= 1 && args.timeEstimate <= 480) {
+    insert.time_estimate = args.timeEstimate;
+  }
   if (typeof args.parentId === "string") {
     const parent = await loadAuthorizedTask(ctx, args.parentId);
     if (!parent) return { ok: false, error: "Parent task not found or not accessible." };
@@ -898,6 +904,11 @@ async function createTask(ctx: AgentToolContext, args: Record<string, any>): Pro
     await ctx.admin
       .from("task_sections")
       .upsert({ task_id: data.id, section_id: insert.section_id }, { onConflict: "task_id,section_id" });
+  }
+
+  if (data.time_estimate == null) {
+    const minutes = await ensureAgentTaskEstimate(ctx.admin, data.id, ctx.userId);
+    if (minutes != null) data.time_estimate = minutes;
   }
 
   return { ok: true, data: shapeTask(data) };

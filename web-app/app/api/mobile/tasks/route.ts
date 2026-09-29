@@ -1,3 +1,4 @@
+import { ensureAgentTaskEstimate } from "@/lib/ai-estimator/auto-estimate";
 import { NextRequest, NextResponse } from "next/server";
 import {
   createServiceSupabase,
@@ -261,6 +262,17 @@ export async function POST(request: NextRequest) {
       previousAssignedTo: null,
       previousText: "",
     });
+
+    // Agent-created tasks always get a time estimate.
+    const created = newTask as any;
+    const agentCreated =
+      Boolean(created.agentName ?? created.agent_name) ||
+      Boolean(created.source) ||
+      Boolean(created.requiresHitl ?? created.requires_hitl) ||
+      (created.assignedTo ?? created.assigned_to) === BARTOK_USER_ID;
+    if (agentCreated && (created.timeEstimate ?? created.time_estimate) == null) {
+      void ensureAgentTaskEstimate(serviceSupabase, newTask.id, auth.user.id);
+    }
 
     void sendTaskCreatedNotification({
       taskId: newTask.id,
