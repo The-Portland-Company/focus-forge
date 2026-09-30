@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
     const baseUrl = (
       requestOrigin ||
       process.env.NEXT_PUBLIC_SITE_URL ||
-      "https://focusforge.theportlandcompany.com"
+      "https://focusforge.dev"
     ).replace(/\/$/, "");
 
     const secret = generateApiKeySecret("ffk_pat_");

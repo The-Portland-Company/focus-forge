@@ -45,7 +45,7 @@ export async function POST(
     const host =
       request.headers.get("x-forwarded-host") ||
       request.headers.get("host") ||
-      "focusforge.theportlandcompany.com";
+      "focusforge.dev";
     const proto = request.headers.get("x-forwarded-proto") || "https";
     const url = new URL(
       `/api/public/attachments/${link.token}`,

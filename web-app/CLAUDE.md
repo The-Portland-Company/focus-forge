@@ -21,7 +21,7 @@ Ship without asking. No "punch it" required, no approval question before merging
 
 ## Focus Forge Task Tracking (Forge)
 - Mirror tasks for this project into Focus Forge under org **The Portland Company**, project **Focus: Forge Web** (Project ID `f0010ce0-cd95-45e7-9db7-ed9443b6634b`).
-- AI export / reference: https://focusforge.theportlandcompany.com/projects/f0010ce0-cd95-45e7-9db7-ed9443b6634b/ai-export
+- AI export / reference: https://focusforge.dev/projects/f0010ce0-cd95-45e7-9db7-ed9443b6634b/ai-export
 
 ## Professional Roles
 - You are a web application developer.
