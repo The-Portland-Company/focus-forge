@@ -4,8 +4,11 @@
 // that the old Safari Web App produced.
 const { app, BrowserWindow, shell } = require("electron");
 
-const APP_URL = process.env.FOCUSFORGE_URL || "https://focusforge.theportlandcompany.com/today";
+const APP_URL = process.env.FOCUSFORGE_URL || "https://focusforge.dev/today";
 const APP_HOST = new URL(APP_URL).host;
+// Hosts that stay in-window: the app itself plus TPC Auth, whose login and
+// consent pages must share this window's cookie jar to finish sign-in.
+const IN_APP_HOSTS = new Set([APP_HOST, "auth.theportlandcompany.com"]);
 
 // Present as plain Chrome. The default Electron user agent carries
 // "focus-forge-desktop-shell/1.0.0" and "Electron/<ver>" tokens, and 1Password
@@ -41,7 +44,7 @@ const createWindow = () => {
   // Off-domain links open in the user's default browser; app links stay in-window.
   const externalize = (url) => {
     try {
-      if (new URL(url).host !== APP_HOST) {
+      if (!IN_APP_HOSTS.has(new URL(url).host)) {
         shell.openExternal(url);
         return true;
       }

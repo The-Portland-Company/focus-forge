@@ -2,7 +2,7 @@
 # Post-deploy production smoke checks for Focus Forge web.
 set -euo pipefail
 
-BASE_URL="${DEPLOY_SMOKE_URL:-https://focusforge.theportlandcompany.com}"
+BASE_URL="${DEPLOY_SMOKE_URL:-https://focusforge.dev}"
 BASE_URL="${BASE_URL%/}"
 EXPECTED_GIT_COMMIT="${EXPECTED_GIT_COMMIT:-${GITHUB_SHA:-}}"
 

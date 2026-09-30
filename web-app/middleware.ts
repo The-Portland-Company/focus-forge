@@ -4,6 +4,7 @@ import { authenticate } from "@/src/vendor/tpc-auth/authenticate";
 import { refresh as refreshTokens } from "@/src/vendor/tpc-auth/oidc";
 import { TPC_CLIENT_ID, TPC_RESOURCE } from "@/src/vendor/tpc-auth/config";
 import type { AuthContext } from "@/src/vendor/tpc-auth/types";
+import { getCanonicalRedirectUrl } from "@/lib/auth/canonical-host";
 
 // TPC Auth session cookies. Duplicated (not imported) from
 // lib/auth/tpc-session.ts: that module reaches for `cookies()` from
@@ -191,14 +192,11 @@ export async function middleware(request: NextRequest) {
   }
 
   // Canonical production host redirect.
-  if (
-    process.env.NODE_ENV === "production" &&
-    (host === "focusflow.theportlandcompany.com" ||
-      host === "focus-forge.theportlandcompany.com")
-  ) {
-    const canonicalUrl = new URL(request.url);
-    canonicalUrl.host = "focusforge.theportlandcompany.com";
-    return NextResponse.redirect(canonicalUrl, 301);
+  if (process.env.NODE_ENV === "production") {
+    const canonicalUrl = getCanonicalRedirectUrl(request.url, host, request.method);
+    if (canonicalUrl) {
+      return NextResponse.redirect(canonicalUrl, 308);
+    }
   }
 
   // Check if the route is public

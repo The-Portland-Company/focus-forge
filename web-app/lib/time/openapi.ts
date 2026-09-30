@@ -9,7 +9,7 @@ info:
     Public contract for the Focus: Forge time-tracking API consumed by the separate
     Focus: Time iOS and macOS app.
 servers:
-  - url: https://focusforge.theportlandcompany.com
+  - url: https://focusforge.dev
     description: Production
 security:
   - sessionAuth: []
@@ -36,7 +36,7 @@ paths:
                   value:
                     title: Focus: Time Implementation Prompt
                     contentType: text/markdown
-                    url: https://focusforge.theportlandcompany.com/docs/focus-time-agent
+                    url: https://focusforge.dev/docs/focus-time-agent
                     content: "# Focus: Time Implementation Prompt\\n..."
   /api/v1/time/bootstrap:
     get:
