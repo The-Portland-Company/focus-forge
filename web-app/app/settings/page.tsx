@@ -1172,16 +1172,16 @@ export default function SettingsPage() {
                     <div className="text-xs text-zinc-400">Current</div>
                   </div>
                   <div className="flex-1">
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={async () => {
                           setProfileMemoji(null);
                           await handleAutoSave({ profileMemoji: null });
                         }}
-                        className={`rounded-lg border p-3 transition-colors ${!profileMemoji ? "border-theme-primary bg-zinc-800" : "border-zinc-800 hover:border-zinc-700"}`}
+                        className={`rounded-lg border p-2 transition-colors ${!profileMemoji ? "border-theme-primary bg-zinc-800" : "border-zinc-800 hover:border-zinc-700"}`}
                       >
-                        <div className="flex flex-col items-center gap-2">
+                        <div className="flex flex-col items-center gap-1">
                           <UserAvatar
                             name={
                               `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim() ||
@@ -1190,7 +1190,7 @@ export default function SettingsPage() {
                             }
                             profileColor={profileColor}
                             memoji={null}
-                            size={68}
+                            size={44}
                             className="text-sm"
                           />
                           <span className="text-xs text-zinc-400">
@@ -1206,14 +1206,14 @@ export default function SettingsPage() {
                             setProfileMemoji(option.id);
                             await handleAutoSave({ profileMemoji: option.id });
                           }}
-                          className={`rounded-lg border p-3 transition-colors ${profileMemoji === option.id ? "border-theme-primary bg-zinc-800" : "border-zinc-800 hover:border-zinc-700"}`}
+                          className={`rounded-lg border p-2 transition-colors ${profileMemoji === option.id ? "border-theme-primary bg-zinc-800" : "border-zinc-800 hover:border-zinc-700"}`}
                         >
-                          <div className="flex flex-col items-center gap-2">
+                          <div className="flex flex-col items-center gap-1">
                             <UserAvatar
                               name={option.label}
                               profileColor={profileColor}
                               memoji={option.id}
-                              size={68}
+                              size={44}
                               className="text-sm"
                               showFallback={false}
                               ariaLabel={`${option.label} memoji`}
@@ -1226,6 +1226,43 @@ export default function SettingsPage() {
                       ))}
                     </div>
                   </div>
+                </div>
+              </div>
+              {/* Account: identity lives in TPC Auth; this shows it and links there to edit. */}
+              <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
+                <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
+                  <KeyRound className="w-5 h-5" />
+                  Account
+                </h3>
+                <dl className="grid gap-3 sm:grid-cols-2 text-sm">
+                  <div>
+                    <dt className="text-zinc-400">Name</dt>
+                    <dd>{`${profile?.first_name || ""} ${profile?.last_name || ""}`.trim() || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-zinc-400">Email</dt>
+                    <dd className="break-all">{profile?.email || "—"}</dd>
+                  </div>
+                </dl>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <a
+                    href="https://auth.theportlandcompany.com/account"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-2 text-sm hover:border-zinc-600"
+                  >
+                    Edit name, email &amp; phone
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                  <a
+                    href="https://auth.theportlandcompany.com/login?reset=1"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-2 text-sm hover:border-zinc-600"
+                  >
+                    Change password
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
                 </div>
               </div>
               <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
