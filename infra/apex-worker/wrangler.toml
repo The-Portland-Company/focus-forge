@@ -1,0 +1,16 @@
+name = "focusforge-apex"
+main = "src/index.ts"
+compatibility_date = "2026-09-30"
+account_id = "38d9c1cbb51d83ab247e96dd7685974e"
+
+# Routes the zone apex + www through this Worker. The zone's apex/www DNS
+# records just need to exist and be proxied (orange-cloud) — the Worker
+# intercepts matching requests before they would hit any origin.
+routes = [
+  { pattern = "focusforge.dev/*", zone_id = "f591a2aa5697ebfc9ceb6317d1f55c83" },
+  { pattern = "www.focusforge.dev/*", zone_id = "f591a2aa5697ebfc9ceb6317d1f55c83" }
+]
+
+[vars]
+APP_ORIGIN = "https://app.focusforge.dev"
+MARKETING_ORIGIN = "https://focus-forge-marketing.pages.dev"
