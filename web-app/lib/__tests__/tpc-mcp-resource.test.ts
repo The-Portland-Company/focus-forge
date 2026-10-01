@@ -22,7 +22,10 @@ const noMcpSuffix = (relPath: string) => {
 
 describe("TPC resource must not carry a /mcp suffix", () => {
   it("TPC_RESOURCE itself has no path suffix", () => {
-    assert.equal(TPC_RESOURCE, "https://focusforge.theportlandcompany.com");
+    // Domain migration (2026-09-30): canonical resource moved to
+    // https://app.focusforge.dev; the old host is now only accepted as a
+    // legacy JWT audience (see TPC_LEGACY_RESOURCES / tpc-auth-domain-migration.test.ts).
+    assert.equal(TPC_RESOURCE, "https://app.focusforge.dev");
     assert.ok(!TPC_RESOURCE.endsWith("/mcp"));
   });
 

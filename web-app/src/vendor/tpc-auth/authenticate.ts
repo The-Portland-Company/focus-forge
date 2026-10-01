@@ -6,8 +6,21 @@ const TOKEN_EXCHANGE = "urn:ietf:params:oauth:grant-type:token-exchange";
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
 
 export interface AuthenticateOptions {
-  /** Your app's resource URI — the audience tokens must carry. */
+  /**
+   * Your app's canonical resource URI. Used both for outbound PAT-exchange
+   * requests (the fresh token that comes back is always verified against
+   * this canonical value) and as the primary accepted audience for locally
+   * verified JWTs.
+   */
   resource: string;
+  /**
+   * Additional audiences a *pre-existing JWT* (not a PAT) may still carry —
+   * for a domain/resource migration, the old canonical resource_uri a
+   * not-yet-expired token might have been minted with. Never applied to PAT
+   * exchange: a PAT is always exchanged for a fresh token against `resource`
+   * only, since the IdP always stamps its current canonical audience.
+   */
+  legacyResources?: string[];
   issuer?: string;
   /**
    * Confidential client credentials. When present, PATs are resolved by RFC
@@ -145,8 +158,17 @@ export async function authenticate(request: Request, opts: AuthenticateOptions):
     }
   }
 
+  // A raw JWT (not a PAT) may still carry an old, pre-cutover audience, so
+  // locally verified tokens accept the canonical resource OR any configured
+  // legacy one. A PAT is never affected by this: it's always exchanged fresh
+  // against `resource` above, and the IdP always stamps its current
+  // canonical audience on what it hands back.
+  const acceptedAudiences = opts.legacyResources?.length
+    ? [resource, ...opts.legacyResources.map((r) => r.replace(/\/$/, ""))]
+    : resource;
+
   try {
-    const payload = await verifyAccessToken(token, { resource, issuer });
+    const payload = await verifyAccessToken(token, { resource: acceptedAudiences, issuer });
     if (isPolledRevoked(payload)) return null;
     return contextFromClaims(payload, "jwt");
   } catch {
