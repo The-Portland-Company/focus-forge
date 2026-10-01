@@ -4,7 +4,7 @@ import { JSON_RPC_ERRORS, jsonRpcError, type JsonRpcId } from "@/lib/mcp/server/
 import { checkApiTokenRateLimit } from "@/lib/api/rate-limit";
 import { authenticate } from "@/src/vendor/tpc-auth/authenticate";
 import { unauthorized } from "@/src/vendor/tpc-auth/resource";
-import { TPC_RESOURCE } from "@/src/vendor/tpc-auth/config";
+import { TPC_RESOURCE, TPC_LEGACY_RESOURCES } from "@/src/vendor/tpc-auth/config";
 
 // POST /api/mcp
 //
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const ctx = await authenticate(request, { resource: TPC_RESOURCE });
+  const ctx = await authenticate(request, { resource: TPC_RESOURCE, legacyResources: TPC_LEGACY_RESOURCES });
   if (!ctx) {
     return unauthorized(TPC_RESOURCE);
   }

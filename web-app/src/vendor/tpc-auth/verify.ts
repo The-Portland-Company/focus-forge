@@ -21,8 +21,14 @@ function jwks(issuer: string) {
 }
 
 export interface VerifyOptions {
-  /** The audience this token must carry: your app's resource URI (RFC 8707). */
-  resource: string;
+  /**
+   * The audience(s) this token may carry: your app's resource URI (RFC 8707),
+   * or several when a domain migration means an already-issued token may
+   * still carry an old one. A single string is the common case; an array
+   * matches if the token's `aud` is any one of them (jose's own any-of
+   * semantics for an array `audience` option).
+   */
+  resource: string | string[];
   /** Defaults to https://auth.theportlandcompany.com (or $TPC_AUTH_ISSUER). */
   issuer?: string;
   /** Clock skew tolerance, seconds. Default 30. */
@@ -39,7 +45,9 @@ export interface VerifyOptions {
  */
 export async function verifyAccessToken(token: string, opts: VerifyOptions): Promise<JWTPayload> {
   const issuer = resolveIssuer(opts.issuer);
-  const resource = opts.resource.replace(/\/$/, "");
+  const resource = Array.isArray(opts.resource)
+    ? opts.resource.map((r) => r.replace(/\/$/, ""))
+    : opts.resource.replace(/\/$/, "");
 
   let header: ReturnType<typeof decodeProtectedHeader>;
   try {

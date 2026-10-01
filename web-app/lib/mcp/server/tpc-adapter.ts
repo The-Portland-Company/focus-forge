@@ -8,7 +8,7 @@
 import type { ApiKeyScope } from "@/lib/api/keys/types";
 import { authenticate } from "@/src/vendor/tpc-auth/authenticate";
 import { requireScope } from "@/src/vendor/tpc-auth/guards";
-import { TPC_RESOURCE } from "@/src/vendor/tpc-auth/config";
+import { TPC_RESOURCE, TPC_LEGACY_RESOURCES } from "@/src/vendor/tpc-auth/config";
 import { TpcAuthError, type AuthContext } from "@/src/vendor/tpc-auth/types";
 
 const TPC_SCOPE: Record<ApiKeyScope, string> = {
@@ -36,7 +36,7 @@ export async function authenticateFromHeader(
     headers: authHeader ? { authorization: authHeader } : {},
   });
 
-  const ctx = await authenticate(request, { resource: TPC_RESOURCE });
+  const ctx = await authenticate(request, { resource: TPC_RESOURCE, legacyResources: TPC_LEGACY_RESOURCES });
   if (!ctx) {
     return { ok: false, status: 401, message: "Missing or invalid access token" };
   }

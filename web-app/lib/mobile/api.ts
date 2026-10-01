@@ -5,7 +5,7 @@ import { hashApiKeySecret } from '@/lib/api/keys/utils'
 import type { ApiKeyScope } from '@/lib/api/keys/types'
 import { normalizeLlmAssignment } from '@/lib/llm/assignment'
 import { authenticate as authenticateTpc } from '@/src/vendor/tpc-auth/authenticate'
-import { TPC_RESOURCE } from '@/src/vendor/tpc-auth/config'
+import { TPC_RESOURCE, TPC_LEGACY_RESOURCES } from '@/src/vendor/tpc-auth/config'
 import { sourceForTpcClientId } from '@/lib/task-sources'
 import { resolveForgeProfile } from '@/lib/auth/local-identity'
 import { requireViewer } from '@/lib/auth/require-viewer'
@@ -144,7 +144,7 @@ const verifyTpcAccessToken = async (
   const request = new Request('https://internal.invalid/mobile', {
     headers: { authorization: `Bearer ${token}` },
   })
-  const ctx = await authenticateTpc(request, { resource: TPC_RESOURCE })
+  const ctx = await authenticateTpc(request, { resource: TPC_RESOURCE, legacyResources: TPC_LEGACY_RESOURCES })
   if (!ctx) return null
 
   const wanted = requiredScopes.map((scope) => TPC_SCOPE[scope])
