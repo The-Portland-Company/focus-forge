@@ -10,7 +10,7 @@ info:
     routes under /api/email/** and the Bearer-token mobile mirror routes under
     /api/mobile/email/**.
 servers:
-  - url: https://focusforge.dev
+  - url: https://app.focusforge.dev
     description: Production
 security:
   - sessionAuth: []

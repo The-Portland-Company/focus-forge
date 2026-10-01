@@ -1,14 +1,18 @@
-// Focus Forge's public home is https://focusforge.dev. The old TPC
-// subdomains are retired for people but kept alive as an API alias:
-// installed iOS/macOS builds, PATs, MCP connectors, crons and already-sent
-// magic links still hit focusforge.theportlandcompany.com, and the TPC Auth
-// token audience (TPC_RESOURCE) is still that URL. So only browser page
-// navigations are redirected; /api, /.well-known and in-flight
-// /auth/callback requests keep serving.
-export const CANONICAL_HOST = "focusforge.dev";
+// Focus Forge's app lives at https://app.focusforge.dev. The bare apex
+// https://focusforge.dev is now the marketing site (Cloudflare Pages +
+// Worker), which proxies /api, /.well-known and /auth/callback to this app
+// and 308s known app page paths here. The old TPC subdomain is retired for
+// people but kept alive as an API alias: installed iOS/macOS builds, PATs,
+// MCP connectors, crons and already-sent magic links still hit
+// focusforge.theportlandcompany.com, and the TPC Auth token audience
+// (TPC_RESOURCE) is still that URL. So only browser page navigations are
+// redirected; /api, /.well-known and in-flight /auth/callback requests keep
+// serving.
+export const CANONICAL_HOST = "app.focusforge.dev";
 
 const REDIRECT_EVERYTHING_HOSTS = new Set([
   "www.focusforge.dev",
+  "focusforge.dev",
   "focusflow.theportlandcompany.com",
   "focus-forge.theportlandcompany.com",
 ]);

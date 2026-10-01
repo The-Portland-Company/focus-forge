@@ -1,6 +1,6 @@
 // Central site config. Update SITE_URL once the final subdomain is wired.
-export const SITE_URL = "https://getfocusforge.theportlandcompany.com"
-export const APP_URL = "https://focusforge.theportlandcompany.com"
+export const SITE_URL = "https://focusforge.dev"
+export const APP_URL = "https://app.focusforge.dev"
 
 export const SITE = {
   name: "Focus Forge",
