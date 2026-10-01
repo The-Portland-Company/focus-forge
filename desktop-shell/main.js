@@ -4,7 +4,7 @@
 // that the old Safari Web App produced.
 const { app, BrowserWindow, shell } = require("electron");
 
-const APP_URL = process.env.FOCUSFORGE_URL || "https://focusforge.dev/today";
+const APP_URL = process.env.FOCUSFORGE_URL || "https://app.focusforge.dev/today";
 const APP_HOST = new URL(APP_URL).host;
 // Hosts that stay in-window: the app itself plus TPC Auth, whose login and
 // consent pages must share this window's cookie jar to finish sign-in.
