@@ -1,0 +1,8 @@
+name = "getfocusforge-redirect"
+main = "src/index.ts"
+compatibility_date = "2026-09-30"
+account_id = "38d9c1cbb51d83ab247e96dd7685974e"
+
+routes = [
+  { pattern = "getfocusforge.theportlandcompany.com/*", zone_id = "7e700679c41f0a7cdcc8cfbdbfc4d6b5" }
+]
