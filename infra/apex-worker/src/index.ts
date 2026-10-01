@@ -31,9 +31,25 @@ const MARKETING_EXACT_PATHS = new Set([
   "/robots.txt",
   "/sitemap.xml",
   "/favicon.ico",
+  "/favicon.svg",
+  "/llms.txt",
+  "/manifest.webmanifest",
+  "/index.txt",
 ]);
 
-const MARKETING_PREFIXES = ["/compare/", "/_next/", "/images/", "/fonts/"];
+// marketing-site builds with trailingSlash: true, so its own links are
+// /privacy/, /terms/, etc. — match those as prefixes, not just exact paths.
+// /__next. covers the root RSC payloads Next emits for client-side nav.
+const MARKETING_PREFIXES = [
+  "/compare/",
+  "/privacy/",
+  "/terms/",
+  "/_next/",
+  "/__next.",
+  "/media/",
+  "/images/",
+  "/fonts/",
+];
 
 function isMarketingPath(pathname: string): boolean {
   if (MARKETING_EXACT_PATHS.has(pathname)) return true;
