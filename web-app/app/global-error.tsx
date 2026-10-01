@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
+import * as Sentry from "@sentry/nextjs"
 
 /**
  * Root error boundary. Its main job is deploy resilience: when a render throws
@@ -31,6 +32,7 @@ export default function GlobalError({
   reset: () => void
 }) {
   useEffect(() => {
+    Sentry.captureException(error)
     if (!isChunkLoadError(error?.message)) return
     try {
       const last = Number(
