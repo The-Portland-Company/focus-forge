@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Organization, Project, User } from "@/lib/types"
 import { PlanPanel } from "@/components/plan-panel"
 import { UserAvatar } from "@/components/user-avatar"
-import { Archive, Link2, Loader2, Mail, RotateCcw, Save, Search, Trash2, Users, X } from "lucide-react"
+import { Archive, Link2, Loader2, Lock, Mail, RotateCcw, Save, Search, Trash2, Users, X } from "lucide-react"
 import { RichTextEditor } from "@/components/ui/rich-text-editor"
 import { hasRichTextContent } from "@/lib/rich-text"
 import { ExistingMemberPicker, filterAvailableMembers } from "@/components/existing-member-picker"
@@ -360,9 +360,26 @@ export function EditProjectModal({
       >
         <form onSubmit={handleSubmit} className="space-y-6">
           <DialogHeader>
-            <DialogTitle>Edit Project</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              Edit Project
+              {project?.locked && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-xs font-normal text-zinc-400"
+                  title={
+                    project.lockSource
+                      ? `Locked by Specs (${project.lockSource}). Rename, re-parent and delete are managed from Specs.`
+                      : "Locked. Rename, re-parent and delete are managed from Specs."
+                  }
+                >
+                  <Lock className="h-3 w-3" aria-hidden="true" />
+                  Locked
+                </span>
+              )}
+            </DialogTitle>
             <DialogDescription className="text-zinc-400">
-              Update project details and manage project members.
+              {project?.locked
+                ? "This project is managed by Specs. Members and other details can still be edited here; name, parent and deletion are locked."
+                : "Update project details and manage project members."}
             </DialogDescription>
           </DialogHeader>
 
@@ -377,6 +394,8 @@ export function EditProjectModal({
                   placeholder="Project name"
                   className="bg-zinc-800 border-zinc-700"
                   autoFocus
+                  disabled={Boolean(project?.locked)}
+                  title={project?.locked ? "Locked by Specs — rename from Specs" : undefined}
                 />
               </div>
 
@@ -808,14 +827,24 @@ export function EditProjectModal({
                     variant="outline"
                     size="icon"
                     onClick={() => setConfirmStep("delete")}
-                    disabled={isDeleting || isArchiving || isSubmitting}
-                    aria-label="Delete project"
-                    className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:text-red-200"
+                    disabled={isDeleting || isArchiving || isSubmitting || Boolean(project?.locked)}
+                    aria-label={project?.locked ? "Delete project (locked by Specs)" : "Delete project"}
+                    className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:text-red-200 disabled:opacity-40"
                   >
-                    {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    {isDeleting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : project?.locked ? (
+                      <Lock className="w-4 h-4" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
                   </Button>
                   <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg group-hover:block">
-                    {isDeleting ? "Deleting project" : "Delete project"}
+                    {isDeleting
+                      ? "Deleting project"
+                      : project?.locked
+                        ? "Locked by Specs — delete from Specs"
+                        : "Delete project"}
                     <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-black" />
                   </span>
                 </div>
