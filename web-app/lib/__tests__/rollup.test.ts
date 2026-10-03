@@ -5,6 +5,7 @@ import {
   sumCost,
   formatDuration,
   taskTimeEstimate,
+  buildProjectRollups,
 } from "../rollup";
 
 describe("taskTimeEstimate", () => {
@@ -52,5 +53,56 @@ describe("formatDuration", () => {
   });
   test("empty for zero", () => {
     assert.equal(formatDuration(0), "");
+  });
+});
+
+describe("buildProjectRollups", () => {
+  test("sums tasks across descendant projects and counts direct children", () => {
+    const projects = [
+      { id: "vrm", parentId: null },
+      { id: "mode-campaign", parentId: "vrm" },
+      { id: "spec-a", parentId: "mode-campaign" },
+      { id: "spec-b", parentId: "mode-campaign" },
+    ];
+    const tasks = [
+      { project_id: "spec-a", completed: true },
+      { project_id: "spec-a", completed: false },
+      { project_id: "spec-b", completed: false },
+    ];
+    const rollups = buildProjectRollups(projects, tasks);
+
+    assert.equal(rollups.get("spec-a")?.taskCount, 2);
+    assert.equal(rollups.get("spec-a")?.completedTaskCount, 1);
+    assert.equal(rollups.get("spec-b")?.taskCount, 1);
+
+    const modeRollup = rollups.get("mode-campaign");
+    assert.equal(modeRollup?.childProjectCount, 2);
+    assert.equal(modeRollup?.taskCount, 3);
+    assert.equal(modeRollup?.completedTaskCount, 1);
+
+    const vrmRollup = rollups.get("vrm");
+    assert.equal(vrmRollup?.childProjectCount, 1);
+    assert.equal(vrmRollup?.taskCount, 3);
+  });
+
+  test("a project with no tasks of its own still rolls up descendants", () => {
+    const projects = [
+      { id: "parent", parentId: null },
+      { id: "child", parentId: "parent" },
+    ];
+    const tasks = [{ project_id: "child", completed: false }];
+    const rollups = buildProjectRollups(projects, tasks);
+    assert.equal(rollups.get("parent")?.taskCount, 1);
+    assert.equal(rollups.get("parent")?.progress, 0);
+  });
+
+  test("does not infinite-loop on a cyclic parent_id", () => {
+    const projects = [
+      { id: "a", parentId: "b" },
+      { id: "b", parentId: "a" },
+    ];
+    const rollups = buildProjectRollups(projects, []);
+    assert.ok(rollups.get("a"));
+    assert.ok(rollups.get("b"));
   });
 });

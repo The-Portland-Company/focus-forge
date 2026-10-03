@@ -10,6 +10,7 @@ import {
   sendProjectMembershipNotifications,
 } from "@/lib/task-notifications";
 import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
+import { isProjectLockedError } from "@/lib/db/project-lock-error";
 
 export async function PUT(
   request: NextRequest,
@@ -105,6 +106,9 @@ export async function PUT(
 
     return NextResponse.json(updatedProject);
   } catch (error) {
+    if (isProjectLockedError(error)) {
+      return NextResponse.json({ error: "Project is locked" }, { status: 423 });
+    }
     console.error("Error updating project:", error);
     return NextResponse.json(
       { error: "Failed to update project" },
@@ -160,6 +164,9 @@ export async function DELETE(
 
     return NextResponse.json({ success: true, batchId });
   } catch (error) {
+    if (isProjectLockedError(error)) {
+      return NextResponse.json({ error: "Project is locked" }, { status: 423 });
+    }
     console.error("Error deleting project:", error);
     return NextResponse.json(
       { error: "Failed to delete project" },
