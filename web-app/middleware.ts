@@ -63,6 +63,13 @@ const publicRoutes = [
   // shared secret — the caller (Sentry) has no Forge session, so it must bypass
   // the session-only gate, like /api/mobile and /api/proof/upload.
   "/api/sentry/webhook",
+  // Specs -> Forge inbound sync (contract §2/§9) self-authenticates via
+  // Authorization: Bearer <FORGE_PAT> + X-Specs-Forge-Signature (HMAC,
+  // SPECS_SYNC_SECRET) inside the route, like /api/mobile — the caller is
+  // Specs' server, which has no Forge session, so this must bypass the
+  // session-only gate. (Was missing here since #226; every real inbound
+  // sync 401'd at this gate before reaching the route's own auth.)
+  "/api/connectors/specs/events",
   "/api/sync/comments",
   "/api/health",
   "/api/calendar/feed",
