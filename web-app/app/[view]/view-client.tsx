@@ -50,6 +50,7 @@ import {
   Wand2,
   ChevronLeft,
   ChevronRight,
+  Lock,
   Menu,
   Pencil,
   Calendar,
@@ -4340,6 +4341,22 @@ export default function ViewPage({
         .filter((g) => ((g as any).project_id || g.projectId) === projectId)
         .sort((a, b) => (a.order || 0) - (b.order || 0)) || [];
 
+    // Roll-up progress across this project and every descendant sub-project,
+    // so the header progress bar matches "project incl. children" scope.
+    const tasksByProject = new Map<string, typeof database.tasks>();
+    for (const task of database.tasks) {
+      const pid = ((task as any).project_id || task.projectId) as
+        | string
+        | undefined;
+      if (!pid) continue;
+      const bucket = tasksByProject.get(pid) ?? [];
+      bucket.push(task);
+      tasksByProject.set(pid, bucket);
+    }
+    const rollupByProject = rollupProjects(database.projects, tasksByProject);
+    const rollup = rollupByProject.get(projectId) ?? null;
+    const rollupProgress = rollup ? rollupProgressPercent(rollup) : 0;
+
     return {
       projectId,
       project,
@@ -4349,6 +4366,8 @@ export default function ViewPage({
       projectGoals,
       breadcrumbAncestors,
       childProjects,
+      rollup,
+      rollupProgress,
     };
   }, [database, view]);
 
@@ -6949,6 +6968,61 @@ export default function ViewPage({
               <AlertBellButton />
             </div>
           </div>
+
+          {project &&
+            projectViewData &&
+            (projectViewData.rollup?.taskCount ?? 0) > 0 && (
+              <div className="mb-4">
+                <div className="flex items-center justify-between text-xs text-zinc-500 mb-1">
+                  <span>
+                    Roll-up progress
+                    {projectViewData.childProjects.length > 0
+                      ? ` (incl. ${projectViewData.childProjects.length} sub-project${
+                          projectViewData.childProjects.length === 1 ? "" : "s"
+                        })`
+                      : ""}
+                  </span>
+                  <span>
+                    {projectViewData.rollup?.completedTaskCount ?? 0}/
+                    {projectViewData.rollup?.taskCount ?? 0} ·{" "}
+                    {projectViewData.rollupProgress}%
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-zinc-800 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-[rgb(var(--theme-primary-rgb))] transition-all"
+                    style={{ width: `${projectViewData.rollupProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+          {projectViewData && projectViewData.childProjects.length > 0 && (
+            <div className="mb-4">
+              <div className="text-xs text-zinc-500 mb-1">Sub-projects</div>
+              <ul className="flex flex-wrap gap-2">
+                {projectViewData.childProjects.map((child) => {
+                  return (
+                    <li key={child.id}>
+                      <Link
+                        href={`/project-${child.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-white transition-colors"
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full block"
+                          style={{ backgroundColor: child.color ?? "#3f3f46" }}
+                        />
+                        {child.name}
+                        {(child as any).locked && (
+                          <Lock className="h-3 w-3 text-zinc-500" />
+                        )}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
 
           {project && showProgressTimeline && (
             <ProjectProgressTimeline project={project} tasks={projectTasks} />
