@@ -72,6 +72,11 @@ create trigger project_lock_guard
   for each row
   execute function public.enforce_project_lock();
 
+-- Trigger functions are only ever invoked by Postgres itself, never called
+-- directly over PostgREST — revoke the EXECUTE grant Postgres adds by
+-- default so `anon`/`authenticated` can't call it as an RPC.
+revoke all on function public.enforce_project_lock() from public, anon, authenticated;
+
 -- Connector-only entry points. These set the transaction-local bypass GUC
 -- before performing the write, so the trigger above lets them through
 -- regardless of current lock state. Granted to service_role only — the
