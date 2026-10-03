@@ -3,6 +3,7 @@
 const http = require('node:http');
 const next = require('next');
 const { startEmailLiveSyncWorker } = require('./email-live-sync-worker.js');
+const { startSpecsSyncWorker } = require('./specs-sync-worker.js');
 
 const PORT = Number(process.env.PORT || 3244);
 const HOST = '0.0.0.0';
@@ -15,6 +16,7 @@ console.log('Environment:', process.env.NODE_ENV);
 console.log('======================================');
 
 let stopEmailWorker = null;
+let stopSpecsSyncWorker = null;
 let server = null;
 let shuttingDown = false;
 
@@ -29,6 +31,12 @@ async function shutdown(signal) {
   if (stopEmailWorker) {
     await stopEmailWorker().catch((error) => {
       console.error('Failed to stop email live sync worker:', error);
+    });
+  }
+
+  if (stopSpecsSyncWorker) {
+    await stopSpecsSyncWorker().catch((error) => {
+      console.error('Failed to stop specs sync worker:', error);
     });
   }
 
@@ -95,6 +103,20 @@ async function main() {
       })
       .catch((error) => {
         console.error('Email live sync worker failed to start (app stays up):', error);
+      });
+  }, 15_000);
+
+  setTimeout(() => {
+    void startSpecsSyncWorker({
+      exitOnShutdown: false,
+      registerSignalHandlers: false,
+    })
+      .then((stop) => {
+        stopSpecsSyncWorker = stop;
+        console.log('Specs sync worker started');
+      })
+      .catch((error) => {
+        console.error('Specs sync worker failed to start (app stays up):', error);
       });
   }, 15_000);
 }
