@@ -25,6 +25,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { OrganizationSettingsModal } from "@/components/organization-settings-modal";
 import { TodoistIntegration } from "@/components/todoist-integration";
 import { SentryIntegration } from "@/components/sentry-integration";
+import { SpecsConnectorSettings } from "@/components/specs-connector-settings";
 import { Database, EmailSignature, Organization } from "@/lib/types";
 import { useUserPreferences, useUserProfile } from "@/lib/supabase/hooks";
 import {
@@ -2696,6 +2697,7 @@ export default function SettingsPage() {
                 <>
                   <TodoistIntegration userId={profile.id} />
                   <SentryIntegration userId={profile.id} />
+                  <SpecsConnectorSettings />
                 </>
               ) : (
                 <div className="bg-zinc-900 rounded-lg p-6 border border-zinc-800">
