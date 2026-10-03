@@ -60,10 +60,43 @@ function createSpecsAdminClient() {
 }
 
 /**
+ * Looks up the Specs page id a Forge project corresponds to (set on import
+ * / by an inbound connector_upsert_project call as `projects.specs_id`).
+ * Returns null when the project was never a Specs-synced project (e.g. an
+ * ordinary, non-connector Forge project with a stray goal).
+ */
+async function resolveSpecsPageId(forgeClient, forgeProjectId) {
+  if (!forgeProjectId) return null;
+  const { data, error } = await forgeClient
+    .from("projects")
+    .select("specs_id")
+    .eq("id", forgeProjectId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.specs_id ?? null;
+}
+
+/**
+ * Looks up the free-text section heading for a Forge section row, to
+ * populate `spec_goals.section` (Specs has no standalone sections table --
+ * see docs/sync-contract.md §1).
+ */
+async function resolveSectionTitle(forgeClient, forgeSectionId) {
+  if (!forgeSectionId) return null;
+  const { data, error } = await forgeClient
+    .from("sections")
+    .select("name")
+    .eq("id", forgeSectionId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.name ?? null;
+}
+
+/**
  * Maps one Forge sync_outbox row to a write against the Specs schema.
  * Returns { skipped: true } for entities Forge never sends outbound.
  */
-async function applyOutboundRow(specsClient, row) {
+async function applyOutboundRow(specsClient, row, forgeClient) {
   if (row.entity === "project") {
     // Local-only per contract §4 -- nothing to send.
     return { skipped: true };
@@ -85,17 +118,30 @@ async function applyOutboundRow(specsClient, row) {
   }
 
   if (row.entity === "goal") {
+    // spec_goals columns are page_id / order_index / sync_origin (see
+    // supabase/migrations/20261003210000_spec_goals_tasks.sql in the specs
+    // repo) -- NOT project_id / order / origin. The Forge project this
+    // goal belongs to maps to a Specs page via projects.specs_id.
+    const pageId = await resolveSpecsPageId(forgeClient, row.data.project_id);
+    if (!pageId) {
+      throw new Error(
+        `specs_page_not_found: forge project ${row.data.project_id} has no specs_id (not a Specs-synced project)`,
+      );
+    }
+    const section = await resolveSectionTitle(forgeClient, row.data.section_id);
     const { error } = await specsClient.from("spec_goals").upsert(
       {
         id: row.entity_id,
-        project_id: row.data.project_id,
+        page_id: pageId,
+        section,
         parent_goal_id: row.data.parent_goal_id ?? null,
         title: row.data.title,
         body: row.data.body ?? null,
-        order: row.data.order ?? 0,
+        order_index: row.data.order ?? 0,
         deleted_at: deletedAt,
+        forge_id: row.entity_id,
         sync_hash: row.sync_hash,
-        origin: "forge",
+        sync_origin: "forge",
       },
       { onConflict: "id" },
     );
@@ -104,6 +150,7 @@ async function applyOutboundRow(specsClient, row) {
   }
 
   if (row.entity === "task") {
+    // spec_tasks columns are order_index / sync_origin, not order / origin.
     const { error } = await specsClient.from("spec_tasks").upsert(
       {
         id: row.entity_id,
@@ -112,7 +159,7 @@ async function applyOutboundRow(specsClient, row) {
         title: row.data.title,
         body: row.data.body ?? null,
         acceptance: row.data.acceptance ?? null,
-        order: row.data.order ?? 0,
+        order_index: row.data.order ?? 0,
         status: row.data.status ?? "todo",
         progress: row.data.progress ?? 0,
         estimate_min: row.data.estimate_min ?? 0,
@@ -121,8 +168,9 @@ async function applyOutboundRow(specsClient, row) {
         start_at: row.data.start_at ?? null,
         assignee: row.data.assignee ?? null,
         deleted_at: deletedAt,
+        forge_id: row.entity_id,
         sync_hash: row.sync_hash,
-        origin: "forge",
+        sync_origin: "forge",
       },
       { onConflict: "id" },
     );
@@ -153,7 +201,7 @@ async function drainOnce(forgeClient, specsClient) {
   let processed = 0;
   for (const row of rows) {
     try {
-      await applyOutboundRow(specsClient, row);
+      await applyOutboundRow(specsClient, row, forgeClient);
       await forgeClient
         .from("sync_outbox")
         .update({ sent_at: new Date().toISOString() })
