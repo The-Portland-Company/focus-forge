@@ -434,7 +434,7 @@ export function Sidebar({
   const [dragOverOrg, setDragOverOrg] = useState<string | null>(null);
   const [dragOverProject, setDragOverProject] = useState<string | null>(null);
   const [dragOverPosition, setDragOverPosition] = useState<
-    "top" | "bottom" | null
+    "top" | "bottom" | "middle" | null
   >(null);
   const [hoveredProject, setHoveredProject] = useState<string | null>(null);
   const [hoveredOrg, setHoveredOrg] = useState<string | null>(null);
@@ -2638,9 +2638,16 @@ export function Sidebar({
                                 const y = e.clientY - rect.top;
                                 const height = rect.height;
                                 setDragOverProject(project.id);
-                                setDragOverPosition(
-                                  y < height / 2 ? "top" : "bottom",
-                                );
+                                // Three zones: top third = insert-before sibling,
+                                // middle third = nest as a child (re-parent),
+                                // bottom third = insert-after sibling.
+                                if (y < height / 3) {
+                                  setDragOverPosition("top");
+                                } else if (y < (height * 2) / 3) {
+                                  setDragOverPosition("middle");
+                                } else {
+                                  setDragOverPosition("bottom");
+                                }
                               }
                             }}
                             onDragLeave={() => {
@@ -2651,6 +2658,48 @@ export function Sidebar({
                               e.preventDefault();
                               e.stopPropagation();
                               if (
+                                draggedProject &&
+                                draggedProject !== project.id &&
+                                dragOverPosition === "middle" &&
+                                onProjectUpdate
+                              ) {
+                                // Nest: drop in the middle third re-parents
+                                // the dragged project under this one. Blocked
+                                // for a locked dragged project (when the
+                                // field is present) and for dropping onto one
+                                // of its own descendants (would cycle; the DB
+                                // trigger is the final guard either way).
+                                const draggedProj = data.projects.find(
+                                  (p) => p.id === draggedProject,
+                                );
+                                const isLocked = Boolean(
+                                  (draggedProj as any)?.locked,
+                                );
+                                const isDescendant = (() => {
+                                  let cur: string | null | undefined =
+                                    (project as any).parent_id ??
+                                    project.parentId ??
+                                    null;
+                                  const seen = new Set<string>();
+                                  while (cur && !seen.has(cur)) {
+                                    if (cur === draggedProject) return true;
+                                    seen.add(cur);
+                                    const p = data.projects.find(
+                                      (pp) => pp.id === cur,
+                                    );
+                                    cur =
+                                      (p as any)?.parent_id ??
+                                      p?.parentId ??
+                                      null;
+                                  }
+                                  return false;
+                                })();
+                                if (!isLocked && !isDescendant) {
+                                  onProjectUpdate(draggedProject, {
+                                    parentId: project.id,
+                                  } as Partial<Project>);
+                                }
+                              } else if (
                                 draggedProject &&
                                 draggedProject !== project.id &&
                                 onProjectsReorder
@@ -2729,6 +2778,11 @@ export function Sidebar({
                                 dragOverProject === project.id &&
                                 dragOverPosition === "bottom"
                                   ? "drag-over-bottom"
+                                  : ""
+                              } ${
+                                dragOverProject === project.id &&
+                                dragOverPosition === "middle"
+                                  ? "ring-1 ring-inset ring-zinc-400 bg-zinc-800/60 rounded-lg"
                                   : ""
                               }`}
                             >

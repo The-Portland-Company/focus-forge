@@ -147,3 +147,176 @@ export function buildProjectRollups(
 
   return memo;
 }
+
+/**
+ * Project hierarchy roll-up: given every project in an org (flat, each with
+ * its own id/parentId) plus the tasks that belong to them, compute, for each
+ * project, the outstanding time/cost summed across that project AND every
+ * descendant sub-project (recursive). Pure/in-memory so it works the same
+ * whether the caller pre-loaded rows or called the `project_rollup` RPC.
+ *
+ * Cycles (which the DB trigger should prevent, but a stale cache could still
+ * contain) are broken defensively: a project is never visited twice while
+ * walking down, so a cycle just stops contributing further rather than
+ * looping forever.
+ */
+export interface ProjectLike {
+  id: string;
+  parent_id?: string | null;
+  parentId?: string | null;
+}
+
+export interface SubtreeRollup {
+  projectId: string;
+  /** This project's own direct tasks, excluding descendants. */
+  ownTimeEstimate: number;
+  ownCost: number;
+  /** This project plus every descendant sub-project, recursively. */
+  totalTimeEstimate: number;
+  totalCost: number;
+  taskCount: number;
+  completedTaskCount: number;
+}
+
+function projectParentId(p: ProjectLike): string | null {
+  return p.parent_id ?? p.parentId ?? null;
+}
+
+/**
+ * Builds a roll-up per project. `tasksByProject` maps a project id to the
+ * tasks directly in that project (not pre-aggregated across children).
+ */
+export function rollupProjects(
+  projects: ProjectLike[],
+  tasksByProject: Map<string, Array<TimeLike & SupplyLike>>,
+): Map<string, SubtreeRollup> {
+  const childrenByParent = new Map<string | null, ProjectLike[]>();
+  for (const project of projects) {
+    const parentId = projectParentId(project);
+    const key = projects.some((p) => p.id === parentId) ? parentId : null;
+    const bucket = childrenByParent.get(key) ?? [];
+    bucket.push(project);
+    childrenByParent.set(key, bucket);
+  }
+
+  const results = new Map<string, SubtreeRollup>();
+
+  // Post-order so a parent's total is computed after all its children.
+  const visit = (project: ProjectLike, ancestors: Set<string>): SubtreeRollup => {
+    const cached = results.get(project.id);
+    if (cached) return cached;
+
+    const ownTasks = tasksByProject.get(project.id) ?? [];
+    const ownTimeEstimate = sumTimeEstimate(ownTasks);
+    const ownCost = sumCost(ownTasks);
+    const taskCount = ownTasks.length;
+    const completedTaskCount = ownTasks.filter((t) => t.completed).length;
+
+    let totalTimeEstimate = ownTimeEstimate;
+    let totalCost = ownCost;
+    let totalTaskCount = taskCount;
+    let totalCompleted = completedTaskCount;
+
+    if (!ancestors.has(project.id)) {
+      const nextAncestors = new Set(ancestors).add(project.id);
+      for (const child of childrenByParent.get(project.id) ?? []) {
+        const childRollup = visit(child, nextAncestors);
+        totalTimeEstimate += childRollup.totalTimeEstimate;
+        totalCost += childRollup.totalCost;
+        totalTaskCount += childRollup.taskCount;
+        totalCompleted += childRollup.completedTaskCount;
+      }
+    }
+
+    const rollup: SubtreeRollup = {
+      projectId: project.id,
+      ownTimeEstimate,
+      ownCost,
+      totalTimeEstimate,
+      totalCost,
+      taskCount: totalTaskCount,
+      completedTaskCount: totalCompleted,
+    };
+    results.set(project.id, rollup);
+    return rollup;
+  };
+
+  for (const project of projects) {
+    visit(project, new Set());
+  }
+
+  return results;
+}
+
+/** Progress percent (0-100) for a roll-up, based on completed vs total tasks. */
+export function rollupProgressPercent(rollup: SubtreeRollup): number {
+  if (rollup.taskCount === 0) return 0;
+  return Math.round((rollup.completedTaskCount / rollup.taskCount) * 100);
+}
+
+/**
+ * Ancestor chain for a project, root-first, for rendering breadcrumbs
+ * ("Org / Grandparent / Parent"). Excludes the project itself. Stops at the
+ * first revisited id, so a cycle in stale data can't loop forever.
+ */
+export function projectAncestors<T extends ProjectLike>(
+  projectId: string,
+  projects: T[],
+): T[] {
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  const chain: T[] = [];
+  const seen = new Set<string>([projectId]);
+  let current = byId.get(projectId);
+  while (current) {
+    const parentId = projectParentId(current);
+    if (!parentId || seen.has(parentId)) break;
+    const parent = byId.get(parentId);
+    if (!parent) break;
+    chain.unshift(parent);
+    seen.add(parentId);
+    current = parent;
+  }
+  return chain;
+}
+
+/** Direct child projects of `projectId` (not recursive), in `order`. */
+export function projectChildren<T extends ProjectLike & { order?: number }>(
+  projectId: string,
+  projects: T[],
+): T[] {
+  return projects
+    .filter((p) => projectParentId(p) === projectId)
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
+/**
+ * `projectId` plus every descendant sub-project id, recursive — the set a
+ * "this project, including children" filter should match against. Defensive
+ * against cycles the same way `rollupProjects` is: a project is never
+ * expanded twice.
+ */
+export function projectIdsIncludingChildren(
+  projectId: string,
+  projects: ProjectLike[],
+): Set<string> {
+  const childrenByParent = new Map<string, ProjectLike[]>();
+  for (const project of projects) {
+    const parentId = projectParentId(project);
+    if (parentId === null) continue;
+    const bucket = childrenByParent.get(parentId) ?? [];
+    bucket.push(project);
+    childrenByParent.set(parentId, bucket);
+  }
+
+  const result = new Set<string>();
+  const stack = [projectId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (result.has(id)) continue;
+    result.add(id);
+    for (const child of childrenByParent.get(id) ?? []) {
+      if (!result.has(child.id)) stack.push(child.id);
+    }
+  }
+  return result;
+}

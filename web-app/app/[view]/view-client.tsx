@@ -146,6 +146,13 @@ import {
   writeCachedDatabase,
 } from "@/lib/database-cache";
 import { AlertBellButton } from "@/components/alert-center";
+import {
+  projectIdsIncludingChildren,
+  projectAncestors,
+  projectChildren,
+  rollupProjects,
+  rollupProgressPercent,
+} from "@/lib/rollup";
 
 // How often the app asks the server to pull new mail (POST /sync-due). The
 // server enforces its own per-mailbox poll floor, so these only bound how
@@ -4300,9 +4307,18 @@ export default function ViewPage({
 
     const projectId = view.replace("project-", "");
     const project = database.projects.find((p) => p.id === projectId);
-    const projectTasks = database.tasks.filter(
-      (t) => ((t as any).project_id || t.projectId) === projectId,
+    // "Project incl. children": this project's own tasks plus every
+    // descendant sub-project's tasks, so moving work into a sub-project
+    // never makes it disappear from the parent's view.
+    const projectIdsInScope = projectIdsIncludingChildren(
+      projectId,
+      database.projects,
     );
+    const projectTasks = database.tasks.filter((t) =>
+      projectIdsInScope.has(((t as any).project_id || t.projectId) as string),
+    );
+    const breadcrumbAncestors = projectAncestors(projectId, database.projects);
+    const childProjects = projectChildren(projectId, database.projects);
     const taskIdsWithSections = new Set(
       (database.taskSections || []).map((taskSection) => taskSection.taskId),
     );
@@ -4331,6 +4347,8 @@ export default function ViewPage({
       projectSections,
       unassignedTasks,
       projectGoals,
+      breadcrumbAncestors,
+      childProjects,
     };
   }, [database, view]);
 
@@ -6626,6 +6644,24 @@ export default function ViewPage({
         <div>
           <div className="flex items-start justify-between mb-6 gap-3">
             <div className="min-w-0">
+              {(projectViewData?.breadcrumbAncestors?.length ?? 0) > 0 && (
+                <nav
+                  aria-label="Breadcrumb"
+                  className="mb-1 flex flex-wrap items-center gap-1 text-xs text-zinc-500"
+                >
+                  {projectViewData!.breadcrumbAncestors.map((ancestor) => (
+                    <span key={ancestor.id} className="flex items-center gap-1">
+                      <Link
+                        href={`/project-${ancestor.id}`}
+                        className="hover:text-zinc-300 hover:underline"
+                      >
+                        {ancestor.name}
+                      </Link>
+                      <ChevronRight className="h-3 w-3" />
+                    </span>
+                  ))}
+                </nav>
+              )}
               <h1 className="text-2xl font-bold flex items-center gap-3">
                 <div className="relative">
                   <span

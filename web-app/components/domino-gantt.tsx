@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type JSX } from "react";
+import { useMemo, useState, type JSX } from "react";
 import {
   addDays,
   differenceInCalendarDays,
@@ -21,6 +21,10 @@ export interface GanttStake {
   recurrence: string | null; // "weekly" | "monthly" | etc, or null
   recurrenceIntervalDays: number | null;
   effectiveWeight: number;
+  /** Optional sub-project grouping: when any stake carries a projectId, the
+   * chart groups dated rows under a collapsible header per project. */
+  projectId?: string | null;
+  projectName?: string | null;
 }
 
 const MIN_SPAN_DAYS = 30;
@@ -33,6 +37,100 @@ function parseDate(value: string | null): Date | null {
   return isValid(d) ? startOfDay(d) : null;
 }
 
+interface DatedRow {
+  stake: GanttStake;
+  date: Date;
+}
+
+function GanttRow({
+  stake,
+  date,
+  end,
+  pct,
+  selected,
+  onSelect,
+}: {
+  stake: GanttStake;
+  date: Date;
+  end: Date;
+  pct: (date: Date) => number;
+  selected: boolean;
+  onSelect?: (id: string) => void;
+}): JSX.Element {
+  const isConsequence = stake.kind === "consequence";
+  const Icon = isConsequence ? AlertTriangle : Gift;
+  const accent = isConsequence ? "text-amber-400" : "text-emerald-400";
+  const markerBg = isConsequence ? "bg-amber-500" : "bg-emerald-500";
+  const left = pct(date);
+
+  // Optional recurrence ticks.
+  const recurTicks: number[] = [];
+  const step = stake.recurrenceIntervalDays;
+  if (stake.recurrence && step && step > 0) {
+    let cursor = addDays(date, step);
+    let count = 0;
+    while (cursor <= end && count < MAX_RECUR_TICKS) {
+      recurTicks.push(pct(cursor));
+      cursor = addDays(cursor, step);
+      count += 1;
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect?.(stake.id)}
+      className={cn(
+        "group relative flex h-11 w-full items-center border-b border-zinc-800/60 text-left transition-colors",
+        selected ? "bg-zinc-800/70" : "hover:bg-zinc-800/40",
+      )}
+    >
+      {/* Label */}
+      <div className="flex w-44 shrink-0 items-center gap-2 px-3">
+        <Icon className={cn("h-3.5 w-3.5 shrink-0", accent)} />
+        <span
+          className={cn(
+            "truncate text-xs",
+            selected ? "font-semibold text-zinc-100" : "text-zinc-300",
+          )}
+        >
+          {stake.name || "Untitled"}
+        </span>
+      </div>
+
+      {/* Track */}
+      <div className="relative h-full flex-1 pr-4">
+        <div className="relative h-full">
+          {recurTicks.map((l, i) => (
+            <div
+              key={i}
+              className={cn(
+                "absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 opacity-40",
+                markerBg,
+              )}
+              style={{ left: `${l}%` }}
+            />
+          ))}
+          <div
+            className={cn(
+              "absolute top-1/2 flex h-7 -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full px-2 shadow-sm transition-all",
+              markerBg,
+              selected
+                ? "ring-2 ring-white/70 ring-offset-2 ring-offset-zinc-900"
+                : "opacity-90 group-hover:opacity-100",
+            )}
+            style={{ left: `${left}%` }}
+          >
+            <span className="whitespace-nowrap text-[10px] font-semibold text-zinc-950">
+              {format(date, "MMM d")}
+            </span>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 export function DominoGantt({
   stakes,
   selectedId,
@@ -42,10 +140,22 @@ export function DominoGantt({
   selectedId: string | null;
   onSelect?: (id: string) => void;
 }): JSX.Element | null {
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleProject = (projectId: string) => {
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+  };
+
   const model = useMemo(() => {
     const today = startOfDay(new Date());
 
-    const dated: Array<{ stake: GanttStake; date: Date }> = [];
+    const dated: DatedRow[] = [];
     const undated: GanttStake[] = [];
     for (const stake of stakes) {
       const date = parseDate(stake.triggerAt);
@@ -72,7 +182,33 @@ export function DominoGantt({
       ticks.push({ date, left: pct(date) });
     }
 
-    return { today, dated, undated, end, spanDays, pct, ticks };
+    // Group dated rows by sub-project when any stake carries a projectId.
+    // Rows with no project land in an ungrouped bucket (projectId: null).
+    const hasProjectGrouping = stakes.some((s) => s.projectId);
+    const groups: Array<{
+      projectId: string | null;
+      projectName: string | null;
+      rows: DatedRow[];
+    }> = [];
+    if (hasProjectGrouping) {
+      const byProject = new Map<string, (typeof groups)[number]>();
+      for (const row of dated) {
+        const key = row.stake.projectId || "__ungrouped__";
+        let group = byProject.get(key);
+        if (!group) {
+          group = {
+            projectId: row.stake.projectId || null,
+            projectName: row.stake.projectName || null,
+            rows: [],
+          };
+          byProject.set(key, group);
+          groups.push(group);
+        }
+        group.rows.push(row);
+      }
+    }
+
+    return { today, dated, undated, end, spanDays, pct, ticks, hasProjectGrouping, groups };
   }, [stakes]);
 
   if (!stakes.length) {
@@ -83,7 +219,7 @@ export function DominoGantt({
     );
   }
 
-  const { dated, undated, pct, ticks, today, end, spanDays } = model;
+  const { dated, undated, pct, ticks, today, end, spanDays, hasProjectGrouping, groups } = model;
 
   return (
     <div className="w-full overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900/50">
@@ -130,82 +266,59 @@ export function DominoGantt({
             </div>
           </div>
 
-          {dated.map(({ stake, date }) => {
-            const isConsequence = stake.kind === "consequence";
-            const selected = stake.id === selectedId;
-            const Icon = isConsequence ? AlertTriangle : Gift;
-            const accent = isConsequence ? "text-amber-400" : "text-emerald-400";
-            const markerBg = isConsequence ? "bg-amber-500" : "bg-emerald-500";
-            const left = pct(date);
-
-            // Optional recurrence ticks.
-            const recurTicks: number[] = [];
-            const step = stake.recurrenceIntervalDays;
-            if (stake.recurrence && step && step > 0) {
-              let cursor = addDays(date, step);
-              let count = 0;
-              while (cursor <= end && count < MAX_RECUR_TICKS) {
-                recurTicks.push(pct(cursor));
-                cursor = addDays(cursor, step);
-                count += 1;
-              }
-            }
-
-            return (
-              <button
-                type="button"
-                key={stake.id}
-                onClick={() => onSelect?.(stake.id)}
-                className={cn(
-                  "group relative flex h-11 w-full items-center border-b border-zinc-800/60 text-left transition-colors",
-                  selected ? "bg-zinc-800/70" : "hover:bg-zinc-800/40",
-                )}
-              >
-                {/* Label */}
-                <div className="flex w-44 shrink-0 items-center gap-2 px-3">
-                  <Icon className={cn("h-3.5 w-3.5 shrink-0", accent)} />
-                  <span
-                    className={cn(
-                      "truncate text-xs",
-                      selected ? "font-semibold text-zinc-100" : "text-zinc-300",
+          {hasProjectGrouping
+            ? groups.map((group) => {
+                const key = group.projectId || "__ungrouped__";
+                const collapsed = group.projectId
+                  ? collapsedProjects.has(group.projectId)
+                  : false;
+                return (
+                  <div key={key}>
+                    {group.projectId && (
+                      <button
+                        type="button"
+                        onClick={() => toggleProject(group.projectId!)}
+                        className="flex w-full items-center gap-2 border-b border-zinc-800/60 bg-zinc-950/60 px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-zinc-400 hover:bg-zinc-800/40"
+                        aria-expanded={!collapsed}
+                      >
+                        <span
+                          className={cn(
+                            "inline-block transition-transform",
+                            collapsed ? "-rotate-90" : "",
+                          )}
+                        >
+                          ▾
+                        </span>
+                        {group.projectName || "Sub-project"}
+                        <span className="text-zinc-600">({group.rows.length})</span>
+                      </button>
                     )}
-                  >
-                    {stake.name || "Untitled"}
-                  </span>
-                </div>
-
-                {/* Track */}
-                <div className="relative h-full flex-1 pr-4">
-                  <div className="relative h-full">
-                    {recurTicks.map((l, i) => (
-                      <div
-                        key={i}
-                        className={cn(
-                          "absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 opacity-40",
-                          markerBg,
-                        )}
-                        style={{ left: `${l}%` }}
-                      />
-                    ))}
-                    <div
-                      className={cn(
-                        "absolute top-1/2 flex h-7 -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full px-2 shadow-sm transition-all",
-                        markerBg,
-                        selected
-                          ? "ring-2 ring-white/70 ring-offset-2 ring-offset-zinc-900"
-                          : "opacity-90 group-hover:opacity-100",
-                      )}
-                      style={{ left: `${left}%` }}
-                    >
-                      <span className="whitespace-nowrap text-[10px] font-semibold text-zinc-950">
-                        {format(date, "MMM d")}
-                      </span>
-                    </div>
+                    {!collapsed &&
+                      group.rows.map(({ stake, date }) => (
+                        <GanttRow
+                          key={stake.id}
+                          stake={stake}
+                          date={date}
+                          end={end}
+                          pct={pct}
+                          selected={stake.id === selectedId}
+                          onSelect={onSelect}
+                        />
+                      ))}
                   </div>
-                </div>
-              </button>
-            );
-          })}
+                );
+              })
+            : dated.map(({ stake, date }) => (
+                <GanttRow
+                  key={stake.id}
+                  stake={stake}
+                  date={date}
+                  end={end}
+                  pct={pct}
+                  selected={stake.id === selectedId}
+                  onSelect={onSelect}
+                />
+              ))}
 
           {dated.length === 0 && (
             <div className="px-4 py-6 text-center text-xs text-zinc-500">
