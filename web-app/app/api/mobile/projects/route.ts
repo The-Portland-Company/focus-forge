@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
+  createServiceSupabase,
   getMobileAdapterForUser,
   mobileFailure,
   mobileSuccess,
   verifyMobileAccessTokenOrPat,
 } from '@/lib/mobile/api'
+import { buildProjectRollups, type ProjectRollup } from '@/lib/rollup'
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,7 +22,30 @@ export async function GET(request: NextRequest) {
     const organizationId = request.nextUrl.searchParams.get('organizationId') || undefined
     const adapter = await getMobileAdapterForUser(auth.user.id)
     const projects = await adapter.getProjects(organizationId)
-    return NextResponse.json(mobileSuccess(projects), { status: 200 })
+
+    const projectIds = (projects || []).map((p: any) => p.id)
+    let rollups = new Map<string, ProjectRollup>()
+    if (projectIds.length > 0) {
+      const service = createServiceSupabase()
+      const { data: tasks } = await service
+        .from('tasks')
+        .select('project_id,completed')
+        .in('project_id', projectIds)
+        .is('deleted_at', null)
+      rollups = buildProjectRollups(projects as any, tasks || [])
+    }
+
+    const projectsWithRollup = (projects || []).map((project: any) => ({
+      ...project,
+      rollup: rollups.get(project.id) ?? {
+        childProjectCount: 0,
+        taskCount: 0,
+        completedTaskCount: 0,
+        progress: 0,
+      },
+    }))
+
+    return NextResponse.json(mobileSuccess(projectsWithRollup), { status: 200 })
   } catch (error) {
     return NextResponse.json(
       mobileFailure('internal_error', 'Failed to fetch projects', error),

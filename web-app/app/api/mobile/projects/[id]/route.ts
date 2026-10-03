@@ -6,6 +6,7 @@ import {
   mobileSuccess,
   verifyMobileAccessTokenOrPat,
 } from "@/lib/mobile/api";
+import { isProjectLockedError } from "@/lib/db/project-lock-error";
 
 async function resolveAccessibleProject(userId: string, projectId: string) {
   const adapter = await getMobileAdapterForUser(userId);
@@ -67,6 +68,12 @@ export async function PATCH(
     const updated = await adapter.updateProject(projectId, updates);
     return NextResponse.json(mobileSuccess(updated), { status: 200 });
   } catch (error) {
+    if (isProjectLockedError(error)) {
+      return NextResponse.json(
+        mobileFailure("project_locked", "Project is locked and cannot be changed"),
+        { status: 423 },
+      );
+    }
     return NextResponse.json(
       mobileFailure("internal_error", "Failed to update project", error),
       { status: 500 },
@@ -144,6 +151,12 @@ export async function DELETE(
       { status: 200 },
     );
   } catch (error) {
+    if (isProjectLockedError(error)) {
+      return NextResponse.json(
+        mobileFailure("project_locked", "Project is locked and cannot be deleted"),
+        { status: 423 },
+      );
+    }
     return NextResponse.json(
       mobileFailure("internal_error", "Failed to delete project", error),
       { status: 500 },

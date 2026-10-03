@@ -15,6 +15,7 @@ import {
   Hash,
   GripVertical,
   Trash2,
+  Lock,
   Archive,
   FolderPlus,
   Building2,
@@ -2756,18 +2757,30 @@ export function Sidebar({
                                   {getProjectAcronym(project.name)}
                                 </span>
                                 <span className="truncate">{project.name}</span>
+                                {(project as any).locked && (
+                                  <Lock
+                                    className="w-3 h-3 flex-shrink-0 text-zinc-500"
+                                    aria-label="Locked (synced from Specs)"
+                                  />
+                                )}
                               </Link>
                               {hoveredProject === project.id && (
                                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 bg-zinc-900 rounded-lg px-1">
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
+                                      if ((project as any).locked) return;
                                       if (onProjectEdit) {
                                         onProjectEdit(project.id);
                                       }
                                     }}
-                                    className="p-1 hover:bg-zinc-700 rounded transition-colors"
-                                    title="Edit project"
+                                    disabled={(project as any).locked}
+                                    className="p-1 hover:bg-zinc-700 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                    title={
+                                      (project as any).locked
+                                        ? "Locked — renamed from Specs"
+                                        : "Edit project"
+                                    }
                                   >
                                     <Edit className="w-3 h-3" />
                                   </button>
@@ -2788,10 +2801,16 @@ export function Sidebar({
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
+                                      if ((project as any).locked) return;
                                       setProjectPendingDelete(project);
                                     }}
-                                    className="p-1 hover:bg-zinc-700 rounded transition-colors"
-                                    title="Delete project"
+                                    disabled={(project as any).locked}
+                                    className="p-1 hover:bg-zinc-700 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                    title={
+                                      (project as any).locked
+                                        ? "Locked — managed from Specs"
+                                        : "Delete project"
+                                    }
                                   >
                                     <Trash2 className="w-3 h-3" />
                                   </button>

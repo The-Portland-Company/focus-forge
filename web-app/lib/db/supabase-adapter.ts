@@ -619,6 +619,8 @@ export class SupabaseAdapter implements DatabaseAdapter {
       ...project,
       organizationId: project.organization_id,
       parentId: project.parent_id ?? null,
+      locked: project.locked ?? false,
+      lockSource: project.lock_source ?? null,
       isFavorite: project.is_favorite ?? false,
       devnotesMeta: project.devnotes_meta ?? null,
       startDate: project.start_date ?? undefined,
