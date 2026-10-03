@@ -520,3 +520,17 @@ grant execute on function public.connector_upsert_project(uuid, text, uuid, text
 grant execute on function public.connector_upsert_section(uuid, uuid, text, integer, text, timestamptz) to service_role;
 grant execute on function public.connector_upsert_goal(uuid, uuid, uuid, uuid, text, text, integer, text, timestamptz) to service_role;
 grant execute on function public.connector_upsert_task(uuid, uuid, uuid, text, text, text, integer, text, integer, integer, integer, timestamptz, timestamptz, text, text, timestamptz) to service_role;
+
+-- ---------------------------------------------------------------------
+-- 7. RLS -- all five tables here are service_role-only (the connector
+-- webhook, worker and settings-status route are the only callers, all
+-- using the service-role admin client which bypasses RLS). Enabling RLS
+-- with no policies for anon/authenticated locks ordinary app clients out
+-- entirely, satisfying the Supabase Advisor's rls_disabled_in_public
+-- check without opening these tables up to end users.
+-- ---------------------------------------------------------------------
+alter table public.connectors enable row level security;
+alter table public.external_links enable row level security;
+alter table public.sync_outbox enable row level security;
+alter table public.sync_events_seen enable row level security;
+alter table public.sync_dead_letters enable row level security;
