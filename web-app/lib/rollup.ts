@@ -254,3 +254,69 @@ export function rollupProgressPercent(rollup: SubtreeRollup): number {
   return Math.round((rollup.completedTaskCount / rollup.taskCount) * 100);
 }
 
+/**
+ * Ancestor chain for a project, root-first, for rendering breadcrumbs
+ * ("Org / Grandparent / Parent"). Excludes the project itself. Stops at the
+ * first revisited id, so a cycle in stale data can't loop forever.
+ */
+export function projectAncestors<T extends ProjectLike>(
+  projectId: string,
+  projects: T[],
+): T[] {
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  const chain: T[] = [];
+  const seen = new Set<string>([projectId]);
+  let current = byId.get(projectId);
+  while (current) {
+    const parentId = projectParentId(current);
+    if (!parentId || seen.has(parentId)) break;
+    const parent = byId.get(parentId);
+    if (!parent) break;
+    chain.unshift(parent);
+    seen.add(parentId);
+    current = parent;
+  }
+  return chain;
+}
+
+/** Direct child projects of `projectId` (not recursive), in `order`. */
+export function projectChildren<T extends ProjectLike & { order?: number }>(
+  projectId: string,
+  projects: T[],
+): T[] {
+  return projects
+    .filter((p) => projectParentId(p) === projectId)
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
+/**
+ * `projectId` plus every descendant sub-project id, recursive — the set a
+ * "this project, including children" filter should match against. Defensive
+ * against cycles the same way `rollupProjects` is: a project is never
+ * expanded twice.
+ */
+export function projectIdsIncludingChildren(
+  projectId: string,
+  projects: ProjectLike[],
+): Set<string> {
+  const childrenByParent = new Map<string, ProjectLike[]>();
+  for (const project of projects) {
+    const parentId = projectParentId(project);
+    if (parentId === null) continue;
+    const bucket = childrenByParent.get(parentId) ?? [];
+    bucket.push(project);
+    childrenByParent.set(parentId, bucket);
+  }
+
+  const result = new Set<string>();
+  const stack = [projectId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (result.has(id)) continue;
+    result.add(id);
+    for (const child of childrenByParent.get(id) ?? []) {
+      if (!result.has(child.id)) stack.push(child.id);
+    }
+  }
+  return result;
+}

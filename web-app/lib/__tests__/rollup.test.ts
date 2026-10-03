@@ -8,6 +8,9 @@ import {
   buildProjectRollups,
   rollupProjects,
   rollupProgressPercent,
+  projectAncestors,
+  projectChildren,
+  projectIdsIncludingChildren,
 } from "../rollup";
 
 describe("taskTimeEstimate", () => {
@@ -187,5 +190,80 @@ describe("rollupProgressPercent", () => {
       }),
       0,
     );
+  });
+});
+
+describe("projectAncestors", () => {
+  const tree = [
+    { id: "root", parent_id: null },
+    { id: "mid", parent_id: "root" },
+    { id: "leaf", parent_id: "mid" },
+  ];
+
+  test("returns the chain root-first, excluding the project itself", () => {
+    assert.deepEqual(
+      projectAncestors("leaf", tree).map((p) => p.id),
+      ["root", "mid"],
+    );
+  });
+
+  test("a top-level project has an empty chain", () => {
+    assert.deepEqual(projectAncestors("root", tree), []);
+  });
+
+  test("a cycle terminates instead of looping forever", () => {
+    const cyclic = [
+      { id: "a", parent_id: "b" },
+      { id: "b", parent_id: "a" },
+    ];
+    const chain = projectAncestors("a", cyclic);
+    assert.ok(Number.isFinite(chain.length));
+  });
+});
+
+describe("projectChildren", () => {
+  test("direct children only, ordered", () => {
+    const projects = [
+      { id: "root", parent_id: null, order: 0 },
+      { id: "b", parent_id: "root", order: 2 },
+      { id: "a", parent_id: "root", order: 1 },
+      { id: "grandchild", parent_id: "b", order: 0 },
+    ];
+    assert.deepEqual(
+      projectChildren("root", projects).map((p) => p.id),
+      ["a", "b"],
+    );
+  });
+});
+
+describe("projectIdsIncludingChildren", () => {
+  const tree = [
+    { id: "root", parent_id: null },
+    { id: "mid", parent_id: "root" },
+    { id: "leaf", parent_id: "mid" },
+    { id: "sibling", parent_id: "root" },
+    { id: "other", parent_id: null },
+  ];
+
+  test("includes the project and every descendant, not siblings", () => {
+    const ids = projectIdsIncludingChildren("root", tree);
+    assert.deepEqual(
+      [...ids].sort(),
+      ["leaf", "mid", "root", "sibling"].sort(),
+    );
+    assert.ok(!ids.has("other"));
+  });
+
+  test("a leaf with no children is just itself", () => {
+    assert.deepEqual([...projectIdsIncludingChildren("leaf", tree)], ["leaf"]);
+  });
+
+  test("a cycle terminates instead of looping forever", () => {
+    const cyclic = [
+      { id: "a", parent_id: "b" },
+      { id: "b", parent_id: "a" },
+    ];
+    const ids = projectIdsIncludingChildren("a", cyclic);
+    assert.deepEqual([...ids].sort(), ["a", "b"]);
   });
 });
