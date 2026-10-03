@@ -2,7 +2,8 @@
 // Loads the deployed web app directly. Does NOT depend on Safari, so it can
 // never trigger the "You can't open Safari because it is not responding" dialog
 // that the old Safari Web App produced.
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, Menu, shell, session } = require("electron");
+const onepassword = require("./onepassword");
 
 const APP_URL = process.env.FOCUSFORGE_URL || "https://app.focusforge.dev/today";
 const APP_HOST = new URL(APP_URL).host;
@@ -68,7 +69,45 @@ const createWindow = () => {
   });
 };
 
-app.whenReady().then(() => {
+// The app menu is the stock macOS set plus "1Password…" (⇧⌘X) under Edit, which
+// opens the extension popup -- Electron has no toolbar for its icon to live in.
+const buildMenu = () => {
+  const template = [
+    { role: "appMenu" },
+    { role: "fileMenu" },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "pasteAndMatchStyle" },
+        { role: "delete" },
+        { role: "selectAll" },
+        { type: "separator" },
+        onepassword.menuItem(),
+      ],
+    },
+    { role: "viewMenu" },
+    { role: "windowMenu" },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+};
+
+app.whenReady().then(async () => {
+  // Load the real 1Password browser extension (copied from an installed Chromium
+  // browser) and bridge its native messaging to the 1Password desktop app, so it
+  // unlocks and autofills here exactly as it does in Chrome. Skipped, with a
+  // warning, when no browser on this Mac has the extension installed.
+  try {
+    await onepassword.enable(session.defaultSession);
+  } catch (error) {
+    console.error("1Password:", error);
+  }
+  buildMenu();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
