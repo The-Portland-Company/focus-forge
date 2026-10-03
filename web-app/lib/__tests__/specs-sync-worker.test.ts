@@ -59,7 +59,27 @@ describe("applyOutboundRow", () => {
     );
   });
 
-  test("a goal row upserts into spec_goals when a Specs client is configured", async () => {
+  // Fake Forge client resolving projects.specs_id / sections.name, as the
+  // real worker uses to map a Forge project/section onto a Specs page_id /
+  // section heading (spec_goals has no project_id or section_id column --
+  // see supabase/migrations/20261003210000_spec_goals_tasks.sql).
+  const fakeForgeClient = ({
+    projectsSpecsId = "page-1" as string | null,
+    sectionName = null as string | null,
+  } = {}) => ({
+    from: (table: string) => ({
+      select: () => ({
+        eq: (_col: string, _val: string) => ({
+          maybeSingle: async () =>
+            table === "projects"
+              ? { data: { specs_id: projectsSpecsId }, error: null }
+              : { data: { name: sectionName }, error: null },
+        }),
+      }),
+    }),
+  });
+
+  test("a goal row upserts into spec_goals (page_id/order_index/sync_origin) when a Specs client is configured", async () => {
     const calls: Array<{ table: string; row: unknown }> = [];
     const fakeSpecsClient = {
       from: (table: string) => ({
@@ -70,18 +90,44 @@ describe("applyOutboundRow", () => {
       }),
     };
 
-    const result = await worker.applyOutboundRow(fakeSpecsClient, {
-      entity: "goal",
-      entity_id: "g1",
-      sync_hash: "sha256:abc",
-      data: { project_id: "p1", title: "Goal", order: 2 },
-    });
+    const result = await worker.applyOutboundRow(
+      fakeSpecsClient,
+      {
+        entity: "goal",
+        entity_id: "g1",
+        sync_hash: "sha256:abc",
+        data: { project_id: "p1", title: "Goal", order: 2 },
+      },
+      fakeForgeClient({ projectsSpecsId: "page-1" }),
+    );
 
     assert.equal(result.skipped, false);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].table, "spec_goals");
     assert.equal((calls[0].row as any).id, "g1");
-    assert.equal((calls[0].row as any).origin, "forge");
+    assert.equal((calls[0].row as any).page_id, "page-1");
+    assert.equal((calls[0].row as any).order_index, 2);
+    assert.equal((calls[0].row as any).sync_origin, "forge");
+    assert.equal((calls[0].row as any).forge_id, "g1");
+    assert.equal("project_id" in (calls[0].row as any), false);
+    assert.equal("order" in (calls[0].row as any), false);
+    assert.equal("origin" in (calls[0].row as any), false);
+  });
+
+  test("a goal row whose Forge project has no specs_id throws (not a Specs-synced project)", async () => {
+    await assert.rejects(
+      () =>
+        worker.applyOutboundRow(
+          { from: () => assert.fail("should not reach the Specs client") },
+          {
+            entity: "goal",
+            entity_id: "g1",
+            data: { project_id: "p1", title: "Goal" },
+          },
+          fakeForgeClient({ projectsSpecsId: null }),
+        ),
+      /specs_page_not_found/,
+    );
   });
 
   test("a task row upserts into spec_tasks when a Specs client is configured", async () => {
@@ -106,6 +152,10 @@ describe("applyOutboundRow", () => {
     assert.equal(calls.length, 1);
     assert.equal(calls[0].table, "spec_tasks");
     assert.equal((calls[0].row as any).id, "t1");
+    assert.equal((calls[0].row as any).sync_origin, "forge");
+    assert.equal((calls[0].row as any).order_index, 0);
+    assert.equal("origin" in (calls[0].row as any), false);
+    assert.equal("order" in (calls[0].row as any), false);
   });
 
   test("surfaces the Specs error (caller's retry/dead-letter loop handles it, e.g. P2 not shipped)", async () => {
@@ -117,11 +167,15 @@ describe("applyOutboundRow", () => {
 
     await assert.rejects(
       () =>
-        worker.applyOutboundRow(fakeSpecsClient, {
-          entity: "goal",
-          entity_id: "g1",
-          data: { project_id: "p1", title: "Goal" },
-        }),
+        worker.applyOutboundRow(
+          fakeSpecsClient,
+          {
+            entity: "goal",
+            entity_id: "g1",
+            data: { project_id: "p1", title: "Goal" },
+          },
+          fakeForgeClient({ projectsSpecsId: "page-1" }),
+        ),
       /does not exist/,
     );
   });

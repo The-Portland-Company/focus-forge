@@ -216,6 +216,21 @@ test("Authorization: Bearer header on an explicitly public/self-authing route by
   });
 });
 
+test("Specs->Forge connector inbound sync route bypasses the cookie gate", async () => {
+  // /api/connectors/specs/events self-authenticates via Authorization: Bearer
+  // <FORGE_PAT> + X-Specs-Forge-Signature inside the route (see
+  // app/api/connectors/specs/events/route.ts) -- Specs' server has no Forge
+  // session cookie, so middleware must not 401 it before the route runs.
+  await withStubbedFetch({}, async () => {
+    const res = await middleware(
+      req("/api/connectors/specs/events", {
+        headers: { authorization: "Bearer some-forge-pat" },
+      }),
+    );
+    assert.equal(res.headers.get("x-middleware-next"), "1");
+  });
+});
+
 test("a bearer on /api/mcp reaches the route (no Forge session required)", async () => {
   // /api/mcp is a TPC Auth protected resource, not a Forge-session route — an
   // MCP client authenticates with a TPC access token / PAT, never a Forge
