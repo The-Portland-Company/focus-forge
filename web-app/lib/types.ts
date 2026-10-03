@@ -81,7 +81,7 @@ export interface Project {
   lastTodoistSync?: string;
 }
 
-export type TaskType = "task" | "bug" | "feature";
+export type TaskType = "task" | "bug" | "feature" | "ops";
 
 export interface Task {
   id: string;

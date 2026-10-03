@@ -36,6 +36,7 @@ import {
   Sparkles,
   Bug,
   ListTodo,
+  Wrench,
   Target,
   ShoppingCart,
   Maximize2,
@@ -3635,6 +3636,7 @@ export function TaskModal({
                     { value: "task", label: "Task", icon: ListTodo },
                     { value: "bug", label: "Bug", icon: Bug },
                     { value: "feature", label: "Feature", icon: Sparkles },
+                    { value: "ops", label: "Ops", icon: Wrench },
                   ] as const
                 ).map((option) => (
                   <button

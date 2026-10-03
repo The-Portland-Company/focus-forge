@@ -1,18 +1,25 @@
-// Covers the native task `type` field ('task' | 'bug' | 'feature') added in
-// supabase/migrations/20260924010000_task_type.sql: normalizeTaskInput must
-// accept it on create/update, reject bad values, and serializeMobileTask
-// must always return a valid type.
+// Covers the native task `type` field ('task' | 'bug' | 'feature' | 'ops')
+// added in supabase/migrations/20260924010000_task_type.sql and extended by
+// supabase/migrations/20261004000000_task_type_ops.sql (P6 backlog
+// reconciliation -- sync-contract.md rule 6, bug/ops work needs no spec
+// link): normalizeTaskInput must accept it on create/update, reject bad
+// values, and serializeMobileTask must always return a valid type.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeTaskInput, serializeMobileTask, TASK_TYPES } from "@/lib/mobile/api";
 
 test("TASK_TYPES is the documented set", () => {
-  assert.deepEqual(TASK_TYPES, ["task", "bug", "feature"]);
+  assert.deepEqual(TASK_TYPES, ["task", "bug", "feature", "ops"]);
 });
 
 test("normalizeTaskInput passes through a valid type", () => {
   const result = normalizeTaskInput({ name: "Fix crash", type: "bug" });
   assert.equal(result.type, "bug");
+});
+
+test("normalizeTaskInput passes through 'ops'", () => {
+  const result = normalizeTaskInput({ name: "Rotate secret", type: "ops" });
+  assert.equal(result.type, "ops");
 });
 
 test("normalizeTaskInput drops an invalid type rather than erroring", () => {
