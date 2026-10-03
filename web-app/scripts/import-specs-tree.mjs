@@ -184,6 +184,17 @@ async function main() {
   // conflict-free insert order -- spec_goals has no cycle risk since it
   // comes from a tree already, but Forge FK on parent_goal_id requires the
   // parent row to exist first).
+  // A goal's page_id must be a Forge project we actually created above (a
+  // Mode page or a non-archived Spec page) -- goals left behind on an
+  // archived spec, or on a Reference/Data-System/etc. page outside this
+  // import's scope, have no Forge project to attach to and are skipped
+  // (not an error: Specs' own archival/folder housekeeping is out of scope
+  // for this one-off import).
+  const validProjectIds = new Set([
+    ...modePages.map((m) => m.id),
+    ...specPages.map((s) => s.id),
+  ]);
+
   const goalsByParent = new Map();
   for (const g of goals) {
     const key = g.parent_goal_id ?? "__root__";
@@ -191,9 +202,15 @@ async function main() {
     goalsByParent.get(key).push(g);
   }
   let goalCount = 0;
-  async function upsertGoalTree(parentKey) {
+  const skippedGoals = [];
+  async function upsertGoalTree(parentKey, parentSkipped) {
     const children = goalsByParent.get(parentKey) ?? [];
     for (const g of children) {
+      if (parentSkipped || !validProjectIds.has(g.page_id)) {
+        skippedGoals.push({ id: g.id, page_id: g.page_id, title: g.title });
+        await upsertGoalTree(g.id, true);
+        continue;
+      }
       const hash = g.sync_hash ?? hashOf({ title: g.title, order: g.order_index });
       const { error } = await forge.rpc("connector_upsert_goal", {
         p_id: g.id,
@@ -208,11 +225,17 @@ async function main() {
       });
       if (error) throw new Error(`upsert goal ${g.id} (${g.title}): ${error.message}`);
       goalCount += 1;
-      await upsertGoalTree(g.id);
+      await upsertGoalTree(g.id, false);
     }
   }
-  await upsertGoalTree("__root__");
+  await upsertGoalTree("__root__", false);
   console.log(`[import-specs-tree] ${goalCount} goals upserted`);
+  if (skippedGoals.length > 0) {
+    console.log(
+      `[import-specs-tree] ${skippedGoals.length} goal(s) skipped (page not imported -- archived spec or out-of-scope folder):`,
+    );
+    console.log(JSON.stringify(skippedGoals, null, 2));
+  }
 
   // 5. Tasks (none in prod today, but handle them for completeness / future
   // re-runs once spec_tasks gets rows).
