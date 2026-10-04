@@ -65,7 +65,7 @@ BEGIN
   own AS (
     SELECT
       root_project_id AS pid,
-      COALESCE(SUM(t.time_estimate) FILTER (WHERE t.completed IS NOT TRUE), 0) AS own_time,
+      COALESCE(SUM(t.time_estimate) FILTER (WHERE t.completed IS NOT TRUE), 0)::numeric AS own_time,
       COALESCE(SUM(
         CASE WHEN t.is_supply AND t.completed IS NOT TRUE
           THEN COALESCE(t.supply_price, 0) * COALESCE(t.supply_quantity, 1)
@@ -79,7 +79,7 @@ BEGIN
   ),
   total AS (
     SELECT
-      COALESCE(SUM(t.time_estimate) FILTER (WHERE t.completed IS NOT TRUE), 0) AS total_time,
+      COALESCE(SUM(t.time_estimate) FILTER (WHERE t.completed IS NOT TRUE), 0)::numeric AS total_time,
       COALESCE(SUM(
         CASE WHEN t.is_supply AND t.completed IS NOT TRUE
           THEN COALESCE(t.supply_price, 0) * COALESCE(t.supply_quantity, 1)

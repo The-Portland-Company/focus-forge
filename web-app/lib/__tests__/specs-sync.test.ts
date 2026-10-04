@@ -68,7 +68,7 @@ describe("hmacHex / verifySignature", () => {
  * Minimal fake of the subset of the Supabase client applyInboundEvent uses:
  * .from(table).select/insert/eq/maybeSingle() and .rpc(name, args).
  */
-function createFakeSupabase() {
+function createFakeSupabase(options: { rpcError?: { message: string } } = {}) {
   const seen = new Map<string, unknown>();
   const rpcCalls: Array<{ name: string; args: unknown }> = [];
 
@@ -96,6 +96,9 @@ function createFakeSupabase() {
     },
     rpc: async (name: string, args: unknown) => {
       rpcCalls.push({ name, args });
+      if (options.rpcError) {
+        return { data: null, error: options.rpcError };
+      }
       return { data: null, error: null };
     },
   };
@@ -202,6 +205,17 @@ describe("applyInboundEvent", () => {
     assert.equal(result.applied, false);
     assert.equal(result.reason, "unknown_entity");
     assert.equal(supabase.rpcCalls.length, 0);
+  });
+
+  test("a failing connector_upsert_* RPC throws instead of silently reporting applied:true", async () => {
+    const supabase = createFakeSupabase({ rpcError: { message: "constraint violation" } });
+    const event = baseEvent();
+    await assert.rejects(
+      () => applyInboundEvent(supabase as any, event),
+      /rpc_error:connector_upsert_goal: constraint violation/,
+    );
+    // The event must NOT be recorded as seen, so a retry can succeed later.
+    assert.equal(supabase.seenEventIds.size, 0);
   });
 });
 
