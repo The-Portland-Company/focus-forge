@@ -16,6 +16,7 @@ import {
   timingSafeEqual,
   applyInboundEvent,
   isConnectorEnabled,
+  getConnectorOrganizationId,
   type SyncEvent,
 } from "../connectors/specs-sync";
 
@@ -152,6 +153,37 @@ describe("applyInboundEvent", () => {
     assert.equal(supabase.rpcCalls[0].name, "connector_upsert_project");
   });
 
+  test("a project event carries organization_id when the caller passes one", async () => {
+    // Regression: connector_upsert_project used to be called with no
+    // organization_id at all, so every Specs-synced project (the P4.G3
+    // VRM-tree import included) landed with organization_id = NULL and was
+    // invisible in any org-scoped sidebar/list.
+    const supabase = createFakeSupabase();
+    const event = baseEvent({
+      entity: "project",
+      data: { title: "A Mode", mode_kind: "mode" },
+    });
+    await applyInboundEvent(supabase as any, event, "ac737f9e-ec58-42f4-96db-9b8aa128e9b0");
+    assert.equal(supabase.rpcCalls[0].name, "connector_upsert_project");
+    assert.equal(
+      (supabase.rpcCalls[0].args as { p_organization_id?: string }).p_organization_id,
+      "ac737f9e-ec58-42f4-96db-9b8aa128e9b0",
+    );
+  });
+
+  test("a project event with no organization id passed sends null, not undefined", async () => {
+    const supabase = createFakeSupabase();
+    const event = baseEvent({
+      entity: "project",
+      data: { title: "A Mode", mode_kind: "mode" },
+    });
+    await applyInboundEvent(supabase as any, event);
+    assert.equal(
+      (supabase.rpcCalls[0].args as { p_organization_id?: string | null }).p_organization_id,
+      null,
+    );
+  });
+
   test("routes a section event to connector_upsert_section", async () => {
     const supabase = createFakeSupabase();
     const event = baseEvent({
@@ -248,5 +280,43 @@ describe("isConnectorEnabled", () => {
   test("fails open only when the row is entirely missing", async () => {
     const supabase = fakeConnectorsSupabase(null);
     assert.equal(await isConnectorEnabled(supabase as any), true);
+  });
+});
+
+describe("getConnectorOrganizationId", () => {
+  function fakeConnectorsConfigSupabase(config: Record<string, unknown> | null) {
+    return {
+      from: (table: string) => {
+        assert.equal(table, "connectors");
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: config ? { config } : null, error: null }),
+            }),
+          }),
+        };
+      },
+    };
+  }
+
+  test("returns org_id from connectors.config", async () => {
+    const supabase = fakeConnectorsConfigSupabase({
+      org_id: "ac737f9e-ec58-42f4-96db-9b8aa128e9b0",
+      root_project_id: "00000000-0000-4000-8000-000000000001",
+    });
+    assert.equal(
+      await getConnectorOrganizationId(supabase as any),
+      "ac737f9e-ec58-42f4-96db-9b8aa128e9b0",
+    );
+  });
+
+  test("returns null when config has no org_id", async () => {
+    const supabase = fakeConnectorsConfigSupabase({});
+    assert.equal(await getConnectorOrganizationId(supabase as any), null);
+  });
+
+  test("returns null when the connectors row is missing", async () => {
+    const supabase = fakeConnectorsConfigSupabase(null);
+    assert.equal(await getConnectorOrganizationId(supabase as any), null);
   });
 });

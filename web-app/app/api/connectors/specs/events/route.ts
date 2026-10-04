@@ -3,6 +3,7 @@ import { verifyMobileAccessTokenOrPat, mobileFailure } from '@/lib/mobile/api'
 import {
   applyInboundEvent,
   createConnectorServiceSupabase,
+  getConnectorOrganizationId,
   isConnectorEnabled,
   verifySignature,
   type SyncEvent,
@@ -79,6 +80,8 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  const organizationId = await getConnectorOrganizationId(supabase)
+
   const results: Array<{ event_id: string; applied: boolean; reason?: string; error?: string }> =
     []
 
@@ -94,7 +97,7 @@ export async function POST(request: NextRequest) {
       continue
     }
     try {
-      const result = await applyInboundEvent(supabase, event)
+      const result = await applyInboundEvent(supabase, event, organizationId)
       results.push({ event_id: event.event_id, applied: result.applied, reason: result.reason })
     } catch (err) {
       results.push({
