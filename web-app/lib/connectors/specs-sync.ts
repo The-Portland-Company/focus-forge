@@ -77,7 +77,7 @@ type SupabaseLike = ReturnType<typeof createConnectorServiceSupabase>
 
 export type ApplyResult = {
   applied: boolean
-  reason?: 'duplicate' | 'unknown_entity'
+  reason?: 'duplicate' | 'unknown_entity' | 'rpc_error'
 }
 
 /**
@@ -108,9 +108,13 @@ export const applyInboundEvent = async (
         ? null
         : ((data.deleted_at as string | null | undefined) ?? null)
 
+  let rpcError: { message: string } | null = null
+  let rpcName = ''
+
   switch (event.entity) {
-    case 'project':
-      await supabase.rpc('connector_upsert_project', {
+    case 'project': {
+      rpcName = 'connector_upsert_project'
+      const { error } = await supabase.rpc('connector_upsert_project', {
         p_id: event.entity_id,
         p_title: data.title ?? null,
         p_parent_id: data.parent_id ?? null,
@@ -119,9 +123,12 @@ export const applyInboundEvent = async (
         p_sync_hash: event.sync_hash ?? null,
         p_deleted_at: deletedAt,
       })
+      rpcError = error
       break
-    case 'section':
-      await supabase.rpc('connector_upsert_section', {
+    }
+    case 'section': {
+      rpcName = 'connector_upsert_section'
+      const { error } = await supabase.rpc('connector_upsert_section', {
         p_id: event.entity_id,
         p_project_id: data.project_id,
         p_title: data.title ?? null,
@@ -129,9 +136,12 @@ export const applyInboundEvent = async (
         p_sync_hash: event.sync_hash ?? null,
         p_deleted_at: deletedAt,
       })
+      rpcError = error
       break
-    case 'goal':
-      await supabase.rpc('connector_upsert_goal', {
+    }
+    case 'goal': {
+      rpcName = 'connector_upsert_goal'
+      const { error } = await supabase.rpc('connector_upsert_goal', {
         p_id: event.entity_id,
         p_project_id: data.project_id,
         p_section_id: data.section_id ?? null,
@@ -142,9 +152,12 @@ export const applyInboundEvent = async (
         p_sync_hash: event.sync_hash ?? null,
         p_deleted_at: deletedAt,
       })
+      rpcError = error
       break
-    case 'task':
-      await supabase.rpc('connector_upsert_task', {
+    }
+    case 'task': {
+      rpcName = 'connector_upsert_task'
+      const { error } = await supabase.rpc('connector_upsert_task', {
         p_id: event.entity_id,
         p_goal_id: data.goal_id ?? null,
         p_parent_task_id: data.parent_task_id ?? null,
@@ -162,9 +175,21 @@ export const applyInboundEvent = async (
         p_sync_hash: event.sync_hash ?? null,
         p_deleted_at: deletedAt,
       })
+      rpcError = error
       break
+    }
     default:
       return { applied: false, reason: 'unknown_entity' }
+  }
+
+  // The RPC call itself can fail (constraint violation, bad FK, etc.)
+  // without supabase-js throwing -- `error` comes back in the result
+  // object instead. Previously this was never checked, so a failed write
+  // still fell through to recording the event as applied, a silent
+  // no-op: the caller saw { applied: true } and the sync_events_seen
+  // idempotency guard then skipped any retry of the same event forever.
+  if (rpcError) {
+    throw new Error(`rpc_error:${rpcName}: ${rpcError.message}`)
   }
 
   await supabase.from('sync_events_seen').insert({

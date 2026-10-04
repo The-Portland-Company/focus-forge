@@ -181,6 +181,85 @@ async function applyOutboundRow(specsClient, row, forgeClient) {
   throw new Error(`unknown_entity: ${row.entity}`);
 }
 
+// Dependency-order the batch so FK targets always land before the rows
+// that reference them: goals before their tasks, and within each entity
+// type, a parent (parent_goal_id / parent_task_id) before its children.
+// Only dependencies *within this same batch* are modeled -- a reference
+// to an already-sent row (earlier batch) needs no reordering here, and a
+// reference to a row outside this batch (not yet selected) still fails
+// fast and backs off/dead-letters as before, same as prior behavior.
+// Kahn's algorithm, stable on ties via the incoming occurred_at order.
+function topologicallySortOutboxRows(rows) {
+  const byEntityId = new Map();
+  for (const row of rows) {
+    byEntityId.set(`${row.entity}:${row.entity_id}`, row);
+  }
+
+  const dependsOn = (row) => {
+    const deps = [];
+    if (row.entity === "task") {
+      if (row.data?.goal_id && byEntityId.has(`goal:${row.data.goal_id}`)) {
+        deps.push(byEntityId.get(`goal:${row.data.goal_id}`));
+      }
+      if (
+        row.data?.parent_task_id &&
+        byEntityId.has(`task:${row.data.parent_task_id}`)
+      ) {
+        deps.push(byEntityId.get(`task:${row.data.parent_task_id}`));
+      }
+    } else if (row.entity === "goal") {
+      if (
+        row.data?.parent_goal_id &&
+        byEntityId.has(`goal:${row.data.parent_goal_id}`)
+      ) {
+        deps.push(byEntityId.get(`goal:${row.data.parent_goal_id}`));
+      }
+    }
+    return deps;
+  };
+
+  const indegree = new Map();
+  const dependents = new Map(); // row -> rows that depend on it
+  for (const row of rows) {
+    indegree.set(row, 0);
+    dependents.set(row, []);
+  }
+  for (const row of rows) {
+    for (const dep of dependsOn(row)) {
+      indegree.set(row, (indegree.get(row) || 0) + 1);
+      dependents.get(dep).push(row);
+    }
+  }
+
+  // Stable queue: rows in original (occurred_at ascending) order whose
+  // dependencies (if any) are already satisfied.
+  const queue = rows.filter((row) => indegree.get(row) === 0);
+  const sorted = [];
+  const seen = new Set();
+
+  while (queue.length > 0) {
+    const row = queue.shift();
+    if (seen.has(row)) continue;
+    seen.add(row);
+    sorted.push(row);
+    for (const dependent of dependents.get(row)) {
+      indegree.set(dependent, indegree.get(dependent) - 1);
+      if (indegree.get(dependent) === 0) {
+        queue.push(dependent);
+      }
+    }
+  }
+
+  // Any row left out (a cycle, which shouldn't happen for a tree) keeps
+  // its original relative order appended at the end rather than being
+  // dropped, so it still gets attempted (and can dead-letter normally).
+  for (const row of rows) {
+    if (!seen.has(row)) sorted.push(row);
+  }
+
+  return sorted;
+}
+
 async function drainOnce(forgeClient, specsClient) {
   const { data: rows, error } = await forgeClient
     .from("sync_outbox")
@@ -198,8 +277,10 @@ async function drainOnce(forgeClient, specsClient) {
     return { processed: 0 };
   }
 
+  const orderedRows = topologicallySortOutboxRows(rows);
+
   let processed = 0;
-  for (const row of rows) {
+  for (const row of orderedRows) {
     try {
       await applyOutboundRow(specsClient, row, forgeClient);
       await forgeClient
@@ -324,6 +405,7 @@ module.exports = {
   startSpecsSyncWorker: run,
   nextBackoffMs,
   applyOutboundRow,
+  topologicallySortOutboxRows,
   BACKOFF_MS,
   BACKOFF_FLOOR_MS,
   DEAD_LETTER_AFTER_MS,

@@ -30,7 +30,8 @@ BEGIN
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+SET search_path = public;
 
 DROP TRIGGER IF EXISTS trg_prevent_project_parent_cycle ON projects;
 CREATE TRIGGER trg_prevent_project_parent_cycle
@@ -65,7 +66,7 @@ BEGIN
   own AS (
     SELECT
       root_project_id AS pid,
-      COALESCE(SUM(t.time_estimate) FILTER (WHERE t.completed IS NOT TRUE), 0) AS own_time,
+      COALESCE(SUM(t.time_estimate) FILTER (WHERE t.completed IS NOT TRUE), 0)::numeric AS own_time,
       COALESCE(SUM(
         CASE WHEN t.is_supply AND t.completed IS NOT TRUE
           THEN COALESCE(t.supply_price, 0) * COALESCE(t.supply_quantity, 1)
@@ -79,7 +80,7 @@ BEGIN
   ),
   total AS (
     SELECT
-      COALESCE(SUM(t.time_estimate) FILTER (WHERE t.completed IS NOT TRUE), 0) AS total_time,
+      COALESCE(SUM(t.time_estimate) FILTER (WHERE t.completed IS NOT TRUE), 0)::numeric AS total_time,
       COALESCE(SUM(
         CASE WHEN t.is_supply AND t.completed IS NOT TRUE
           THEN COALESCE(t.supply_price, 0) * COALESCE(t.supply_quantity, 1)
@@ -102,7 +103,8 @@ BEGIN
     total.total_completed
   FROM own, total;
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE
+SET search_path = public;
 
 COMMENT ON FUNCTION project_rollup(UUID) IS
   'Recursive outstanding time/cost + task counts for a project and all its descendant sub-projects. See lib/rollup.ts rollupProjects() for the equivalent in-memory logic.';

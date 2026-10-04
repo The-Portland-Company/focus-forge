@@ -191,3 +191,63 @@ describe("applyOutboundRow", () => {
     );
   });
 });
+
+describe("topologicallySortOutboxRows", () => {
+  test("orders a goal before a task that references it, even when enqueued in reverse", () => {
+    const goal = { entity: "goal", entity_id: "g1", data: {}, occurred_at: "2026-10-03T00:00:02.000Z" };
+    const task = {
+      entity: "task",
+      entity_id: "t1",
+      data: { goal_id: "g1" },
+      occurred_at: "2026-10-03T00:00:01.000Z",
+    };
+    // task occurred first (lower timestamp) but depends on goal -- a naive
+    // occurred_at sort would process it first and hit the FK violation
+    // this fix exists for.
+    const sorted = worker.topologicallySortOutboxRows([task, goal]);
+    assert.deepEqual(sorted, [goal, task]);
+  });
+
+  test("orders a parent task before its child task regardless of input order", () => {
+    const parent = { entity: "task", entity_id: "t1", data: {} };
+    const child = { entity: "task", entity_id: "t2", data: { parent_task_id: "t1" } };
+    const sorted = worker.topologicallySortOutboxRows([child, parent]);
+    assert.deepEqual(sorted, [parent, child]);
+  });
+
+  test("orders a parent goal before its child goal regardless of input order", () => {
+    const parent = { entity: "goal", entity_id: "g1", data: {} };
+    const child = { entity: "goal", entity_id: "g2", data: { parent_goal_id: "g1" } };
+    const sorted = worker.topologicallySortOutboxRows([child, parent]);
+    assert.deepEqual(sorted, [parent, child]);
+  });
+
+  test("leaves independent rows in their original (occurred_at) order", () => {
+    const a = { entity: "goal", entity_id: "g1", data: {} };
+    const b = { entity: "goal", entity_id: "g2", data: {} };
+    const c = { entity: "task", entity_id: "t1", data: {} };
+    const sorted = worker.topologicallySortOutboxRows([a, b, c]);
+    assert.deepEqual(sorted, [a, b, c]);
+  });
+
+  test("a reference outside the batch (not yet selected) does not block the row", () => {
+    // goal_id "g-elsewhere" isn't in this batch (already sent earlier, or
+    // not yet selected) -- the row must still be scheduled, not stuck.
+    const task = { entity: "task", entity_id: "t1", data: { goal_id: "g-elsewhere" } };
+    const sorted = worker.topologicallySortOutboxRows([task]);
+    assert.deepEqual(sorted, [task]);
+  });
+
+  test("handles a full goal+task tree out of dependency order", () => {
+    const rootGoal = { entity: "goal", entity_id: "g1", data: {} };
+    const childGoal = { entity: "goal", entity_id: "g2", data: { parent_goal_id: "g1" } };
+    const rootTask = { entity: "task", entity_id: "t1", data: { goal_id: "g2" } };
+    const childTask = { entity: "task", entity_id: "t2", data: { goal_id: "g2", parent_task_id: "t1" } };
+    // Deliberately scrambled input order.
+    const sorted = worker.topologicallySortOutboxRows([childTask, rootTask, childGoal, rootGoal]);
+    const indexOf = (row: typeof rootGoal) => sorted.indexOf(row);
+    assert.ok(indexOf(rootGoal) < indexOf(childGoal));
+    assert.ok(indexOf(childGoal) < indexOf(rootTask));
+    assert.ok(indexOf(rootTask) < indexOf(childTask));
+  });
+});
