@@ -54,6 +54,10 @@ export interface Project {
   organizationId: string;
   /** Parent project id when this is a sub-project; null/undefined at top level. */
   parentId?: string | null;
+  /** true for a Specs-owned project (Mode or Platform); delete/rename/re-parent blocked in the app. */
+  locked?: boolean;
+  /** Why this project is locked, e.g. "specs:mode" or "specs:platform". Null/undefined when not locked. */
+  lockSource?: string | null;
   ownerId?: string; // User who owns this project
   memberIds?: string[];
   isFavorite: boolean;
@@ -77,7 +81,7 @@ export interface Project {
   lastTodoistSync?: string;
 }
 
-export type TaskType = "task" | "bug" | "feature";
+export type TaskType = "task" | "bug" | "feature" | "ops";
 
 export interface Task {
   id: string;
