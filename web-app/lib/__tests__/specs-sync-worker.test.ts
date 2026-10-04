@@ -245,7 +245,7 @@ describe("topologicallySortOutboxRows", () => {
     const childTask = { entity: "task", entity_id: "t2", data: { goal_id: "g2", parent_task_id: "t1" } };
     // Deliberately scrambled input order.
     const sorted = worker.topologicallySortOutboxRows([childTask, rootTask, childGoal, rootGoal]);
-    const indexOf = (row) => sorted.indexOf(row);
+    const indexOf = (row: typeof rootGoal) => sorted.indexOf(row);
     assert.ok(indexOf(rootGoal) < indexOf(childGoal));
     assert.ok(indexOf(childGoal) < indexOf(rootTask));
     assert.ok(indexOf(rootTask) < indexOf(childTask));
