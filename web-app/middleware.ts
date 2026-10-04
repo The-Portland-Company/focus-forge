@@ -70,6 +70,13 @@ const publicRoutes = [
   // session-only gate. (Was missing here since #226; every real inbound
   // sync 401'd at this gate before reaching the route's own auth.)
   "/api/connectors/specs/events",
+  // Same self-authenticating Specs<->Forge connector (verifyMobileAccessTokenOrPat
+  // against a Forge PAT, scopes read/write/admin) as /events above. These two were
+  // omitted from the original #226 rollout, so Specs' reconcile job (GET .../tree)
+  // and status checks 401'd at this gate before ever reaching the route's own auth
+  // — reconcile has never recorded a successful run as a result. Fixed 2026-10-03.
+  "/api/connectors/specs/tree",
+  "/api/connectors/specs/status",
   "/api/sync/comments",
   "/api/health",
   "/api/calendar/feed",
