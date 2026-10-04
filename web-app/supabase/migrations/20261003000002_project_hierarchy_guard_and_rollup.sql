@@ -30,7 +30,8 @@ BEGIN
 
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+SET search_path = public;
 
 DROP TRIGGER IF EXISTS trg_prevent_project_parent_cycle ON projects;
 CREATE TRIGGER trg_prevent_project_parent_cycle
@@ -102,7 +103,8 @@ BEGIN
     total.total_completed
   FROM own, total;
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE
+SET search_path = public;
 
 COMMENT ON FUNCTION project_rollup(UUID) IS
   'Recursive outstanding time/cost + task counts for a project and all its descendant sub-projects. See lib/rollup.ts rollupProjects() for the equivalent in-memory logic.';
