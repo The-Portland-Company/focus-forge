@@ -125,7 +125,7 @@ async function main() {
   // p_id and VRM has no corresponding Specs page.
   const { data: existingRoot } = await forge
     .from("projects")
-    .select("id,locked")
+    .select("id,locked,organization_id")
     .eq("id", VRM_ROOT_ID)
     .maybeSingle();
   if (!existingRoot) {
@@ -135,6 +135,14 @@ async function main() {
       organization_id: ORG_ID,
     });
     if (error) throw new Error(`create VRM root: ${error.message}`);
+  } else if (existingRoot.organization_id !== ORG_ID) {
+    // Idempotency: a re-run must repair a VRM root created before this fix
+    // (organization_id NULL), not just create-or-skip.
+    const { error } = await forge
+      .from("projects")
+      .update({ organization_id: ORG_ID })
+      .eq("id", VRM_ROOT_ID);
+    if (error) throw new Error(`repair VRM root organization_id: ${error.message}`);
   }
   {
     const { error } = await forge.rpc("connector_set_project_lock", {
@@ -157,6 +165,7 @@ async function main() {
       p_spec_slug: null,
       p_sync_hash: hash,
       p_deleted_at: null,
+      p_organization_id: ORG_ID,
     });
     if (error) throw new Error(`upsert mode project ${mode.slug}: ${error.message}`);
   }
@@ -175,6 +184,7 @@ async function main() {
       p_spec_slug: spec.slug,
       p_sync_hash: hash,
       p_deleted_at: null,
+      p_organization_id: ORG_ID,
     });
     if (error) throw new Error(`upsert spec project ${spec.slug}: ${error.message}`);
   }

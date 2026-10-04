@@ -89,6 +89,7 @@ export type ApplyResult = {
 export const applyInboundEvent = async (
   supabase: SupabaseLike,
   event: SyncEvent,
+  organizationId?: string | null,
 ): Promise<ApplyResult> => {
   const { data: existing } = await supabase
     .from('sync_events_seen')
@@ -122,6 +123,7 @@ export const applyInboundEvent = async (
         p_spec_slug: data.spec_slug ?? null,
         p_sync_hash: event.sync_hash ?? null,
         p_deleted_at: deletedAt,
+        p_organization_id: organizationId ?? null,
       })
       rpcError = error
       break
@@ -212,4 +214,22 @@ export const isConnectorEnabled = async (supabase: SupabaseLike): Promise<boolea
   // Fail open only if the row is missing entirely (shouldn't happen post-
   // migration); an explicit false always wins.
   return data ? data.enabled !== false : true
+}
+
+/**
+ * The Forge organization every Specs-synced project belongs to (set by
+ * scripts/import-specs-tree.mjs onto connectors.config.org_id). Used so
+ * inbound 'project' events also stamp organization_id -- see
+ * connector_upsert_project (migrations/20261004020000_connector_upsert_project_org_id.sql).
+ */
+export const getConnectorOrganizationId = async (
+  supabase: SupabaseLike,
+): Promise<string | null> => {
+  const { data } = await supabase
+    .from('connectors')
+    .select('config')
+    .eq('id', 'specs')
+    .maybeSingle()
+  const orgId = (data?.config as { org_id?: string } | null)?.org_id
+  return orgId ?? null
 }
