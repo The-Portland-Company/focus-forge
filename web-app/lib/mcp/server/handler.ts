@@ -24,6 +24,7 @@ export const MCP_PROTOCOL_VERSION = "2026-07-28";
 // rejected just for asking for last year's date.
 const SUPPORTED_PROTOCOL_VERSIONS = [
   MCP_PROTOCOL_VERSION,
+  "2025-11-25",
   "2025-06-18",
   "2025-03-26",
   "2024-11-05",
