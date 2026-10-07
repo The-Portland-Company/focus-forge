@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bgforge_128_s" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#15171c"/>
+      <stop offset="1" stop-color="#0d0f13"/>
+    </linearGradient>
+    
+    <clipPath id="clipforge_128_s"><rect x="0" y="0" width="128" height="128" rx="28.16" ry="28.16"/></clipPath>
+  </defs>
+  <rect x="0" y="0" width="128" height="128" rx="28.16" ry="28.16" fill="url(#bgforge_128_s)"/><rect x="0.75" y="0.75" width="126.5" height="126.5" rx="27.41" ry="27.41" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1.5"/>
+  
+  <g clip-path="url(#clipforge_128_s)">
+    <g stroke="#c084fc" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M30 58h32l13-10h15v10h7"/>
+      <path d="M36 58v9h52v-9"/>
+      <path d="M52 67v9h24v-9"/>
+      <path d="M54 76h20l5 12H49z"/>
+    </g>
+  </g>
+</svg>
