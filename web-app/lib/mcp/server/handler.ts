@@ -12,7 +12,22 @@ import type { McpToolResult } from "./types";
 import type { AuthContext } from "@/src/vendor/tpc-auth/types";
 import { checkMcpRateLimit, checkMcpWriteDailyCap, isWriteLockedDown } from "./quota";
 
+// Our ceiling. Real MCP clients (incl. Claude Code) send the protocolVersion
+// they support in `initialize` params and refuse to proceed if we echo back
+// something they don't recognize — so we must echo the client's requested
+// version when we support it, not just always reply with our newest. See
+// handleInitialize below.
 export const MCP_PROTOCOL_VERSION = "2026-07-28";
+
+// Older spec dates we still speak (the JSON-RPC envelope and tools/call
+// shape are unchanged across these), so an older/pinned client isn't
+// rejected just for asking for last year's date.
+const SUPPORTED_PROTOCOL_VERSIONS = [
+  MCP_PROTOCOL_VERSION,
+  "2025-06-18",
+  "2025-03-26",
+  "2024-11-05",
+];
 
 const SERVER_INFO = {
   name: "focus-forge",
@@ -110,12 +125,24 @@ const authenticate = async (
   return { ok: true, userId: auth.userId, ctx: auth.ctx };
 };
 
-const handleInitialize = (id: JsonRpcId): McpHandlerResult =>
-  okResult(id, {
-    protocolVersion: MCP_PROTOCOL_VERSION,
+const handleInitialize = (
+  id: JsonRpcId,
+  params: unknown,
+): McpHandlerResult => {
+  const requested =
+    typeof params === "object" && params !== null && "protocolVersion" in params
+      ? (params as { protocolVersion?: unknown }).protocolVersion
+      : undefined;
+  const protocolVersion =
+    typeof requested === "string" && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
+      ? requested
+      : MCP_PROTOCOL_VERSION;
+  return okResult(id, {
+    protocolVersion,
     capabilities: { tools: {} },
     serverInfo: SERVER_INFO,
   });
+};
 
 const handleToolsList = (id: JsonRpcId): McpHandlerResult =>
   okResult(id, {
@@ -226,7 +253,7 @@ export const handleMcpRequest = async (
     case "initialize": {
       const auth = await authenticate(authHeader, ANY_SCOPE, id);
       if (!auth.ok) return auth.result;
-      return handleInitialize(id);
+      return handleInitialize(id, request.params);
     }
     case "tools/list": {
       const auth = await authenticate(authHeader, ANY_SCOPE, id);
