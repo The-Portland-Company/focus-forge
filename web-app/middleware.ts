@@ -28,6 +28,10 @@ const publicRoutes = [
   "/icon-192.png",
   "/icon-512.png",
   "/icon-maskable-512.png",
+  // Canonical TPC icon set (favicon.ico, apple-touch-icon, PNG sizes, circle
+  // variants) lives under /icons/ — must be publicly fetchable for the same
+  // reason as the PWA assets above (OS/browser icon discovery, no session).
+  "/icons",
   // Integration logos (e.g. task-source icons) must be publicly fetchable so
   // they render on logged-out share pages.
   "/integrations",
