@@ -96,7 +96,7 @@ export default async function CompareCompetitorPage({
             <div className="mt-8 flex flex-wrap gap-3">
               <a
                 href={APP_URL}
-                className="inline-flex h-11 items-center gap-2 rounded-lg brand-gradient px-6 font-medium text-white transition-opacity hover:opacity-90 no-underline-link"
+                className="inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-6 font-medium text-primary-foreground transition-colors duration-fast ease-standard hover:bg-primary/90 no-underline-link"
               >
                 Try Focus Forge <ArrowRight className="h-4 w-4" />
               </a>
@@ -121,7 +121,7 @@ export default async function CompareCompetitorPage({
                   key={w.title}
                   className="rounded-xl border border-border bg-card p-6"
                 >
-                  <Check className="h-6 w-6 text-emerald-500" />
+                  <Check className="h-6 w-6 text-primary" />
                   <h3 className="mt-4 font-semibold">{w.title}</h3>
                   <p className="mt-2 text-sm text-muted-foreground">{w.body}</p>
                 </div>
@@ -155,7 +155,7 @@ export default async function CompareCompetitorPage({
                 <Link
                   key={o.slug}
                   href={`/compare/${o.slug}/`}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm transition-colors hover:border-[rgb(var(--theme-primary-rgb))] no-underline-link"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm transition-colors hover:border-primary no-underline-link"
                 >
                   vs. {o.name}
                 </Link>

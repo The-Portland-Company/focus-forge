@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { SITE } from "@/lib/site"
+import { ThemeToggle } from "@/components/tpc/theme-toggle"
 
 export function Footer() {
   return (
@@ -8,7 +9,7 @@ export function Footer() {
         <div className="flex flex-col items-start justify-between gap-8 md:flex-row">
           <div className="max-w-sm">
             <div className="flex items-center gap-2 font-semibold">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg brand-gradient text-xs font-bold text-white">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg brand-gradient text-xs font-bold text-primary-foreground">
                 FF
               </span>
               {SITE.name}
@@ -38,6 +39,7 @@ export function Footer() {
         <div className="mt-10 flex flex-col gap-2 border-t border-border pt-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <span>© {SITE.company}. All rights reserved.</span>
           <span>Built in Portland, Oregon.</span>
+          <ThemeToggle />
         </div>
       </div>
     </footer>
