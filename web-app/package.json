@@ -61,7 +61,8 @@
     "resend": "^6.8.0",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "@the-portland-company/ui-email": "file:./vendor/the-portland-company-ui-email-0.1.0.tgz"
   },
   "devDependencies": {
     "@next/bundle-analyzer": "^16.2.9",
