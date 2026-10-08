@@ -60,5 +60,7 @@ export async function POST(request: NextRequest) {
 
   const result = await handleMcpRequest(body, authHeader);
 
+  if (result.status === 202) return new NextResponse(null, { status: 202 });
+
   return NextResponse.json(result.body, { status: result.status });
 }
