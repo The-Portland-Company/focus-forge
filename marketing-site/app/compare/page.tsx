@@ -26,7 +26,7 @@ export default function ComparePage() {
       <main>
         <section className="px-5 pt-20 pb-14">
           <div className="mx-auto max-w-3xl text-center">
-            <p className="text-sm font-medium uppercase tracking-widest text-[rgb(var(--theme-primary-rgb))]">
+            <p className="text-sm font-medium uppercase tracking-widest text-primary">
               Comparisons
             </p>
             <h1 className="mt-3 text-4xl font-bold tracking-tight sm:text-5xl">
@@ -63,7 +63,7 @@ export default function ComparePage() {
                 <Link
                   key={c.slug}
                   href={`/compare/${c.slug}/`}
-                  className="group rounded-xl border border-border bg-card p-6 transition-colors hover:border-[rgb(var(--theme-primary-rgb))] no-underline-link"
+                  className="group rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary no-underline-link"
                 >
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-semibold">

@@ -1,7 +1,10 @@
 import type { Config } from "tailwindcss"
 
-// Theme primitives mirrored from the Focus Forge app (web-app/tailwind.config.ts)
-// so the marketing site reads as the same product.
+// TPC UI tokens (see app/globals.css). Colors resolve through CSS variables;
+// opacity modifiers (bg-primary/10) work via color-mix.
+const token = (name: string) =>
+  `color-mix(in oklab, var(--${name}) calc(<alpha-value> * 100%), transparent)`
+
 const config: Config = {
   darkMode: "class",
   content: [
@@ -11,49 +14,53 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
-        card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
+        background: token("background"),
+        foreground: token("foreground"),
+        card: { DEFAULT: token("card"), foreground: token("card-foreground") },
+        popover: { DEFAULT: token("popover"), foreground: token("popover-foreground") },
+        primary: { DEFAULT: token("primary"), foreground: token("primary-foreground") },
+        secondary: { DEFAULT: token("secondary"), foreground: token("secondary-foreground") },
+        muted: { DEFAULT: token("muted"), foreground: token("muted-foreground") },
+        accent: { DEFAULT: token("accent"), foreground: token("accent-foreground") },
+        destructive: { DEFAULT: token("destructive"), foreground: token("destructive-foreground") },
+        scrim: token("scrim"),
+        border: token("border"),
+        input: token("input"),
+        ring: token("ring"),
+        chart: {
+          1: token("chart-1"),
+          2: token("chart-2"),
+          3: token("chart-3"),
+          4: token("chart-4"),
+          5: token("chart-5"),
         },
-        popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
-        },
-        primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
-        },
-        secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
-        },
-        muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
-        },
-        accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
-        },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
-        },
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        theme: {
-          primary: "var(--theme-primary)",
-          gradient: "var(--theme-gradient)",
-          "primary-rgb": "var(--theme-primary-rgb)",
-        },
+        bg: token("tpc-bg"),
+        panel: token("tpc-panel"),
+        ink: { DEFAULT: token("tpc-ink"), dim: token("tpc-muted") },
+        line: token("tpc-line"),
+        danger: { DEFAULT: token("tpc-danger"), ink: token("tpc-danger-ink") },
       },
       borderRadius: {
+        xl: "calc(var(--radius) + 4px)",
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      boxShadow: {
+        xs: "0 1px 2px 0 rgb(0 0 0 / 0.05)",
+      },
+      transitionDuration: {
+        DEFAULT: "var(--tpc-duration-fast)",
+        fast: "var(--tpc-duration-fast)",
+        base: "var(--tpc-duration-base)",
+        slow: "var(--tpc-duration-slow)",
+        slower: "var(--tpc-duration-slower)",
+      },
+      transitionTimingFunction: {
+        DEFAULT: "var(--tpc-ease-standard)",
+        standard: "var(--tpc-ease-standard)",
+        emphasized: "var(--tpc-ease-emphasized)",
+        exit: "var(--tpc-ease-exit)",
       },
       keyframes: {
         "fade-in-up": {
@@ -62,7 +69,7 @@ const config: Config = {
         },
       },
       animation: {
-        "fade-in-up": "fade-in-up 0.5s ease-out both",
+        "fade-in-up": "fade-in-up var(--tpc-duration-slower) var(--tpc-ease-emphasized) both",
       },
     },
   },

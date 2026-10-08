@@ -17,7 +17,7 @@ export function CtaBanner() {
         </p>
         <a
           href={APP_URL}
-          className="mt-8 inline-flex h-11 items-center gap-2 rounded-lg brand-gradient px-6 font-medium text-white transition-opacity hover:opacity-90 no-underline-link"
+          className="mt-8 inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-6 font-medium text-primary-foreground transition-colors duration-fast ease-standard hover:bg-primary/90 no-underline-link"
         >
           Get Focus Forge <ArrowRight className="h-4 w-4" />
         </a>

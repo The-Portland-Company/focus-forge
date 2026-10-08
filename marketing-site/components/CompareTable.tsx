@@ -5,13 +5,13 @@ function CellMark({ cell, note }: { cell: Cell; note?: string }) {
   return (
     <div className="flex flex-col items-center gap-0.5">
       {cell === "yes" && (
-        <Check className="h-5 w-5 text-emerald-500" aria-label="Yes" />
+        <Check className="h-5 w-5 text-primary" aria-label="Yes" />
       )}
       {cell === "no" && (
         <X className="h-5 w-5 text-muted-foreground/50" aria-label="No" />
       )}
       {cell === "partial" && (
-        <Minus className="h-5 w-5 text-amber-500" aria-label="Partial" />
+        <Minus className="h-5 w-5 text-chart-4" aria-label="Partial" />
       )}
       {note && (
         <span className="text-[11px] leading-tight text-muted-foreground">
@@ -50,7 +50,7 @@ export function CompareTable({
             </th>
             <th className="px-3 py-4 text-center font-semibold">
               <span className="inline-flex items-center gap-1.5">
-                <span className="flex h-5 w-5 items-center justify-center rounded brand-gradient text-[10px] font-bold text-white">
+                <span className="flex h-5 w-5 items-center justify-center rounded brand-gradient text-[10px] font-bold text-primary-foreground">
                   FF
                 </span>
                 Focus Forge

@@ -35,7 +35,7 @@ export function VideoShowcase() {
           {CLIPS.map((c) => (
             <figure key={c.title} className="overflow-hidden rounded-xl border border-border bg-background">
               <video
-                className="aspect-video w-full bg-black object-cover"
+                className="aspect-video w-full bg-panel object-cover"
                 src={c.src}
                 poster={c.poster}
                 muted

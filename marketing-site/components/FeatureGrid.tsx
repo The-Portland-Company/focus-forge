@@ -61,7 +61,7 @@ export function FeatureGrid() {
               className="grid items-center gap-8 md:grid-cols-2 md:gap-12"
             >
               <div className={i % 2 === 1 ? "md:order-2" : ""}>
-                <f.icon className="h-7 w-7 text-[rgb(var(--theme-primary-rgb))]" />
+                <f.icon className="h-7 w-7 text-primary" />
                 <h3 className="mt-4 text-2xl font-semibold">{f.title}</h3>
                 <p className="mt-3 text-muted-foreground">{f.body}</p>
               </div>
