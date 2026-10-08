@@ -250,7 +250,15 @@ export const handleMcpRequest = async (
   const id = (request.id as JsonRpcId) ?? null;
   const method = request.method as string;
 
+  // JSON-RPC notifications (e.g. notifications/initialized) carry no id and
+  // expect no response body; MCP's Streamable HTTP transport answers 202.
+  if (method.startsWith("notifications/")) {
+    return { status: 202, body: null };
+  }
+
   switch (method) {
+    case "ping":
+      return okResult(id, {});
     case "initialize": {
       const auth = await authenticate(authHeader, ANY_SCOPE, id);
       if (!auth.ok) return auth.result;
