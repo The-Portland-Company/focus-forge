@@ -22,7 +22,10 @@ export type { McpTool };
 // structuredContent for clients that read it directly.
 const toResult = (value: unknown): McpToolResult => ({
   content: [{ type: "text", text: JSON.stringify(value ?? null) }],
-  structuredContent: value,
+  structuredContent:
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : { result: value },
 });
 
 const optionalString = (value: unknown): string | undefined =>

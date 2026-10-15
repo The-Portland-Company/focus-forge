@@ -15,7 +15,10 @@ export type { McpTool };
 
 const toResult = (value: unknown): McpToolResult => ({
   content: [{ type: "text", text: JSON.stringify(value ?? null) }],
-  structuredContent: value,
+  structuredContent:
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : { result: value },
 });
 
 const errorResult = (message: string): McpToolResult => ({
@@ -53,6 +56,23 @@ async function projectIdForTask(taskId: string): Promise<string | null> {
 }
 
 export const PLANNING_MCP_TOOLS: McpTool[] = [
+  {
+    name: "list_projects",
+    title: "List projects",
+    description:
+      "List all projects the current user can access, with their ids and names. Use this to discover a projectId for the other planning tools.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+    requiredScopes: ["read"],
+    handler: async (_args, ctx) => {
+      const adapter = await getMobileAdapterForUser(ctx.userId);
+      const projects = await adapter.getProjects();
+      return toResult({ projects });
+    },
+  },
   {
     name: "list_tree",
     title: "List project tree",
