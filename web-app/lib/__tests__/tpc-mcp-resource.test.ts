@@ -40,6 +40,8 @@ describe("TPC resource must not carry a /mcp suffix", () => {
     const res = await GET();
     const body = (await res.json()) as { resource: string; scopes_supported: string[] };
     assert.equal(body.resource, TPC_RESOURCE);
-    assert.deepEqual(body.scopes_supported, ["forge:read", "forge:write"]);
+    // offline_access is advertised so MCP clients request it and receive a
+    // refresh token (prevents the once-a-day re-auth); see the route comment.
+    assert.deepEqual(body.scopes_supported, ["forge:read", "forge:write", "offline_access"]);
   });
 });
