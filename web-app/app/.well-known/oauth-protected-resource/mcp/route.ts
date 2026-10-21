@@ -13,5 +13,8 @@ export async function GET() {
   // Control the same way). A new MCP client must discover the NEW resource
   // here; only already-issued JWTs (not PATs, not new clients) still carry
   // the old one, via TPC_LEGACY_RESOURCES in authenticate().
-  return protectedResourceMetadata(TPC_RESOURCE, ["forge:read", "forge:write"]);
+  // `offline_access` is advertised so the MCP client requests it and TPC Auth
+  // issues a refresh token — otherwise the 5-minute access token expires with
+  // nothing to refresh from and the user must re-authenticate every session.
+  return protectedResourceMetadata(TPC_RESOURCE, ["forge:read", "forge:write", "offline_access"]);
 }

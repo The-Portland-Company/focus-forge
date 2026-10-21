@@ -14,5 +14,11 @@ import { TPC_RESOURCE } from "@/src/vendor/tpc-auth/config";
 // browser to log in. This serves the identical payload at the URL the
 // handshake actually points to.
 export async function GET() {
-  return protectedResourceMetadata(TPC_RESOURCE, ["forge:read", "forge:write"]);
+  // `offline_access` is advertised so an MCP client requests it at DCR and at
+  // /oauth/authorize: without it the granted scope carries no offline_access,
+  // TPC Auth's token endpoint never mints a refresh token, and every expired
+  // 5-minute MCP access token forces a full interactive re-auth (the "I have
+  // to sign in to Focus Forge again every day" complaint). With it, the client
+  // gets a 30-day rotating refresh token and refreshes silently.
+  return protectedResourceMetadata(TPC_RESOURCE, ["forge:read", "forge:write", "offline_access"]);
 }
