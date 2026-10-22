@@ -5,6 +5,25 @@ import { normalizeRichText } from '@/lib/rich-text-sanitize'
 import { normalizeProjectContentFields } from '@/lib/devnotes-meta'
 import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
+// Supabase/PostgREST errors are plain objects, not Error instances, so
+// String(error) yields "[object Object]" and hides the real cause (e.g. an
+// RLS denial on INSERT). Surface the useful fields instead.
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object') {
+    const e = error as Record<string, unknown>
+    const parts = [e.message, e.code, e.details, e.hint]
+      .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    if (parts.length) return parts.join(' | ')
+    try {
+      return JSON.stringify(error)
+    } catch {
+      return String(error)
+    }
+  }
+  return String(error)
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -65,7 +84,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'Failed to create project',
-        details: error instanceof Error ? error.message : String(error),
+        details: describeError(error),
       },
       { status: 500 },
     )
