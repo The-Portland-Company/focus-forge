@@ -17,7 +17,7 @@ export function Platforms() {
         <div className="mt-12 grid gap-4 sm:grid-cols-3">
           {PLATFORMS.map((p) => (
             <div key={p.title} className="rounded-xl border border-border bg-background p-8">
-              <p.icon className="mx-auto h-8 w-8 text-[rgb(var(--theme-primary-rgb))]" />
+              <p.icon className="mx-auto h-8 w-8 text-primary" />
               <h3 className="mt-4 text-lg font-semibold">{p.title}</h3>
               <p className="mt-2 text-sm text-muted-foreground">{p.body}</p>
             </div>

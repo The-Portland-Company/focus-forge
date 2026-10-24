@@ -5,7 +5,7 @@ export function DevNotes() {
     <section id="devnotes" className="py-20">
       <div className="mx-auto grid max-w-6xl items-center gap-10 px-5 md:grid-cols-2 md:gap-16">
         <div>
-          <NotebookPen className="h-7 w-7 text-[rgb(var(--theme-primary-rgb))]" />
+          <NotebookPen className="h-7 w-7 text-primary" />
           <h2 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
             DevNotes: structured metadata, hidden in plain sight
           </h2>
@@ -28,12 +28,12 @@ export function DevNotes() {
             ))}
           </ul>
         </div>
-        <div className="overflow-hidden rounded-xl border border-border bg-[#0b0b12] p-5 font-mono text-sm leading-relaxed text-zinc-300 shadow-2xl">
-          <div className="text-zinc-500"># What you see</div>
+        <div className="overflow-hidden rounded-xl border border-border bg-panel p-5 font-mono text-sm leading-relaxed text-foreground shadow-2xl">
+          <div className="text-muted-foreground"># What you see</div>
           <div className="mt-1">Ship marketing site to Cloudflare</div>
-          <div className="mt-4 text-zinc-500"># What travels with it</div>
-          <div className="mt-1 break-words text-zinc-400">
-            <span className="text-[rgb(var(--theme-primary-rgb))]">[DEVNOTES_META:</span>
+          <div className="mt-4 text-muted-foreground"># What travels with it</div>
+          <div className="mt-1 break-words text-muted-foreground">
+            <span className="text-primary">[DEVNOTES_META:</span>
             {" {"}
             <br />
             &nbsp;&nbsp;"branch": "feat/marketing-site",
@@ -45,7 +45,7 @@ export function DevNotes() {
             &nbsp;&nbsp;"estimate_h": 4
             <br />
             {"}"}
-            <span className="text-[rgb(var(--theme-primary-rgb))]">]</span>
+            <span className="text-primary">]</span>
           </div>
         </div>
       </div>

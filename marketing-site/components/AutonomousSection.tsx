@@ -32,7 +32,7 @@ export function AutonomousSection() {
         <div className="mt-12 grid gap-4 text-left sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map((s) => (
             <div key={s.title} className="rounded-xl border border-border bg-background p-5">
-              <s.icon className="h-5 w-5 text-[rgb(var(--theme-primary-rgb))]" />
+              <s.icon className="h-5 w-5 text-primary" />
               <h3 className="mt-3 font-semibold">{s.title}</h3>
               <p className="mt-1 text-sm text-muted-foreground">{s.body}</p>
             </div>

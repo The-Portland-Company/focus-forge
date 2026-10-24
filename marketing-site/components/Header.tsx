@@ -15,7 +15,7 @@ export function Header() {
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
         <Link href="/" className="flex items-center gap-2 font-semibold no-underline-link">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg brand-gradient text-sm font-bold text-white">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg brand-gradient text-sm font-bold text-primary-foreground">
             FF
           </span>
           <span>{SITE.name}</span>
@@ -28,10 +28,10 @@ export function Header() {
           ))}
         </nav>
         <div className="flex items-center gap-2">
-          <ThemeToggle />
+          <ThemeToggle className="hidden sm:inline-flex" />
           <a
             href={APP_URL}
-            className="inline-flex h-9 items-center rounded-lg brand-gradient px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 no-underline-link"
+            className="inline-flex min-h-11 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors duration-fast ease-standard hover:bg-primary/90 no-underline-link"
           >
             Open app
           </a>

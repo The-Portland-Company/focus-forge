@@ -12,7 +12,7 @@ export function Hero() {
       />
       <div className="mx-auto max-w-6xl px-5 pb-16 pt-20 text-center md:pt-28">
         <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
-          <Sparkles className="h-3.5 w-3.5 text-[rgb(var(--theme-primary-rgb))]" />
+          <Sparkles className="h-3.5 w-3.5 text-primary" />
           AI agent + autonomous loops, built in
         </div>
         <h1 className="mx-auto mt-6 max-w-3xl text-balance text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">
@@ -26,7 +26,7 @@ export function Hero() {
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <a
             href={APP_URL}
-            className="inline-flex h-11 items-center gap-2 rounded-lg brand-gradient px-6 font-medium text-white transition-opacity hover:opacity-90 no-underline-link"
+            className="inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-6 font-medium text-primary-foreground transition-colors duration-fast ease-standard hover:bg-primary/90 no-underline-link"
           >
             Get Focus Forge <ArrowRight className="h-4 w-4" />
           </a>
