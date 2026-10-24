@@ -10,7 +10,7 @@
     "dmg": "electron-builder --mac"
   },
   "devDependencies": {
-    "electron": "^32.0.0",
+    "electron": "^33.4.11",
     "electron-builder": "^24.13.3"
   },
   "build": {
@@ -19,12 +19,22 @@
     "directories": {
       "output": "dist"
     },
-    "files": ["main.js", "package.json"],
+    "files": [
+      "main.js",
+      "onepassword/**/*",
+      "package.json"
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",
-      "target": ["dir"],
-      "identity": null
+      "target": [
+        "dir"
+      ],
+      "identity": "Spencer Hill (VP38993WK6)",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     }
   }
 }
