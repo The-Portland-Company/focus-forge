@@ -46,6 +46,12 @@ import {
 } from "@/lib/email-inbox/triage/verdict";
 import { computeRuleFingerprint } from "@/lib/email-inbox/triage/fingerprint";
 import {
+  evaluateProposal,
+  type RuleCandidate,
+  type RuleProposalDecision,
+  type ProposalOutcome,
+} from "@/lib/email-inbox/triage/propose";
+import {
   applySpamKnnOverride,
   resolveRuleDrivenThreadState,
   mergeRuleDecidedFields,
@@ -8081,7 +8087,24 @@ export async function ensureKnownContactRule(params: {
       });
     }
 
-    return await createRule(params.userId, payload);
+    // Route through the proposeRule gate so the known-contact rule is
+    // fingerprinted, grouped, and deduped alongside every other rule path.
+    // Known contacts are system-generated auto-trust, so they always activate.
+    const proposed = await proposeRule(params.userId, {
+      name: payload.name,
+      description: payload.description,
+      mailboxId: payload.mailboxId ?? null,
+      organizationId: null,
+      userId: params.userId,
+      matchMode: payload.matchMode,
+      priority: payload.priority,
+      conditions: payload.conditions,
+      actions: payload.actions,
+      stopProcessing: payload.stopProcessing,
+      groupKey: "known_contacts",
+      generatedBy: "system",
+    });
+    return proposed.rule;
   } catch (e) {
     console.error("ensureKnownContactRule failed:", e);
     return null;
@@ -8319,7 +8342,23 @@ export async function createSpamExceptionRuleForThread(
       rule = existingRule;
     }
   } else {
-    rule = await createRule(userId, payload);
+    // Route new spam-exception rules through the dedup/grouping gate. A user
+    // "Not spam" correction always activates, so generatedBy is "system".
+    const proposed = await proposeRule(userId, {
+      name: payload.name,
+      description: payload.description,
+      mailboxId: payload.mailboxId ?? null,
+      organizationId: null,
+      userId,
+      matchMode: payload.matchMode,
+      priority: payload.priority,
+      conditions: payload.conditions,
+      actions: payload.actions,
+      stopProcessing: payload.stopProcessing,
+      groupKey: "known_contacts",
+      generatedBy: "system",
+    });
+    rule = proposed.rule ?? existingRule ?? (await createRule(userId, payload));
   }
 
   // Training-through-the-UI: "Not spam" / allow-future-mail is a not_spam label.
@@ -8412,7 +8451,20 @@ export async function createRule(userId: string, payload: any) {
   if (payload.mailboxId) {
     await ensureMailboxManage(userId, payload.mailboxId);
   }
-  const { data } = await admin
+  // Fingerprint every rule so the proposeRule dedup gate and the partial unique
+  // index (user_id, fingerprint) WHERE is_active are meaningful. Computed from
+  // scope + normalised conditions + actions.
+  const fingerprint =
+    payload.fingerprint ??
+    computeRuleFingerprint({
+      mailboxId: payload.mailboxId ?? null,
+      organizationId: payload.organizationId ?? null,
+      userId: payload.userId ?? userId,
+      matchMode: payload.matchMode ?? "all",
+      conditions: payload.conditions ?? [],
+      actions: payload.actions ?? [],
+    });
+  const { data, error: insertError } = await admin
     .from("email_rules")
     .insert({
       organization_id: payload.organizationId ?? null,
@@ -8427,9 +8479,22 @@ export async function createRule(userId: string, payload: any) {
       conditions_json: payload.conditions ?? [],
       actions_json: payload.actions ?? [],
       stop_processing: payload.stopProcessing ?? false,
+      fingerprint,
+      group_key: payload.groupKey ?? null,
+      generated_by: payload.generatedBy ?? null,
     })
     .select()
     .single();
+
+  // The partial unique index (user_id, fingerprint) WHERE is_active rejects an
+  // exact active duplicate. Surface it as a clear error instead of crashing on
+  // coerceRule(null).
+  if (insertError) {
+    if (isUniqueViolation(insertError)) {
+      throw new Error("An identical active rule already exists.");
+    }
+    throw new Error(insertError.message || "Failed to create email rule");
+  }
 
   // AI-memory hook: a user-approved AI-suggested rule is a strong precedent.
   try {
@@ -8473,6 +8538,19 @@ export async function updateRule(userId: string, ruleId: string, payload: any) {
     await ensureMailboxManage(userId, String(rule.mailbox_id));
   }
 
+  const nextConditions = payload.conditions ?? rule.conditions_json ?? [];
+  const nextActions = payload.actions ?? rule.actions_json ?? [];
+  const nextMatchMode = payload.matchMode ?? rule.match_mode ?? "all";
+  // Recompute the fingerprint whenever scope-relevant fields change, so the
+  // dedup gate and the partial unique index stay accurate after an edit/merge.
+  const fingerprint = computeRuleFingerprint({
+    mailboxId: rule.mailbox_id ?? null,
+    organizationId: rule.organization_id ?? null,
+    userId: rule.user_id ?? userId,
+    matchMode: nextMatchMode,
+    conditions: nextConditions,
+    actions: nextActions,
+  });
   const { data } = await admin
     .from("email_rules")
     .update({
@@ -8480,10 +8558,12 @@ export async function updateRule(userId: string, ruleId: string, payload: any) {
       description: payload.description ?? rule.description,
       is_active: payload.isActive ?? rule.is_active,
       priority: payload.priority ?? rule.priority,
-      match_mode: payload.matchMode ?? rule.match_mode,
-      conditions_json: payload.conditions ?? rule.conditions_json,
-      actions_json: payload.actions ?? rule.actions_json,
+      match_mode: nextMatchMode,
+      conditions_json: nextConditions,
+      actions_json: nextActions,
       stop_processing: payload.stopProcessing ?? rule.stop_processing,
+      fingerprint,
+      ...(payload.groupKey !== undefined ? { group_key: payload.groupKey } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", ruleId)
@@ -8515,6 +8595,201 @@ export async function updateRule(userId: string, ruleId: string, payload: any) {
   }
 
   return coerceRule(data);
+}
+
+export type RuleProposalResult = {
+  outcome: ProposalOutcome | "rejected_cap";
+  decision: RuleProposalDecision;
+  rule: EmailRule | null;
+  /** True when this AI rule auto-activated and the user hasn't been told yet. */
+  firstAutoActivate: boolean;
+  /** True when the AI rule was created inactive, awaiting approval. */
+  pendingApproval: boolean;
+  message: string;
+};
+
+/**
+ * Resolve the org's AI-rule activation policy (owner decision #2): default is
+ * auto-activate; a per-org toggle at ai_settings.rules.autoActivate can flip to
+ * require-approval. Also tracks whether the "first auto-activate" notice has
+ * been shown, flipping the flag the first time we auto-activate an AI rule.
+ */
+async function resolveRuleActivationPolicy(
+  organizationId: string | null | undefined,
+): Promise<{ autoActivate: boolean; alreadyNotified: boolean }> {
+  if (!organizationId) return { autoActivate: true, alreadyNotified: true };
+  const admin = getAdminClient();
+  const { data: org } = await admin
+    .from("organizations")
+    .select("ai_settings")
+    .eq("id", organizationId)
+    .maybeSingle();
+  const settings = (org?.ai_settings ?? {}) as Record<string, any>;
+  const rules = (settings.rules ?? {}) as Record<string, any>;
+  return {
+    autoActivate: rules.autoActivate !== false, // default true
+    alreadyNotified: rules.autoActivateNotified === true,
+  };
+}
+
+/** Mark the first-auto-activate notice as delivered (idempotent, best-effort). */
+async function markAutoActivateNotified(
+  organizationId: string | null | undefined,
+): Promise<void> {
+  if (!organizationId) return;
+  const admin = getAdminClient();
+  try {
+    const { data: org } = await admin
+      .from("organizations")
+      .select("ai_settings")
+      .eq("id", organizationId)
+      .maybeSingle();
+    const settings = (org?.ai_settings ?? {}) as Record<string, any>;
+    const next = {
+      ...settings,
+      rules: {
+        ...(settings.rules ?? {}),
+        autoActivate: (settings.rules ?? {}).autoActivate !== false,
+        autoActivateNotified: true,
+      },
+    };
+    await admin
+      .from("organizations")
+      .update({ ai_settings: next })
+      .eq("id", organizationId);
+  } catch (e) {
+    console.error("markAutoActivateNotified failed:", e);
+  }
+}
+
+/**
+ * The single gate every rule-creating path goes through (NL assistant, spam
+ * exception, known contact, correction hooks). Normalises, fingerprints, and
+ * dedups the candidate against the user's active rules, then applies the
+ * outcome: duplicate_of / covered_by return the covering rule untouched;
+ * merge_into appends the value to the family rule (matchMode "any"); create
+ * makes a new rule honouring the activation policy and the ≤150 cap.
+ */
+export async function proposeRule(
+  userId: string,
+  candidate: RuleCandidate,
+): Promise<RuleProposalResult> {
+  if (candidate.mailboxId) {
+    await ensureMailboxManage(userId, candidate.mailboxId);
+  }
+
+  const allRules = await listRulesForUser(userId);
+  // Scope the comparison set to rules with the SAME visibility as the candidate
+  // (a mailbox rule only dedups against that mailbox's + global rules).
+  const scoped = allRules.filter(
+    (r) =>
+      (r.mailboxId || null) === (candidate.mailboxId || null) &&
+      (r.organizationId || null) === (candidate.organizationId || null),
+  );
+  const activeScoped = scoped.filter((r) => r.isActive);
+  const decision = evaluateProposal(candidate, activeScoped);
+
+  if (decision.outcome === "duplicate_of" || decision.outcome === "covered_by") {
+    const existing =
+      allRules.find((r) => r.id === decision.targetRuleId) ?? null;
+    return {
+      outcome: decision.outcome,
+      decision,
+      rule: existing,
+      firstAutoActivate: false,
+      pendingApproval: false,
+      message: decision.reason,
+    };
+  }
+
+  if (decision.outcome === "merge_into" && decision.targetRuleId) {
+    const target = allRules.find((r) => r.id === decision.targetRuleId);
+    if (target && decision.mergeValue && decision.mergeField) {
+      const updated = await updateRule(userId, target.id, {
+        matchMode: "any",
+        conditions: [
+          ...target.conditions,
+          {
+            field: decision.mergeField,
+            operator: target.conditions[0]?.operator ?? "equals",
+            value: decision.mergeValue,
+          },
+        ],
+      });
+      return {
+        outcome: "merge_into",
+        decision,
+        rule: updated,
+        firstAutoActivate: false,
+        pendingApproval: false,
+        message: decision.reason,
+      };
+    }
+  }
+
+  // outcome === "create"
+  if (decision.capExceeded) {
+    return {
+      outcome: "rejected_cap",
+      decision,
+      rule: null,
+      firstAutoActivate: false,
+      pendingApproval: false,
+      message: decision.reason,
+    };
+  }
+
+  const isAi = candidate.generatedBy === "ai";
+  const policy = isAi
+    ? await resolveRuleActivationPolicy(candidate.organizationId)
+    : { autoActivate: true, alreadyNotified: true };
+
+  const isActive = isAi ? policy.autoActivate : true;
+  const firstAutoActivate = isAi && policy.autoActivate && !policy.alreadyNotified;
+
+  const rule = await createRule(userId, {
+    ...candidate,
+    isActive,
+    fingerprint: decision.fingerprint,
+    source: candidate.generatedBy === "ai" ? "ai" : candidate.generatedBy ?? "user",
+  });
+
+  if (firstAutoActivate) {
+    await markAutoActivateNotified(candidate.organizationId);
+  }
+
+  return {
+    outcome: "create",
+    decision,
+    rule,
+    firstAutoActivate,
+    pendingApproval: isAi && !isActive,
+    message: decision.capWarning
+      ? `${decision.reason} You now have ${activeScoped.length + 1} active rules (soft limit ${/* RULE_SOFT_WARN_COUNT */ 120}).`
+      : decision.reason,
+  };
+}
+
+export async function deleteRule(userId: string, ruleId: string) {
+  const admin = getAdminClient();
+  const { data: rule } = await admin
+    .from("email_rules")
+    .select("*")
+    .eq("id", ruleId)
+    .maybeSingle();
+  if (!rule) {
+    throw new Error("Rule not found");
+  }
+  if (rule.mailbox_id) {
+    await ensureMailboxManage(userId, String(rule.mailbox_id));
+  } else if (rule.user_id && rule.user_id !== userId) {
+    throw new Error("Rule not found");
+  }
+  const { error } = await admin.from("email_rules").delete().eq("id", ruleId);
+  if (error) {
+    throw new Error(error.message || "Failed to delete rule");
+  }
+  return { id: ruleId, deleted: true };
 }
 
 export async function createSummaryProfile(userId: string, payload: any) {
