@@ -14,6 +14,7 @@ import {
   type ModelSpec,
 } from "@/lib/ai/structured-waterfall";
 import { resolveEmailChain } from "@/lib/ai/email-provider";
+import { isNeverTaskSender } from "@/lib/email-inbox/reprocess";
 import { createUntrustedFence } from "@/lib/ai-agent/untrusted";
 
 export type EmailThreadAIInput = {
@@ -66,6 +67,14 @@ export type EmailThreadAIOutput = {
   needsProject: boolean;
   projectId: string | null;
   taskSuggestions: InboxTaskSuggestion[];
+  /**
+   * Provider/model that actually produced this result. Set ONLY when an external
+   * LLM ran (via the waterfall); left undefined on the local heuristic path so
+   * callers can tell a real model call from a heuristic one and record accurate
+   * trace metadata. Mirrors `assessSpam`, which returns its `model`.
+   */
+  model?: string | null;
+  modelProvider?: string | null;
 };
 
 export type EmailReplyAIInput = {
@@ -816,14 +825,27 @@ export function repairGenericTaskName(name: string, subject?: string | null) {
   return name;
 }
 
+/**
+ * Newsletter/bulk detection. A subject keyword ("update", "digest", ...) ALONE
+ * never matches — a real person can write "Project update for you". The
+ * keyword must co-occur with a genuine bulk/automated sender signal
+ * (no-reply/notifications@/newsletter@-style address, or a NEVER_TASK sender).
+ * A noreply@ sender is bulk on its own. (Bulk headers such as List-Unsubscribe
+ * are not available on EmailThreadAIInput; add them here if they get plumbed.)
+ */
 function detectNewsletter(subject: string, senderEmail: string) {
   const normalizedSubject = subject.toLowerCase();
-  return (
-    senderEmail.toLowerCase().startsWith("noreply@") ||
+  const sender = senderEmail.toLowerCase();
+  if (sender.startsWith("noreply@")) return true;
+  const bulkSender =
+    /^(no-reply|donotreply|notifications?|newsletters?|news|digest|mailer|updates?|marketing)@/.test(
+      sender,
+    ) || isNeverTaskSender(sender);
+  const keyword =
     normalizedSubject.includes("newsletter") ||
     normalizedSubject.includes("digest") ||
-    normalizedSubject.includes("update")
-  );
+    normalizedSubject.includes("update");
+  return keyword && bulkSender;
 }
 
 /**
@@ -1281,6 +1303,8 @@ ${JSON.stringify(schema.schema)}`;
   ].join("\n");
 
   let content: string;
+  let usedModel: string | null = null;
+  let usedProvider: string | null = null;
   try {
     // Waterfall: the first configured provider wins; a provider whose API key is
     // absent is skipped, and a quota/auth error falls through to the next. When
@@ -1292,6 +1316,8 @@ ${JSON.stringify(schema.schema)}`;
       temperature: 0.2,
     });
     content = result.text;
+    usedModel = result.model ?? null;
+    usedProvider = result.provider ?? null;
   } catch (error) {
     console.error(
       "[email-ai] every provider in the chain failed; using local heuristics:",
@@ -1302,6 +1328,35 @@ ${JSON.stringify(schema.schema)}`;
 
   try {
     const parsed = parseAnalysisJson(content);
+    // Only OpenAI honours the strict json_schema; DeepSeek/xAI/Anthropic can
+    // return an out-of-enum classification/status. Those columns are CHECK
+    // constrained (email_threads), so an invalid value silently fails the UPDATE
+    // and leaves the thread un-triaged. Validate against the schema enums and
+    // fall back to the local heuristic when the model returns garbage.
+    const VALID_CLASSIFICATIONS = new Set([
+      "actionable",
+      "newsletter",
+      "spam",
+      "waiting",
+      "reference",
+    ]);
+    const VALID_STATUSES = new Set([
+      "active",
+      "quarantine",
+      "needs_project",
+      "archived",
+      "spam",
+    ]);
+    if (
+      !VALID_CLASSIFICATIONS.has(parsed.classification) ||
+      !VALID_STATUSES.has(parsed.status)
+    ) {
+      console.error(
+        "[email-ai] model returned out-of-enum classification/status; using heuristic:",
+        { classification: parsed.classification, status: parsed.status },
+      );
+      return fallback;
+    }
     return normalizePreventedSpamResult(
       {
         classification: parsed.classification,
@@ -1344,6 +1399,8 @@ ${JSON.stringify(schema.schema)}`;
               dueDate: task.dueDate || null,
             }))
           : fallback.taskSuggestions,
+        model: usedModel,
+        modelProvider: usedProvider,
       },
       fallback,
       input.preventSpamClassification,
