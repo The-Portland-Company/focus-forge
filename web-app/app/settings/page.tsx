@@ -101,6 +101,7 @@ import {
   type KnownModel,
 } from "@/lib/ai/model-chains";
 import type { LlmProviderInfo } from "@/lib/ai/provider-status";
+import { AssistantProviderSettings } from "@/components/assistant-provider-settings";
 import { MailboxFormDialog } from "@/components/mailbox-form-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatRelativeSync } from "@/lib/email-inbox/format-relative-sync";
@@ -1928,6 +1929,10 @@ export default function SettingsPage() {
                     they are tried in.
                   </p>
                 </div>
+
+                {/* Local vs Remote parent categories + per-category fallback
+                    order. Local runs the user's own CLIs via the desktop shell. */}
+                <AssistantProviderSettings />
 
                 <div className="bg-zinc-900 rounded-lg border border-zinc-800">
                   <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-4">

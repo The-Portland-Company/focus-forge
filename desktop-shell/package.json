@@ -21,6 +21,8 @@
     },
     "files": [
       "main.js",
+      "main-preload.js",
+      "local-ai.js",
       "auth-login.js",
       "quickview-preload.js",
       "quickview.inject.js",
