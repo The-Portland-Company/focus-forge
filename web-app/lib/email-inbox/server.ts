@@ -48,6 +48,7 @@ import { computeRuleFingerprint } from "@/lib/email-inbox/triage/fingerprint";
 import {
   applySpamKnnOverride,
   resolveRuleDrivenThreadState,
+  mergeRuleDecidedFields,
   isContentSpamExemptSender,
   canAutoCreateTasksForMessage,
 } from "@/lib/email-inbox/reprocess";
@@ -3450,13 +3451,25 @@ export async function reprocessThread(
       (rule.organizationId && rule.organizationId === mailbox.organization_id),
   );
 
-  const appliedRules = applyEmailRules(
+  // Stage 0: deterministic rules engine. evaluateEmailRules produces the full
+  // RuleVerdict (ordered, with terminal detection); the shim keeps the rest of
+  // this function's legacy `appliedRules.actions` / `.matchedRules` references
+  // working unchanged.
+  const verdict = evaluateEmailRules(
     relevantRules,
     buildRuleContext(mailbox, latestMessage),
   );
-  if (appliedRules.matchedRules.length > 0) {
+  const matchedRuleObjects = relevantRules.filter((rule) =>
+    verdict.matchedRuleIds.includes(rule.id),
+  );
+  const appliedRules = {
+    matchedRules: matchedRuleObjects,
+    actions: verdict.actions,
+    stopProcessing: verdict.terminal,
+  };
+  if (matchedRuleObjects.length > 0) {
     await admin.from("email_rule_runs").insert(
-      appliedRules.matchedRules.map((rule) => ({
+      matchedRuleObjects.map((rule) => ({
         rule_id: rule.id,
         thread_id: thread.id,
         message_id: latestMessage.id,
@@ -3466,6 +3479,71 @@ export async function reprocessThread(
         confidence: 1,
       })),
     );
+    // Lightweight per-rule counters (replace per-hit email_rule_runs history in
+    // Phase 4). Best-effort — never block triage.
+    const nowIso = new Date().toISOString();
+    await Promise.all(
+      matchedRuleObjects.map((rule) =>
+        admin
+          .from("email_rules")
+          .update({
+            hit_count: (rule.hitCount ?? 0) + 1,
+            last_hit_at: nowIso,
+          })
+          .eq("id", rule.id),
+      ),
+    ).catch((e) => console.error("rule hit_count bump failed:", e));
+  }
+
+  // Stage 1 boundary (M2): a TERMINAL rule decided this thread with no AI help.
+  // Settle it deterministically — no k-NN, no LLM, no assessSpam, no trace — and
+  // return. A manual re-analysis (options.manual) always runs the full path so
+  // the user can force the AI to look again.
+  if (verdict.terminal && !options?.manual) {
+    const triageCols = buildThreadTriageColumns(
+      verdict,
+      String(latestMessage.id),
+    );
+    const { error: terminalUpdateError } = await admin
+      .from("email_threads")
+      .update({
+        ...(triageCols.status ? { status: triageCols.status } : {}),
+        ...(triageCols.classification
+          ? { classification: triageCols.classification }
+          : {}),
+        ...(triageCols.inbox_tab_id !== null
+          ? { inbox_tab_id: triageCols.inbox_tab_id }
+          : {}),
+        ...(triageCols.classification === "spam"
+          ? { is_unread: false }
+          : {}),
+        needs_project: triageCols.needs_project,
+        always_delete: triageCols.always_delete,
+        owner_user_id: verdict.actions.includes("assign_mailbox_owner")
+          ? mailbox.owner_user_id
+          : thread.owner_user_id,
+        triage_json: triageCols.triage_json,
+        triage_state: "rule",
+        // Preserve the idempotency key so routine re-polls skip this thread.
+        analysis_json: {
+          ...((thread.analysis_json as Record<string, unknown> | null) ?? {}),
+          messageId: String(latestMessage.id),
+          matchedRuleIds: verdict.matchedRuleIds,
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", thread.id);
+    if (terminalUpdateError) {
+      throw new Error(
+        `Failed to persist terminal rule triage: ${terminalUpdateError.message}`,
+      );
+    }
+    const { data: refreshedTerminal } = await admin
+      .from("email_threads")
+      .select("*")
+      .eq("id", thread.id)
+      .maybeSingle();
+    return refreshedTerminal;
   }
 
   const preventSpamClassification = appliedRules.actions.includes("never_spam");
@@ -3668,6 +3746,21 @@ export async function reprocessThread(
       ruleActions,
     });
 
+  // M2: a rule-decided field must NEVER be flipped by the AI. A non-terminal
+  // set_classification / set_inbox_tab rule owns that field; the AI may fill
+  // everything the rule left undecided, but not override these.
+  const merged = mergeRuleDecidedFields({
+    aiClassification: classification,
+    aiInboxTabId: null,
+    verdictClassification: verdict.classification,
+    verdictInboxTabId: verdict.inboxTabId,
+  });
+  // The email_threads.classification column accepts the wider InboxItem set
+  // ("unknown"/"transactional"); a rule's set_classification may use those even
+  // though the AI output type is narrower. The value is persisted verbatim.
+  classification = merged.classification as typeof classification;
+  const ruleInboxTabId = merged.inboxTabId;
+
   // Capture the state a rule actually imposed BEFORE k-NN / assessSpam mutate
   // the locals below. `overriddenByRule` must mean "a rule changed the outcome
   // vs what the AI produced" — not merely "some rule (e.g. never_spam /
@@ -3781,9 +3874,35 @@ export async function reprocessThread(
       // in Focus — matching the manual "spam" action, which also marks it read.
       // The provider \Seen flag is synced separately by the spam mirror.
       ...(classification === "spam" ? { is_unread: false } : {}),
+      // A non-terminal set_inbox_tab rule routes the thread; the AI never
+      // changes a rule-decided tab.
+      ...(ruleInboxTabId !== null ? { inbox_tab_id: ruleInboxTabId } : {}),
       needs_project: needsProject,
       always_delete: alwaysDelete,
       task_suggestions_json: aiResult.taskSuggestions,
+      // Stage 1 deterministic record: the AI enhanced a non-terminal thread.
+      triage_json: {
+        v: 1,
+        evaluatedAt: new Date().toISOString(),
+        messageId: String(latestMessage.id),
+        decidedBy: aiResult.model
+          ? "ai"
+          : spamKnnUpgradedToSpam
+            ? "knn"
+            : "heuristic",
+        winningRuleId: verdict.winningRuleId,
+        matchedRuleIds: verdict.matchedRuleIds,
+        actions: verdict.actions,
+        terminal: false,
+        aiCalled: true,
+        ai: {
+          model: aiResult.model ?? null,
+          classification: aiResult.classification,
+          confidence: aiResult.confidence,
+          reason: aiResult.reason,
+        },
+      } satisfies TriageRecord,
+      triage_state: options?.manual ? "manual" : "ai",
       analysis_json: {
         ai: aiResult,
         // Persisted so the idempotency guard (top of reprocessThread) can tell a
