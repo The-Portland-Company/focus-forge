@@ -28,6 +28,8 @@ import {
   CalendarClock,
   RefreshCw,
   Mailbox,
+  Mail,
+  MailX,
   CheckSquare,
   Square,
   X,
@@ -780,6 +782,29 @@ export default function ViewPage({
   const [showBlockedTasks, setShowBlockedTasks] = useState(true);
   const [groupTasksByProject, setGroupTasksByProject] = useState(false);
   const [showTaskDescriptions, setShowTaskDescriptions] = useState(false);
+  // Today view: hide tasks that were created from emails (persisted).
+  const HIDE_EMAIL_TASKS_STORAGE_KEY = "today:hideEmailTasks";
+  const [hideEmailTasks, setHideEmailTasks] = useState(false);
+  useEffect(() => {
+    try {
+      setHideEmailTasks(
+        window.localStorage.getItem(HIDE_EMAIL_TASKS_STORAGE_KEY) === "true",
+      );
+    } catch {
+      // localStorage unavailable; keep default (off)
+    }
+  }, []);
+  const toggleHideEmailTasks = useCallback(() => {
+    setHideEmailTasks((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(HIDE_EMAIL_TASKS_STORAGE_KEY, String(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  }, []);
   const [todayViewMode, setTodayViewMode] = useState<"list" | "kanban">("list");
   const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(
     new Set(),
@@ -4544,6 +4569,8 @@ export default function ViewPage({
   };
 
   const userPriorityColor = getCurrentUserPriorityColor();
+  const isEmailTask = (task: Task) => (task.type as string) === "email";
+
   const filterTasks = (tasks: Task[]) => {
     if (filterAssignedTo === "all") {
       return tasks;
@@ -4712,6 +4739,13 @@ export default function ViewPage({
       if (!showBlockedTasks && database) {
         allWeekTasks = allWeekTasks.filter(
           (task) => !blockedTaskIds.has(task.id),
+        );
+      }
+
+      // Hide tasks created from emails if toggled
+      if (hideEmailTasks) {
+        allWeekTasks = allWeekTasks.filter(
+          (task) => !emailTaskLinks[task.id] && !isEmailTask(task),
         );
       }
 
@@ -5150,6 +5184,32 @@ export default function ViewPage({
                       aria-label="Group by project"
                     >
                       <FolderKanban className="w-4 h-4" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip
+                    content={
+                      hideEmailTasks
+                        ? "Hiding email tasks (click to show)"
+                        : "Hide email tasks"
+                    }
+                    side="bottom"
+                    className="inline-flex"
+                  >
+                    <button
+                      onClick={toggleHideEmailTasks}
+                      className={`p-2 rounded border transition-colors ${
+                        hideEmailTasks
+                          ? "bg-[rgb(var(--theme-primary-rgb))]/10 text-[rgb(var(--theme-primary-rgb))] border-[rgb(var(--theme-primary-rgb))]/30"
+                          : "border-zinc-700 text-zinc-400 hover:text-sky-400 hover:border-zinc-600"
+                      }`}
+                      aria-label="Hide email tasks"
+                      aria-pressed={hideEmailTasks}
+                    >
+                      {hideEmailTasks ? (
+                        <MailX className="w-4 h-4" />
+                      ) : (
+                        <Mail className="w-4 h-4" />
+                      )}
                     </button>
                   </Tooltip>
                   <Tooltip
