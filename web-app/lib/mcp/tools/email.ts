@@ -20,9 +20,15 @@ export type { McpTool };
 // Wraps a handler's plain return value as the MCP tools/call result shape
 // (spec 2026-07-28): JSON-serialized text content plus the raw value as
 // structuredContent for clients that read it directly.
+//
+// structuredContent MUST be a JSON object, not a bare array — strict MCP
+// clients (e.g. the Claude Code / MCP SDK) validate it and reject an array with
+// "expected record, received array", which silently breaks every list_* tool.
+// Array results are therefore wrapped as { items: [...] }; the text content
+// still carries the exact JSON the model reads, so nothing else changes.
 const toResult = (value: unknown): McpToolResult => ({
   content: [{ type: "text", text: JSON.stringify(value ?? null) }],
-  structuredContent: value,
+  structuredContent: Array.isArray(value) ? { items: value } : value,
 });
 
 const optionalString = (value: unknown): string | undefined =>

@@ -18,6 +18,14 @@ import {
 } from "@/components/ui/select";
 import { useRecorder } from "@/lib/voice/use-recorder";
 import { STT_PROVIDER_OPTIONS, type SttProviderPreference } from "@/lib/voice/stt";
+import {
+  loadProviderPrefs,
+  localBridgeAvailable,
+  providerBadge,
+  LOCAL_PROVIDERS,
+  REMOTE_PROVIDERS,
+  type AssistantProviderPrefs,
+} from "@/lib/ai-agent/provider-prefs";
 
 type PendingSend = {
   tool: "send_reply" | "send_message";
@@ -72,11 +80,27 @@ const PROVIDER_META: Record<string, { name: string; bg: string }> = {
 };
 
 function providerMeta(provider?: string | null) {
-  return (provider && PROVIDER_META[provider]) || { name: "AI", bg: "#3f3f46" };
+  if (provider && PROVIDER_META[provider]) return PROVIDER_META[provider];
+  // Local providers (local-claude / local-codex / local-grok) and any other id
+  // fall back to the shared badge map so they still render a label + chip.
+  if (provider) return { name: providerBadge(provider), bg: "#27303f" };
+  return { name: "AI", bg: "#3f3f46" };
 }
 
-function ProviderLogo({ provider }: { provider?: string | null }) {
+/** Logo keyed by provider family so local variants reuse the right mark. */
+function providerLogoKey(provider?: string | null): string | null {
+  if (!provider) return null;
+  if (provider.includes("claude") || provider === "anthropic") return "anthropic";
+  if (provider.includes("grok") || provider === "xai") return "xai";
+  if (provider.includes("codex") || provider.includes("openai") || provider === "openai")
+    return "openai";
+  return null;
+}
+
+function ProviderLogo({ provider: rawProvider }: { provider?: string | null }) {
   const common = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none" } as const;
+  // Map local-claude/local-codex/local-grok onto their brand mark.
+  const provider = providerLogoKey(rawProvider);
   if (provider === "anthropic") {
     return (
       <svg {...common} stroke="#fff" strokeWidth={2.2} strokeLinecap="round" aria-hidden>
@@ -119,18 +143,30 @@ interface AiPlannerFloatingChatProps {
   embedded?: boolean;
 }
 
+function localTimezone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const SESSION_STORAGE_PREFIX = "aiAgentSession";
 const MODEL_STORAGE_KEY = "aiAgentModel";
 const STT_STORAGE_KEY = "aiVoiceProvider";
 
-const MODEL_OPTIONS = [
+// The per-message override picker. "auto" defers to the user's saved
+// Local/Remote preference (configured in Settings → LLM Providers); the other
+// entries force one specific provider for the next message.
+const MODEL_OPTIONS: { id: string; label: string }[] = [
   { id: "auto", label: "Auto" },
-  { id: "openai", label: "GPT-4.1" },
-  { id: "anthropic", label: "Claude 4.5" },
-  { id: "xai", label: "Grok 3" },
-] as const;
+  ...LOCAL_PROVIDERS.map((p) => ({ id: p.id, label: p.label })),
+  ...REMOTE_PROVIDERS.map((p) => ({ id: p.id, label: p.label })),
+];
 
-type ModelChoice = (typeof MODEL_OPTIONS)[number]["id"];
+type ModelChoice = string;
+
+const LOCAL_IDS = new Set(LOCAL_PROVIDERS.map((p) => p.id));
 
 const SUGGESTIONS = [
   "What tasks do you see on this page?",
@@ -182,7 +218,11 @@ export function AiPlannerFloatingChat({
   // panel), because that is where the user is looking when the send fails.
   const [creditError, setCreditError] = useState<string | null>(null);
   const [model, setModel] = useState<ModelChoice>("auto");
+  const [prefs, setPrefs] = useState<AssistantProviderPrefs>(() => loadProviderPrefs());
   const [sttProvider, setSttProvider] = useState<SttProviderPreference>("auto");
+  // Progress line from the local bridge ("Claude (local) is working…"), shown
+  // under the thread while a local session runs.
+  const [localStatus, setLocalStatus] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // When set, the next send starts a fresh server-side session instead of
   // resuming the latest one for this scope.
@@ -206,6 +246,11 @@ export function AiPlannerFloatingChat({
     if (saved && MODEL_OPTIONS.some((m) => m.id === saved)) setModel(saved);
     const savedStt = localStorage.getItem(STT_STORAGE_KEY) as SttProviderPreference | null;
     if (savedStt && STT_PROVIDER_OPTIONS.some((o) => o.id === savedStt)) setSttProvider(savedStt);
+    setPrefs(loadProviderPrefs());
+    // Keep in sync when the Settings page changes the Local/Remote preference.
+    const onPrefs = () => setPrefs(loadProviderPrefs());
+    window.addEventListener("focusforge:provider-prefs-changed", onPrefs);
+    return () => window.removeEventListener("focusforge:provider-prefs-changed", onPrefs);
   }, []);
 
   useEffect(() => {
@@ -237,6 +282,56 @@ export function AiPlannerFloatingChat({
       .finally(() => setLoadingSession(false));
   }, [isOpen, storageKey]);
 
+  // Run one turn against the desktop shell's local-AI bridge. Returns true when
+  // a local session answered, false when the whole local chain failed (so the
+  // caller can decide whether to fall back to the remote API).
+  const runLocalBridge = async (message: string, chain: string[]): Promise<boolean> => {
+    const bridge = (window as any).focusForgeLocalAI;
+    if (!bridge?.chat) return false;
+
+    // The transcript the local session sees: prior turns + this message.
+    const history = messages
+      .filter((m) => m.content.trim())
+      .map((m) => ({ role: m.role, content: m.content }));
+    history.push({ role: "user", content: message });
+
+    let unsubscribe: (() => void) | undefined;
+    if (typeof bridge.onProgress === "function") {
+      unsubscribe = bridge.onProgress((evt: any) => {
+        if (evt?.type === "provider-start") setLocalStatus(`${evt.label} is working…`);
+        else if (evt?.type === "provider-fail") setLocalStatus(`${evt.provider} unavailable — trying next…`);
+      });
+    }
+    try {
+      const res = await bridge.chat({
+        messages: history,
+        chain,
+        context: { view, projectName, timezone: localTimezone() },
+      });
+      if (res?.ok && res.assistantMessage) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: String(res.assistantMessage),
+            provider: res.provider ?? null,
+          },
+        ]);
+        // A local session may have mutated Forge data via its MCP tools — refresh.
+        if (onCreated) await onCreated();
+        if (typeof window !== "undefined") window.dispatchEvent(new Event("focusforge:data-changed"));
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      setLocalStatus(null);
+      if (unsubscribe) unsubscribe();
+    }
+  };
+
   const send = async (
     text: string,
     origin: "voice" | "text" = "text",
@@ -254,6 +349,39 @@ export function AiPlannerFloatingChat({
       ]);
     }
     setCreditError(null);
+
+    // Decide whether this turn goes to a LOCAL session (desktop shell bridge)
+    // or the REMOTE chat API. An explicit per-message pick wins; otherwise the
+    // saved category preference does. Local is only reachable inside the
+    // desktop shell, so fall through to remote when the bridge is absent.
+    const explicitLocal = LOCAL_IDS.has(model);
+    const wantLocal = explicitLocal || (model === "auto" && prefs.category === "local");
+    if (wantLocal && localBridgeAvailable() && !options?.approval) {
+      const localChain = explicitLocal
+        ? [model, ...prefs.localOrder.filter((id) => id !== model)]
+        : prefs.localOrder;
+      const handled = await runLocalBridge(message, localChain);
+      if (handled) {
+        setSending(false);
+        return;
+      }
+      // Local chain failed entirely. If cross-fallback is off, stop here with
+      // an error; otherwise drop through to the remote API below.
+      if (!prefs.crossFallback) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content:
+              "All local AI sessions failed and remote fallback is turned off. Open Settings → LLM Providers to enable it or check your local CLIs.",
+            provider: null,
+          },
+        ]);
+        setSending(false);
+        return;
+      }
+    }
 
     try {
       const response = await fetch("/api/ai-agent/chat", {
@@ -659,7 +787,7 @@ export function AiPlannerFloatingChat({
                 {sending && (
                   <div className="mt-3 flex items-center gap-2 text-sm text-zinc-400">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Working...
+                    {localStatus || "Working..."}
                   </div>
                 )}
                 <div ref={messagesEndRef} />

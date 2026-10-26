@@ -14,6 +14,7 @@ const {
 const fs = require("fs");
 const path = require("path");
 const { startLogin, handleCallback, AUTH_HOST } = require("./auth-login");
+const { runLocalAgent, listLocalProviders } = require("./local-ai");
 
 // ---------------------------------------------------------------------------
 // System-browser login: register focusforge:// and receive the callback.
@@ -108,6 +109,41 @@ async function seedCookies() {
   }
 }
 
+// Read the user's TPC Auth bearer token from the signed-in session cookie jar.
+// Page JS cannot read the httpOnly session cookie, but the main process can.
+// Used by Quick View and by the Local AI bridge (to authenticate the FF MCP).
+async function readBearerToken() {
+  for (const name of TOKEN_COOKIE_NAMES) {
+    try {
+      const matches = await session.defaultSession.cookies.get({ name });
+      const hit = matches.find((m) => /focusforge\.dev$/.test(m.domain || ""));
+      if (hit && hit.value) return hit.value;
+      if (matches[0] && matches[0].value) return matches[0].value;
+    } catch (_) {
+      /* keep trying */
+    }
+  }
+  try {
+    const all = await session.defaultSession.cookies.get({});
+    const sb = all.find((c) => /^sb-.*-auth-token/.test(c.name));
+    if (sb) {
+      let raw = sb.value;
+      if (raw.startsWith("base64-")) raw = raw.slice(7);
+      try {
+        let b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
+        while (b64.length % 4) b64 += "=";
+        const session_ = JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
+        return session_.access_token || null;
+      } catch (_) {
+        /* not decodable */
+      }
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return null;
+}
+
 // Quick View asks the main process for the bearer token: page JS cannot read
 // the httpOnly session cookie, but the main process can.
 ipcMain.handle("ffqv-get-token", async () => {
@@ -175,6 +211,9 @@ const createWindow = () => {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      // Expose window.focusForgeLocalAI so the web app can route the assistant
+      // to LOCAL agent sessions on this Mac (Claude Code / Codex / Grok).
+      preload: path.join(__dirname, "main-preload.js"),
     },
   });
 
@@ -301,6 +340,44 @@ const toggleQuickView = () => {
 
 ipcMain.on("ffqv-close", () => {
   if (quickWindow) quickWindow.hide();
+});
+
+// ---------------------------------------------------------------------------
+// Local AI bridge — route the assistant to local agent sessions on this Mac.
+// ---------------------------------------------------------------------------
+ipcMain.handle("ffla-list-providers", async () => {
+  try {
+    return { ok: true, providers: listLocalProviders() };
+  } catch (err) {
+    return { ok: false, error: err.message, providers: [] };
+  }
+});
+
+ipcMain.handle("ffla-chat", async (event, payload) => {
+  const { messages, chain, context } = payload || {};
+  // Fetch a fresh bearer token each turn so the FF MCP stays authenticated even
+  // as the access token rotates. Never exposed to the page — injected here only.
+  let ffToken = null;
+  try {
+    ffToken = await readBearerToken();
+  } catch {
+    /* proceed without FF MCP auth; local chat still works */
+  }
+  try {
+    return await runLocalAgent({
+      messages,
+      chain,
+      context,
+      ffToken,
+      // Stream progress back to the window that made the request so the chat
+      // can show which local session is working / falling over.
+      onEvent: (evt) => {
+        if (!event.sender.isDestroyed()) event.sender.send("ffla-progress", evt);
+      },
+    });
+  } catch (err) {
+    return { ok: false, error: err.message, provider: null };
+  }
 });
 
 const buildMenu = () => {
