@@ -78,9 +78,11 @@ function enrichedPath() {
 function buildSystemInstruction(context) {
   const lines = [
     "You are the Focus Forge Assistant, running as a LOCAL agent session on the user's Mac.",
-    "You have the Focus Forge MCP server and the focus-forge skill available. Use the Focus",
-    "Forge MCP tools to actually perform what the user asks (read/create/update/complete tasks,",
-    "projects, goals, inbox actions) — do not just describe what could be done.",
+    "You have an ALREADY-AUTHENTICATED Focus Forge MCP server named `focus-forge-local`",
+    "(its requests carry a valid forge-scoped bearer token). Use ITS tools to actually perform",
+    "what the user asks (read/create/update/complete tasks, projects, goals, inbox actions) —",
+    "do not just describe what could be done. It is already authorized: never claim Focus Forge",
+    "needs an OAuth/`/mcp` login — if a call fails, report the actual tool error, not an auth prompt.",
     "",
     "CRITICAL — the chat UI is the single source of truth: whatever you do, your FINAL message",
     "must plainly report every concrete action you took (tool/MCP calls, what changed, and the",
@@ -284,8 +286,16 @@ async function runClaude({ prompt, system, onEvent, ffToken }) {
   ];
   // Give the headless session an authenticated Focus Forge MCP so it can
   // actually execute FF commands, not just chat about them.
+  //
+  // --strict-mcp-config is REQUIRED: without it, --mcp-config MERGES with the
+  // user's ~/.claude.json, which carries an OAuth-gated `focus-forge` server
+  // that is NOT authenticated in a headless session. The model then sees that
+  // unauthorized server's tools and reports "Focus Forge needs an OAuth login"
+  // instead of using our header-authenticated `focus-forge-local`. Strict mode
+  // loads ONLY the server we inject. (Skills/plugins are filesystem-based and
+  // are unaffected by this flag.)
   if (ffToken) {
-    args.push("--mcp-config", ffMcpConfig(ffToken));
+    args.push("--strict-mcp-config", "--mcp-config", ffMcpConfig(ffToken));
   }
   const r = await runProcess(BINS.claude, args, { onEvent });
   if (!r.ok && !r.stdout) throw new Error(r.error || `claude exited ${r.code}`);
