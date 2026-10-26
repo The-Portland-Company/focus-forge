@@ -3262,7 +3262,7 @@ async function createTasksForThreadInternal(params: {
 export async function reprocessThread(
   threadId: string,
   actorUserId?: string,
-  options?: { manual?: boolean },
+  options?: { manual?: boolean; skipIfUnchanged?: boolean; rulesOnly?: boolean },
 ) {
   const admin = getAdminClient();
   const { data: thread } = await admin
@@ -3283,6 +3283,19 @@ export async function reprocessThread(
 
   if (!latestMessage) {
     return thread;
+  }
+
+  // Idempotency guard (H1): routine polls re-queue already-analysed threads.
+  // If this thread's latest message is the same one we last analysed, a
+  // background/poll-driven reprocess (skipIfUnchanged) is a no-op — skip the
+  // whole rules+k-NN+LLM+trace path. Manual re-analysis and user actions never
+  // pass skipIfUnchanged, so they always re-run.
+  if (options?.skipIfUnchanged && !options?.manual) {
+    const priorMessageId = (thread.analysis_json as Record<string, any> | null)
+      ?.messageId;
+    if (priorMessageId && priorMessageId === String(latestMessage.id)) {
+      return thread;
+    }
   }
 
   const rules = await listRulesForUser(mailbox.owner_user_id);
@@ -3375,8 +3388,14 @@ export async function reprocessThread(
     appliedRules.actions.includes("spam") ||
     appliedRules.actions.includes("always_delete");
   const skipAiForSpamRule = ruleForcesSpam && !options?.manual;
+  // rulesOnly (known-contact fan-out, H2): apply the deterministic rule-driven
+  // state + local heuristic with NO external LLM call. Until the Stage 0/Stage 1
+  // split lands, forcing the heuristic path is how we re-run triage cheaply
+  // across many threads from one sender.
   const forceHeuristicAnalysis =
-    spamFallbackMode === "private" || skipAiForSpamRule;
+    spamFallbackMode === "private" ||
+    skipAiForSpamRule ||
+    Boolean(options?.rulesOnly);
   let spamVerdict: SpamClassification | null = null;
   if (!suppressContentSpam) {
     try {
@@ -3506,6 +3525,16 @@ export async function reprocessThread(
       ruleActions,
     });
 
+  // Capture the state a rule actually imposed BEFORE k-NN / assessSpam mutate
+  // the locals below. `overriddenByRule` must mean "a rule changed the outcome
+  // vs what the AI produced" — not merely "some rule (e.g. never_spam /
+  // mark_read) matched", which is the old, meaningless definition.
+  const ruleChangedOutcome =
+    status !== aiResult.status ||
+    classification !== aiResult.classification ||
+    needsProject !== aiResult.needsProject ||
+    alwaysDelete;
+
   // A confident k-NN verdict can only UPGRADE the spam axis (never against a
   // never_spam override, already excluded above). It must never downgrade a
   // confident LLM spam verdict back to actionable — see applySpamKnnOverride.
@@ -3583,7 +3612,7 @@ export async function reprocessThread(
     needsProject = true;
   }
 
-  await admin
+  const { error: threadUpdateError } = await admin
     .from("email_threads")
     .update({
       project_id: projectId,
@@ -3614,6 +3643,9 @@ export async function reprocessThread(
       task_suggestions_json: aiResult.taskSuggestions,
       analysis_json: {
         ai: aiResult,
+        // Persisted so the idempotency guard (top of reprocessThread) can tell a
+        // routine re-poll of an already-analysed message from a genuinely new one.
+        messageId: String(latestMessage.id),
         matchedRuleIds: appliedRules.matchedRules.map((rule) => rule.id),
         participantSummary: buildParticipantSummary(
           ((latestMessage.metadata_json?.from || []) as any[]).map((value) => ({
@@ -3628,12 +3660,31 @@ export async function reprocessThread(
     })
     .eq("id", thread.id);
 
-  // Record a decision trace (best-effort).
-  try {
-    const matchedRuleIds = appliedRules.matchedRules.map((rule) => rule.id);
-    const overriddenByRule =
-      matchedRuleIds.length > 0 && ruleActions.size > 0;
-    await recordDecisionTrace(admin, {
+  // A CHECK-constraint violation (e.g. an out-of-enum classification/status the
+  // AI validation above failed to catch) would otherwise fail silently and
+  // leave the thread un-triaged. Surface it loudly.
+  if (threadUpdateError) {
+    console.error(
+      "[email-inbox] reprocessThread: email_threads UPDATE failed",
+      String(thread.id),
+      threadUpdateError.message,
+    );
+    throw new Error(
+      `Failed to persist thread triage: ${threadUpdateError.message}`,
+    );
+  }
+
+  // Only record a decision trace when an external model actually ran. The
+  // heuristic/private/rules-only paths set no `model`, and a trace for them is
+  // pure bloat (the H-findings driver). Best-effort.
+  if (aiResult.model) {
+    try {
+      const matchedRuleIds = appliedRules.matchedRules.map((rule) => rule.id);
+      // True only when a rule actually changed the outcome vs the AI result
+      // (captured before k-NN/assessSpam mutated the locals), not merely when
+      // any rule matched.
+      const overriddenByRule = ruleChangedOutcome;
+      await recordDecisionTrace(admin, {
       userId: mailbox.owner_user_id,
       organizationId: mailbox.organization_id ?? undefined,
       sourceType: "email",
@@ -3688,11 +3739,12 @@ export async function reprocessThread(
       overrideReason: overriddenByRule
         ? `Rules applied: ${Array.from(ruleActions).join(", ")}`
         : null,
-      modelProvider: "openai",
-      modelName: "gpt-4.1",
+      modelProvider: aiResult.modelProvider ?? null,
+      modelName: aiResult.model ?? null,
     });
-  } catch (e) {
-    console.error("recordDecisionTrace (email) failed:", e);
+    } catch (e) {
+      console.error("recordDecisionTrace (email) failed:", e);
+    }
   }
 
   if (
@@ -4057,6 +4109,11 @@ const THREAD_ANALYSIS_CONCURRENCY = 3;
 // here on a later sync, without a dedicated `needs_analysis` column.
 const THREAD_ANALYSIS_RETRY_LIMIT = 25;
 
+// H2: max threads the "mark sender known" action re-processes in the background
+// fan-out. Bounds the per-click work; the clicked thread is always handled
+// synchronously regardless of this cap.
+const KNOWN_CONTACT_FANOUT_CAP = 200;
+
 // Strong references to in-flight background analysis tasks. On the persistent
 // Railway Node server (`node start.js`) an un-awaited promise is fine to run to
 // completion, but we must keep a reference so it isn't garbage-collected before
@@ -4079,6 +4136,7 @@ const pendingThreadAnalysisTasks = new Set<Promise<void>>();
 function runThreadAnalysisInBackground(
   threadIds: string[],
   actorUserId: string,
+  options?: { skipIfUnchanged?: boolean; rulesOnly?: boolean },
 ): Promise<void> {
   const queue = Array.from(new Set(threadIds.map(String)));
   if (queue.length === 0) {
@@ -4091,7 +4149,7 @@ function runThreadAnalysisInBackground(
         const threadId = queue.shift();
         if (!threadId) return;
         try {
-          await reprocessThread(threadId, actorUserId);
+          await reprocessThread(threadId, actorUserId, options);
         } catch (error) {
           console.error(
             "[email-inbox] Background thread analysis failed",
@@ -4351,9 +4409,14 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
 
     for (const message of messages) {
       const result = await ingestMailboxMessage(mailbox, message);
-      changedThreadIds.add(result.threadId);
       syncedProviderMessageIds.push(String(message.providerMessageId));
+      // H1: only enqueue for analysis when a NEW message was actually stored.
+      // ingestMailboxMessage returns inserted:false when the provider message
+      // already exists (the common case on every routine poll of an unchanged
+      // mailbox / UID-cursor-less SINCE refetch). Re-queuing those re-ran the
+      // full k-NN+LLM+trace path on every poll — the dominant trace-bloat driver.
       if (result.inserted) {
+        changedThreadIds.add(result.threadId);
         notificationCandidates.push({
           message,
           messageId: result.messageId,
@@ -4407,6 +4470,9 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
     runThreadAnalysisInBackground(
       Array.from(threadsNeedingAnalysis),
       mailbox.owner_user_id,
+      // Defense-in-depth for H1: even if an already-analysed thread reaches the
+      // queue, skip the full LLM+trace path when its latest message is unchanged.
+      { skipIfUnchanged: true },
     );
     void syncedProviderMessageIds;
 
@@ -7831,9 +7897,21 @@ export async function markThreadSenderKnown(userId: string, threadId: string) {
   try {
     const otherThreadIds = (
       await findThreadIdsFromSender(userId, senderEmail)
-    ).filter((id) => id !== threadId);
+    )
+      .filter((id) => id !== threadId)
+      // H2: the fan-out previously re-ran the FULL LLM pipeline (+ a trace) on
+      // up to 2,000 threads per click on a high-volume sender — tens of
+      // thousands of model calls/traces. Cap the fan-out and run it rules-only
+      // (never_spam rule now exists, so the heuristic path clears the spam score
+      // with no external LLM call and writes no trace).
+      .slice(0, KNOWN_CONTACT_FANOUT_CAP);
     if (otherThreadIds.length > 0) {
-      void runThreadAnalysisInBackground(otherThreadIds, userId);
+      // NOT skipIfUnchanged: these threads were already analysed, but the whole
+      // point is to re-apply the now-existing never_spam rule and clear their
+      // spam scores. rulesOnly keeps that cheap (no external LLM, no trace).
+      void runThreadAnalysisInBackground(otherThreadIds, userId, {
+        rulesOnly: true,
+      });
     }
   } catch (e) {
     console.error("known-contact sender fan-out failed:", e);
