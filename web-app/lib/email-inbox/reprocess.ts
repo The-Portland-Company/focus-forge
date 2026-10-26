@@ -9,6 +9,59 @@ import type { InboxItem } from "@/lib/types";
  */
 export const NEVER_SPAM_SENDER_DOMAINS = ["theportlandcompany.com"];
 
+/**
+ * Senders that NEVER create tasks: the org's own domains/tools and test or
+ * blast senders. Parallel to NEVER_SPAM_SENDER_DOMAINS (which only exempts
+ * spam classification).
+ */
+export const NEVER_TASK_SENDER_DOMAINS = [
+  "theportlandcompany.com",
+  "focusforge.dev",
+  "focusforge.app",
+  "usesend.com",
+];
+
+/** Address-level patterns (tools, warmup/test senders, nuera blasts). */
+export const NEVER_TASK_SENDER_ADDRESS_PATTERNS: RegExp[] = [
+  /bartok/i,
+  /swarm[-_. ]?tester/i,
+  /usesend/i,
+  /warm[-_. ]?up/i,
+  /^(test|testing)[-_.+0-9]*@/i,
+  /^(blast|blasts|campaign|marketing|newsletter|promo)[-_.+0-9a-z]*@nueraheat\.net$/i,
+];
+
+/** True when mail from `senderEmail` must never generate tasks. */
+export function isNeverTaskSender(
+  senderEmail: string | null | undefined,
+): boolean {
+  const email = (senderEmail || "").trim().toLowerCase();
+  const at = email.lastIndexOf("@");
+  if (at < 0) return false;
+  const domain = email.slice(at + 1);
+  if (
+    NEVER_TASK_SENDER_DOMAINS.some(
+      (d) => domain === d || domain.endsWith(`.${d}`),
+    )
+  ) {
+    return true;
+  }
+  return NEVER_TASK_SENDER_ADDRESS_PATTERNS.some((re) => re.test(email));
+}
+
+/**
+ * Gate for auto-creating "Review and respond" tasks: the newest message must
+ * be inbound (never triage the user's own reply) and not from a self/system
+ * sender.
+ */
+export function canAutoCreateTasksForMessage(
+  message: { direction?: string | null } | null | undefined,
+  senderEmail: string | null | undefined,
+): boolean {
+  if (!message || message.direction !== "inbound") return false;
+  return !isNeverTaskSender(senderEmail);
+}
+
 /** True when `senderEmail`'s domain is on the content-spam exemption list. */
 export function isContentSpamExemptSender(
   senderEmail: string | null | undefined,

@@ -673,6 +673,61 @@ export function greetsByBusinessName(
   return !personal.some((name) => opening.includes(name));
 }
 
+/**
+ * CRITICAL ACCOUNT/SERVICE NOTICES — the single place to maintain this list.
+ *
+ * These come from no-reply@/notifications@ senders and would otherwise be
+ * vetoed as transactional noise, but they need a human to act (a paused
+ * project, a failed payment, a security alert, a deadline). A match here
+ * OVERRIDES the transactional/newsletter task veto and guarantees one task.
+ * Canonical example: "Your Supabase Project X has been paused".
+ */
+const CRITICAL_ACCOUNT_NOTICE_PATTERNS: RegExp[] = [
+  /\b(has been|have been|is|was|will be|is being|are being)\s+(paused|suspended)\b/i,
+  /\b(project|service|account|subscription|database|app|site)\b[^.\n]{0,80}\b(paused|suspended)\b/i,
+  /\bpayment\s+(has\s+)?(failed|declined|unsuccessful)\b/i,
+  /\b(failed|declined)\s+payment\b/i,
+  /\bbilling\s+(problem|issue|error)\b/i,
+  /\baction\s+(is\s+)?required\b/i,
+  /\bsecurity\s+alert\b/i,
+  /\bunauthori[sz]ed\b/i,
+  /\b(identity|kyc|verification)\b[^.\n]{0,80}\b(deadline|due|expires?|expiring|required)\b/i,
+  /\b(deadline|due|expires?)\b[^.\n]{0,80}\b(identity|kyc|verification)\b/i,
+  /\baccount\s+(will\s+be|is\s+going\s+to\s+be|has\s+been\s+scheduled\s+to\s+be)\s+(permanently\s+)?(deleted|closed|terminated)\b/i,
+];
+
+export function isCriticalAccountNotice(
+  subject: string,
+  bodyText: string,
+): boolean {
+  const text = `${subject}\n${(bodyText || "").slice(0, 2000)}`;
+  // Informational "no action needed" notices are not critical.
+  if (
+    /\b(no action (is )?(required|needed)|(don'?t|do not) need to do anything)\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  return CRITICAL_ACCOUNT_NOTICE_PATTERNS.some((re) => re.test(text));
+}
+
+/**
+ * Hard task veto: transactional/no-reply or newsletter mail never becomes a
+ * task regardless of LLM confidence — unless it is a critical account notice.
+ */
+export function shouldVetoTasks(input: {
+  subject: string;
+  bodyText: string;
+  senderEmail: string;
+}): boolean {
+  if (isCriticalAccountNotice(input.subject, input.bodyText)) return false;
+  return (
+    detectTransactionalNotification(input.subject, input.senderEmail) ||
+    detectNewsletter(input.subject, input.senderEmail)
+  );
+}
+
 function detectTransactionalNotification(
   subject: string,
   senderEmail: string,
@@ -809,35 +864,51 @@ function guessProjectId(
   return null;
 }
 
+/**
+ * Heuristic task suggestion. At most ONE task, and only when a response is
+ * actually required (or the mail is a critical account notice).
+ */
 function fallbackTaskSuggestions(
   subject: string,
   bodyText: string,
+  opts: { critical?: boolean } = {},
 ): InboxTaskSuggestion[] {
   const preview = extractPlainTextPreview(bodyText, 400);
+
+  if (opts.critical) {
+    return [
+      {
+        name: formatAiGeneratedTaskName(
+          `Action required: ${subject || "Account notice"}`.slice(0, 120),
+        ),
+        description: preview,
+        priority: 1,
+      },
+    ];
+  }
+
+  const responseRequired = /\?|\b(reply|respond|please|need|can you)\b/i.test(
+    `${subject} ${bodyText}`,
+  );
+  if (!responseRequired) return [];
+
   const sentences = preview
     .split(/[.!?]\s+/)
     .map((sentence) => sentence.trim())
     .filter(Boolean);
-
-  const actionableSentences = sentences.filter((sentence) =>
+  const actionable = sentences.find((sentence) =>
     /\b(please|need|can you|reply|review|send|draft|schedule|follow up|confirm)\b/i.test(
       sentence,
     ),
   );
 
-  if (actionableSentences.length > 0) {
-    return actionableSentences.slice(0, 3).map((sentence) => ({
-      name: sentence.slice(0, 120),
-      description: preview,
-      priority: 3,
-    }));
-  }
-
   return [
     {
-      name: formatAiGeneratedTaskName(
-        `Review and respond: ${subject || "Untitled email"}`.slice(0, 120),
-      ),
+      name: actionable
+        ? actionable.slice(0, 120)
+        : formatAiGeneratedTaskName(
+            `Review and respond: ${subject || "Untitled email"}`.slice(0, 120),
+          ),
       description: preview,
       priority: 3,
     },
@@ -876,7 +947,9 @@ export function buildHeuristicAnalysis(
     };
   }
 
-  if (detectTransactionalNotification(subject, input.senderEmail)) {
+  const critical = isCriticalAccountNotice(subject, bodyText);
+
+  if (!critical && detectTransactionalNotification(subject, input.senderEmail)) {
     const actionTitle = `Automated notification: ${subject}`.slice(0, 140);
     return {
       classification: "reference",
@@ -899,7 +972,7 @@ export function buildHeuristicAnalysis(
     };
   }
 
-  if (detectNewsletter(subject, input.senderEmail)) {
+  if (!critical && detectNewsletter(subject, input.senderEmail)) {
     const actionTitle = `Decide whether to archive: ${subject}`.slice(0, 140);
     return {
       classification: "newsletter",
@@ -922,10 +995,12 @@ export function buildHeuristicAnalysis(
   }
 
   const projectId = guessProjectId(subject, bodyText, input.projectOptions);
-  const taskSuggestions = fallbackTaskSuggestions(subject, bodyText);
-  const responseRequired = /\?|reply|respond|please|need|can you/i.test(
-    `${subject} ${bodyText}`,
-  );
+  const taskSuggestions = fallbackTaskSuggestions(subject, bodyText, {
+    critical,
+  });
+  const responseRequired =
+    critical ||
+    /\?|reply|respond|please|need|can you/i.test(`${subject} ${bodyText}`);
   const actionTitle = subject.slice(0, 140);
 
   return {
@@ -1068,7 +1143,36 @@ function parseAnalysisJson(text: string): any {
   throw new Error("Email triage model returned invalid JSON");
 }
 
+/**
+ * Triage entry point. Runs the LLM/heuristic analysis, then applies the hard
+ * task rules on the normal path too: transactional/no-reply/newsletter mail
+ * never yields tasks (even at high LLM confidence), while critical account
+ * notices are guaranteed exactly one task.
+ */
 export async function analyzeThreadWithAI(
+  input: EmailThreadAIInput,
+): Promise<EmailThreadAIOutput> {
+  const result = await analyzeThreadWithAIUnguarded(input);
+  if (result.classification === "spam" || result.status === "quarantine") {
+    return result;
+  }
+  if (isCriticalAccountNotice(input.subject, input.bodyText)) {
+    if (result.taskSuggestions.length > 0) return result;
+    return {
+      ...result,
+      classification: "actionable",
+      taskSuggestions: fallbackTaskSuggestions(input.subject, input.bodyText, {
+        critical: true,
+      }),
+    };
+  }
+  if (shouldVetoTasks(input) && result.taskSuggestions.length > 0) {
+    return { ...result, taskSuggestions: [] };
+  }
+  return result;
+}
+
+async function analyzeThreadWithAIUnguarded(
   input: EmailThreadAIInput,
 ): Promise<EmailThreadAIOutput> {
   // forceHeuristic (SPAM_FALLBACK_MODE=private, or a rule that already decided
