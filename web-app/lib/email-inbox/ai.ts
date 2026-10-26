@@ -14,6 +14,7 @@ import {
   type ModelSpec,
 } from "@/lib/ai/structured-waterfall";
 import { resolveEmailChain } from "@/lib/ai/email-provider";
+import { isNeverTaskSender } from "@/lib/email-inbox/reprocess";
 import { createUntrustedFence } from "@/lib/ai-agent/untrusted";
 
 export type EmailThreadAIInput = {
@@ -816,14 +817,27 @@ export function repairGenericTaskName(name: string, subject?: string | null) {
   return name;
 }
 
+/**
+ * Newsletter/bulk detection. A subject keyword ("update", "digest", ...) ALONE
+ * never matches — a real person can write "Project update for you". The
+ * keyword must co-occur with a genuine bulk/automated sender signal
+ * (no-reply/notifications@/newsletter@-style address, or a NEVER_TASK sender).
+ * A noreply@ sender is bulk on its own. (Bulk headers such as List-Unsubscribe
+ * are not available on EmailThreadAIInput; add them here if they get plumbed.)
+ */
 function detectNewsletter(subject: string, senderEmail: string) {
   const normalizedSubject = subject.toLowerCase();
-  return (
-    senderEmail.toLowerCase().startsWith("noreply@") ||
+  const sender = senderEmail.toLowerCase();
+  if (sender.startsWith("noreply@")) return true;
+  const bulkSender =
+    /^(no-reply|donotreply|notifications?|newsletters?|news|digest|mailer|updates?|marketing)@/.test(
+      sender,
+    ) || isNeverTaskSender(sender);
+  const keyword =
     normalizedSubject.includes("newsletter") ||
     normalizedSubject.includes("digest") ||
-    normalizedSubject.includes("update")
-  );
+    normalizedSubject.includes("update");
+  return keyword && bulkSender;
 }
 
 /**

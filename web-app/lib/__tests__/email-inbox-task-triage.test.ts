@@ -83,3 +83,23 @@ test("fallback splitter emits at most one task and none without a needed respons
   });
   assert.equal(many.taskSuggestions.length, 1);
 });
+
+test("real person with 'update' in subject is NOT vetoed", async () => {
+  const result = await analyzeThreadWithAI({
+    ...base,
+    subject: "Project update for you",
+    bodyText: "Can you review the attached plan and reply by Friday?",
+    senderEmail: "pat@client.com",
+  });
+  assert.equal(result.taskSuggestions.length, 1);
+});
+
+test("keyword plus bulk sender is still vetoed", async () => {
+  const result = await analyzeThreadWithAI({
+    ...base,
+    subject: "Product update: please review",
+    bodyText: "Can you try it? Please reply.",
+    senderEmail: "updates@vendor.com",
+  });
+  assert.deepEqual(result.taskSuggestions, []);
+});
