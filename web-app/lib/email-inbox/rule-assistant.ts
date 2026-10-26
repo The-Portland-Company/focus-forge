@@ -29,6 +29,9 @@ const ALLOWED_ACTIONS = new Set<EmailRuleAction["type"]>([
   "assign_mailbox_owner",
   "require_project",
   "generate_tasks",
+  "set_classification",
+  "set_inbox_tab",
+  "skip_ai",
 ]);
 
 export const EMAIL_RULE_FIELD_OPTIONS = [

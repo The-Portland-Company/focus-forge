@@ -68,6 +68,9 @@ const ACTION_LABEL: Record<EmailRuleAction["type"], string> = {
   assign_mailbox_owner: "Assign to mailbox owner",
   require_project: "Require a project",
   generate_tasks: "Generate tasks",
+  set_classification: "Set classification",
+  set_inbox_tab: "Route to inbox tab",
+  skip_ai: "Skip AI (I know what this is)",
 };
 
 function describeCondition(condition: EmailRuleCondition): string {

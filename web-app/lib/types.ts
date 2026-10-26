@@ -541,6 +541,12 @@ export interface InboxItem {
    *  that predate this field. */
   attachmentCount?: number;
   matchedRuleIds?: string[];
+  /** Deterministic triage: who decided this thread's fate. */
+  decidedBy?: "rule" | "ai" | "heuristic" | "knn" | null;
+  /** The terminal (or highest-precedence) rule that decided it, if any. */
+  winningRuleId?: string | null;
+  /** Triage lifecycle state. */
+  triageState?: "rule" | "pending_ai" | "ai" | "manual" | null;
   /** Explicit tab assignment (a "moved" thread). When set, the thread belongs
    *  ONLY to this tab and is hidden from other category tabs and "All". */
   inboxTabId?: string | null;
@@ -576,7 +582,13 @@ export interface EmailRuleAction {
     | "never_spam"
     | "assign_mailbox_owner"
     | "require_project"
-    | "generate_tasks";
+    | "generate_tasks"
+    // Deterministic triage actions (rules engine):
+    // set the thread's classification, route it to an inbox tab, or assert the
+    // user knows what this is so the AI never runs on it (skip_ai is terminal).
+    | "set_classification"
+    | "set_inbox_tab"
+    | "skip_ai";
   value?: string | boolean | number | null;
 }
 
@@ -594,6 +606,14 @@ export interface EmailRule {
   conditions: EmailRuleCondition[];
   actions: EmailRuleAction[];
   stopProcessing: boolean;
+  /** sha256 of scope + sorted conditions + sorted actions (dedup gate). */
+  fingerprint?: string | null;
+  /** Grouping key: receipts | otp | newsletters | known_contacts | vendors ... */
+  groupKey?: string | null;
+  /** Who authored the rule. */
+  generatedBy?: "user" | "ai" | "system" | null;
+  hitCount?: number;
+  lastHitAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

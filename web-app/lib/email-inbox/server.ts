@@ -37,6 +37,14 @@ import {
   applyEmailRules,
   type EmailRuleContext,
 } from "@/lib/email-inbox/rules";
+import { evaluateEmailRules } from "@/lib/email-inbox/triage/evaluate";
+import { buildRuleContextForMessage } from "@/lib/email-inbox/triage/context";
+import {
+  type RuleVerdict,
+  type TriageRecord,
+  type TriageState,
+} from "@/lib/email-inbox/triage/verdict";
+import { computeRuleFingerprint } from "@/lib/email-inbox/triage/fingerprint";
 import {
   applySpamKnnOverride,
   resolveRuleDrivenThreadState,
@@ -783,7 +791,11 @@ async function findExistingThreadForMessage(mailbox: any, message: any) {
   return existing?.id ? existing : null;
 }
 
-async function findThreadForMessage(mailbox: any, message: any) {
+async function findThreadForMessage(
+  mailbox: any,
+  message: any,
+  verdict?: RuleVerdict | null,
+) {
   const admin = getAdminClient();
 
   const matched = await findExistingThreadForMessage(mailbox, message);
@@ -799,6 +811,16 @@ async function findThreadForMessage(mailbox: any, message: any) {
     fromEmail: message.from?.[0]?.email || null,
   });
 
+  // Stage 0 deterministic triage runs BEFORE the thread is visible. A terminal
+  // rule (spam/quarantine/archive/always_delete/skip_ai) sets status and
+  // classification here, so the thread never appears in the inbox as
+  // "unknown"; a non-terminal (or no) match leaves the legacy active/unknown
+  // defaults and marks the thread pending_ai so Stage 1 enhances it.
+  const triage =
+    verdict && verdict.matchedRuleIds.length > 0
+      ? buildThreadTriageColumns(verdict, "")
+      : null;
+
   const threadPayload = {
     mailbox_id: mailbox.id,
     project_id: null,
@@ -807,8 +829,13 @@ async function findThreadForMessage(mailbox: any, message: any) {
     provider_thread_id: null,
     thread_key: threadKey,
     origin: "inbound",
-    status: "active",
-    classification: "unknown",
+    status: triage?.status ?? "active",
+    classification: triage?.classification ?? "unknown",
+    inbox_tab_id: triage?.inbox_tab_id ?? null,
+    needs_project: triage?.needs_project ?? false,
+    always_delete: triage?.always_delete ?? false,
+    triage_json: triage?.triage_json ?? null,
+    triage_state: triage?.triage_state ?? (verdict ? "pending_ai" : null),
     resolution_state: "open",
     action_title: message.subject || "Untitled email",
     subject: message.subject || "Untitled email",
@@ -900,7 +927,11 @@ async function persistParticipants(
   }
 }
 
-async function ingestMailboxMessage(mailbox: any, message: any) {
+async function ingestMailboxMessage(
+  mailbox: any,
+  message: any,
+  rules?: EmailRule[] | null,
+) {
   const admin = getAdminClient();
   const { data: existing } = await admin
     .from("email_messages")
@@ -914,10 +945,28 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
       threadId: existing.thread_id as string,
       messageId: existing.id as string,
       inserted: false,
+      terminal: false,
     };
   }
 
-  const thread = await findThreadForMessage(mailbox, message);
+  // Stage 0: evaluate deterministic rules against the freshly-parsed message
+  // BEFORE it is stored, so a terminal rule routes it out of the inbox on
+  // insert. Rules are loaded once per sync batch and passed in; a missing set
+  // (other ingest callers) just means no pre-ingest triage.
+  let verdict: RuleVerdict | null = null;
+  if (rules && rules.length > 0) {
+    try {
+      verdict = evaluateEmailRules(
+        scopeRulesToMailbox(rules, mailbox),
+        buildRuleContextForMessage(mailbox, message),
+      );
+    } catch (e) {
+      console.error("Stage 0 rule evaluation (ingest) failed:", e);
+      verdict = null;
+    }
+  }
+
+  const thread = await findThreadForMessage(mailbox, message, verdict);
   const threadId = String(thread.id);
   const senderContact = message.from?.[0]
     ? await upsertContact(mailbox, message.from[0])
@@ -977,6 +1026,7 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
         threadId: existingAfterConflict.thread_id as string,
         messageId: existingAfterConflict.id as string,
         inserted: false,
+        terminal: false,
       };
     }
 
@@ -1039,11 +1089,39 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
       new Date(incomingTs).getTime() >
         new Date(threadTimes!.latest_message_at as string).getTime();
     threadUpdate.is_unread = isNewInboundReply ? true : message.isUnread;
+
+    // Stage 0 on the newest message of an EXISTING thread. A terminal rule
+    // re-routes the whole thread (e.g. a reply that now matches a spam rule);
+    // a non-terminal match (or any new inbound) marks it pending_ai so Stage 1
+    // re-enhances. Rule-decided status/classification are written here so the
+    // thread never flashes back to the inbox before AI runs.
+    if (verdict && verdict.matchedRuleIds.length > 0) {
+      const triage = buildThreadTriageColumns(verdict, String(inserted.id));
+      threadUpdate.triage_json = triage.triage_json;
+      threadUpdate.triage_state = triage.triage_state;
+      if (verdict.terminal) {
+        if (triage.status) threadUpdate.status = triage.status;
+        if (triage.classification)
+          threadUpdate.classification = triage.classification;
+        if (triage.inbox_tab_id !== null)
+          threadUpdate.inbox_tab_id = triage.inbox_tab_id;
+        threadUpdate.needs_project = triage.needs_project;
+        threadUpdate.always_delete = triage.always_delete;
+      }
+    } else if (verdict) {
+      // No rule matched the new message: it still needs AI triage.
+      threadUpdate.triage_state = "pending_ai";
+    }
   }
 
   await admin.from("email_threads").update(threadUpdate).eq("id", threadId);
 
-  return { threadId, messageId: inserted.id as string, inserted: true };
+  return {
+    threadId,
+    messageId: inserted.id as string,
+    inserted: true,
+    terminal: Boolean(verdict?.terminal),
+  };
 }
 
 /**
@@ -1299,6 +1377,63 @@ function buildRuleContext(mailbox: any, message: any): EmailRuleContext {
   };
 }
 
+/**
+ * Restrict a user's full rule set to those that apply to a given mailbox:
+ * mailbox-scoped rules for this mailbox, org-scoped rules for the mailbox's org,
+ * and user/global rules. Mirrors the legacy filter in reprocessThread so the
+ * pre-ingest Stage 0 evaluation and the post-ingest re-evaluation agree.
+ */
+function scopeRulesToMailbox(rules: EmailRule[], mailbox: any): EmailRule[] {
+  return rules.filter(
+    (rule) =>
+      !rule.mailboxId ||
+      rule.mailboxId === mailbox.id ||
+      (!rule.mailboxId && !rule.organizationId) ||
+      (rule.organizationId && rule.organizationId === mailbox.organization_id),
+  );
+}
+
+/**
+ * Translate a deterministic RuleVerdict into the email_threads columns to
+ * persist, plus the compact triage_json record. `aiCalled` stays false here —
+ * Stage 1 (enhanceWithAI) flips it and records the AI sub-result.
+ */
+function buildThreadTriageColumns(
+  verdict: RuleVerdict,
+  messageId: string,
+): {
+  status: string | null;
+  classification: string | null;
+  inbox_tab_id: string | null;
+  needs_project: boolean;
+  always_delete: boolean;
+  triage_json: TriageRecord;
+  triage_state: TriageState;
+} {
+  const triageState: TriageState = verdict.terminal ? "rule" : "pending_ai";
+  const triageRecord: TriageRecord = {
+    v: 1,
+    evaluatedAt: new Date().toISOString(),
+    messageId: String(messageId),
+    decidedBy: "rule",
+    winningRuleId: verdict.winningRuleId,
+    matchedRuleIds: verdict.matchedRuleIds,
+    actions: verdict.actions,
+    terminal: verdict.terminal,
+    aiCalled: false,
+    ai: null,
+  };
+  return {
+    status: verdict.status,
+    classification: verdict.classification,
+    inbox_tab_id: verdict.inboxTabId,
+    needs_project: verdict.needsProject,
+    always_delete: verdict.alwaysDelete,
+    triage_json: triageRecord,
+    triage_state: triageState,
+  };
+}
+
 function mapThreadToInboxItem(params: {
   row: any;
   mailbox: Mailbox | undefined;
@@ -1373,11 +1508,18 @@ function mapThreadToInboxItem(params: {
       params.attachmentCount && params.attachmentCount > 0
         ? params.attachmentCount
         : 0,
-    matchedRuleIds: Array.isArray(params.row.analysis_json?.matchedRuleIds)
-      ? params.row.analysis_json.matchedRuleIds
+    matchedRuleIds: Array.isArray(params.row.triage_json?.matchedRuleIds)
+      ? params.row.triage_json.matchedRuleIds
           .map((value: unknown) => String(value || "").trim())
           .filter(Boolean)
-      : [],
+      : Array.isArray(params.row.analysis_json?.matchedRuleIds)
+        ? params.row.analysis_json.matchedRuleIds
+            .map((value: unknown) => String(value || "").trim())
+            .filter(Boolean)
+        : [],
+    decidedBy: params.row.triage_json?.decidedBy ?? null,
+    winningRuleId: params.row.triage_json?.winningRuleId ?? null,
+    triageState: params.row.triage_state ?? null,
     inboxTabId: params.row.inbox_tab_id ?? null,
     priority: (params.row.priority ?? null) as 1 | 2 | 3 | 4 | null,
     // Cached "AI decides" verdicts (see the ai_tab_verdicts_json migration).
@@ -2642,6 +2784,7 @@ export async function listInboxItemsForUser(
     "is_starred,work_due_date,work_due_time,needs_project,always_delete," +
     "boomerang_until,boomerang_task_id,inbox_tab_id,ai_tab_verdicts_json," +
     "priority," +
+    "triage_json,triage_state," +
     "analysis_json,task_suggestions_json,created_at,updated_at";
 
   // Cap the result set: the UI paginates client-side at 50/page, so 200 keeps
@@ -4407,15 +4550,30 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
     );
     const syncedProviderMessageIds: string[] = [];
 
+    // Load the owner's rules ONCE for the whole batch (Stage 0 runs per message
+    // during ingest; loading per-message would issue 3 queries each).
+    let batchRules: EmailRule[] = [];
+    try {
+      batchRules = await listRulesForUser(mailbox.owner_user_id);
+    } catch (e) {
+      console.error("listRulesForUser (sync batch) failed:", e);
+      batchRules = [];
+    }
+
     for (const message of messages) {
-      const result = await ingestMailboxMessage(mailbox, message);
+      const result = await ingestMailboxMessage(mailbox, message, batchRules);
       syncedProviderMessageIds.push(String(message.providerMessageId));
       // H1: only enqueue for analysis when a NEW message was actually stored.
       // ingestMailboxMessage returns inserted:false when the provider message
       // already exists (the common case on every routine poll of an unchanged
       // mailbox / UID-cursor-less SINCE refetch). Re-queuing those re-ran the
       // full k-NN+LLM+trace path on every poll — the dominant trace-bloat driver.
-      if (result.inserted) {
+      //
+      // M2: a TERMINAL rule (spam/quarantine/archive/always_delete/skip_ai)
+      // already decided this thread deterministically during ingest, so it
+      // neither needs AI enhancement nor a "new mail" push notification — skip
+      // both. Non-terminal threads flow on to Stage 1 as before.
+      if (result.inserted && !result.terminal) {
         changedThreadIds.add(result.threadId);
         notificationCandidates.push({
           message,
@@ -4451,11 +4609,16 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       Array.from(changedThreadIds).map(String),
     );
     try {
+      // Exclude threads a TERMINAL rule already settled (triage_state='rule'):
+      // they have no analysis_json by design and must not be pulled back into
+      // the AI queue, which would undo the whole "rules decide before the AI"
+      // boundary (M2).
       const { data: pendingThreads } = await admin
         .from("email_threads")
         .select("id")
         .eq("mailbox_id", mailboxId)
         .is("analysis_json", null)
+        .or("triage_state.is.null,triage_state.neq.rule")
         .order("latest_message_at", { ascending: false })
         .limit(THREAD_ANALYSIS_RETRY_LIMIT);
       for (const row of pendingThreads || []) {
