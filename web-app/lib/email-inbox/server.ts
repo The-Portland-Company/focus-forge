@@ -41,6 +41,7 @@ import {
   applySpamKnnOverride,
   resolveRuleDrivenThreadState,
   isContentSpamExemptSender,
+  canAutoCreateTasksForMessage,
 } from "@/lib/email-inbox/reprocess";
 import {
   normalizeParticipant,
@@ -3698,7 +3699,11 @@ export async function reprocessThread(
     projectId &&
     aiResult.taskSuggestions.length > 0 &&
     (aiResult.confidence >= 0.7 || ruleActions.has("generate_tasks")) &&
-    status === "active"
+    status === "active" &&
+    canAutoCreateTasksForMessage(
+      latestMessage,
+      buildRuleContext(mailbox, latestMessage).senderEmail,
+    )
   ) {
     await createTasksForThreadInternal({
       actorUserId: mailbox.owner_user_id,
