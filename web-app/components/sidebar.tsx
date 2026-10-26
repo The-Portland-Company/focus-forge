@@ -1290,7 +1290,8 @@ export function Sidebar({
             ? (e) => {
                 setDraggedNavId(id);
                 e.dataTransfer.effectAllowed = "move";
-                setTimeout(() => e.currentTarget.classList.add("dragging"), 0);
+                const dragEl = e.currentTarget;
+                setTimeout(() => dragEl?.classList.add("dragging"), 0);
               }
             : undefined
         }
@@ -2405,8 +2406,9 @@ export function Sidebar({
                     onDragStart={(e) => {
                       setDraggedOrg(org.id);
                       e.dataTransfer.effectAllowed = "move";
+                      const dragEl = e.currentTarget;
                       setTimeout(() => {
-                        e.currentTarget.classList.add("dragging");
+                        dragEl?.classList.add("dragging");
                       }, 0);
                     }}
                     onDragEnd={(e) => {
@@ -2616,8 +2618,9 @@ export function Sidebar({
                               setDraggedProject(project.id);
                               e.dataTransfer.effectAllowed = "move";
                               // Add ghost class after a small delay
+                              const dragEl = e.currentTarget;
                               setTimeout(() => {
-                                e.currentTarget.classList.add("dragging");
+                                dragEl?.classList.add("dragging");
                               }, 0);
                             }}
                             onDragEnd={(e) => {
