@@ -116,6 +116,26 @@ export function applySpamKnnOverride<
   return { classification, status, needsProject };
 }
 
+/**
+ * M2 boundary helper: a rule-decided field is immutable to the AI. Given the
+ * AI's resolved classification/inbox tab and the deterministic verdict, the
+ * verdict's non-null value always wins; otherwise the AI value stands.
+ *
+ * Kept pure (no DB) so the "AI never overwrites a rule-decided field" contract
+ * is unit-testable.
+ */
+export function mergeRuleDecidedFields<C>(params: {
+  aiClassification: C;
+  aiInboxTabId: string | null;
+  verdictClassification: C | null;
+  verdictInboxTabId: string | null;
+}): { classification: C; inboxTabId: string | null } {
+  return {
+    classification: params.verdictClassification ?? params.aiClassification,
+    inboxTabId: params.verdictInboxTabId ?? params.aiInboxTabId,
+  };
+}
+
 export function resolveRuleDrivenThreadState(params: {
   aiResult: EmailThreadAIOutput;
   ruleActions: Set<string>;

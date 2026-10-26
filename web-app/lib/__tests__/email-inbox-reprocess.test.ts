@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   applySpamKnnOverride,
   resolveRuleDrivenThreadState,
+  mergeRuleDecidedFields,
   isContentSpamExemptSender,
 } from "../email-inbox/reprocess";
 
@@ -151,4 +152,26 @@ test("applySpamKnnOverride is skipped when content spam is suppressed", () => {
 
   assert.equal(result.classification, "actionable");
   assert.equal(result.status, "active");
+});
+
+test("mergeRuleDecidedFields: a rule-decided classification wins over the AI", () => {
+  const merged = mergeRuleDecidedFields({
+    aiClassification: "actionable",
+    aiInboxTabId: null,
+    verdictClassification: "newsletter",
+    verdictInboxTabId: "tab-9",
+  });
+  assert.equal(merged.classification, "newsletter");
+  assert.equal(merged.inboxTabId, "tab-9");
+});
+
+test("mergeRuleDecidedFields: AI stands where no rule decided the field", () => {
+  const merged = mergeRuleDecidedFields({
+    aiClassification: "reference",
+    aiInboxTabId: null,
+    verdictClassification: null,
+    verdictInboxTabId: null,
+  });
+  assert.equal(merged.classification, "reference");
+  assert.equal(merged.inboxTabId, null);
 });

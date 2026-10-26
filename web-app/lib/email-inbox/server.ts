@@ -37,9 +37,24 @@ import {
   applyEmailRules,
   type EmailRuleContext,
 } from "@/lib/email-inbox/rules";
+import { evaluateEmailRules } from "@/lib/email-inbox/triage/evaluate";
+import { buildRuleContextForMessage } from "@/lib/email-inbox/triage/context";
+import {
+  type RuleVerdict,
+  type TriageRecord,
+  type TriageState,
+} from "@/lib/email-inbox/triage/verdict";
+import { computeRuleFingerprint } from "@/lib/email-inbox/triage/fingerprint";
+import {
+  evaluateProposal,
+  type RuleCandidate,
+  type RuleProposalDecision,
+  type ProposalOutcome,
+} from "@/lib/email-inbox/triage/propose";
 import {
   applySpamKnnOverride,
   resolveRuleDrivenThreadState,
+  mergeRuleDecidedFields,
   isContentSpamExemptSender,
   canAutoCreateTasksForMessage,
 } from "@/lib/email-inbox/reprocess";
@@ -783,7 +798,11 @@ async function findExistingThreadForMessage(mailbox: any, message: any) {
   return existing?.id ? existing : null;
 }
 
-async function findThreadForMessage(mailbox: any, message: any) {
+async function findThreadForMessage(
+  mailbox: any,
+  message: any,
+  verdict?: RuleVerdict | null,
+) {
   const admin = getAdminClient();
 
   const matched = await findExistingThreadForMessage(mailbox, message);
@@ -799,6 +818,16 @@ async function findThreadForMessage(mailbox: any, message: any) {
     fromEmail: message.from?.[0]?.email || null,
   });
 
+  // Stage 0 deterministic triage runs BEFORE the thread is visible. A terminal
+  // rule (spam/quarantine/archive/always_delete/skip_ai) sets status and
+  // classification here, so the thread never appears in the inbox as
+  // "unknown"; a non-terminal (or no) match leaves the legacy active/unknown
+  // defaults and marks the thread pending_ai so Stage 1 enhances it.
+  const triage =
+    verdict && verdict.matchedRuleIds.length > 0
+      ? buildThreadTriageColumns(verdict, "")
+      : null;
+
   const threadPayload = {
     mailbox_id: mailbox.id,
     project_id: null,
@@ -807,8 +836,13 @@ async function findThreadForMessage(mailbox: any, message: any) {
     provider_thread_id: null,
     thread_key: threadKey,
     origin: "inbound",
-    status: "active",
-    classification: "unknown",
+    status: triage?.status ?? "active",
+    classification: triage?.classification ?? "unknown",
+    inbox_tab_id: triage?.inbox_tab_id ?? null,
+    needs_project: triage?.needs_project ?? false,
+    always_delete: triage?.always_delete ?? false,
+    triage_json: triage?.triage_json ?? null,
+    triage_state: triage?.triage_state ?? (verdict ? "pending_ai" : null),
     resolution_state: "open",
     action_title: message.subject || "Untitled email",
     subject: message.subject || "Untitled email",
@@ -900,7 +934,11 @@ async function persistParticipants(
   }
 }
 
-async function ingestMailboxMessage(mailbox: any, message: any) {
+async function ingestMailboxMessage(
+  mailbox: any,
+  message: any,
+  rules?: EmailRule[] | null,
+) {
   const admin = getAdminClient();
   const { data: existing } = await admin
     .from("email_messages")
@@ -914,10 +952,28 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
       threadId: existing.thread_id as string,
       messageId: existing.id as string,
       inserted: false,
+      terminal: false,
     };
   }
 
-  const thread = await findThreadForMessage(mailbox, message);
+  // Stage 0: evaluate deterministic rules against the freshly-parsed message
+  // BEFORE it is stored, so a terminal rule routes it out of the inbox on
+  // insert. Rules are loaded once per sync batch and passed in; a missing set
+  // (other ingest callers) just means no pre-ingest triage.
+  let verdict: RuleVerdict | null = null;
+  if (rules && rules.length > 0) {
+    try {
+      verdict = evaluateEmailRules(
+        scopeRulesToMailbox(rules, mailbox),
+        buildRuleContextForMessage(mailbox, message),
+      );
+    } catch (e) {
+      console.error("Stage 0 rule evaluation (ingest) failed:", e);
+      verdict = null;
+    }
+  }
+
+  const thread = await findThreadForMessage(mailbox, message, verdict);
   const threadId = String(thread.id);
   const senderContact = message.from?.[0]
     ? await upsertContact(mailbox, message.from[0])
@@ -977,6 +1033,7 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
         threadId: existingAfterConflict.thread_id as string,
         messageId: existingAfterConflict.id as string,
         inserted: false,
+        terminal: false,
       };
     }
 
@@ -1039,11 +1096,39 @@ async function ingestMailboxMessage(mailbox: any, message: any) {
       new Date(incomingTs).getTime() >
         new Date(threadTimes!.latest_message_at as string).getTime();
     threadUpdate.is_unread = isNewInboundReply ? true : message.isUnread;
+
+    // Stage 0 on the newest message of an EXISTING thread. A terminal rule
+    // re-routes the whole thread (e.g. a reply that now matches a spam rule);
+    // a non-terminal match (or any new inbound) marks it pending_ai so Stage 1
+    // re-enhances. Rule-decided status/classification are written here so the
+    // thread never flashes back to the inbox before AI runs.
+    if (verdict && verdict.matchedRuleIds.length > 0) {
+      const triage = buildThreadTriageColumns(verdict, String(inserted.id));
+      threadUpdate.triage_json = triage.triage_json;
+      threadUpdate.triage_state = triage.triage_state;
+      if (verdict.terminal) {
+        if (triage.status) threadUpdate.status = triage.status;
+        if (triage.classification)
+          threadUpdate.classification = triage.classification;
+        if (triage.inbox_tab_id !== null)
+          threadUpdate.inbox_tab_id = triage.inbox_tab_id;
+        threadUpdate.needs_project = triage.needs_project;
+        threadUpdate.always_delete = triage.always_delete;
+      }
+    } else if (verdict) {
+      // No rule matched the new message: it still needs AI triage.
+      threadUpdate.triage_state = "pending_ai";
+    }
   }
 
   await admin.from("email_threads").update(threadUpdate).eq("id", threadId);
 
-  return { threadId, messageId: inserted.id as string, inserted: true };
+  return {
+    threadId,
+    messageId: inserted.id as string,
+    inserted: true,
+    terminal: Boolean(verdict?.terminal),
+  };
 }
 
 /**
@@ -1299,6 +1384,63 @@ function buildRuleContext(mailbox: any, message: any): EmailRuleContext {
   };
 }
 
+/**
+ * Restrict a user's full rule set to those that apply to a given mailbox:
+ * mailbox-scoped rules for this mailbox, org-scoped rules for the mailbox's org,
+ * and user/global rules. Mirrors the legacy filter in reprocessThread so the
+ * pre-ingest Stage 0 evaluation and the post-ingest re-evaluation agree.
+ */
+function scopeRulesToMailbox(rules: EmailRule[], mailbox: any): EmailRule[] {
+  return rules.filter(
+    (rule) =>
+      !rule.mailboxId ||
+      rule.mailboxId === mailbox.id ||
+      (!rule.mailboxId && !rule.organizationId) ||
+      (rule.organizationId && rule.organizationId === mailbox.organization_id),
+  );
+}
+
+/**
+ * Translate a deterministic RuleVerdict into the email_threads columns to
+ * persist, plus the compact triage_json record. `aiCalled` stays false here —
+ * Stage 1 (enhanceWithAI) flips it and records the AI sub-result.
+ */
+function buildThreadTriageColumns(
+  verdict: RuleVerdict,
+  messageId: string,
+): {
+  status: string | null;
+  classification: string | null;
+  inbox_tab_id: string | null;
+  needs_project: boolean;
+  always_delete: boolean;
+  triage_json: TriageRecord;
+  triage_state: TriageState;
+} {
+  const triageState: TriageState = verdict.terminal ? "rule" : "pending_ai";
+  const triageRecord: TriageRecord = {
+    v: 1,
+    evaluatedAt: new Date().toISOString(),
+    messageId: String(messageId),
+    decidedBy: "rule",
+    winningRuleId: verdict.winningRuleId,
+    matchedRuleIds: verdict.matchedRuleIds,
+    actions: verdict.actions,
+    terminal: verdict.terminal,
+    aiCalled: false,
+    ai: null,
+  };
+  return {
+    status: verdict.status,
+    classification: verdict.classification,
+    inbox_tab_id: verdict.inboxTabId,
+    needs_project: verdict.needsProject,
+    always_delete: verdict.alwaysDelete,
+    triage_json: triageRecord,
+    triage_state: triageState,
+  };
+}
+
 function mapThreadToInboxItem(params: {
   row: any;
   mailbox: Mailbox | undefined;
@@ -1373,11 +1515,18 @@ function mapThreadToInboxItem(params: {
       params.attachmentCount && params.attachmentCount > 0
         ? params.attachmentCount
         : 0,
-    matchedRuleIds: Array.isArray(params.row.analysis_json?.matchedRuleIds)
-      ? params.row.analysis_json.matchedRuleIds
+    matchedRuleIds: Array.isArray(params.row.triage_json?.matchedRuleIds)
+      ? params.row.triage_json.matchedRuleIds
           .map((value: unknown) => String(value || "").trim())
           .filter(Boolean)
-      : [],
+      : Array.isArray(params.row.analysis_json?.matchedRuleIds)
+        ? params.row.analysis_json.matchedRuleIds
+            .map((value: unknown) => String(value || "").trim())
+            .filter(Boolean)
+        : [],
+    decidedBy: params.row.triage_json?.decidedBy ?? null,
+    winningRuleId: params.row.triage_json?.winningRuleId ?? null,
+    triageState: params.row.triage_state ?? null,
     inboxTabId: params.row.inbox_tab_id ?? null,
     priority: (params.row.priority ?? null) as 1 | 2 | 3 | 4 | null,
     // Cached "AI decides" verdicts (see the ai_tab_verdicts_json migration).
@@ -2642,6 +2791,7 @@ export async function listInboxItemsForUser(
     "is_starred,work_due_date,work_due_time,needs_project,always_delete," +
     "boomerang_until,boomerang_task_id,inbox_tab_id,ai_tab_verdicts_json," +
     "priority," +
+    "triage_json,triage_state," +
     "analysis_json,task_suggestions_json,created_at,updated_at";
 
   // Cap the result set: the UI paginates client-side at 50/page, so 200 keeps
@@ -3307,13 +3457,25 @@ export async function reprocessThread(
       (rule.organizationId && rule.organizationId === mailbox.organization_id),
   );
 
-  const appliedRules = applyEmailRules(
+  // Stage 0: deterministic rules engine. evaluateEmailRules produces the full
+  // RuleVerdict (ordered, with terminal detection); the shim keeps the rest of
+  // this function's legacy `appliedRules.actions` / `.matchedRules` references
+  // working unchanged.
+  const verdict = evaluateEmailRules(
     relevantRules,
     buildRuleContext(mailbox, latestMessage),
   );
-  if (appliedRules.matchedRules.length > 0) {
+  const matchedRuleObjects = relevantRules.filter((rule) =>
+    verdict.matchedRuleIds.includes(rule.id),
+  );
+  const appliedRules = {
+    matchedRules: matchedRuleObjects,
+    actions: verdict.actions,
+    stopProcessing: verdict.terminal,
+  };
+  if (matchedRuleObjects.length > 0) {
     await admin.from("email_rule_runs").insert(
-      appliedRules.matchedRules.map((rule) => ({
+      matchedRuleObjects.map((rule) => ({
         rule_id: rule.id,
         thread_id: thread.id,
         message_id: latestMessage.id,
@@ -3323,6 +3485,71 @@ export async function reprocessThread(
         confidence: 1,
       })),
     );
+    // Lightweight per-rule counters (replace per-hit email_rule_runs history in
+    // Phase 4). Best-effort — never block triage.
+    const nowIso = new Date().toISOString();
+    await Promise.all(
+      matchedRuleObjects.map((rule) =>
+        admin
+          .from("email_rules")
+          .update({
+            hit_count: (rule.hitCount ?? 0) + 1,
+            last_hit_at: nowIso,
+          })
+          .eq("id", rule.id),
+      ),
+    ).catch((e) => console.error("rule hit_count bump failed:", e));
+  }
+
+  // Stage 1 boundary (M2): a TERMINAL rule decided this thread with no AI help.
+  // Settle it deterministically — no k-NN, no LLM, no assessSpam, no trace — and
+  // return. A manual re-analysis (options.manual) always runs the full path so
+  // the user can force the AI to look again.
+  if (verdict.terminal && !options?.manual) {
+    const triageCols = buildThreadTriageColumns(
+      verdict,
+      String(latestMessage.id),
+    );
+    const { error: terminalUpdateError } = await admin
+      .from("email_threads")
+      .update({
+        ...(triageCols.status ? { status: triageCols.status } : {}),
+        ...(triageCols.classification
+          ? { classification: triageCols.classification }
+          : {}),
+        ...(triageCols.inbox_tab_id !== null
+          ? { inbox_tab_id: triageCols.inbox_tab_id }
+          : {}),
+        ...(triageCols.classification === "spam"
+          ? { is_unread: false }
+          : {}),
+        needs_project: triageCols.needs_project,
+        always_delete: triageCols.always_delete,
+        owner_user_id: verdict.actions.includes("assign_mailbox_owner")
+          ? mailbox.owner_user_id
+          : thread.owner_user_id,
+        triage_json: triageCols.triage_json,
+        triage_state: "rule",
+        // Preserve the idempotency key so routine re-polls skip this thread.
+        analysis_json: {
+          ...((thread.analysis_json as Record<string, unknown> | null) ?? {}),
+          messageId: String(latestMessage.id),
+          matchedRuleIds: verdict.matchedRuleIds,
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", thread.id);
+    if (terminalUpdateError) {
+      throw new Error(
+        `Failed to persist terminal rule triage: ${terminalUpdateError.message}`,
+      );
+    }
+    const { data: refreshedTerminal } = await admin
+      .from("email_threads")
+      .select("*")
+      .eq("id", thread.id)
+      .maybeSingle();
+    return refreshedTerminal;
   }
 
   const preventSpamClassification = appliedRules.actions.includes("never_spam");
@@ -3525,6 +3752,21 @@ export async function reprocessThread(
       ruleActions,
     });
 
+  // M2: a rule-decided field must NEVER be flipped by the AI. A non-terminal
+  // set_classification / set_inbox_tab rule owns that field; the AI may fill
+  // everything the rule left undecided, but not override these.
+  const merged = mergeRuleDecidedFields({
+    aiClassification: classification,
+    aiInboxTabId: null,
+    verdictClassification: verdict.classification,
+    verdictInboxTabId: verdict.inboxTabId,
+  });
+  // The email_threads.classification column accepts the wider InboxItem set
+  // ("unknown"/"transactional"); a rule's set_classification may use those even
+  // though the AI output type is narrower. The value is persisted verbatim.
+  classification = merged.classification as typeof classification;
+  const ruleInboxTabId = merged.inboxTabId;
+
   // Capture the state a rule actually imposed BEFORE k-NN / assessSpam mutate
   // the locals below. `overriddenByRule` must mean "a rule changed the outcome
   // vs what the AI produced" — not merely "some rule (e.g. never_spam /
@@ -3638,9 +3880,35 @@ export async function reprocessThread(
       // in Focus — matching the manual "spam" action, which also marks it read.
       // The provider \Seen flag is synced separately by the spam mirror.
       ...(classification === "spam" ? { is_unread: false } : {}),
+      // A non-terminal set_inbox_tab rule routes the thread; the AI never
+      // changes a rule-decided tab.
+      ...(ruleInboxTabId !== null ? { inbox_tab_id: ruleInboxTabId } : {}),
       needs_project: needsProject,
       always_delete: alwaysDelete,
       task_suggestions_json: aiResult.taskSuggestions,
+      // Stage 1 deterministic record: the AI enhanced a non-terminal thread.
+      triage_json: {
+        v: 1,
+        evaluatedAt: new Date().toISOString(),
+        messageId: String(latestMessage.id),
+        decidedBy: aiResult.model
+          ? "ai"
+          : spamKnnUpgradedToSpam
+            ? "knn"
+            : "heuristic",
+        winningRuleId: verdict.winningRuleId,
+        matchedRuleIds: verdict.matchedRuleIds,
+        actions: verdict.actions,
+        terminal: false,
+        aiCalled: true,
+        ai: {
+          model: aiResult.model ?? null,
+          classification: aiResult.classification,
+          confidence: aiResult.confidence,
+          reason: aiResult.reason,
+        },
+      } satisfies TriageRecord,
+      triage_state: options?.manual ? "manual" : "ai",
       analysis_json: {
         ai: aiResult,
         // Persisted so the idempotency guard (top of reprocessThread) can tell a
@@ -4407,15 +4675,30 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
     );
     const syncedProviderMessageIds: string[] = [];
 
+    // Load the owner's rules ONCE for the whole batch (Stage 0 runs per message
+    // during ingest; loading per-message would issue 3 queries each).
+    let batchRules: EmailRule[] = [];
+    try {
+      batchRules = await listRulesForUser(mailbox.owner_user_id);
+    } catch (e) {
+      console.error("listRulesForUser (sync batch) failed:", e);
+      batchRules = [];
+    }
+
     for (const message of messages) {
-      const result = await ingestMailboxMessage(mailbox, message);
+      const result = await ingestMailboxMessage(mailbox, message, batchRules);
       syncedProviderMessageIds.push(String(message.providerMessageId));
       // H1: only enqueue for analysis when a NEW message was actually stored.
       // ingestMailboxMessage returns inserted:false when the provider message
       // already exists (the common case on every routine poll of an unchanged
       // mailbox / UID-cursor-less SINCE refetch). Re-queuing those re-ran the
       // full k-NN+LLM+trace path on every poll — the dominant trace-bloat driver.
-      if (result.inserted) {
+      //
+      // M2: a TERMINAL rule (spam/quarantine/archive/always_delete/skip_ai)
+      // already decided this thread deterministically during ingest, so it
+      // neither needs AI enhancement nor a "new mail" push notification — skip
+      // both. Non-terminal threads flow on to Stage 1 as before.
+      if (result.inserted && !result.terminal) {
         changedThreadIds.add(result.threadId);
         notificationCandidates.push({
           message,
@@ -4451,11 +4734,16 @@ export async function syncMailboxById(userId: string, mailboxId: string) {
       Array.from(changedThreadIds).map(String),
     );
     try {
+      // Exclude threads a TERMINAL rule already settled (triage_state='rule'):
+      // they have no analysis_json by design and must not be pulled back into
+      // the AI queue, which would undo the whole "rules decide before the AI"
+      // boundary (M2).
       const { data: pendingThreads } = await admin
         .from("email_threads")
         .select("id")
         .eq("mailbox_id", mailboxId)
         .is("analysis_json", null)
+        .or("triage_state.is.null,triage_state.neq.rule")
         .order("latest_message_at", { ascending: false })
         .limit(THREAD_ANALYSIS_RETRY_LIMIT);
       for (const row of pendingThreads || []) {
@@ -7799,7 +8087,24 @@ export async function ensureKnownContactRule(params: {
       });
     }
 
-    return await createRule(params.userId, payload);
+    // Route through the proposeRule gate so the known-contact rule is
+    // fingerprinted, grouped, and deduped alongside every other rule path.
+    // Known contacts are system-generated auto-trust, so they always activate.
+    const proposed = await proposeRule(params.userId, {
+      name: payload.name,
+      description: payload.description,
+      mailboxId: payload.mailboxId ?? null,
+      organizationId: null,
+      userId: params.userId,
+      matchMode: payload.matchMode,
+      priority: payload.priority,
+      conditions: payload.conditions,
+      actions: payload.actions,
+      stopProcessing: payload.stopProcessing,
+      groupKey: "known_contacts",
+      generatedBy: "system",
+    });
+    return proposed.rule;
   } catch (e) {
     console.error("ensureKnownContactRule failed:", e);
     return null;
@@ -8037,7 +8342,23 @@ export async function createSpamExceptionRuleForThread(
       rule = existingRule;
     }
   } else {
-    rule = await createRule(userId, payload);
+    // Route new spam-exception rules through the dedup/grouping gate. A user
+    // "Not spam" correction always activates, so generatedBy is "system".
+    const proposed = await proposeRule(userId, {
+      name: payload.name,
+      description: payload.description,
+      mailboxId: payload.mailboxId ?? null,
+      organizationId: null,
+      userId,
+      matchMode: payload.matchMode,
+      priority: payload.priority,
+      conditions: payload.conditions,
+      actions: payload.actions,
+      stopProcessing: payload.stopProcessing,
+      groupKey: "known_contacts",
+      generatedBy: "system",
+    });
+    rule = proposed.rule ?? existingRule ?? (await createRule(userId, payload));
   }
 
   // Training-through-the-UI: "Not spam" / allow-future-mail is a not_spam label.
@@ -8130,7 +8451,20 @@ export async function createRule(userId: string, payload: any) {
   if (payload.mailboxId) {
     await ensureMailboxManage(userId, payload.mailboxId);
   }
-  const { data } = await admin
+  // Fingerprint every rule so the proposeRule dedup gate and the partial unique
+  // index (user_id, fingerprint) WHERE is_active are meaningful. Computed from
+  // scope + normalised conditions + actions.
+  const fingerprint =
+    payload.fingerprint ??
+    computeRuleFingerprint({
+      mailboxId: payload.mailboxId ?? null,
+      organizationId: payload.organizationId ?? null,
+      userId: payload.userId ?? userId,
+      matchMode: payload.matchMode ?? "all",
+      conditions: payload.conditions ?? [],
+      actions: payload.actions ?? [],
+    });
+  const { data, error: insertError } = await admin
     .from("email_rules")
     .insert({
       organization_id: payload.organizationId ?? null,
@@ -8145,9 +8479,22 @@ export async function createRule(userId: string, payload: any) {
       conditions_json: payload.conditions ?? [],
       actions_json: payload.actions ?? [],
       stop_processing: payload.stopProcessing ?? false,
+      fingerprint,
+      group_key: payload.groupKey ?? null,
+      generated_by: payload.generatedBy ?? null,
     })
     .select()
     .single();
+
+  // The partial unique index (user_id, fingerprint) WHERE is_active rejects an
+  // exact active duplicate. Surface it as a clear error instead of crashing on
+  // coerceRule(null).
+  if (insertError) {
+    if (isUniqueViolation(insertError)) {
+      throw new Error("An identical active rule already exists.");
+    }
+    throw new Error(insertError.message || "Failed to create email rule");
+  }
 
   // AI-memory hook: a user-approved AI-suggested rule is a strong precedent.
   try {
@@ -8191,6 +8538,19 @@ export async function updateRule(userId: string, ruleId: string, payload: any) {
     await ensureMailboxManage(userId, String(rule.mailbox_id));
   }
 
+  const nextConditions = payload.conditions ?? rule.conditions_json ?? [];
+  const nextActions = payload.actions ?? rule.actions_json ?? [];
+  const nextMatchMode = payload.matchMode ?? rule.match_mode ?? "all";
+  // Recompute the fingerprint whenever scope-relevant fields change, so the
+  // dedup gate and the partial unique index stay accurate after an edit/merge.
+  const fingerprint = computeRuleFingerprint({
+    mailboxId: rule.mailbox_id ?? null,
+    organizationId: rule.organization_id ?? null,
+    userId: rule.user_id ?? userId,
+    matchMode: nextMatchMode,
+    conditions: nextConditions,
+    actions: nextActions,
+  });
   const { data } = await admin
     .from("email_rules")
     .update({
@@ -8198,10 +8558,12 @@ export async function updateRule(userId: string, ruleId: string, payload: any) {
       description: payload.description ?? rule.description,
       is_active: payload.isActive ?? rule.is_active,
       priority: payload.priority ?? rule.priority,
-      match_mode: payload.matchMode ?? rule.match_mode,
-      conditions_json: payload.conditions ?? rule.conditions_json,
-      actions_json: payload.actions ?? rule.actions_json,
+      match_mode: nextMatchMode,
+      conditions_json: nextConditions,
+      actions_json: nextActions,
       stop_processing: payload.stopProcessing ?? rule.stop_processing,
+      fingerprint,
+      ...(payload.groupKey !== undefined ? { group_key: payload.groupKey } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", ruleId)
@@ -8233,6 +8595,201 @@ export async function updateRule(userId: string, ruleId: string, payload: any) {
   }
 
   return coerceRule(data);
+}
+
+export type RuleProposalResult = {
+  outcome: ProposalOutcome | "rejected_cap";
+  decision: RuleProposalDecision;
+  rule: EmailRule | null;
+  /** True when this AI rule auto-activated and the user hasn't been told yet. */
+  firstAutoActivate: boolean;
+  /** True when the AI rule was created inactive, awaiting approval. */
+  pendingApproval: boolean;
+  message: string;
+};
+
+/**
+ * Resolve the org's AI-rule activation policy (owner decision #2): default is
+ * auto-activate; a per-org toggle at ai_settings.rules.autoActivate can flip to
+ * require-approval. Also tracks whether the "first auto-activate" notice has
+ * been shown, flipping the flag the first time we auto-activate an AI rule.
+ */
+async function resolveRuleActivationPolicy(
+  organizationId: string | null | undefined,
+): Promise<{ autoActivate: boolean; alreadyNotified: boolean }> {
+  if (!organizationId) return { autoActivate: true, alreadyNotified: true };
+  const admin = getAdminClient();
+  const { data: org } = await admin
+    .from("organizations")
+    .select("ai_settings")
+    .eq("id", organizationId)
+    .maybeSingle();
+  const settings = (org?.ai_settings ?? {}) as Record<string, any>;
+  const rules = (settings.rules ?? {}) as Record<string, any>;
+  return {
+    autoActivate: rules.autoActivate !== false, // default true
+    alreadyNotified: rules.autoActivateNotified === true,
+  };
+}
+
+/** Mark the first-auto-activate notice as delivered (idempotent, best-effort). */
+async function markAutoActivateNotified(
+  organizationId: string | null | undefined,
+): Promise<void> {
+  if (!organizationId) return;
+  const admin = getAdminClient();
+  try {
+    const { data: org } = await admin
+      .from("organizations")
+      .select("ai_settings")
+      .eq("id", organizationId)
+      .maybeSingle();
+    const settings = (org?.ai_settings ?? {}) as Record<string, any>;
+    const next = {
+      ...settings,
+      rules: {
+        ...(settings.rules ?? {}),
+        autoActivate: (settings.rules ?? {}).autoActivate !== false,
+        autoActivateNotified: true,
+      },
+    };
+    await admin
+      .from("organizations")
+      .update({ ai_settings: next })
+      .eq("id", organizationId);
+  } catch (e) {
+    console.error("markAutoActivateNotified failed:", e);
+  }
+}
+
+/**
+ * The single gate every rule-creating path goes through (NL assistant, spam
+ * exception, known contact, correction hooks). Normalises, fingerprints, and
+ * dedups the candidate against the user's active rules, then applies the
+ * outcome: duplicate_of / covered_by return the covering rule untouched;
+ * merge_into appends the value to the family rule (matchMode "any"); create
+ * makes a new rule honouring the activation policy and the ≤150 cap.
+ */
+export async function proposeRule(
+  userId: string,
+  candidate: RuleCandidate,
+): Promise<RuleProposalResult> {
+  if (candidate.mailboxId) {
+    await ensureMailboxManage(userId, candidate.mailboxId);
+  }
+
+  const allRules = await listRulesForUser(userId);
+  // Scope the comparison set to rules with the SAME visibility as the candidate
+  // (a mailbox rule only dedups against that mailbox's + global rules).
+  const scoped = allRules.filter(
+    (r) =>
+      (r.mailboxId || null) === (candidate.mailboxId || null) &&
+      (r.organizationId || null) === (candidate.organizationId || null),
+  );
+  const activeScoped = scoped.filter((r) => r.isActive);
+  const decision = evaluateProposal(candidate, activeScoped);
+
+  if (decision.outcome === "duplicate_of" || decision.outcome === "covered_by") {
+    const existing =
+      allRules.find((r) => r.id === decision.targetRuleId) ?? null;
+    return {
+      outcome: decision.outcome,
+      decision,
+      rule: existing,
+      firstAutoActivate: false,
+      pendingApproval: false,
+      message: decision.reason,
+    };
+  }
+
+  if (decision.outcome === "merge_into" && decision.targetRuleId) {
+    const target = allRules.find((r) => r.id === decision.targetRuleId);
+    if (target && decision.mergeValue && decision.mergeField) {
+      const updated = await updateRule(userId, target.id, {
+        matchMode: "any",
+        conditions: [
+          ...target.conditions,
+          {
+            field: decision.mergeField,
+            operator: target.conditions[0]?.operator ?? "equals",
+            value: decision.mergeValue,
+          },
+        ],
+      });
+      return {
+        outcome: "merge_into",
+        decision,
+        rule: updated,
+        firstAutoActivate: false,
+        pendingApproval: false,
+        message: decision.reason,
+      };
+    }
+  }
+
+  // outcome === "create"
+  if (decision.capExceeded) {
+    return {
+      outcome: "rejected_cap",
+      decision,
+      rule: null,
+      firstAutoActivate: false,
+      pendingApproval: false,
+      message: decision.reason,
+    };
+  }
+
+  const isAi = candidate.generatedBy === "ai";
+  const policy = isAi
+    ? await resolveRuleActivationPolicy(candidate.organizationId)
+    : { autoActivate: true, alreadyNotified: true };
+
+  const isActive = isAi ? policy.autoActivate : true;
+  const firstAutoActivate = isAi && policy.autoActivate && !policy.alreadyNotified;
+
+  const rule = await createRule(userId, {
+    ...candidate,
+    isActive,
+    fingerprint: decision.fingerprint,
+    source: candidate.generatedBy === "ai" ? "ai" : candidate.generatedBy ?? "user",
+  });
+
+  if (firstAutoActivate) {
+    await markAutoActivateNotified(candidate.organizationId);
+  }
+
+  return {
+    outcome: "create",
+    decision,
+    rule,
+    firstAutoActivate,
+    pendingApproval: isAi && !isActive,
+    message: decision.capWarning
+      ? `${decision.reason} You now have ${activeScoped.length + 1} active rules (soft limit ${/* RULE_SOFT_WARN_COUNT */ 120}).`
+      : decision.reason,
+  };
+}
+
+export async function deleteRule(userId: string, ruleId: string) {
+  const admin = getAdminClient();
+  const { data: rule } = await admin
+    .from("email_rules")
+    .select("*")
+    .eq("id", ruleId)
+    .maybeSingle();
+  if (!rule) {
+    throw new Error("Rule not found");
+  }
+  if (rule.mailbox_id) {
+    await ensureMailboxManage(userId, String(rule.mailbox_id));
+  } else if (rule.user_id && rule.user_id !== userId) {
+    throw new Error("Rule not found");
+  }
+  const { error } = await admin.from("email_rules").delete().eq("id", ruleId);
+  if (error) {
+    throw new Error(error.message || "Failed to delete rule");
+  }
+  return { id: ruleId, deleted: true };
 }
 
 export async function createSummaryProfile(userId: string, payload: any) {
