@@ -13,9 +13,13 @@ import type { McpTool, McpToolResult } from "@/lib/mcp/server/types";
 
 export type { McpTool };
 
+// structuredContent MUST be a JSON object, not a bare array: strict MCP clients
+// validate it and reject an array ("expected record, received array"), which
+// breaks list_* tools like list_tree. Wrap arrays as { items: [...] }; the text
+// content still carries the exact JSON the model reads.
 const toResult = (value: unknown): McpToolResult => ({
   content: [{ type: "text", text: JSON.stringify(value ?? null) }],
-  structuredContent: value,
+  structuredContent: Array.isArray(value) ? { items: value } : value,
 });
 
 const errorResult = (message: string): McpToolResult => ({

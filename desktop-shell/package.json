@@ -10,7 +10,7 @@
     "dmg": "electron-builder --mac"
   },
   "devDependencies": {
-    "electron": "^32.0.0",
+    "electron": "^45.0.0",
     "electron-builder": "^24.13.3"
   },
   "build": {
@@ -19,11 +19,29 @@
     "directories": {
       "output": "dist"
     },
-    "files": ["main.js", "package.json"],
+    "files": [
+      "main.js",
+      "main-preload.js",
+      "local-ai.js",
+      "auth-login.js",
+      "quickview-preload.js",
+      "quickview.inject.js",
+      "package.json"
+    ],
+    "protocols": [
+      {
+        "name": "Focus Forge Auth",
+        "schemes": [
+          "focusforge"
+        ]
+      }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",
-      "target": ["dir"],
+      "target": [
+        "dir"
+      ],
       "identity": null
     }
   }
