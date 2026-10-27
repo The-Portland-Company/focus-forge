@@ -98,14 +98,36 @@ export async function PUT(request: Request, props: Ctx) {
     if (auth.errorResponse) return auth.errorResponse;
 
     const body = await request.json().catch(() => ({}));
-    // Accept either the full document ({ email: {...} }) or a bare email slice.
+    const admin = getAdminClient();
+
+    // Merge onto the existing document so a partial save (e.g. only the email
+    // chain, or only the rules toggle) never clobbers the other slice — in
+    // particular the one-time autoActivateNotified flag set server-side.
+    const { data: current } = await admin
+      .from("organizations")
+      .select("ai_settings")
+      .eq("id", id)
+      .maybeSingle();
+    const existing = normalizeOrgAISettings(
+      (current as { ai_settings?: unknown } | null)?.ai_settings,
+    );
+
+    // Accept the full document, a bare email slice, or a { rules } slice.
+    const hasEmail = body && typeof body === "object" && "email" in body;
+    const hasRules = body && typeof body === "object" && "rules" in body;
     const incoming =
-      body && typeof body === "object" && "email" in body ? body : { email: body };
+      hasEmail || hasRules
+        ? {
+            email: hasEmail ? (body as any).email : existing.email,
+            rules: hasRules
+              ? { ...existing.rules, ...(body as any).rules }
+              : existing.rules,
+          }
+        : { email: body, rules: existing.rules };
     // normalizeOrgAISettings drops unknown model ids, de-dupes, appends any
-    // missing default, and coerces `enabled` to a boolean.
+    // missing default, and coerces `enabled`/`autoActivate` to booleans.
     const settings: OrgAISettings = normalizeOrgAISettings(incoming);
 
-    const admin = getAdminClient();
     const { data, error } = await admin
       .from("organizations")
       .update({ ai_settings: settings })

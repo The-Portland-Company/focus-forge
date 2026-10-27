@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildEmailRuleAssistantFallback,
+  buildRuleAssistantUserMessage,
   sanitizeEmailRuleAssistantDraft,
 } from "../email-inbox/rule-assistant";
 
@@ -65,4 +66,32 @@ test("sanitizeEmailRuleAssistantDraft removes unsupported fields and actions", (
     },
   ]);
   assert.deepEqual(draft.actions, [{ type: "archive" }]);
+});
+
+test("buildRuleAssistantUserMessage shows existing rules + group keys and the merge directive", () => {
+  const fallback = buildEmailRuleAssistantFallback({
+    prompt: "Route OTP codes to a tab",
+    mailboxId: "m1",
+  });
+  const msg = buildRuleAssistantUserMessage(
+    {
+      prompt: "Route OTP codes to a tab",
+      mailboxes: [],
+      mailboxId: "m1",
+      existingRules: [
+        {
+          id: "otp",
+          name: "OTP codes",
+          groupKey: "otp",
+          matchMode: "any",
+          conditions: [{ field: "subject", operator: "contains", value: "code" }],
+          actions: [{ type: "set_inbox_tab" }],
+        },
+      ],
+    },
+    fallback,
+  );
+  assert.match(msg, /existingRules/);
+  assert.match(msg, /"groupKey":"otp"/);
+  assert.match(msg, /prefer extending a value family/);
 });

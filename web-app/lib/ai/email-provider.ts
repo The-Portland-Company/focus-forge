@@ -24,17 +24,33 @@ export interface OrgEmailAISettings {
   chain: string[];
 }
 
+/** AI-generated rule activation policy (owner decision #2). */
+export interface OrgRulesAISettings {
+  /** Auto-activate AI-generated rules (default) vs. require approval. */
+  autoActivate: boolean;
+  /** Whether the one-time "AI rules auto-activate" notice has been shown. */
+  autoActivateNotified: boolean;
+}
+
 /** The normalized organizations.ai_settings document. */
 export interface OrgAISettings {
   email: OrgEmailAISettings;
+  rules: OrgRulesAISettings;
 }
 
 export function defaultOrgEmailAISettings(): OrgEmailAISettings {
   return { enabled: true, chain: [...DEFAULT_EMAIL_CHAIN_IDS] };
 }
 
+export function defaultOrgRulesAISettings(): OrgRulesAISettings {
+  return { autoActivate: true, autoActivateNotified: false };
+}
+
 export function defaultOrgAISettings(): OrgAISettings {
-  return { email: defaultOrgEmailAISettings() };
+  return {
+    email: defaultOrgEmailAISettings(),
+    rules: defaultOrgRulesAISettings(),
+  };
 }
 
 /**
@@ -51,10 +67,19 @@ export function normalizeOrgAISettings(raw: unknown): OrgAISettings {
     doc.email && typeof doc.email === "object" && !Array.isArray(doc.email)
       ? (doc.email as Record<string, unknown>)
       : {};
+  const rules =
+    doc.rules && typeof doc.rules === "object" && !Array.isArray(doc.rules)
+      ? (doc.rules as Record<string, unknown>)
+      : {};
   return {
     email: {
       enabled: email.enabled === undefined ? true : email.enabled !== false,
       chain: normalizeChainIds(email.chain, "email"),
+    },
+    rules: {
+      // Default true (auto-activate); only an explicit false opts into approval.
+      autoActivate: rules.autoActivate !== false,
+      autoActivateNotified: rules.autoActivateNotified === true,
     },
   };
 }

@@ -258,6 +258,11 @@ export function coerceRule(row: any): EmailRule {
     conditions: Array.isArray(row.conditions_json) ? row.conditions_json : [],
     actions: Array.isArray(row.actions_json) ? row.actions_json : [],
     stopProcessing: Boolean(row.stop_processing),
+    fingerprint: row.fingerprint ?? null,
+    groupKey: row.group_key ?? null,
+    generatedBy: row.generated_by ?? null,
+    hitCount: typeof row.hit_count === "number" ? row.hit_count : 0,
+    lastHitAt: row.last_hit_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
