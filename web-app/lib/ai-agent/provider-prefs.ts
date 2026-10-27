@@ -31,6 +31,9 @@ export const REMOTE_PROVIDERS: ProviderDef[] = [
   { id: "openai", label: "GPT-4.1 (OpenAI)", badge: "GPT-4.1" },
   { id: "anthropic", label: "Claude Sonnet 4.5", badge: "Claude" },
   { id: "xai", label: "Grok 3 (xAI)", badge: "Grok" },
+  // Bartok: the user's own persistent agent brain, reached via its official
+  // orchestrator chat endpoint. Remote (runs on Bartok's host), single-turn.
+  { id: "bartok", label: "Bartok", badge: "Bartok" },
 ];
 
 export const PROVIDER_CATALOG: Record<ProviderCategory, ProviderDef[]> = {
@@ -56,7 +59,7 @@ export type AssistantProviderPrefs = {
 export const DEFAULT_PREFS: AssistantProviderPrefs = {
   category: "local",
   localOrder: ["local-claude", "local-codex", "local-grok"],
-  remoteOrder: ["openai", "anthropic", "xai"],
+  remoteOrder: ["openai", "anthropic", "xai", "bartok"],
   crossFallback: true,
 };
 

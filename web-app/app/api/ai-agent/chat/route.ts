@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     const projectId = typeof body?.projectId === "string" ? body.projectId : "";
     const message = typeof body?.message === "string" ? body.message.trim() : "";
     const pageContext = body?.pageContext && typeof body.pageContext === "object" ? body.pageContext : {};
-    const preferredProvider = ["auto", "openai", "anthropic", "xai"].includes(body?.provider)
+    const preferredProvider = ["auto", "openai", "anthropic", "xai", "bartok"].includes(body?.provider)
       ? body.provider
       : "auto";
 

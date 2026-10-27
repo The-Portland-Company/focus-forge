@@ -767,6 +767,53 @@ function makeAnthropicProvider(opts: { model: string; apiKey: () => string | und
   };
 }
 
+// ---- Bartok (orchestrator passthrough) ----
+//
+// Bartok is the user's own persistent agent brain, reached through its official
+// orchestrator chat endpoint. Unlike the other providers it does NOT run a
+// tool-calling loop here: it is a single-turn ask/answer against one durable
+// session on Bartok's side, so we forward the latest user turn and return its
+// reply verbatim. Bartok does its own tool use server-side.
+function makeBartokProvider(): AgentProvider {
+  const baseUrl = () => process.env.BARTOK_API_URL || "https://bartok-api.theportlandcompany.com";
+  const apiKey = () => process.env.BARTOK_API_KEY;
+  return {
+    name: "bartok",
+    isConfigured: () => Boolean(apiKey()),
+    async run({ conversation, deadline: deadlineInput }) {
+      const deadline = deadlineInput ?? Date.now() + AGENT_DEADLINE_MS;
+      const key = apiKey();
+      if (!key) throw new Error("bartok: not configured");
+      // Bartok answers the latest user turn; it keeps its own thread context.
+      const lastUser = [...conversation].reverse().find((m) => m.role === "user");
+      const message = (lastUser?.content || "").trim();
+      if (!message) throw new Error("bartok: no user message to send");
+      const resp = await fetchWithTimeout(
+        `${baseUrl()}/chat`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          // TODO(thread continuity): Bartok returns a thread_id; persisting it
+          // per ai_planner_session and sending it back would pin one Bartok
+          // thread per Forge conversation. v1 relies on Bartok's own persistent
+          // brain for memory and lets it start a fresh thread each turn.
+          body: JSON.stringify({ message, from: "app" }),
+        },
+        callTimeout(deadline),
+        "bartok",
+      );
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`bartok request failed (${resp.status}): ${text.slice(0, 400)}`);
+      }
+      const data = await resp.json();
+      const reply = String(data?.reply || "").trim();
+      if (!reply) throw new Error("bartok: response missing reply");
+      return { assistantMessage: reply, toolsUsed: [], mutated: false, provider: "bartok" };
+    },
+  };
+}
+
 // ---- Provider chain ----
 
 export function getProviderChain(): AgentProvider[] {
@@ -787,6 +834,9 @@ export function getProviderChain(): AgentProvider[] {
       model: "grok-3",
       apiKey: () => process.env.XAI_API_KEY,
     }),
+    // Bartok is appended last: in "auto" it only answers if the tool-capable
+    // providers above are unavailable; when explicitly selected it runs first.
+    makeBartokProvider(),
   ];
 }
 
@@ -795,6 +845,7 @@ export const PROVIDER_OPTIONS = [
   { id: "openai", label: "GPT-4.1 (OpenAI)" },
   { id: "anthropic", label: "Claude Sonnet 4.5" },
   { id: "xai", label: "Grok 3 (xAI)" },
+  { id: "bartok", label: "Bartok" },
 ] as const;
 
 export type ProviderPreference = (typeof PROVIDER_OPTIONS)[number]["id"];
