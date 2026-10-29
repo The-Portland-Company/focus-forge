@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getViewer } from '@/lib/auth/tpc-session'
 import { resolveLocalUser, scopedSupabaseClient } from '@/lib/auth/local-identity'
+import { isProjectAdmin } from '@/lib/db/project-orgs'
 
 // `_request` is unused now that identity comes from the TPC session cookies
 // rather than an inbound Supabase cookie header, but kept so call sites don't
@@ -45,24 +46,24 @@ export async function requireOrgAdmin(supabase: any, userId: string, organizatio
   return { authorized: true }
 }
 
+/**
+ * Project-level admin check. Authorized when the user is a global admin, an
+ * owner of the project's PRIMARY org, or an owner of an ADDITIONAL org that
+ * holds the project with role 'manager' (multi-org projects).
+ *
+ * `isPrimaryAdmin` is true only for global admins / primary-org owners - that is
+ * the bar for changing WHICH organizations a project is shared with, or moving
+ * its primary org. `organizationId` stays the PRIMARY org id (legacy contract).
+ */
 export async function requireProjectAdmin(
   supabase: any,
   userId: string,
   projectId: string,
 ) {
-  const { data: project, error: projectError } = await supabase
-    .from('projects')
-    .select('organization_id')
-    .eq('id', projectId)
-    .single()
-
-  if (projectError || !project?.organization_id) {
-    return { authorized: false, organizationId: null }
-  }
-
-  const authz = await requireOrgAdmin(supabase, userId, project.organization_id)
+  const result = await isProjectAdmin(supabase, userId, projectId)
   return {
-    authorized: authz.authorized,
-    organizationId: project.organization_id as string,
+    authorized: result.authorized,
+    isPrimaryAdmin: result.isPrimaryAdmin,
+    organizationId: result.primaryOrganizationId,
   }
 }

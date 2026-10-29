@@ -3,6 +3,7 @@
  * Uses the direct DB host (not the pooler) — more reliable for this project.
  */
 import postgres from "postgres";
+import { projectOrgIdsFromRow, projectOrgLinksFromRow } from "@/lib/db/project-orgs";
 
 let directSql: postgres.Sql | null = null;
 
@@ -69,15 +70,45 @@ export async function loadCoreDatabaseViaPostgres(
     ORDER BY o.name ASC
   `;
 
-  const projectRows = await sql`
-    SELECT DISTINCT p.*
-    FROM projects p
-    LEFT JOIN user_projects up ON up.project_id = p.id AND up.user_id = ${userId}
-    LEFT JOIN user_organizations uo ON uo.organization_id = p.organization_id AND uo.user_id = ${userId}
-    WHERE p.deleted_at IS NULL
-      AND (up.user_id IS NOT NULL OR uo.user_id IS NOT NULL)
-    ORDER BY p.name ASC
-  `;
+  // Multi-org: a user sees a project when they belong to ANY of its orgs
+  // (primary column or project_organizations) or hold an explicit membership.
+  // Falls back to the legacy single-org query if project_organizations has not
+  // been deployed yet (rollout safety).
+  let projectRows: any[];
+  try {
+    projectRows = await sql`
+      SELECT DISTINCT p.*
+      FROM projects p
+      LEFT JOIN user_projects up ON up.project_id = p.id AND up.user_id = ${userId}
+      WHERE p.deleted_at IS NULL
+        AND (
+          up.user_id IS NOT NULL
+          OR EXISTS (
+            SELECT 1 FROM user_organizations uo
+            WHERE uo.user_id = ${userId}
+              AND (
+                uo.organization_id = p.organization_id
+                OR uo.organization_id IN (
+                  SELECT po.organization_id FROM project_organizations po
+                  WHERE po.project_id = p.id
+                )
+              )
+          )
+        )
+      ORDER BY p.name ASC
+    `;
+  } catch (error) {
+    if (!/project_organizations/.test(String((error as any)?.message ?? error))) throw error;
+    projectRows = await sql`
+      SELECT DISTINCT p.*
+      FROM projects p
+      LEFT JOIN user_projects up ON up.project_id = p.id AND up.user_id = ${userId}
+      LEFT JOIN user_organizations uo ON uo.organization_id = p.organization_id AND uo.user_id = ${userId}
+      WHERE p.deleted_at IS NULL
+        AND (up.user_id IS NOT NULL OR uo.user_id IS NOT NULL)
+      ORDER BY p.name ASC
+    `;
+  }
 
   const projectIds = projectRows.map((p: any) => p.id as string);
   const orgIds = orgRows.map((o: any) => o.id as string);
@@ -224,10 +255,30 @@ export async function loadCoreDatabaseViaPostgres(
     updatedAt: o.updated_at,
   }));
 
-  const projects = projectRows.map((p: any) => ({
+  const projectLinkRows: any[] =
+    projectIds.length > 0
+      ? await sql`
+          SELECT project_id, organization_id, role, is_primary
+          FROM project_organizations
+          WHERE project_id = ANY(${projectIds})
+        `.catch(() => [] as any[])
+      : [];
+  const linksByProject = new Map<string, any[]>();
+  for (const link of projectLinkRows) {
+    const list = linksByProject.get(link.project_id) || [];
+    list.push(link);
+    linksByProject.set(link.project_id, list);
+  }
+
+  const projects = projectRows.map((p: any) => {
+    const linkRows = linksByProject.get(p.id) || [];
+    const linkShape = { organization_id: p.organization_id, project_organizations: linkRows };
+    return {
     id: p.id,
     name: p.name,
     organizationId: p.organization_id,
+    organizationIds: projectOrgIdsFromRow(linkShape),
+    organizationLinks: projectOrgLinksFromRow(linkShape),
     color: p.color,
     description: p.description,
     goal: p.goal,
@@ -238,7 +289,8 @@ export async function loadCoreDatabaseViaPostgres(
     order: p.order_index ?? p.todoist_order ?? 0,
     createdAt: p.created_at,
     updatedAt: p.updated_at,
-  }));
+    };
+  });
 
   const tasks = taskRows.map((task: any) => ({
     ...task,

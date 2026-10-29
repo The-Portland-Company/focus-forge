@@ -17,6 +17,7 @@ export type AuditAction =
   | "organization.update"
   | "project.create"
   | "project.update"
+  | "project.share"
   | "member.remove";
 
 export type AuditEntityType =

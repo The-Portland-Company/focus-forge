@@ -4,6 +4,8 @@ import { SupabaseAdapter } from '@/lib/db/supabase-adapter'
 import { normalizeRichText } from '@/lib/rich-text-sanitize'
 import { normalizeProjectContentFields } from '@/lib/devnotes-meta'
 import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
+import { requireOrgAdmin } from "@/lib/api/authz";
+import { parseOrganizationIdsInput } from "@/lib/api/project-organization-ids";
 
 // Supabase/PostgREST errors are plain objects, not Error instances, so
 // String(error) yields "[object Object]" and hides the real cause (e.g. an
@@ -75,12 +77,41 @@ export async function POST(request: NextRequest) {
       order_index: body?.order_index ?? body?.orderIndex ?? 0,
     }
 
+    // Multi-org: optional extra owning orgs. Only an admin of the PRIMARY org may
+    // share a project, so refuse BEFORE creating anything.
+    const requestedOrgIds = parseOrganizationIdsInput(body)
+    const additionalOrgIds = (requestedOrgIds ?? []).filter((id) => id !== organizationId)
+
     // Initialize the Supabase adapter
     const adapter = new SupabaseAdapter(supabase, session.user.id)
+
+    if (additionalOrgIds.length > 0) {
+      const authz = await requireOrgAdmin(supabase, session.user.id, organizationId)
+      if (!authz.authorized) {
+        return NextResponse.json(
+          { error: 'Only an organization admin can share a project with other organizations' },
+          { status: 403 },
+        )
+      }
+      await adapter.validateOrganizationIds(additionalOrgIds)
+    }
+
     const newProject = await adapter.createProject(projectData)
+
+    if (additionalOrgIds.length > 0) {
+      await adapter.setProjectOrganizations(newProject.id, additionalOrgIds)
+      return NextResponse.json({
+        ...newProject,
+        organizationIds: [organizationId, ...additionalOrgIds],
+        organization_ids: [organizationId, ...additionalOrgIds],
+      })
+    }
     return NextResponse.json(newProject)
   } catch (error) {
     console.error('Failed to create project:', error)
+    if ((error as any)?.status === 400) {
+      return NextResponse.json({ error: (error as Error).message }, { status: 400 })
+    }
     return NextResponse.json(
       {
         error: 'Failed to create project',

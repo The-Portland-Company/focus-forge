@@ -1,8 +1,11 @@
 import { cache } from "react";
 import {
   SupabaseAdapter,
+  isProjectVisible,
   resolveVisibleProjectIds,
 } from "@/lib/db/supabase-adapter";
+import { projectOrgIdsFromRow } from "@/lib/db/project-orgs";
+import { selectAllProjectsWithOrgs } from "@/lib/db/project-visibility";
 import {
   analyzeThreadWithAI,
   buildProjectReplyContextSnapshot,
@@ -382,39 +385,50 @@ const getVisibleProjectsForUser = cache(async function getVisibleProjectsForUser
 ): Promise<ProjectOption[]> {
   const admin = getAdminClient();
   const scope = await getVisibleScope(userId);
-  const { data: explicitMembershipRows } = await admin
-    .from("user_projects")
-    .select("project_id, projects!inner(organization_id)")
-    .eq("user_id", userId);
+  const [{ data: explicitMembershipRows }, { data: allProjects }] =
+    await Promise.all([
+      admin.from("user_projects").select("project_id").eq("user_id", userId),
+      selectAllProjectsWithOrgs(admin, "id,name,description,organization_id"),
+    ]);
 
-  const explicitProjects = (explicitMembershipRows || []).map((row: any) => ({
-    id: String(row.project_id),
-    organization_id: String(row.projects.organization_id),
+  // Multi-org: a project is owned by its primary org plus any shared orgs.
+  const projects = ((allProjects as any[]) || []).map((project: any) => ({
+    id: project.id,
+    name: project.name,
+    description: project.description,
+    organization_id: project.organization_id,
+    organization_ids: projectOrgIdsFromRow(project),
   }));
+  const projectsById = new Map(
+    projects.map((project: any) => [String(project.id), project]),
+  );
+
+  const explicitProjects = (explicitMembershipRows || [])
+    .map((row: any) => projectsById.get(String(row.project_id)))
+    .filter(Boolean)
+    .map((project: any) => ({
+      id: String(project.id),
+      organization_id: String(project.organization_id),
+      organization_ids: project.organization_ids as string[],
+    }));
 
   const visibility = resolveVisibleProjectIds({
     orgMemberships: scope.orgMemberships,
     explicitProjects,
   });
 
-  const { data: projects } = await admin
-    .from("projects")
-    .select("id,name,description,organization_id")
-    .order("name");
-
-  return (projects || []).filter((project: any) => {
-    if (
-      organizationId &&
-      String(project.organization_id) !== String(organizationId)
-    ) {
-      return false;
-    }
-    return (
-      visibility.fullyVisibleOrganizationIds.has(
-        String(project.organization_id),
-      ) || visibility.explicitProjectIds.has(String(project.id))
-    );
-  });
+  return projects
+    .sort((a: any, b: any) => String(a.name ?? "").localeCompare(String(b.name ?? "")))
+    .filter((project: any) => {
+      if (
+        organizationId &&
+        !project.organization_ids.includes(String(organizationId))
+      ) {
+        return false;
+      }
+      return isProjectVisible(project, visibility);
+    })
+    .map(({ organization_ids: _ids, ...project }: any) => project);
 });
 
 async function ensureMailboxAccess(userId: string, mailboxId: string) {

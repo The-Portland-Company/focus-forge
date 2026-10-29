@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getProjectOrgIdsMap } from "@/lib/db/project-orgs";
 import { requireAuth } from "@/lib/api/authz";
 
 /**
@@ -70,10 +71,26 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Multi-org: a project belongs to orgId when ANY of its owning orgs matches.
+  let projectOrgMap = new Map<string, string[]>();
+  if (orgId) {
+    try {
+      projectOrgMap = await getProjectOrgIdsMap(
+        supabase,
+        (data ?? []).map((t: any) => t.project_id),
+      );
+    } catch {
+      projectOrgMap = new Map();
+    }
+  }
+
   const rows = (data ?? [])
     .filter((t: any) => {
       if (!orgId) return true;
-      return t.projects?.organization_id === orgId;
+      const owners = projectOrgMap.get(t.project_id) ?? [];
+      return (
+        t.projects?.organization_id === orgId || owners.includes(orgId)
+      );
     })
     .map((t: any) => ({
       id: t.id,

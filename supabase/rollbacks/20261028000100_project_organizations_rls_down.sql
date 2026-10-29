@@ -270,6 +270,39 @@ alter policy "project_shares_member_all" on public.project_shares
      JOIN user_organizations uo ON ((uo.organization_id = p.organization_id)))
   WHERE ((p.id = project_shares.project_id) AND (uo.user_id = auth.uid()))))));
 
+alter policy "Members can view reorg batches" on public.task_reorg_batches
+  using ((organization_id IN ( SELECT uo.organization_id
+   FROM user_organizations uo
+  WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))));
+
+alter policy "Members can create reorg batches" on public.task_reorg_batches
+  with check ((organization_id IN ( SELECT uo.organization_id
+   FROM user_organizations uo
+  WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))));
+
+alter policy "Members can update reorg batches" on public.task_reorg_batches
+  using ((organization_id IN ( SELECT uo.organization_id
+   FROM user_organizations uo
+  WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))));
+
+alter policy "Members can view reorg moves" on public.task_reorg_moves
+  using ((batch_id IN ( SELECT b.id
+   FROM (task_reorg_batches b
+     JOIN user_organizations uo ON ((uo.organization_id = b.organization_id)))
+  WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))));
+
+alter policy "Members can create reorg moves" on public.task_reorg_moves
+  with check ((batch_id IN ( SELECT b.id
+   FROM (task_reorg_batches b
+     JOIN user_organizations uo ON ((uo.organization_id = b.organization_id)))
+  WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))));
+
+alter policy "Members can update reorg moves" on public.task_reorg_moves
+  using ((batch_id IN ( SELECT b.id
+   FROM (task_reorg_batches b
+     JOIN user_organizations uo ON ((uo.organization_id = b.organization_id)))
+  WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))));
+
 alter policy "Users can view entity events in their organizations" on public.entity_events
   using ((user_has_organization_access(organization_id) OR is_super_admin()));
 

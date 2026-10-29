@@ -6,6 +6,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SkeletonOrganization } from "@/components/skeleton-loader";
 import { useRouter } from "next/navigation";
 import {
+  getProjectOrganizationIds,
+  isSharedProject,
+  projectBelongsToOrganization,
+} from "@/lib/project-orgs-client";
+import {
   Plus,
   Search,
   Bomb,
@@ -762,7 +767,7 @@ export function Sidebar({
       (project) =>
         !project.archived &&
         (!timerForm.organizationId ||
-          project.organizationId === timerForm.organizationId),
+          projectBelongsToOrganization(project, timerForm.organizationId)),
     )
     .sort((left, right) => left.name.localeCompare(right.name));
 
@@ -1139,8 +1144,9 @@ export function Sidebar({
     let total = 0;
     for (const project of data.projects) {
       const count = byProject.get(project.id) || 0;
-      const oid = (project as any).organization_id || project.organizationId;
-      if (typeof oid === "string") byOrg.set(oid, (byOrg.get(oid) || 0) + count);
+      for (const oid of getProjectOrganizationIds(project)) {
+        byOrg.set(oid, (byOrg.get(oid) || 0) + count);
+      }
       total += count;
     }
     return { byProject, byOrg, total };
@@ -1162,18 +1168,17 @@ export function Sidebar({
   }, [data.tasks]);
 
   const tasksByOrgId = useMemo(() => {
-    const projectOrg = new Map<string, string>();
+    const projectOrg = new Map<string, string[]>();
     for (const project of data.projects) {
-      const oid = (project as any).organization_id || project.organizationId;
-      if (typeof oid === "string") projectOrg.set(project.id, oid);
+      projectOrg.set(project.id, getProjectOrganizationIds(project));
     }
     const m = new Map<string, Task[]>();
     for (const [pid, arr] of tasksByProjectId.entries()) {
-      const oid = projectOrg.get(pid);
-      if (!oid) continue;
-      const existing = m.get(oid);
-      if (existing) existing.push(...arr);
-      else m.set(oid, [...arr]);
+      for (const oid of projectOrg.get(pid) ?? []) {
+        const existing = m.get(oid);
+        if (existing) existing.push(...arr);
+        else m.set(oid, [...arr]);
+      }
     }
     return m;
   }, [tasksByProjectId, data.projects]);
@@ -1203,11 +1208,10 @@ export function Sidebar({
 
   const orgProjects = (orgId: string) =>
     data.projects
-      .filter((project) => {
-        const projectOrgId =
-          (project as any).organization_id ?? project.organizationId;
-        return projectOrgId === orgId && !project.archived;
-      })
+      .filter(
+        (project) =>
+          projectBelongsToOrganization(project, orgId) && !project.archived,
+      )
       .sort((a, b) => (a.order || 0) - (b.order || 0));
 
   // Flatten an org's projects into a parent-before-children ordering, tagging
@@ -2442,7 +2446,7 @@ export function Sidebar({
                         const project = data.projects.find(
                           (p) => p.id === draggedProject,
                         );
-                        if (project && project.organizationId !== org.id) {
+                        if (project && !projectBelongsToOrganization(project, org.id)) {
                           // Moving to a different organization
                           onProjectUpdate(draggedProject, {
                             organizationId: org.id,
@@ -2710,16 +2714,10 @@ export function Sidebar({
                                 const draggedProj = data.projects.find(
                                   (p) => p.id === draggedProject,
                                 );
-                                const draggedOrgId = draggedProj
-                                  ? ((draggedProj as any).organization_id ??
-                                    draggedProj.organizationId)
-                                  : null;
-                                const projectOrgId =
-                                  (project as any).organization_id ??
-                                  project.organizationId;
                                 if (
                                   draggedProj &&
-                                  draggedOrgId === projectOrgId
+                                  projectBelongsToOrganization(draggedProj, org.id) &&
+                                  projectBelongsToOrganization(project, org.id)
                                 ) {
                                   // Reorder within the same organization
                                   const projects = orgProjects(org.id);
@@ -2814,6 +2812,15 @@ export function Sidebar({
                                   {getProjectAcronym(project.name)}
                                 </span>
                                 <span className="truncate">{project.name}</span>
+                                {isSharedProject(project) && (
+                                  <span
+                                    className="flex-shrink-0 rounded px-1 text-[9px] leading-4 font-medium uppercase tracking-wide bg-zinc-800 text-zinc-400"
+                                    title={`Shared with ${getProjectOrganizationIds(project).length} organizations`}
+                                    aria-label={`Shared with ${getProjectOrganizationIds(project).length} organizations`}
+                                  >
+                                    Shared
+                                  </span>
+                                )}
                                 {(project as any).locked && (
                                   <Lock
                                     className="w-3 h-3 flex-shrink-0 text-zinc-500"
@@ -2933,6 +2940,15 @@ export function Sidebar({
                               {getProjectAcronym(project.name)}
                             </span>
                             <span className="truncate">{project.name}</span>
+                            {isSharedProject(project) && (
+                                  <span
+                                    className="flex-shrink-0 rounded px-1 text-[9px] leading-4 font-medium uppercase tracking-wide bg-zinc-800 text-zinc-400"
+                                    title={`Shared with ${getProjectOrganizationIds(project).length} organizations`}
+                                    aria-label={`Shared with ${getProjectOrganizationIds(project).length} organizations`}
+                                  >
+                                    Shared
+                                  </span>
+                                )}
                             {org && (
                               <span className="text-xs text-zinc-600 flex-shrink-0">
                                 ({org.name})
@@ -3274,7 +3290,7 @@ export function Sidebar({
                         data.projects.some(
                           (project) =>
                             project.id === current.projectId &&
-                            project.organizationId === value,
+                            projectBelongsToOrganization(project, value),
                         )
                           ? current.projectId
                           : "",

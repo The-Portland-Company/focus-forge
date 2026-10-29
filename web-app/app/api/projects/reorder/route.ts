@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getProjectOrgIdsMap } from '@/lib/db/project-orgs'
 import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 
 export async function POST(request: Request) {
@@ -21,13 +22,21 @@ export async function POST(request: Request) {
       )
     }
 
+    // Multi-org: a project is "in" organizationId when ANY of its owning orgs
+    // matches (it may be shared into the org rather than primary-owned).
+    // RLS still decides whether the caller may update the row.
+    const owningOrgs = await getProjectOrgIdsMap(
+      supabase,
+      projectIds.filter((id: unknown): id is string => typeof id === 'string'),
+    )
+
     // Update each project's order_index
     for (let i = 0; i < projectIds.length; i++) {
+      if (!(owningOrgs.get(projectIds[i]) ?? []).includes(organizationId)) continue
       const { error } = await supabase
         .from('projects')
         .update({ order_index: i })
         .eq('id', projectIds[i])
-        .eq('organization_id', organizationId)
 
       if (error) {
         console.error(`Error updating project ${projectIds[i]}:`, error)

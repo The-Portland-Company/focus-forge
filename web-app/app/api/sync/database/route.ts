@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createErrorResponse } from '@/lib/api/auth'
 import { createClient } from '@/lib/supabase/server'
+import { listProjectsForOrgs } from '@/lib/db/project-visibility'
 import { defaultModelChains } from '@/lib/ai/model-chains'
 import { mapOrganizationFromDb, mapProjectFromDb, mapSectionFromDb, mapTagFromDb, mapTaskFromDb } from '@/lib/api/sync-mapper'
 
@@ -81,14 +82,14 @@ export async function GET(request: NextRequest) {
         organizations = orgs || []
       }
 
-      const { data: projects, error: projectError } = await supabase
-        .from('projects')
-        .select('*')
-        .is('deleted_at', null)
-        .in('organization_id', organizationIds.length > 0 ? organizationIds : ['00000000-0000-0000-0000-000000000000'])
-
-      if (projectError) {
-        return createErrorResponse(projectError.message, 500)
+      // Includes projects SHARED into the user's orgs (multi-org ownership).
+      let projects: any[] = []
+      try {
+        projects = (
+          await listProjectsForOrgs(supabase, '*', organizationIds)
+        ).filter((row: any) => !row.deleted_at)
+      } catch (projectError: any) {
+        return createErrorResponse(projectError?.message || 'Failed to load projects', 500)
       }
 
       const projectIds = (projects || []).map((row: any) => row.id)

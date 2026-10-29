@@ -4,6 +4,13 @@ import { getAdminClient } from "@/lib/supabase/admin";
 import { normalizeTaskContentFields } from "@/lib/devnotes-meta";
 import { writeAuditLog as writeAuditLogEntry } from "@/lib/audit/log";
 import type { AuditLogEntry } from "@/lib/audit/log";
+import {
+  PROJECT_ORG_EMBED,
+  isMissingProjectOrganizations,
+  projectOrgIdsFromRow,
+  projectOrgLinksFromRow,
+  setProjectSharedOrganizations,
+} from "@/lib/db/project-orgs";
 
 type OrganizationInput = {
   name?: string;
@@ -40,6 +47,9 @@ type ProjectInput = {
   is_favorite?: boolean;
   organizationId?: string;
   organization_id?: string;
+  /** Full desired set of owning orgs (primary implied). Handled by the API layer, never written to projects. */
+  organizationIds?: string[];
+  organization_ids?: string[];
   order?: number;
   order_index?: number;
   todoistId?: string | null;
@@ -60,7 +70,13 @@ type UserOrganizationScopeRow = {
 
 type ProjectScopeRow = {
   id: string;
+  /** PRIMARY owning org. */
   organization_id: string;
+  /**
+   * Every org that owns the project (primary included). Optional so legacy
+   * callers/tests that only know the primary org keep working.
+   */
+  organization_ids?: string[];
 };
 
 export function resolveVisibleProjectIds({
@@ -76,10 +92,17 @@ export function resolveVisibleProjectIds({
 
   for (const project of explicitProjects) {
     explicitProjectIds.add(project.id);
-    const orgProjectIds =
-      explicitProjectsByOrganization.get(project.organization_id) || [];
-    orgProjectIds.push(project.id);
-    explicitProjectsByOrganization.set(project.organization_id, orgProjectIds);
+    // A shared project is "explicit" in EVERY org that owns it: a non-owner
+    // member of a client org that was given explicit project access is
+    // restricted to explicit projects in that org, same as in the primary org.
+    const owningOrgIds = new Set<string>(
+      [project.organization_id, ...(project.organization_ids ?? [])].filter(Boolean),
+    );
+    for (const orgId of owningOrgIds) {
+      const orgProjectIds = explicitProjectsByOrganization.get(orgId) || [];
+      orgProjectIds.push(project.id);
+      explicitProjectsByOrganization.set(orgId, orgProjectIds);
+    }
   }
 
   for (const membership of orgMemberships) {
@@ -95,6 +118,26 @@ export function resolveVisibleProjectIds({
     fullyVisibleOrganizationIds,
     explicitProjectIds,
   };
+}
+
+/**
+ * Pure visibility predicate for one project row: visible when the user has
+ * explicit membership, or ANY of the project's orgs is fully visible to them.
+ */
+export function isProjectVisible(
+  project: { id: string; organization_id: string | null; organization_ids?: string[] },
+  scope: { fullyVisibleOrganizationIds: Set<string>; explicitProjectIds: Set<string> },
+) {
+  if (scope.explicitProjectIds.has(project.id)) return true;
+  const orgIds = new Set<string>(
+    [project.organization_id, ...(project.organization_ids ?? [])].filter(
+      (id): id is string => Boolean(id),
+    ),
+  );
+  for (const orgId of orgIds) {
+    if (scope.fullyVisibleOrganizationIds.has(orgId)) return true;
+  }
+  return false;
 }
 
 export class SupabaseAdapter implements DatabaseAdapter {
@@ -501,7 +544,15 @@ export class SupabaseAdapter implements DatabaseAdapter {
     if (scope.projectId) {
       query = query.eq("project_id", scope.projectId);
     } else if (scope.organizationId) {
-      query = query.eq("organization_id", scope.organizationId);
+      // Events carry the PRIMARY org; also include events of projects shared
+      // into this org so its history timeline is complete.
+      const sharedIds = (await this.getSharedInProjectIds([scope.organizationId])).slice(0, 200);
+      query =
+        sharedIds.length > 0
+          ? query.or(
+              `organization_id.eq.${scope.organizationId},project_id.in.(${sharedIds.join(",")})`,
+            )
+          : query.eq("organization_id", scope.organizationId);
     } else {
       throw new Error("organizationId or projectId required");
     }
@@ -615,9 +666,13 @@ export class SupabaseAdapter implements DatabaseAdapter {
   // type expects (mirrors the mapping getTasks() applies to task rows). The
   // raw snake_case fields are kept via the spread for backward compatibility.
   private mapProjectRow(project: any) {
+    // Strip the raw embedded join rows; expose the camelCase view instead.
+    const { project_organizations: _links, ...projectRest } = project;
     return {
-      ...project,
+      ...projectRest,
       organizationId: project.organization_id,
+      organizationIds: projectOrgIdsFromRow(project),
+      organizationLinks: projectOrgLinksFromRow(project),
       parentId: project.parent_id ?? null,
       locked: project.locked ?? false,
       lockSource: project.lock_source ?? null,
@@ -648,6 +703,57 @@ export class SupabaseAdapter implements DatabaseAdapter {
     return this._getProjects(organizationId);
   }
 
+  /**
+   * Runs a projects query with the project_organizations embed, transparently
+   * retrying WITHOUT it when the table is not deployed yet (rollout safety).
+   */
+  private async selectProjects(
+    build: (select: string) => PromiseLike<{ data: any[] | null; error: any }>,
+  ) {
+    const withOrgs = await build(`*, ${PROJECT_ORG_EMBED}`);
+    if (withOrgs.error && isMissingProjectOrganizations(withOrgs.error)) {
+      return build("*");
+    }
+    return withOrgs;
+  }
+
+  /** Project ids linked to `organizationIds` as a NON-primary org (i.e. shared in). */
+  private async getSharedInProjectIds(organizationIds: string[]) {
+    if (organizationIds.length === 0) return [] as string[];
+    const { data, error } = await this.supabase
+      .from("project_organizations")
+      .select("project_id")
+      .eq("is_primary", false)
+      .in("organization_id", organizationIds);
+    if (error) {
+      if (!isMissingProjectOrganizations(error)) {
+        console.error("Error fetching shared project links:", error);
+      }
+      return [] as string[];
+    }
+    return Array.from(
+      new Set(((data || []) as Array<{ project_id: string }>).map((r) => r.project_id)),
+    );
+  }
+
+  private async fetchProjectsByIds(ids: string[]) {
+    const rows: any[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      const { data, error } = await this.selectProjects((select) =>
+        this.supabase
+          .from("projects")
+          .select(select)
+          .in("id", chunk)
+          .is("deleted_at", null)
+          .order("order_index"),
+      );
+      if (error) throw error;
+      rows.push(...(data || []));
+    }
+    return rows;
+  }
+
   private async _getProjects(organizationId?: string) {
     const supabase = this.supabase;
     let orgMembershipsRaw: Array<{
@@ -667,61 +773,77 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
     let explicitProjects: ProjectScopeRow[] = [];
     if (explicitProjectIds.length > 0) {
-      const { data: explicitProjectRows, error: explicitProjectsError } =
-        await supabase
-          .from("projects")
-          .select("id,organization_id")
-          .in("id", explicitProjectIds);
-
-      if (explicitProjectsError) {
+      try {
+        const rows: any[] = [];
+        for (let i = 0; i < explicitProjectIds.length; i += 100) {
+          const chunk = explicitProjectIds.slice(i, i + 100);
+          const { data, error } = await this.selectProjects((select) =>
+            select === "*"
+              ? supabase.from("projects").select("id,organization_id").in("id", chunk)
+              : supabase
+                  .from("projects")
+                  .select(`id,organization_id, ${PROJECT_ORG_EMBED}`)
+                  .in("id", chunk),
+          );
+          if (error) throw error;
+          rows.push(...(data || []));
+        }
+        explicitProjects = rows.map((row: any) => ({
+          id: row.id,
+          organization_id: row.organization_id,
+          organization_ids: projectOrgIdsFromRow(row),
+        }));
+      } catch (explicitProjectsError) {
         console.error(
           "Error fetching explicit project scope rows:",
           explicitProjectsError,
         );
         return [];
       }
-
-      explicitProjects = (explicitProjectRows || []) as ProjectScopeRow[];
     }
 
-    const {
-      fullyVisibleOrganizationIds,
-      explicitProjectIds: explicitlyVisibleIds,
-    } = resolveVisibleProjectIds({
+    const scope = resolveVisibleProjectIds({
       orgMemberships: (orgMembershipsRaw || []) as UserOrganizationScopeRow[],
       explicitProjects,
     });
+    const { fullyVisibleOrganizationIds, explicitProjectIds: explicitlyVisibleIds } = scope;
 
     if (organizationId) {
-      if (fullyVisibleOrganizationIds.has(organizationId)) {
-        const { data, error } = await supabase
-          .from("projects")
-          .select("*")
-          .eq("organization_id", organizationId)
-          .is("deleted_at", null)
-          .order("order_index");
+      // Projects of one org = owned by it (primary) + shared into it.
+      const sharedIntoOrg = await this.getSharedInProjectIds([organizationId]);
 
+      if (fullyVisibleOrganizationIds.has(organizationId)) {
+        const { data, error } = await this.selectProjects((select) =>
+          supabase
+            .from("projects")
+            .select(select)
+            .eq("organization_id", organizationId)
+            .is("deleted_at", null)
+            .order("order_index"),
+        );
         if (error) throw error;
-        return (data || []).map((row: any) => this.mapProjectRow(row));
+        const primaryRows = data || [];
+        const have = new Set(primaryRows.map((r: any) => r.id));
+        const sharedRows = await this.fetchProjectsByIds(
+          sharedIntoOrg.filter((id) => !have.has(id)),
+        );
+        return [...primaryRows, ...sharedRows]
+          .sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0))
+          .map((row: any) => this.mapProjectRow(row));
       }
 
       const visibleIdsInOrganization = explicitProjects
-        .filter((project) => project.organization_id === organizationId)
+        .filter((project) =>
+          (project.organization_ids ?? [project.organization_id]).includes(organizationId),
+        )
         .map((project) => project.id);
 
       if (visibleIdsInOrganization.length === 0) {
         return [];
       }
 
-      const { data, error } = await supabase
-        .from("projects")
-        .select("*")
-        .in("id", visibleIdsInOrganization)
-        .is("deleted_at", null)
-        .order("order_index");
-
-      if (error) throw error;
-      return (data || []).map((row: any) => this.mapProjectRow(row));
+      const rows = await this.fetchProjectsByIds(visibleIdsInOrganization);
+      return rows.map((row: any) => this.mapProjectRow(row));
     }
 
     const scopedOrganizationIds = Array.from(
@@ -731,26 +853,46 @@ export class SupabaseAdapter implements DatabaseAdapter {
       ]),
     );
 
-    if (scopedOrganizationIds.length === 0) {
+    // Projects shared INTO any org the user can see in full (non-primary links).
+    const sharedInIds = await this.getSharedInProjectIds(
+      Array.from(fullyVisibleOrganizationIds),
+    );
+
+    if (scopedOrganizationIds.length === 0 && sharedInIds.length === 0) {
       return [];
     }
 
-    const { data, error } = await supabase
-      .from("projects")
-      .select("*")
-      .in("organization_id", scopedOrganizationIds)
-      .is("deleted_at", null)
-      .order("order_index");
-
-    if (error) throw error;
-
-    const filteredProjects = (data || []).filter((project: any) => {
-      const projectOrganizationId = project.organization_id;
-      return (
-        fullyVisibleOrganizationIds.has(projectOrganizationId) ||
-        explicitlyVisibleIds.has(project.id)
+    let primaryRows: any[] = [];
+    if (scopedOrganizationIds.length > 0) {
+      const { data, error } = await this.selectProjects((select) =>
+        supabase
+          .from("projects")
+          .select(select)
+          .in("organization_id", scopedOrganizationIds)
+          .is("deleted_at", null)
+          .order("order_index"),
       );
-    });
+      if (error) throw error;
+      primaryRows = data || [];
+    }
+
+    const have = new Set(primaryRows.map((r: any) => r.id));
+    const sharedRows = await this.fetchProjectsByIds(
+      sharedInIds.filter((id) => !have.has(id)),
+    );
+
+    const filteredProjects = [...primaryRows, ...sharedRows]
+      .filter((project: any) =>
+        isProjectVisible(
+          {
+            id: project.id,
+            organization_id: project.organization_id,
+            organization_ids: projectOrgIdsFromRow(project),
+          },
+          scope,
+        ),
+      )
+      .sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0));
 
     console.log("✅ Projects fetched:", filteredProjects.length);
     return filteredProjects.map((row: any) => this.mapProjectRow(row));
@@ -846,6 +988,48 @@ export class SupabaseAdapter implements DatabaseAdapter {
     }
 
     return data;
+  }
+
+  /** De-dupes and verifies every id is a live organization; throws {status:400} otherwise. */
+  async validateOrganizationIds(organizationIds: string[]) {
+    const wanted = Array.from(new Set((organizationIds || []).filter(Boolean)));
+    if (wanted.length === 0) return wanted;
+    const { data: found, error } = await getAdminClient()
+      .from("organizations")
+      .select("id")
+      .in("id", wanted)
+      .is("deleted_at", null);
+    if (error) throw error;
+    const foundIds = new Set((found || []).map((r: { id: string }) => r.id));
+    const missing = wanted.filter((id) => !foundIds.has(id));
+    if (missing.length > 0) {
+      const err: any = new Error(`Unknown organization(s): ${missing.join(", ")}`);
+      err.status = 400;
+      throw err;
+    }
+    return wanted;
+  }
+
+  /**
+   * Replaces the ADDITIONAL owning organizations of a project (the primary org
+   * is never changed here). Service-role write: the CALLER must already have
+   * verified the actor administers the project's PRIMARY org (see
+   * requireProjectAdmin().isPrimaryAdmin). Throws an Error carrying
+   * `status` 400 for unknown/deleted orgs.
+   */
+  async setProjectOrganizations(
+    projectId: string,
+    organizationIds: string[],
+    role: "manager" | "member" = "manager",
+  ) {
+    const admin = getAdminClient();
+    const wanted = await this.validateOrganizationIds(organizationIds);
+    return setProjectSharedOrganizations(admin, {
+      projectId,
+      organizationIds: wanted,
+      role,
+      actorUserId: this.userId,
+    });
   }
 
   async deleteProject(id: string) {

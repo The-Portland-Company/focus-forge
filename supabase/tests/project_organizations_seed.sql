@@ -85,3 +85,9 @@ insert into public.user_projects (user_id, project_id, is_owner) values
   (pg_temp.id('u:ownA'), pg_temp.id('P1'), true),
   (pg_temp.id('u:ownA'), pg_temp.id('P2'), true),
   (pg_temp.id('u:ownC'), pg_temp.id('P3'), true);
+insert into public.task_reorg_batches (id, organization_id, project_id, status)
+select pg_temp.id('batch:' || p), (select organization_id from public.projects where id = pg_temp.id(p)), pg_temp.id(p), 'applied'
+from unnest(array['P1','P2','P3']) p;
+insert into public.task_reorg_moves (id, batch_id, task_id, reason)
+select pg_temp.id('move:' || p), pg_temp.id('batch:' || p), pg_temp.id('task:' || p), 'move:' || p
+from unnest(array['P1','P2','P3']) p;

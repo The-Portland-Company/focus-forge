@@ -1,0 +1,240 @@
+--- /private/tmp/claude-501/-Users-spencerhill-Sites-varcentral/60471dfa-b6b9-4c2c-a565-178a925cc894/scratchpad/snap_before.txt	2026-10-29 11:35:01
++++ /private/tmp/claude-501/-Users-spencerhill-Sites-varcentral/60471dfa-b6b9-4c2c-a565-178a925cc894/scratchpad/snap_after.txt	2026-10-29 11:35:01
+@@ -35,10 +35,10 @@
+   USING: (user_id = auth.uid())
+   CHECK: -
+ public.attachments | Users can manage attachments for their tasks | ALL | public
+-  USING: (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = attachments.task_id) AND user_has_organization_access(p.organization_id))))
++  USING: (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = attachments.task_id) AND user_has_project_org_access(p.id))))
+   CHECK: -
+ public.attachments | Users can view attachments for their tasks | SELECT | public
+-  USING: (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = attachments.task_id) AND user_has_organization_access(p.organization_id))))
++  USING: (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = attachments.task_id) AND user_has_project_org_access(p.id))))
+   CHECK: -
+ public.audit_logs | audit_logs_org_insert | INSERT | public
+   USING: -
+@@ -53,16 +53,16 @@
+   USING: (auth.uid() = user_id)
+   CHECK: -
+ public.comments | Users can manage comments on their tasks | ALL | public
+-  USING: (((task_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = comments.task_id) AND user_has_organization_access(p.organization_id))))) OR ((project_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = comments.project_id) AND user_has_organization_access(p.organization_id))))))
++  USING: (((task_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = comments.task_id) AND user_has_project_org_access(p.id))))) OR ((project_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = comments.project_id) AND user_has_project_org_access(p.id))))))
+   CHECK: -
+ public.comments | Users can update their own comments | UPDATE | public
+   USING: (auth.uid() = user_id)
+   CHECK: -
+ public.comments | Users can view comments in their organizations | SELECT | public
+-  USING: ((task_id IN ( SELECT t.id FROM ((tasks t JOIN projects p ON ((t.project_id = p.id))) JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = auth.uid()))) OR (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = auth.uid()))))
++  USING: ((task_id IN ( SELECT t.id FROM tasks t WHERE user_belongs_to_project_org(t.project_id))) OR (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id))))
+   CHECK: -
+ public.comments | Users can view comments on their tasks | SELECT | public
+-  USING: (((task_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = comments.task_id) AND user_has_organization_access(p.organization_id))))) OR ((project_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = comments.project_id) AND user_has_organization_access(p.organization_id))))))
++  USING: (((task_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = comments.task_id) AND user_has_project_org_access(p.id))))) OR ((project_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = comments.project_id) AND user_has_project_org_access(p.id))))))
+   CHECK: -
+ public.contact_google_accounts | Users can manage own google accounts | ALL | public
+   USING: (user_id = auth.uid())
+@@ -182,7 +182,7 @@
+   USING: ((user_id = auth.uid()) OR ((mailbox_id IS NOT NULL) AND user_can_access_mailbox(mailbox_id, auth.uid())) OR ((organization_id IS NOT NULL) AND user_has_organization_access(organization_id)))
+   CHECK: -
+ public.entity_events | Users can view entity events in their organizations | SELECT | public
+-  USING: (user_has_organization_access(organization_id) OR is_super_admin())
++  USING: (user_has_organization_access(organization_id) OR is_super_admin() OR ((project_id IS NOT NULL) AND user_has_project_org_access(project_id)))
+   CHECK: -
+ public.filters | Users can manage their own filters | ALL | public
+   USING: (user_id = auth.uid())
+@@ -195,15 +195,15 @@
+   CHECK: -
+ public.goals | Users can create goals in their projects | INSERT | public
+   USING: -
+-  CHECK: (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = auth.uid())))
++  CHECK: (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id)))
+ public.goals | Users can delete goals in their projects | DELETE | public
+-  USING: (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = auth.uid())))
++  USING: (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id)))
+   CHECK: -
+ public.goals | Users can update goals in their projects | UPDATE | public
+-  USING: (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = auth.uid())))
++  USING: (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id)))
+   CHECK: -
+ public.goals | Users can view goals in their projects | SELECT | public
+-  USING: (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = auth.uid())))
++  USING: (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id)))
+   CHECK: -
+ public.mailbox_members | Users can manage mailbox members | ALL | public
+   USING: user_can_manage_mailbox(mailbox_id, auth.uid())
+@@ -245,16 +245,16 @@
+   USING: (user_id = auth.uid())
+   CHECK: -
+ public.on_hand_supplies | Users can delete on-hand supplies in their projects | DELETE | public
+-  USING: (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid))))
++  USING: (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id)))
+   CHECK: -
+ public.on_hand_supplies | Users can insert on-hand supplies in their projects | INSERT | public
+   USING: -
+-  CHECK: (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid))))
++  CHECK: (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id)))
+ public.on_hand_supplies | Users can update on-hand supplies in their projects | UPDATE | public
+-  USING: (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid))))
++  USING: (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id)))
+   CHECK: -
+ public.on_hand_supplies | Users can view on-hand supplies in their projects | SELECT | public
+-  USING: (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid))))
++  USING: (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id)))
+   CHECK: -
+ public.organization_api_keys | Organization admins can create organization API keys | INSERT | public
+   USING: -
+@@ -288,15 +288,15 @@
+   CHECK: -
+ public.plans | Users can create plans in their orgs | INSERT | public
+   USING: -
+-  CHECK: ((organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (goal_id IN ( SELECT g.id FROM ((goals g JOIN projects p ON ((g.project_id = p.id))) JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (section_id IN ( SELECT s.id FROM ((sections s JOIN projects p ON ((s.project_id = p.id))) JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))))
++  CHECK: ((organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id))) OR (goal_id IN ( SELECT g.id FROM goals g WHERE user_belongs_to_project_org(g.project_id))) OR (section_id IN ( SELECT s.id FROM sections s WHERE user_belongs_to_project_org(s.project_id))))
+ public.plans | Users can delete plans in their orgs | DELETE | public
+-  USING: ((organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (goal_id IN ( SELECT g.id FROM ((goals g JOIN projects p ON ((g.project_id = p.id))) JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (section_id IN ( SELECT s.id FROM ((sections s JOIN projects p ON ((s.project_id = p.id))) JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))))
++  USING: ((organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id))) OR (goal_id IN ( SELECT g.id FROM goals g WHERE user_belongs_to_project_org(g.project_id))) OR (section_id IN ( SELECT s.id FROM sections s WHERE user_belongs_to_project_org(s.project_id))))
+   CHECK: -
+ public.plans | Users can update plans in their orgs | UPDATE | public
+-  USING: ((organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (goal_id IN ( SELECT g.id FROM ((goals g JOIN projects p ON ((g.project_id = p.id))) JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (section_id IN ( SELECT s.id FROM ((sections s JOIN projects p ON ((s.project_id = p.id))) JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))))
++  USING: ((organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id))) OR (goal_id IN ( SELECT g.id FROM goals g WHERE user_belongs_to_project_org(g.project_id))) OR (section_id IN ( SELECT s.id FROM sections s WHERE user_belongs_to_project_org(s.project_id))))
+   CHECK: -
+ public.plans | Users can view plans in their orgs | SELECT | public
+-  USING: ((organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (goal_id IN ( SELECT g.id FROM ((goals g JOIN projects p ON ((g.project_id = p.id))) JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (section_id IN ( SELECT s.id FROM ((sections s JOIN projects p ON ((s.project_id = p.id))) JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))))
++  USING: ((organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id))) OR (goal_id IN ( SELECT g.id FROM goals g WHERE user_belongs_to_project_org(g.project_id))) OR (section_id IN ( SELECT s.id FROM sections s WHERE user_belongs_to_project_org(s.project_id))))
+   CHECK: -
+ public.profiles | Super admins can view all profiles | SELECT | public
+   USING: is_super_admin()
+@@ -307,38 +307,50 @@
+ public.profiles | Users can view their own profile | SELECT | public
+   USING: (auth.uid() = id)
+   CHECK: -
++public.project_organizations | project_organizations_delete | DELETE | public
++  USING: ((NOT is_primary) AND is_project_primary_org_admin(project_id))
++  CHECK: -
++public.project_organizations | project_organizations_insert | INSERT | public
++  USING: -
++  CHECK: ((NOT is_primary) AND is_project_primary_org_admin(project_id))
++public.project_organizations | project_organizations_select | SELECT | public
++  USING: user_has_project_org_access(project_id)
++  CHECK: -
++public.project_organizations | project_organizations_update | UPDATE | public
++  USING: ((NOT is_primary) AND is_project_primary_org_admin(project_id))
++  CHECK: ((NOT is_primary) AND is_project_primary_org_admin(project_id))
+ public.project_shares | project_shares_member_all | ALL | authenticated
+-  USING: ((EXISTS ( SELECT 1 FROM user_projects up WHERE ((up.project_id = project_shares.project_id) AND (up.user_id = auth.uid())))) OR (EXISTS ( SELECT 1 FROM (projects p JOIN user_organizations uo ON ((uo.organization_id = p.organization_id))) WHERE ((p.id = project_shares.project_id) AND (uo.user_id = auth.uid())))))
+-  CHECK: ((EXISTS ( SELECT 1 FROM user_projects up WHERE ((up.project_id = project_shares.project_id) AND (up.user_id = auth.uid())))) OR (EXISTS ( SELECT 1 FROM (projects p JOIN user_organizations uo ON ((uo.organization_id = p.organization_id))) WHERE ((p.id = project_shares.project_id) AND (uo.user_id = auth.uid())))))
++  USING: ((EXISTS ( SELECT 1 FROM user_projects up WHERE ((up.project_id = project_shares.project_id) AND (up.user_id = auth.uid())))) OR user_belongs_to_project_org(project_id))
++  CHECK: ((EXISTS ( SELECT 1 FROM user_projects up WHERE ((up.project_id = project_shares.project_id) AND (up.user_id = auth.uid())))) OR user_belongs_to_project_org(project_id))
+ public.projects | Admins can manage projects in their organizations | ALL | public
+   USING: ((( SELECT profiles.role FROM profiles WHERE (profiles.id = auth.uid())) = ANY (ARRAY['admin'::user_role, 'super_admin'::user_role])) OR is_super_admin())
+   CHECK: user_has_organization_access(organization_id)
+ public.projects | Team members can update projects in their organizations | UPDATE | public
+-  USING: user_has_organization_access(organization_id)
+-  CHECK: -
++  USING: user_has_project_org_access(id)
++  CHECK: (user_has_project_org_access(id) AND (user_has_organization_access(organization_id) OR (EXISTS ( SELECT 1 FROM project_organizations po WHERE ((po.project_id = projects.id) AND (po.organization_id = projects.organization_id))))))
+ public.projects | Users can view projects in their organizations | SELECT | public
+-  USING: user_has_organization_access(organization_id)
++  USING: user_has_project_org_access(id)
+   CHECK: -
+ public.reminders | Users can manage reminders for their tasks | ALL | public
+-  USING: (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = reminders.task_id) AND user_has_organization_access(p.organization_id))))
++  USING: (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = reminders.task_id) AND user_has_project_org_access(p.id))))
+   CHECK: -
+ public.reminders | Users can view reminders for their tasks | SELECT | public
+-  USING: (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = reminders.task_id) AND user_has_organization_access(p.organization_id))))
++  USING: (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = reminders.task_id) AND user_has_project_org_access(p.id))))
+   CHECK: -
+ public.sections | Users can create sections in their projects | INSERT | public
+   USING: -
+-  CHECK: (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = auth.uid())))
++  CHECK: (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id)))
+ public.sections | Users can delete sections in their projects | DELETE | public
+-  USING: (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = auth.uid())))
++  USING: (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id)))
+   CHECK: -
+ public.sections | Users can manage sections in their projects | ALL | public
+-  USING: (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = sections.project_id) AND user_has_organization_access(p.organization_id))))
++  USING: (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = sections.project_id) AND user_has_project_org_access(p.id))))
+   CHECK: -
+ public.sections | Users can update sections in their projects | UPDATE | public
+-  USING: (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = auth.uid())))
++  USING: (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id)))
+   CHECK: -
+ public.sections | Users can view sections in their projects | SELECT | public
+-  USING: (project_id IN ( SELECT p.id FROM (projects p JOIN user_organizations uo ON ((p.organization_id = uo.organization_id))) WHERE (uo.user_id = auth.uid())))
++  USING: (project_id IN ( SELECT p.id FROM projects p WHERE user_belongs_to_project_org(p.id)))
+   CHECK: -
+ public.sentry_connections | Users can manage their own sentry connections | ALL | public
+   USING: (user_id = ( SELECT auth.uid() AS uid))
+@@ -408,27 +420,27 @@
+   CHECK: (auth.uid() = user_id)
+ public.task_reorg_batches | Members can create reorg batches | INSERT | public
+   USING: -
+-  CHECK: (organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid))))
++  CHECK: ((organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR ((project_id IS NOT NULL) AND user_belongs_to_project_org(project_id)))
+ public.task_reorg_batches | Members can update reorg batches | UPDATE | public
+-  USING: (organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid))))
++  USING: ((organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR ((project_id IS NOT NULL) AND user_belongs_to_project_org(project_id)))
+   CHECK: -
+ public.task_reorg_batches | Members can view reorg batches | SELECT | public
+-  USING: (organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid))))
++  USING: ((organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR ((project_id IS NOT NULL) AND user_belongs_to_project_org(project_id)))
+   CHECK: -
+ public.task_reorg_moves | Members can create reorg moves | INSERT | public
+   USING: -
+-  CHECK: (batch_id IN ( SELECT b.id FROM (task_reorg_batches b JOIN user_organizations uo ON ((uo.organization_id = b.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid))))
++  CHECK: (batch_id IN ( SELECT b.id FROM task_reorg_batches b WHERE ((b.organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR ((b.project_id IS NOT NULL) AND user_belongs_to_project_org(b.project_id)))))
+ public.task_reorg_moves | Members can update reorg moves | UPDATE | public
+-  USING: (batch_id IN ( SELECT b.id FROM (task_reorg_batches b JOIN user_organizations uo ON ((uo.organization_id = b.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid))))
++  USING: (batch_id IN ( SELECT b.id FROM task_reorg_batches b WHERE ((b.organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR ((b.project_id IS NOT NULL) AND user_belongs_to_project_org(b.project_id)))))
+   CHECK: -
+ public.task_reorg_moves | Members can view reorg moves | SELECT | public
+-  USING: (batch_id IN ( SELECT b.id FROM (task_reorg_batches b JOIN user_organizations uo ON ((uo.organization_id = b.organization_id))) WHERE (uo.user_id = ( SELECT auth.uid() AS uid))))
++  USING: (batch_id IN ( SELECT b.id FROM task_reorg_batches b WHERE ((b.organization_id IN ( SELECT uo.organization_id FROM user_organizations uo WHERE (uo.user_id = ( SELECT auth.uid() AS uid)))) OR ((b.project_id IS NOT NULL) AND user_belongs_to_project_org(b.project_id)))))
+   CHECK: -
+ public.task_sections | Users can manage task sections in their projects | ALL | public
+-  USING: ((task_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = task_sections.task_id) AND user_has_organization_access(p.organization_id)))))
+-  CHECK: ((task_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = task_sections.task_id) AND user_has_organization_access(p.organization_id)))))
++  USING: ((task_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = task_sections.task_id) AND user_has_project_org_access(p.id)))))
++  CHECK: ((task_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = task_sections.task_id) AND user_has_project_org_access(p.id)))))
+ public.task_sections | Users can view task sections in their projects | SELECT | public
+-  USING: ((task_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = task_sections.task_id) AND user_has_organization_access(p.organization_id)))))
++  USING: ((task_id IS NOT NULL) AND (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = task_sections.task_id) AND user_has_project_org_access(p.id)))))
+   CHECK: -
+ public.task_stakes | task_stakes_delete | DELETE | public
+   USING: (EXISTS ( SELECT 1 FROM stakes s WHERE ((s.id = task_stakes.stake_id) AND user_has_organization_access(s.organization_id))))
+@@ -443,16 +455,16 @@
+   USING: (EXISTS ( SELECT 1 FROM stakes s WHERE ((s.id = task_stakes.stake_id) AND user_has_organization_access(s.organization_id))))
+   CHECK: -
+ public.task_tags | Users can manage task tags for their tasks | ALL | public
+-  USING: (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = task_tags.task_id) AND user_has_organization_access(p.organization_id))))
++  USING: (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = task_tags.task_id) AND user_has_project_org_access(p.id))))
+   CHECK: -
+ public.task_tags | Users can view task tags for their tasks | SELECT | public
+-  USING: (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = task_tags.task_id) AND user_has_organization_access(p.organization_id))))
++  USING: (EXISTS ( SELECT 1 FROM (tasks t JOIN projects p ON ((p.id = t.project_id))) WHERE ((t.id = task_tags.task_id) AND user_has_project_org_access(p.id))))
+   CHECK: -
+ public.tasks | Users can manage tasks in their projects | ALL | public
+-  USING: (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = tasks.project_id) AND user_has_organization_access(p.organization_id))))
++  USING: (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = tasks.project_id) AND user_has_project_org_access(p.id))))
+   CHECK: -
+ public.tasks | Users can view tasks in their projects | SELECT | public
+-  USING: (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = tasks.project_id) AND user_has_organization_access(p.organization_id))))
++  USING: (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = tasks.project_id) AND user_has_project_org_access(p.id))))
+   CHECK: -
+ public.time_block_tasks | Users can manage their time block tasks | ALL | public
+   USING: (EXISTS ( SELECT 1 FROM time_blocks WHERE ((time_blocks.id = time_block_tasks.time_block_id) AND (time_blocks.user_id = auth.uid()))))
+@@ -566,10 +578,10 @@
+   USING: (auth.uid() = user_id)
+   CHECK: -
+ public.user_projects | Org admins can manage project memberships | ALL | public
+-  USING: (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = user_projects.project_id) AND is_org_admin(auth.uid(), p.organization_id))))
+-  CHECK: (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = user_projects.project_id) AND is_org_admin(auth.uid(), p.organization_id))))
++  USING: (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = user_projects.project_id) AND is_project_org_admin(p.id))))
++  CHECK: (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = user_projects.project_id) AND is_project_org_admin(p.id))))
+ public.user_projects | Users can view project memberships | SELECT | public
+-  USING: ((auth.uid() = user_id) OR is_super_admin() OR (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = user_projects.project_id) AND user_has_organization_access(p.organization_id)))))
++  USING: ((auth.uid() = user_id) OR is_super_admin() OR (EXISTS ( SELECT 1 FROM projects p WHERE ((p.id = user_projects.project_id) AND user_has_project_org_access(p.id)))))
+   CHECK: -
+ storage.objects | tutorial videos admin delete | DELETE | authenticated
+   USING: ((bucket_id = 'tutorial-videos'::text) AND is_tutorial_admin())

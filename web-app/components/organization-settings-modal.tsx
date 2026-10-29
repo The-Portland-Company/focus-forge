@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { X, Search, Building2, Check, Users, Trash2, Loader2, RotateCcw, Mail, Link2 } from 'lucide-react'
 import { Organization, Project, User } from '@/lib/types'
+import { getProjectOrganizationIds } from '@/lib/project-orgs-client'
 import { ColorPicker } from './color-picker'
 import { UserAvatar } from '@/components/user-avatar'
 import { type ApiKeyMeta, ALLOWED_API_SCOPES } from '@/lib/api/keys/types'
@@ -87,6 +88,8 @@ interface OrganizationSettingsModalProps {
   organization: Organization
   projects: Project[]
   allProjects: Project[]
+  /** All organizations available for sharing a project into. */
+  organizations?: Organization[]
   users: User[]
   currentUserId?: string
   currentUserRole?: User['role']
@@ -122,6 +125,7 @@ export function OrganizationSettingsModal({
   organization, 
   projects,
   allProjects,
+  organizations = [],
   users,
   currentUserId,
   currentUserRole,
@@ -146,9 +150,15 @@ export function OrganizationSettingsModal({
   const [color, setColor] = useState(organization.color)
   const [showColorPicker, setShowColorPicker] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [associatedProjectIds, setAssociatedProjectIds] = useState<string[]>(
-    projects.map(p => p.id)
-  )
+  // Desired full organization set per project, only for projects the user changed.
+  const [projectOrgSelections, setProjectOrgSelections] = useState<Record<string, string[]>>({})
+  const [expandedShareProjectId, setExpandedShareProjectId] = useState<string | null>(null)
+  const currentOrgIds = (project: Project): string[] =>
+    projectOrgSelections[project.id] ?? getProjectOrganizationIds(project)
+  const primaryOrgIdOf = (project: Project): string =>
+    getProjectOrganizationIds(project)[0] ?? project.organizationId
+  const isAssociatedWithThisOrg = (project: Project) =>
+    currentOrgIds(project).includes(organization.id)
   const colorPickerRef = useRef<HTMLDivElement>(null)
   const [activeTab, setActiveTab] = useState<
     'details' | 'projects' | 'users' | 'api-keys'
@@ -199,7 +209,7 @@ export function OrganizationSettingsModal({
     setName(organization.name)
     setDescription(organization.description || '')
     setColor(organization.color)
-    setAssociatedProjectIds(projects.map((project) => project.id))
+    setProjectOrgSelections({})
     setOrganizationUserIds(getOrganizationUserIds(organization))
     setLocalInvitedUsers([])
     setShowInviteUser(false)
@@ -353,8 +363,8 @@ export function OrganizationSettingsModal({
     richTextToPlainText(project.description).toLowerCase().includes(searchQuery.toLowerCase())
   )
   const sortedFilteredProjects = [...filteredProjects].sort((left, right) => {
-    const leftAssociated = associatedProjectIds.includes(left.id)
-    const rightAssociated = associatedProjectIds.includes(right.id)
+    const leftAssociated = isAssociatedWithThisOrg(left)
+    const rightAssociated = isAssociatedWithThisOrg(right)
 
     if (leftAssociated === rightAssociated) {
       return left.name.localeCompare(right.name)
@@ -363,12 +373,20 @@ export function OrganizationSettingsModal({
     return leftAssociated ? -1 : 1
   })
 
-  const handleProjectToggle = (projectId: string) => {
-    setAssociatedProjectIds(prev => 
-      prev.includes(projectId)
-        ? prev.filter(id => id !== projectId)
-        : [...prev, projectId]
-    )
+  const canAdminProject = (project: Project) =>
+    isAdmin || (isOwner && primaryOrgIdOf(project) === organization.id)
+
+  // Toggle one organization in a project's desired set. The primary is locked on.
+  const toggleProjectOrg = (project: Project, orgId: string) => {
+    const primary = primaryOrgIdOf(project)
+    if (orgId === primary || !canAdminProject(project)) return
+    setProjectOrgSelections(prev => {
+      const current = prev[project.id] ?? getProjectOrganizationIds(project)
+      const next = current.includes(orgId)
+        ? current.filter(id => id !== orgId)
+        : [...current, orgId]
+      return { ...prev, [project.id]: [primary, ...next.filter(id => id !== primary)] }
+    })
   }
 
   const displayedUsers = mergeUsersById(users, localInvitedUsers)
@@ -540,20 +558,16 @@ export function OrganizationSettingsModal({
       memberIds: organizationUserIds
     })
 
-    // Update project associations
+    // Update project organization sharing (full desired set per changed project)
     allProjects.forEach(project => {
-      const shouldBeAssociated = associatedProjectIds.includes(project.id)
-      const isCurrentlyAssociated =
-        ((project as any).organization_id || project.organizationId) ===
-        organization.id
-
-      if (shouldBeAssociated !== isCurrentlyAssociated) {
-        // Update the project's organization
-        // For now, we'll just update to this organization if selected
-        // In the future, this could support multiple organizations
-        if (shouldBeAssociated) {
-          onProjectAssociation(project.id, [organization.id])
-        }
+      const desired = projectOrgSelections[project.id]
+      if (!desired) return
+      const original = getProjectOrganizationIds(project)
+      const changed =
+        desired.length !== original.length ||
+        desired.some(id => !original.includes(id))
+      if (changed) {
+        onProjectAssociation(project.id, desired)
       }
     })
 
@@ -744,16 +758,24 @@ export function OrganizationSettingsModal({
             {/* Project List */}
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {sortedFilteredProjects.map(project => {
-                const isAssociated = associatedProjectIds.includes(project.id)
+                const isAssociated = isAssociatedWithThisOrg(project)
+                const primaryId = primaryOrgIdOf(project)
+                const isPrimaryHere = primaryId === organization.id
+                const adminable = canAdminProject(project)
+                const selectedIds = currentOrgIds(project)
+                const shareTargets = organizations.filter(o => !o.archived || selectedIds.includes(o.id))
+                const shareOpen = expandedShareProjectId === project.id
                 return (
+                  <div key={project.id} className="bg-zinc-800 rounded-lg">
                   <label
-                    key={project.id}
-                    className="flex items-center gap-3 p-3 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors cursor-pointer"
+                    className="flex items-center gap-3 p-3 hover:bg-zinc-700 rounded-lg transition-colors cursor-pointer"
                   >
                     <input
                       type="checkbox"
                       checked={isAssociated}
-                      onChange={() => handleProjectToggle(project.id)}
+                      disabled={isPrimaryHere || !adminable}
+                      title={isPrimaryHere ? 'Primary organization (locked)' : undefined}
+                      onChange={() => toggleProjectOrg(project, organization.id)}
                       className="w-4 h-4 rounded border-zinc-600 bg-zinc-700 text-theme-primary focus:ring-2 focus:ring-theme-primary focus:ring-offset-0 focus:ring-offset-zinc-900"
                     />
                     <div className="flex items-center gap-2 flex-1">
@@ -768,10 +790,52 @@ export function OrganizationSettingsModal({
                         </span>
                       )}
                     </div>
+                    {selectedIds.length > 1 && (
+                      <span
+                        className="text-[10px] uppercase tracking-wide px-1 rounded bg-zinc-700 text-zinc-300"
+                        title={`Shared with ${selectedIds.length} organizations`}
+                      >
+                        Shared
+                      </span>
+                    )}
                     {isAssociated && (
                       <Check className="w-4 h-4 text-green-500" />
                     )}
                   </label>
+                  {adminable && organizations.length > 1 && (
+                    <div className="px-3 pb-2">
+                      <button
+                        type="button"
+                        className="text-xs text-zinc-400 hover:text-zinc-200 underline"
+                        aria-expanded={shareOpen}
+                        onClick={() => setExpandedShareProjectId(shareOpen ? null : project.id)}
+                      >
+                        {shareOpen ? 'Hide organizations' : 'Share with organizations...'}
+                      </button>
+                      {shareOpen && (
+                        <fieldset className="mt-2 grid gap-1 sm:grid-cols-2">
+                          <legend className="sr-only">Organizations for {project.name}</legend>
+                          {shareTargets.map(o => {
+                            const isPrimary = o.id === primaryId
+                            return (
+                              <label key={o.id} className="flex items-center gap-2 text-xs text-zinc-300">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedIds.includes(o.id)}
+                                  disabled={isPrimary}
+                                  onChange={() => toggleProjectOrg(project, o.id)}
+                                  className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-700"
+                                />
+                                <span className="truncate">{o.name}</span>
+                                {isPrimary && <span className="text-zinc-500">(primary)</span>}
+                              </label>
+                            )
+                          })}
+                        </fieldset>
+                      )}
+                    </div>
+                  )}
+                  </div>
                 )
               })}
             </div>

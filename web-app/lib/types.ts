@@ -51,7 +51,20 @@ export interface Project {
   description?: string;
   devnotesMeta?: string;
   color: string;
+  /** PRIMARY owning organization (projects.organization_id). */
   organizationId: string;
+  /**
+   * Every organization that owns/sees this project, PRIMARY FIRST. Length > 1
+   * means the project is shared; all listed orgs have full access. Missing on
+   * legacy payloads - treat `undefined` as `[organizationId]`.
+   */
+  organizationIds?: string[];
+  /** Per-org link metadata (role 'manager' = org owners may administer the project). */
+  organizationLinks?: Array<{
+    organizationId: string;
+    role: "manager" | "member";
+    isPrimary: boolean;
+  }>;
   /** Parent project id when this is a sub-project; null/undefined at top level. */
   parentId?: string | null;
   /** true for a Specs-owned project (Mode or Platform); delete/rename/re-parent blocked in the app. */

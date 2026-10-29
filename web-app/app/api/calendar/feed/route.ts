@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { listProjectsForOrgs } from "@/lib/db/project-visibility";
 import { createServiceClient } from "@/lib/supabase/server";
 import ical, { ICalCalendarMethod, ICalEventBusyStatus } from "ical-generator";
 
@@ -39,11 +40,13 @@ export async function GET(request: NextRequest) {
 
     let projectIds: string[] = [];
     if (orgIds.length > 0) {
-      const { data: projects } = await supabase
-        .from("projects")
-        .select("id")
-        .in("organization_id", orgIds);
-      projectIds = projects?.map((p: any) => p.id) || [];
+      // Includes projects shared into the user's orgs (multi-org ownership).
+      const projects = await listProjectsForOrgs(
+        supabase,
+        "id,organization_id",
+        orgIds,
+      );
+      projectIds = projects.map((p: any) => p.id);
     }
 
     // Fetch non-completed tasks for the user

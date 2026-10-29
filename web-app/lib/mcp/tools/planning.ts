@@ -10,6 +10,7 @@ import {
   getMobileAdapterForUser,
 } from "@/lib/mobile/api";
 import type { McpTool, McpToolResult } from "@/lib/mcp/server/types";
+import { getProjectOrgIds, getUserOrgIds } from "@/lib/db/project-orgs";
 
 export type { McpTool };
 
@@ -490,11 +491,16 @@ export const PLANNING_MCP_TOOLS: McpTool[] = [
         return errorResult("project_not_found_or_not_accessible");
       }
 
-      const { data: project } = await supabase
-        .from("projects")
-        .select("organization_id")
-        .eq("id", task.project_id)
-        .maybeSingle();
+      // Multi-org: stamp the entry with an org the CALLER belongs to (primary
+      // preferred), so a member of only a shared org still sees their entry.
+      const projectOrgIds = await getProjectOrgIds(supabase, task.project_id);
+      const callerOrgIds = await getUserOrgIds(supabase, ctx.userId);
+      const project = {
+        organization_id:
+          projectOrgIds.find((id) => callerOrgIds.includes(id)) ??
+          projectOrgIds[0] ??
+          null,
+      };
 
       const { data, error } = await supabase.rpc("time_create_entry", {
         p_user_id: ctx.userId,

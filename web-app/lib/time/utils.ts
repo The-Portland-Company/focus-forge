@@ -110,6 +110,11 @@ export function mapTimeProject(row: any): TimeTrackingProjectOption {
     id: String(row.id),
     name: String(row.name),
     organizationId: String(row.organization_id),
+    // Every org that owns the project (primary first); UI should offer the
+    // project under any of these orgs.
+    organizationIds: Array.isArray(row.organization_ids)
+      ? row.organization_ids.map(String)
+      : [String(row.organization_id)],
   };
 }
 

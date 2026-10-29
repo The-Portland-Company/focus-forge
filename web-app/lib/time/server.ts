@@ -1,6 +1,8 @@
 import { getAdminClient } from "@/lib/supabase/admin";
 import { generateApiKeySecret, extractPrefixFromSecret, hashApiKeySecret } from "@/lib/api/keys/utils";
 import { getTimePostgresClient } from "./postgres";
+import { getProjectOrgIds, getProjectOrgIdsMap } from "@/lib/db/project-orgs";
+import { listProjectsForOrgs } from "@/lib/db/project-visibility";
 import type {
   TimeScope,
   TimeTokenShareMode,
@@ -234,15 +236,12 @@ export async function getTimeBootstrap(userId: string): Promise<TimeTrackingBoot
     };
   }
 
-  const { data: projectRows, error: projectRowsError } = await admin
-    .from("projects")
-    .select("id,name,organization_id")
-    .in("organization_id", organizationIds)
-    .order("name");
-
-  if (projectRowsError) {
-    throw projectRowsError;
-  }
+  // Includes projects SHARED into any of the user's orgs (multi-org ownership).
+  const projectRows = (
+    await listProjectsForOrgs(admin, "id,name,organization_id", organizationIds)
+  ).sort((a: ProjectRow, b: ProjectRow) =>
+    String(a.name ?? "").localeCompare(String(b.name ?? "")),
+  );
 
   const projectIds =
     (projectRows || [])
@@ -342,13 +341,8 @@ async function validateTimeRelationships(input: {
   const admin = getAdminClient();
 
   if (input.projectId) {
-    const { data, error } = await admin
-      .from("projects")
-      .select("id, organization_id")
-      .eq("id", input.projectId)
-      .maybeSingle();
-    if (error) throw error;
-    if (!data || data.organization_id !== input.organizationId) {
+    const owningOrgIds = await getProjectOrgIds(admin, input.projectId);
+    if (!owningOrgIds.includes(input.organizationId)) {
       throw new Error("Project does not belong to the selected organization.");
     }
   }
@@ -363,13 +357,8 @@ async function validateTimeRelationships(input: {
     if (!data) {
       throw new Error("Task list was not found.");
     }
-    const { data: sectionProject, error: sectionProjectError } = await admin
-      .from("projects")
-      .select("id, organization_id")
-      .eq("id", data.project_id)
-      .maybeSingle();
-    if (sectionProjectError) throw sectionProjectError;
-    if (!sectionProject || sectionProject.organization_id !== input.organizationId) {
+    const sectionProjectOrgIds = await getProjectOrgIds(admin, data.project_id);
+    if (!sectionProjectOrgIds.includes(input.organizationId)) {
       throw new Error("Task list does not belong to the selected organization.");
     }
     if (input.projectId && data.project_id !== input.projectId) {
@@ -389,8 +378,15 @@ async function validateTimeRelationships(input: {
       throw new Error("One or more selected tasks were not found.");
     }
 
+    const taskProjectOrgs = await getProjectOrgIdsMap(
+      admin,
+      tasks.map((task) => String(task.project_id ?? "")),
+    );
     for (const task of tasks) {
-      if (task.projects?.organization_id !== input.organizationId) {
+      const owningOrgIds =
+        taskProjectOrgs.get(String(task.project_id ?? "")) ??
+        (task.projects?.organization_id ? [task.projects.organization_id] : []);
+      if (!owningOrgIds.includes(input.organizationId)) {
         throw new Error("One or more tasks do not belong to the selected organization.");
       }
       if (input.projectId && task.project_id !== input.projectId) {

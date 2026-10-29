@@ -74,6 +74,10 @@ import { ColorPicker } from "@/components/color-picker";
 import { ColorWheelPicker } from "@/components/color-wheel-picker";
 import { formatDate } from "@/lib/format-date";
 import {
+  buildOrganizationLinks,
+  projectBelongsToOrganization,
+} from "@/lib/project-orgs-client";
+import {
   Database,
   Task,
   Project,
@@ -2690,6 +2694,75 @@ export default function ViewPage({
     }
   };
 
+  // Set the FULL desired set of organizations a project is shared with.
+  // Optimistic local update; reverts on failure.
+  const handleProjectOrganizationsUpdate = async (
+    projectId: string,
+    organizationIds: string[],
+  ) => {
+    const existing = database?.projects.find((p) => p.id === projectId);
+    if (!existing) return;
+    const primary = existing.organizationId;
+    const nextIds = [primary, ...organizationIds.filter((id) => id !== primary)];
+    const previous = {
+      organizationIds: existing.organizationIds,
+      organizationLinks: existing.organizationLinks,
+    };
+    setDatabase((prev) =>
+      prev
+        ? {
+            ...prev,
+            projects: prev.projects.map((p) =>
+              p.id === projectId
+                ? {
+                    ...p,
+                    organizationIds: nextIds,
+                    organizationLinks: buildOrganizationLinks(
+                      primary,
+                      nextIds,
+                      p.organizationLinks,
+                    ),
+                  }
+                : p,
+            ),
+          }
+        : prev,
+    );
+    const revert = () =>
+      setDatabase((prev) =>
+        prev
+          ? {
+              ...prev,
+              projects: prev.projects.map((p) =>
+                p.id === projectId ? { ...p, ...previous } : p,
+              ),
+            }
+          : prev,
+      );
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ organization_ids: nextIds }),
+      });
+      if (!response.ok) {
+        revert();
+        let message = "Could not update project organizations";
+        try {
+          const body = await response.json();
+          message = body?.error || body?.message || message;
+        } catch {}
+        showError(message);
+        return;
+      }
+      await fetchData();
+    } catch (error) {
+      revert();
+      console.error("Error updating project organizations:", error);
+    }
+  };
+
   const handleProjectDelete = async (projectId: string) => {
     try {
       const response = await fetch(`/api/projects/${projectId}`, {
@@ -2832,7 +2905,7 @@ export default function ViewPage({
     if (org) {
       const projectCount =
         database?.projects.filter((p) => p.organizationId === orgId).length ||
-        0;
+        0; // primary-owned only: deleting an org removes its owned projects
       const taskCount =
         database?.tasks.filter((t) => {
           const projectId = (t as any).project_id || t.projectId;
@@ -5940,8 +6013,8 @@ export default function ViewPage({
                   <h2 className="text-lg font-semibold mb-3">Organizations</h2>
                   <div className="grid gap-3">
                     {filteredOrganizations.map((org) => {
-                      const projectCount = database.projects.filter(
-                        (p) => p.organizationId === org.id,
+                      const projectCount = database.projects.filter((p) =>
+                        projectBelongsToOrganization(p, org.id),
                       ).length;
 
                       return (
@@ -6014,8 +6087,8 @@ export default function ViewPage({
     if (view.startsWith("org-")) {
       const orgId = view.replace("org-", "");
       const organization = database.organizations.find((o) => o.id === orgId);
-      const orgProjects = database.projects.filter(
-        (p) => p.organizationId === orgId,
+      const orgProjects = database.projects.filter((p) =>
+        projectBelongsToOrganization(p, orgId),
       );
       const activeProjects = orgProjects.filter((p) => !p.archived);
       const archivedProjects = orgProjects.filter((p) => p.archived);
@@ -8248,6 +8321,7 @@ export default function ViewPage({
             setSelectedOrgForProject(null);
           }}
           organizationId={selectedOrgForProject}
+          availableOrganizations={database?.organizations}
           onAddProject={handleAddProject}
         />
       )}
@@ -8264,12 +8338,11 @@ export default function ViewPage({
         <OrganizationSettingsModal
           organization={editingOrganization}
           initialActiveTab={orgModalInitialTab}
-          projects={database.projects.filter(
-            (project) =>
-              ((project as any).organization_id || project.organizationId) ===
-              editingOrganization.id,
+          projects={database.projects.filter((project) =>
+            projectBelongsToOrganization(project, editingOrganization.id),
           )}
           allProjects={database.projects}
+          organizations={database.organizations}
           users={database.users}
           currentUserId={currentUserId}
           currentUserRole={currentUserRole}
@@ -8285,11 +8358,7 @@ export default function ViewPage({
             setShowEditOrganization(false);
             setEditingOrganization(null);
           }}
-          onProjectAssociation={async (projectId, organizationIds) => {
-            await handleProjectUpdate(projectId, {
-              organizationId: organizationIds[0],
-            });
-          }}
+          onProjectAssociation={handleProjectOrganizationsUpdate}
           onUserAdd={async (userId, organizationId) => {
             const organization = database.organizations.find(
               (candidate) => candidate.id === organizationId,

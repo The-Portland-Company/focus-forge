@@ -1,4 +1,5 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getProjectOrgIds } from "@/lib/db/project-orgs";
 
 export type PlannerMessageRow = {
   id: string;
@@ -55,11 +56,14 @@ export async function getAuthorizedProject(
     return null;
   }
 
+  // Multi-org: membership in ANY org that owns the project grants access.
+  const projectOrgIds = await getProjectOrgIds(supabase, projectId);
   const { data: membership, error: membershipError } = await supabase
     .from("user_organizations")
     .select("organization_id")
     .eq("user_id", userId)
-    .eq("organization_id", data.organization_id)
+    .in("organization_id", projectOrgIds.length ? projectOrgIds : [data.organization_id])
+    .limit(1)
     .maybeSingle();
 
   if (membershipError) {

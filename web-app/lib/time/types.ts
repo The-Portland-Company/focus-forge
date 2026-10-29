@@ -59,7 +59,10 @@ export interface TimeTrackingSectionOption {
 export interface TimeTrackingProjectOption {
   id: string;
   name: string;
+  /** PRIMARY owning org. */
   organizationId: string;
+  /** All owning orgs (primary first); a project is selectable under any. */
+  organizationIds?: string[];
 }
 
 export interface TimeTrackingOrganizationOption {

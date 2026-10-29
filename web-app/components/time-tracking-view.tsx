@@ -1,5 +1,6 @@
 "use client";
 
+import { projectBelongsToOrganization } from "@/lib/project-orgs-client";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -98,7 +99,7 @@ export function TimeTrackingView() {
     () =>
       (bootstrap?.projects || []).filter(
         (project) =>
-          !filters.organizationId || project.organizationId === filters.organizationId,
+          !filters.organizationId || projectBelongsToOrganization(project, filters.organizationId),
       ),
     [bootstrap?.projects, filters.organizationId],
   );
@@ -107,7 +108,7 @@ export function TimeTrackingView() {
     () =>
       (bootstrap?.projects || []).filter(
         (project) =>
-          !draft.organizationId || project.organizationId === draft.organizationId,
+          !draft.organizationId || projectBelongsToOrganization(project, draft.organizationId),
       ),
     [bootstrap?.projects, draft.organizationId],
   );

@@ -116,6 +116,11 @@ begin
       and pg_temp.cnt(format($q$select 1 from public.entity_events where project_id = %L$q$, md5('P1')::uuid)) = (case when u = 'both' then pg_temp.cnt(format($q$select 1 from public.entity_events where project_id = %L$q$, md5('P1')::uuid)) else 0 end));
     perform pg_temp.ok(u || ' sees no P1 tasks unless also in A',
       pg_temp.cnt($q$select 1 from public.tasks where name = 'task:P1'$q$) = (case when u = 'both' then 1 else 0 end));
+    perform pg_temp.ok(u || ' sees P2 reorg batch + moves, not P1s',
+      pg_temp.cnt($q$select 1 from public.task_reorg_batches where project_id = md5('P2')::uuid$q$) = 1
+      and pg_temp.cnt($q$select 1 from public.task_reorg_moves where reason = 'move:P2'$q$) = 1
+      and pg_temp.cnt($q$select 1 from public.task_reorg_batches where project_id = md5('P1')::uuid$q$) = (case when u = 'both' then 1 else 0 end)
+      and pg_temp.cnt($q$select 1 from public.task_reorg_moves where reason = 'move:P1'$q$) = (case when u = 'both' then 1 else 0 end));
     perform pg_temp.ok(u || ' sees no P3',
       pg_temp.cnt($q$select 1 from public.projects where name = 'P3'$q$) = 0);
   end loop;
@@ -128,6 +133,9 @@ begin
     and pg_temp.dml(format($q$insert into public.plans (name, project_id) values ('b-plan', %L)$q$, md5('P2')::uuid)) = 1
     and pg_temp.dml($q$update public.projects set description = 'edited by B' where name = 'P2'$q$) = 1
     and pg_temp.dml($q$update public.tasks set description = 'b' where name = 'task:P2'$q$) = 1);
+  perform pg_temp.ok('memB can create a reorg batch stamped with the PRIMARY org for shared P2, not for P1',
+    pg_temp.dml(format($q$insert into public.task_reorg_batches (organization_id, project_id) values (%L, %L)$q$, md5('org:A')::uuid, md5('P2')::uuid)) = 1
+    and pg_temp.dml(format($q$insert into public.task_reorg_batches (organization_id, project_id) values (%L, %L)$q$, md5('org:A')::uuid, md5('P1')::uuid)) = -1);
   perform pg_temp.ok('memB cannot write into P1 (not shared)',
     pg_temp.dml(format($q$insert into public.sections (name, project_id) values ('x', %L)$q$, md5('P1')::uuid)) = -1
     and pg_temp.dml($q$update public.tasks set description = 'b' where name = 'task:P1'$q$) = 0);

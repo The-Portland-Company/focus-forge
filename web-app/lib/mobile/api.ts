@@ -9,6 +9,7 @@ import { TPC_RESOURCE, TPC_LEGACY_RESOURCES } from '@/src/vendor/tpc-auth/config
 import { sourceForTpcClientId } from '@/lib/task-sources'
 import { resolveForgeProfile } from '@/lib/auth/local-identity'
 import { requireViewer } from '@/lib/auth/require-viewer'
+import { getUserOrgIds } from '@/lib/db/project-orgs'
 
 export type MobileApiError = {
   code: string
@@ -769,7 +770,10 @@ export const loadAccessiblePlan = async (
   const adapter = await getMobileAdapterForUser(userId)
   const projects = await adapter.getProjects()
   const projectIds = new Set(projects.map((p: any) => p.id))
-  const orgIds = new Set(projects.map((p: any) => p.organizationId ?? p.organization_id))
+  // Orgs the user actually belongs to. (Deriving this from the organizations of
+  // accessible projects would grant org-level access to a project's PRIMARY org
+  // for anyone who merely reaches a project shared into another org.)
+  const orgIds = new Set(await getUserOrgIds(serviceSupabase, userId))
 
   let hasAccess = false
   if (plan.organization_id) {
@@ -832,7 +836,10 @@ export const resolvePlanOwner = async (
   const adapter = await getMobileAdapterForUser(userId)
   const projects = await adapter.getProjects()
   const projectIds = new Set(projects.map((p: any) => p.id))
-  const orgIds = new Set(projects.map((p: any) => p.organizationId ?? p.organization_id))
+  // Orgs the user actually belongs to. (Deriving this from the organizations of
+  // accessible projects would grant org-level access to a project's PRIMARY org
+  // for anyone who merely reaches a project shared into another org.)
+  const orgIds = new Set(await getUserOrgIds(serviceSupabase, userId))
 
   let ok = false
   if (owner.column === 'organization_id') {

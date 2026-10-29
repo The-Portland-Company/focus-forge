@@ -33,6 +33,8 @@ begin
   insert into _snap select p_user, 'reminders',         coalesce(string_agg(value, ',' order by value), '') from public.reminders;
   insert into _snap select p_user, 'task_tags',         coalesce(string_agg(tag_id::text, ',' order by tag_id::text), '') from public.task_tags;
   insert into _snap select p_user, 'task_sections',     coalesce(string_agg(section_id::text, ',' order by section_id::text), '') from public.task_sections;
+  insert into _snap select p_user, 'task_reorg_batches', coalesce(string_agg(project_id::text, ',' order by project_id::text), '') from public.task_reorg_batches;
+  insert into _snap select p_user, 'task_reorg_moves',   coalesce(string_agg(reason, ',' order by reason), '') from public.task_reorg_moves;
   insert into _snap select p_user, 'entity_events',     coalesce(string_agg(distinct (entity_type || ':' || operation), ',' order by (entity_type || ':' || operation)), '') from public.entity_events;
   insert into _snap select p_user, 'entity_events_n',   count(*)::text from public.entity_events;
   reset role;
@@ -70,6 +72,10 @@ begin
     insert into public.user_projects (user_id, project_id) values (md5('u:none')::uuid, md5('P1')::uuid);
     insert into _w values (p_user, 'insert user_projects P1', true);
   exception when others then insert into _w values (p_user, 'insert user_projects P1', false); end;
+  begin
+    insert into public.task_reorg_batches (organization_id, project_id) values (md5('org:A')::uuid, md5('P1')::uuid);
+    insert into _w values (p_user, 'insert reorg batch P1', true);
+  exception when others then insert into _w values (p_user, 'insert reorg batch P1', false); end;
   begin
     update public.projects set organization_id = md5('org:B')::uuid where name = 'P1';
     get diagnostics n = row_count;

@@ -17,7 +17,8 @@
 --     (WITH CHECK stays user_has_organization_access(organization_id): you can
 --     only create a project in a PRIMARY org you belong to).
 --   * policies keyed on a table's OWN organization_id column (plans.organization_id
---     branch, stakes, audit_logs, contacts, task_reorg_*, email_*, time_tracking):
+--     branch, stakes, audit_logs, contacts, email_*, time_tracking; task_reorg_* keep
+--     their org branch and only gain an additive project branch):
 --     those rows belong to one org by design, not to a project's org set.
 --
 -- With only primary links present, every rewritten policy is logically
@@ -298,6 +299,55 @@ alter policy "project_shares_member_all" on public.project_shares
             where up.project_id = project_shares.project_id and up.user_id = auth.uid())
     or public.user_belongs_to_project_org(project_shares.project_id)
   );
+
+-- ------------------------------------------------------- task_reorg_batches/moves
+-- Batches are stamped with the project's PRIMARY org. A manager of a shared org
+-- passes the app-level project-admin check, so batches must also be reachable
+-- through the batch's project (additive OR; the org-column branch is unchanged).
+alter policy "Members can view reorg batches" on public.task_reorg_batches
+  using (
+    organization_id in (select uo.organization_id from public.user_organizations uo
+                        where uo.user_id = (select auth.uid()))
+    or (project_id is not null and public.user_belongs_to_project_org(project_id))
+  );
+
+alter policy "Members can create reorg batches" on public.task_reorg_batches
+  with check (
+    organization_id in (select uo.organization_id from public.user_organizations uo
+                        where uo.user_id = (select auth.uid()))
+    or (project_id is not null and public.user_belongs_to_project_org(project_id))
+  );
+
+alter policy "Members can update reorg batches" on public.task_reorg_batches
+  using (
+    organization_id in (select uo.organization_id from public.user_organizations uo
+                        where uo.user_id = (select auth.uid()))
+    or (project_id is not null and public.user_belongs_to_project_org(project_id))
+  );
+
+alter policy "Members can view reorg moves" on public.task_reorg_moves
+  using (batch_id in (
+    select b.id from public.task_reorg_batches b
+    where b.organization_id in (select uo.organization_id from public.user_organizations uo
+                                where uo.user_id = (select auth.uid()))
+       or (b.project_id is not null and public.user_belongs_to_project_org(b.project_id))
+  ));
+
+alter policy "Members can create reorg moves" on public.task_reorg_moves
+  with check (batch_id in (
+    select b.id from public.task_reorg_batches b
+    where b.organization_id in (select uo.organization_id from public.user_organizations uo
+                                where uo.user_id = (select auth.uid()))
+       or (b.project_id is not null and public.user_belongs_to_project_org(b.project_id))
+  ));
+
+alter policy "Members can update reorg moves" on public.task_reorg_moves
+  using (batch_id in (
+    select b.id from public.task_reorg_batches b
+    where b.organization_id in (select uo.organization_id from public.user_organizations uo
+                                where uo.user_id = (select auth.uid()))
+       or (b.project_id is not null and public.user_belongs_to_project_org(b.project_id))
+  ));
 
 -- ------------------------------------------------------------ entity_events
 -- Events carry the PRIMARY org in organization_id; shared-org members also see

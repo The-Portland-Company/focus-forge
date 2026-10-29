@@ -1,6 +1,8 @@
 import { ensureAgentTaskEstimate } from "@/lib/ai-estimator/auto-estimate";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { richTextToPlainText } from "@/lib/rich-text";
+import { countProjectsInOrg, listProjectsForOrgs } from "@/lib/db/project-visibility";
+import { getProjectOrgIdsMap } from "@/lib/db/project-orgs";
 import {
   listInboxItemsForUser,
   applyThreadAction,
@@ -95,10 +97,8 @@ export async function resolveAccessibleProjectIds(
 
   if (orgIds.length === 0) return new Set();
 
-  const { data: projects } = await admin
-    .from("projects")
-    .select("id")
-    .in("organization_id", orgIds);
+  // Includes projects shared into any of the user's orgs (multi-org ownership).
+  const projects = await listProjectsForOrgs(admin, "id,organization_id", orgIds);
 
   return new Set(
     (projects || [])
@@ -986,12 +986,18 @@ async function deleteTask(ctx: AgentToolContext, args: Record<string, any>): Pro
 
 async function listProjects(ctx: AgentToolContext): Promise<AgentToolResult> {
   if (ctx.accessibleProjectIds.size === 0) return { ok: true, data: { projects: [] } };
-  const { data, error } = await ctx.admin
-    .from("projects")
-    .select("id, name, organization_id, parent_id")
-    .in("id", Array.from(ctx.accessibleProjectIds))
-    .order("name", { ascending: true });
-  if (error) return { ok: false, error: error.message };
+  // Chunked: PostgREST rejects very long `in.(...)` URLs.
+  const accessibleIds = Array.from(ctx.accessibleProjectIds);
+  const data: any[] = [];
+  for (let i = 0; i < accessibleIds.length; i += 100) {
+    const { data: part, error } = await ctx.admin
+      .from("projects")
+      .select("id, name, organization_id, parent_id")
+      .in("id", accessibleIds.slice(i, i + 100));
+    if (error) return { ok: false, error: error.message };
+    data.push(...(part || []));
+  }
+  data.sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
   return {
     ok: true,
     data: {
@@ -1100,12 +1106,15 @@ async function resolveProject(
   }
 
   if (typeof args.name === "string" && args.name.trim()) {
-    const { data } = await ctx.admin
-      .from("projects")
-      .select("id, name, color, archived, organization_id")
-      .in("id", accessible)
-      .ilike("name", `%${args.name.trim()}%`);
-    const matches = data || [];
+    const matches: any[] = [];
+    for (let i = 0; i < accessible.length; i += 100) {
+      const { data } = await ctx.admin
+        .from("projects")
+        .select("id, name, color, archived, organization_id")
+        .in("id", accessible.slice(i, i + 100))
+        .ilike("name", `%${args.name.trim()}%`);
+      matches.push(...(data || []));
+    }
     if (matches.length === 0) return { error: `No accessible project matches "${args.name}".` };
     if (matches.length > 1) {
       const exact = matches.filter((m: any) => m.name.toLowerCase() === args.name.trim().toLowerCase());
@@ -1122,13 +1131,10 @@ async function getOrganization(ctx: AgentToolContext, args: Record<string, any>)
   const r = await resolveOrg(ctx, args);
   if (r.candidates) return { ok: true, data: { ambiguous: true, candidates: r.candidates } };
   if (!r.org) return { ok: false, error: r.error || "Organization not found." };
-  const { count } = await ctx.admin
-    .from("projects")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", r.org.id);
+  const projectCount = await countProjectsInOrg(ctx.admin, r.org.id);
   return {
     ok: true,
-    data: { id: r.org.id, name: r.org.name, color: r.org.color ?? null, projectCount: count ?? 0 },
+    data: { id: r.org.id, name: r.org.name, color: r.org.color ?? null, projectCount },
   };
 }
 
@@ -1302,6 +1308,14 @@ async function updateProject(ctx: AgentToolContext, args: Record<string, any>): 
     if (!orgIds.has(args.organizationId)) {
       return { ok: false, error: "Target organizationId is not accessible." };
     }
+    // Multi-org: changing the PRIMARY owner requires belonging to the current
+    // primary org (a member of only a shared org may not take ownership).
+    if (r.project.organization_id && !orgIds.has(r.project.organization_id)) {
+      return {
+        ok: false,
+        error: "Only a member of the project's primary organization can move it.",
+      };
+    }
     update.organization_id = args.organizationId;
   }
   // Nest under (or un-nest from) a parent project as a sub-project.
@@ -1317,8 +1331,13 @@ async function updateProject(ctx: AgentToolContext, args: Record<string, any>): 
         return { ok: false, error: "A project cannot be its own parent." };
       }
       // Parent must live in the project's (post-move) organization.
-      const effectiveOrgId = update.organization_id ?? r.project.organization_id;
-      if (parentRes.project.organization_id !== effectiveOrgId) {
+      // Multi-org: shared ownership counts (any org in common).
+      const orgMap = await getProjectOrgIdsMap(ctx.admin, [r.project.id, parentRes.project.id]);
+      const childOrgs = update.organization_id
+        ? [update.organization_id as string]
+        : orgMap.get(r.project.id) ?? [r.project.organization_id];
+      const parentOrgs = orgMap.get(parentRes.project.id) ?? [parentRes.project.organization_id];
+      if (!childOrgs.some((id) => parentOrgs.includes(id))) {
         return {
           ok: false,
           error: "The parent project must be in the same organization as the project.",
@@ -1476,11 +1495,17 @@ async function deleteOrganizationGated(ctx: AgentToolContext, args: Record<strin
 
   if (!gate.allowed) {
     // Step 1: compute impact, hand back a token, delete NOTHING.
+    // Only projects owned SOLELY by this org are cascade-deleted; projects
+    // shared with another org stay live (soft_delete_entity, 20261028000200).
     const { data: projects } = await ctx.admin
       .from("projects")
       .select("id")
       .eq("organization_id", target.id);
-    const projectIds = (projects || []).map((p: any) => p.id);
+    const ownedIds = (projects || []).map((p: any) => p.id);
+    const ownerMap = await getProjectOrgIdsMap(ctx.admin, ownedIds);
+    const projectIds = ownedIds.filter((id: string) =>
+      (ownerMap.get(id) ?? [target.id]).every((orgId) => orgId === target.id),
+    );
     let taskCount = 0;
     if (projectIds.length) {
       const { count } = await ctx.admin

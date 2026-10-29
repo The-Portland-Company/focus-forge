@@ -2,6 +2,7 @@ import { getAppBaseUrl } from "@/lib/auth/urls";
 import { sendEmailMessage } from "@/lib/email";
 import { getRichTextPreview, richTextToPlainText } from "@/lib/rich-text";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { getProjectOrgIds } from "@/lib/db/project-orgs";
 
 type ProfileRow = {
   id: string;
@@ -256,12 +257,15 @@ async function fetchProfilesByIds(userIds: string[]) {
   );
 }
 
-async function fetchOrganizationProfiles(organizationId: string) {
+async function fetchOrganizationProfiles(organizationId: string | string[]) {
   const admin = getAdminClient();
+  const organizationIds = Array.isArray(organizationId)
+    ? organizationId
+    : [organizationId];
   const { data, error } = await admin
     .from("user_organizations")
     .select("user_id")
-    .eq("organization_id", organizationId);
+    .in("organization_id", organizationIds);
 
   if (error) {
     throw error;
@@ -588,8 +592,9 @@ export async function sendTaskLifecycleNotifications(options: {
       return;
     }
 
+    // Mentionable people = members of ANY org that owns the project.
     const organizationProfiles = await fetchOrganizationProfiles(
-      project.organization_id,
+      await getProjectOrgIds(getAdminClient(), project.id),
     );
     const previousMentionedIds = new Set(
       extractMentionedProfileIds(

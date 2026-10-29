@@ -2,7 +2,7 @@
 
 import { useState, type CSSProperties } from 'react'
 import { X, Calendar, DollarSign } from 'lucide-react'
-import type { Project } from '@/lib/types'
+import type { Organization, Project } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,7 +19,9 @@ interface AddProjectModalProps {
   isOpen: boolean
   onClose: () => void
   organizationId: string
-  onAddProject: (projectData: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Project | null> | Project | null | void | Promise<void>
+  /** Optional: organizations the new project can also be shared with. */
+  availableOrganizations?: Organization[]
+  onAddProject: (projectData: Omit<Project, 'id' | 'createdAt' | 'updatedAt'> & { organization_ids?: string[] }) => Promise<Project | null> | Project | null | void | Promise<void>
   renderInStack?: boolean
   stackStyle?: CSSProperties
   stackZIndex?: number
@@ -48,6 +50,7 @@ export function AddProjectModal({
   isOpen,
   onClose,
   organizationId,
+  availableOrganizations = [],
   onAddProject,
   renderInStack = false,
   stackStyle,
@@ -62,6 +65,8 @@ export function AddProjectModal({
   const [devnotesMeta, setDevnotesMeta] = useState('')
   const [budget, setBudget] = useState('')
   const [deadline, setDeadline] = useState('')
+  const [extraOrgIds, setExtraOrgIds] = useState<string[]>([])
+  const shareableOrgs = availableOrganizations.filter(o => o.id !== organizationId && !o.archived)
   const [selectedColor, setSelectedColor] = useState(projectColors[Math.floor(Math.random() * projectColors.length)])
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -75,6 +80,9 @@ export function AddProjectModal({
       devnotesMeta: devnotesMeta.trim() || undefined,
       color: selectedColor,
       organizationId,
+      ...(extraOrgIds.length > 0
+        ? { organization_ids: [organizationId, ...extraOrgIds] }
+        : {}),
       isFavorite: false,
       budget: budget ? parseFloat(budget) : undefined,
       deadline: deadline || undefined,
@@ -86,6 +94,7 @@ export function AddProjectModal({
     setDevnotesMeta('')
     setBudget('')
     setDeadline('')
+    setExtraOrgIds([])
     setSelectedColor(projectColors[Math.floor(Math.random() * projectColors.length)])
     onClose()
   }
@@ -211,6 +220,29 @@ export function AddProjectModal({
               ))}
             </div>
           </div>
+
+          {shareableOrgs.length > 0 && (
+            <fieldset>
+              <legend className="text-sm text-zinc-400">Also share with</legend>
+              <div className="mt-2 grid gap-1 sm:grid-cols-2">
+                {shareableOrgs.map((o) => (
+                  <label key={o.id} className="flex items-center gap-2 text-sm text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={extraOrgIds.includes(o.id)}
+                      onChange={() =>
+                        setExtraOrgIds((prev) =>
+                          prev.includes(o.id) ? prev.filter((id) => id !== o.id) : [...prev, o.id],
+                        )
+                      }
+                      className="w-4 h-4 rounded border-zinc-600 bg-zinc-700"
+                    />
+                    <span className="truncate">{o.name}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
 
           <div className="flex justify-end gap-2 pt-4">
             <Button

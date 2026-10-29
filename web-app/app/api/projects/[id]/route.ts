@@ -11,6 +11,13 @@ import {
 } from "@/lib/task-notifications";
 import { requireViewerOrUnauthorized } from "@/lib/auth/require-viewer";
 import { isProjectLockedError } from "@/lib/db/project-lock-error";
+import { parseOrganizationIdsInput } from "@/lib/api/project-organization-ids";
+import {
+  PROJECT_ORG_EMBED,
+  isMissingProjectOrganizations,
+  projectOrgIdsFromRow,
+  projectOrgLinksFromRow,
+} from "@/lib/db/project-orgs";
 
 export async function PUT(
   request: NextRequest,
@@ -35,8 +42,30 @@ export async function PUT(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const adapter = new SupabaseAdapter(supabase, session.user.id);
     const updates = await request.json();
     const admin = getAdminClient();
+
+    // Multi-org sharing: ONLY an admin of the PRIMARY org may change which orgs
+    // a project is shared with or move its primary org. Managers of an
+    // additional org keep full project admin otherwise (rename, members, ...).
+    const requestedOrgIds = parseOrganizationIdsInput(updates);
+    const requestedPrimary =
+      updates?.organization_id ?? updates?.organizationId ?? undefined;
+    const changesPrimary =
+      requestedPrimary !== undefined && requestedPrimary !== authz.organizationId;
+    if ((requestedOrgIds !== undefined || changesPrimary) && !authz.isPrimaryAdmin) {
+      return NextResponse.json(
+        {
+          error:
+            "Only an admin of the project's primary organization can change its organizations",
+        },
+        { status: 403 },
+      );
+    }
+    if (requestedOrgIds !== undefined) {
+      await adapter.validateOrganizationIds(requestedOrgIds);
+    }
     const shouldCheckMembershipChanges =
       updates?.memberIds !== undefined || updates?.ownerId !== undefined;
     const { data: existingMembershipsRaw } = shouldCheckMembershipChanges
@@ -76,11 +105,36 @@ export async function PUT(
         updates.devnotes_meta = normalizedContent.devnotesMeta;
       }
     }
-    const adapter = new SupabaseAdapter(supabase, session.user.id);
     const updatedProject = await adapter.updateProject(params.id, updates);
 
     if (!updatedProject) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+
+    let sharingResult: { added: string[]; removed: string[] } | null = null;
+    if (requestedOrgIds !== undefined) {
+      // Primary is always kept; everything else becomes the additional set.
+      sharingResult = await adapter.setProjectOrganizations(
+        params.id,
+        requestedOrgIds,
+      );
+      if (
+        (sharingResult.added.length > 0 || sharingResult.removed.length > 0) &&
+        updatedProject.organization_id
+      ) {
+        await adapter.writeAuditLog({
+          organizationId: updatedProject.organization_id,
+          actorUserId: session.user.id,
+          action: "project.share",
+          entityType: "project",
+          entityId: params.id,
+          metadata: {
+            name: updatedProject.name ?? null,
+            addedOrganizationIds: sharingResult.added,
+            removedOrganizationIds: sharingResult.removed,
+          },
+        });
+      }
     }
 
     if (shouldCheckMembershipChanges) {
@@ -104,10 +158,31 @@ export async function PUT(
       });
     }
 
-    return NextResponse.json(updatedProject);
+    // Report the authoritative org set back to the client.
+    let orgFields: Record<string, unknown> = {};
+    {
+      const { data: orgRow, error: orgRowError } = await admin
+        .from("projects")
+        .select(`organization_id, ${PROJECT_ORG_EMBED}`)
+        .eq("id", params.id)
+        .maybeSingle();
+      if (!orgRowError && orgRow) {
+        orgFields = {
+          organizationIds: projectOrgIdsFromRow(orgRow as any),
+          organizationLinks: projectOrgLinksFromRow(orgRow as any),
+        };
+      } else if (orgRowError && !isMissingProjectOrganizations(orgRowError)) {
+        console.error("Failed to read project organizations:", orgRowError);
+      }
+    }
+
+    return NextResponse.json({ ...updatedProject, ...orgFields });
   } catch (error) {
     if (isProjectLockedError(error)) {
       return NextResponse.json({ error: "Project is locked" }, { status: 423 });
+    }
+    if ((error as any)?.status === 400) {
+      return NextResponse.json({ error: (error as Error).message }, { status: 400 });
     }
     console.error("Error updating project:", error);
     return NextResponse.json(
