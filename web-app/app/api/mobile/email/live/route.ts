@@ -12,7 +12,7 @@ import { readMailboxLiveForUser } from "@/lib/email-inbox/server";
 // The durable, no-HITL "check my email" endpoint. Reads a mailbox folder LIVE
 // over IMAP — the true provider state (INBOX / All Mail / Spam / Trash), NOT
 // Forge's synced + auto-classified copy that /email/inbox returns. Any tool
-// with a Focus Forge PAT (Bartok on its droplet, an agent on any machine, the
+// with a Focus Forge PAT (Prime Agent on its droplet, an agent on any machine, the
 // iOS/web clients) can call this; it never needs interactive re-auth because it
 // reuses the app password Forge already stores encrypted.
 //

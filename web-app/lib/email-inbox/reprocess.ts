@@ -23,7 +23,7 @@ export const NEVER_TASK_SENDER_DOMAINS = [
 
 /** Address-level patterns (tools, warmup/test senders, nuera blasts). */
 export const NEVER_TASK_SENDER_ADDRESS_PATTERNS: RegExp[] = [
-  /bartok/i,
+  /prime-agent/i,
   /swarm[-_. ]?tester/i,
   /usesend/i,
   /warm[-_. ]?up/i,
