@@ -55,7 +55,7 @@ test("(d) self/system senders never create tasks", () => {
   for (const s of [
     "spencer@theportlandcompany.com",
     "notifications@focusforge.dev",
-    "bartok@example.com",
+    "prime-agent@example.com",
     "swarm-tester@example.com",
     "noreply@usesend.com",
     "warmup@somewhere.com",

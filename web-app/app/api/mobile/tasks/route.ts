@@ -25,7 +25,7 @@ import {
   normalizeTaskContentFields,
 } from "@/lib/devnotes-meta";
 import { normalizeRichText } from "@/lib/rich-text-sanitize";
-import { BARTOK_USER_ID } from "@/lib/agents/bartok";
+import { PRIME_AGENT_USER_ID } from "@/lib/agents/prime-agent";
 
 export async function GET(request: NextRequest) {
   try {
@@ -244,12 +244,12 @@ export async function POST(request: NextRequest) {
             devnotes_meta: normalizedTaskContent.devnotesMeta,
           }
         : {}),
-      // Tasks created programmatically default to the Bartok agent user unless
+      // Tasks created programmatically default to the Prime Agent agent user unless
       // the caller explicitly assigns them to someone else.
       assigned_to:
         payload.assigned_to !== undefined
           ? payload.assigned_to
-          : BARTOK_USER_ID,
+          : PRIME_AGENT_USER_ID,
       created_at: payload.created_at || now,
       updated_at: now,
       completed: payload.completed ?? false,
@@ -269,7 +269,7 @@ export async function POST(request: NextRequest) {
       Boolean(created.agentName ?? created.agent_name) ||
       Boolean(created.source) ||
       Boolean(created.requiresHitl ?? created.requires_hitl) ||
-      (created.assignedTo ?? created.assigned_to) === BARTOK_USER_ID;
+      (created.assignedTo ?? created.assigned_to) === PRIME_AGENT_USER_ID;
     if (agentCreated && (created.timeEstimate ?? created.time_estimate) == null) {
       void ensureAgentTaskEstimate(serviceSupabase, newTask.id, auth.user.id);
     }

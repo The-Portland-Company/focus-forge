@@ -409,7 +409,7 @@ function makeToolCtx(admin: any): AgentToolContext {
     admin,
     userId: ACTOR,
     accessibleProjectIds: new Set<string>(),
-    agentName: "Bartok",
+    agentName: "Prime Agent",
     agentModel: "test-model",
   };
 }
