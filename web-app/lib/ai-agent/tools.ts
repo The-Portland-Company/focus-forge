@@ -13,7 +13,7 @@ import {
   listMailboxesForUser,
 } from "@/lib/email-inbox/server";
 import { writeAuditLog } from "@/lib/audit/log";
-import { BARTOK_USER_ID } from "@/lib/agents/bartok";
+import { PRIME_AGENT_USER_ID } from "@/lib/agents/prime-agent";
 import {
   evaluateConfirmGate,
   type DestructiveAction,
@@ -881,7 +881,7 @@ async function createTask(ctx: AgentToolContext, args: Record<string, any>): Pro
     assigned_to:
       typeof args.assignedTo === "string" && args.assignedTo
         ? args.assignedTo
-        : BARTOK_USER_ID,
+        : PRIME_AGENT_USER_ID,
   };
   if (typeof args.description === "string") insert.description = args.description;
   if (typeof args.dueDate === "string") insert.due_date = args.dueDate;

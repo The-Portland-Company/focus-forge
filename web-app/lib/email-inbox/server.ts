@@ -2315,7 +2315,7 @@ export type ReadMailboxLiveForUser = ReadMailboxFolderLiveResult & {
 
 /**
  * Live "check my email" for a user, straight from the provider over IMAP —
- * the durable, no-HITL primitive any client (web, iOS, Bartok, an agent) can
+ * the durable, no-HITL primitive any client (web, iOS, Prime Agent, an agent) can
  * call. Shows the true provider folder state (INBOX / All Mail / Spam / Trash),
  * NOT Forge's synced+auto-classified copy. Scopes to a mailbox the user may
  * access; with no `mailboxId`, picks their first Gmail mailbox (else the first

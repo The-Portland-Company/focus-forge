@@ -24,8 +24,8 @@ import { UserAvatar } from "@/components/user-avatar";
 import { filterAvailableMembers } from "@/components/existing-member-picker";
 import type { Task, Project, User } from "@/lib/types";
 
-const BARTOK_USER_ID =
-  process.env.NEXT_PUBLIC_BARTOK_USER_ID ||
+const PRIME_AGENT_USER_ID =
+  process.env.NEXT_PUBLIC_PRIME_AGENT_USER_ID ||
   "ef411928-38bb-47a7-8ee1-44d4be5d3a5a";
 
 const PRIORITY_FLAG_COLORS: Record<number, string> = {
@@ -140,9 +140,9 @@ export function TaskContextMenu({
 
   const filteredMembers = useMemo(() => {
     const filtered = filterAvailableMembers(allMembers, memberIds, [], query);
-    // Surface the current user and Bartok at the top for quick access.
+    // Surface the current user and Prime Agent at the top for quick access.
     const priority = (id: string) =>
-      id === currentUserId ? 0 : id === BARTOK_USER_ID ? 1 : 2;
+      id === currentUserId ? 0 : id === PRIME_AGENT_USER_ID ? 1 : 2;
     return [...filtered].sort(
       (a, b) =>
         priority(a.id) - priority(b.id) ||
@@ -221,7 +221,7 @@ export function TaskContextMenu({
                       className="text-[9px] font-medium"
                     />
                     <span className="truncate">{displayName(u)}</span>
-                    {u.id === BARTOK_USER_ID ? (
+                    {u.id === PRIME_AGENT_USER_ID ? (
                       <span className="ml-1 rounded bg-violet-500/20 px-1 text-[9px] uppercase text-violet-300">
                         AI
                       </span>
