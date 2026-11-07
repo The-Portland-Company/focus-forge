@@ -3323,18 +3323,19 @@ export function EmailInboxView({
     if (!selectedThreadId || !isEmailInboxView(view)) return;
     let cancelled = false;
 
-    // Reopening a conversation renders from the last copy immediately and
-    // revalidates behind it, instead of showing "Loading full conversation…"
-    // again. Nothing is served stale for long: the fetch below still runs and
-    // replaces the cached copy, and realtime/polling drops the entry when new
-    // mail lands on the thread.
+    // Reopening a conversation renders from the last copy and does NOT re-fetch
+    // it: the reconcile drops a thread's cache entry the moment new mail lands
+    // on it (see threadDetailCacheRef.delete in the snapshot handler), so a
+    // thread still in the cache is byte-for-byte unchanged. Re-fetching it would
+    // just re-download the same message bodies out of the database — pure egress
+    // waste — so we render the cached copy and stop here.
     const cached = threadDetailCacheRef.current.get(selectedThreadId);
     if (cached) {
       setSelectedThread(cached);
       setLoadingThread(false);
-    } else {
-      setLoadingThread(true);
+      return;
     }
+    setLoadingThread(true);
 
     fetch(`/api/email/threads/${selectedThreadId}`, {
       credentials: "include",
