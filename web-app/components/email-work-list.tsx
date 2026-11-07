@@ -52,7 +52,6 @@ import {
 } from "@/lib/email-inbox/group-inbox-items";
 import { Tooltip } from "@/components/tooltip";
 import { getEmailActorGradient } from "@/lib/email-thread-ui";
-import { EmailHtmlContent } from "@/components/ui/email-html-content";
 import { stripQuotedAndSignature } from "@/lib/email-inbox/strip-quoted";
 import { selectPrimarySender } from "@/lib/email-inbox/parse-sender";
 import { extractVerificationCode } from "@/lib/email-inbox/verification-code";
@@ -967,46 +966,6 @@ export function EmailWorkList({
     top: number;
     left: number;
   } | null>(null);
-  // Cache of fetched bodies keyed by thread id. Value is the sanitized-ready
-  // HTML (or null if the thread had no HTML body), `loading`, or `error`.
-  const bodyCacheRef = useRef<
-    Map<string, { html: string | null } | "loading" | "error">
-  >(new Map());
-  // Bump to force a re-render when an async fetch resolves (refs don't trigger).
-  const [, setBodyCacheVersion] = useState(0);
-
-  const ensureThreadBody = (threadId: string) => {
-    const cache = bodyCacheRef.current;
-    const existing = cache.get(threadId);
-    if (existing !== undefined) return;
-
-    cache.set(threadId, "loading");
-    setBodyCacheVersion((value) => value + 1);
-
-    void (async () => {
-      try {
-        const response = await fetch(`/api/email/threads/${threadId}`, {
-          credentials: "include",
-        });
-        if (!response.ok) throw new Error("Failed to load message");
-        const payload = (await response.json()) as {
-          conversation?: ConversationEntry[];
-        };
-        const conversation = payload.conversation ?? [];
-        // Prefer the most recent entry that actually carries HTML; fall back to
-        // the first entry. This mirrors the thread modal's "primary" message.
-        const withHtml = [...conversation]
-          .reverse()
-          .find((entry) => entry.contentHtml?.trim());
-        const html = withHtml?.contentHtml?.trim() || null;
-        cache.set(threadId, { html });
-      } catch {
-        cache.set(threadId, "error");
-      } finally {
-        setBodyCacheVersion((value) => value + 1);
-      }
-    })();
-  };
   // Attachment lightbox. The inbox payload does not carry attachments, so we
   // lazy-fetch the full thread (same /api/email/threads/{id} endpoint used by
   // the hover preview and modal) and flatten its attachments. Results are
@@ -1290,19 +1249,11 @@ export function EmailWorkList({
               event.dataTransfer.effectAllowed = "move";
             }}
             onMouseEnter={() => {
-              // Prefetch the full attachment list for the lightbox only when the
-              // thread actually has attachments (badge count already known from
-              // the payload). undefined = older payload without the count, so
-              // still prefetch to stay correct.
-              if (item.attachmentCount === undefined || item.attachmentCount > 0) {
-                ensureThreadAttachments(item.id);
-              }
+              // No network prefetch on hover. Attachments load lazily when the
+              // gallery is actually opened (paperclip onClick below), and bodies
+              // load when the thread is opened — so scrubbing the mouse down the
+              // list never pulls message data out of the database (egress).
               if (isGrouped) setHoveredGroupKey(groupLabel ?? "");
-            }}
-            onFocus={() => {
-              if (item.attachmentCount === undefined || item.attachmentCount > 0) {
-                ensureThreadAttachments(item.id);
-              }
             }}
             onClick={() => onSelect?.(item)}
             onContextMenu={(event) => {
@@ -1466,7 +1417,6 @@ export function EmailWorkList({
                         top: rect.bottom + 8,
                         left,
                       });
-                      ensureThreadBody(item.id);
                     }}
                     onMouseLeave={() => setHoverPreview(null)}
                   >
@@ -2254,43 +2204,26 @@ export function EmailWorkList({
         })}
       </div>
 
-      {hoverPreview && !selectedId
-        ? (() => {
-            const entry = bodyCacheRef.current.get(hoverPreview.threadId);
-            return (
-              <div
-                className="pointer-events-none fixed z-50 w-[min(512px,90vw)] max-h-[60vh] overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950/95 px-4 py-3 text-xs leading-5 text-zinc-200 shadow-2xl backdrop-blur"
-                style={{
-                  top: `${hoverPreview.top}px`,
-                  left: `${hoverPreview.left}px`,
-                }}
-              >
-                {/* Arrow pointing up at the hovered AI title */}
-                <div
-                  aria-hidden
-                  className="absolute -top-[5px] left-8 h-2.5 w-2.5 rotate-45 border-l border-t border-zinc-700 bg-zinc-950"
-                />
-                {entry === "loading" || entry === undefined ? (
-                  <div className="flex items-center gap-2 text-zinc-400">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Loading message…
-                  </div>
-                ) : entry === "error" || entry.html === null ? (
-                  // No HTML body available (or fetch failed) → plain-text preview.
-                  <span className="line-clamp-6 break-words">
-                    {hoverPreview.fallbackText}
-                  </span>
-                ) : (
-                  // Reuse the same sanitized HTML renderer as the thread modal.
-                  <EmailHtmlContent
-                    html={entry.html}
-                    className="max-h-[calc(60vh-1.5rem)] overflow-hidden break-words [&_img]:max-w-full [&_img]:h-auto"
-                  />
-                )}
-              </div>
-            );
-          })()
-        : null}
+      {hoverPreview && !selectedId ? (
+        <div
+          className="pointer-events-none fixed z-50 w-[min(512px,90vw)] max-h-[60vh] overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950/95 px-4 py-3 text-xs leading-5 text-zinc-200 shadow-2xl backdrop-blur"
+          style={{
+            top: `${hoverPreview.top}px`,
+            left: `${hoverPreview.left}px`,
+          }}
+        >
+          {/* Arrow pointing up at the hovered AI title */}
+          <div
+            aria-hidden
+            className="absolute -top-[5px] left-8 h-2.5 w-2.5 rotate-45 border-l border-t border-zinc-700 bg-zinc-950"
+          />
+          {/* Snippet only — the full HTML body is fetched when the thread is
+              opened, never on hover, so hovering the list costs no egress. */}
+          <span className="line-clamp-6 break-words">
+            {hoverPreview.fallbackText}
+          </span>
+        </div>
+      ) : null}
 
       <Dialog
         open={isLinkedTasksModalOpen}
