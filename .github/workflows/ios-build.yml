@@ -23,7 +23,7 @@ concurrency:
 jobs:
   mobile-export:
     name: Mobile Export
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       ios-app-exists: ${{ steps.mobile-project.outputs.exists }}
     steps:
