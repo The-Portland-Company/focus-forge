@@ -17,6 +17,10 @@ export type McpToolResult = {
 
 export type McpToolContext = {
   userId: string;
+  /** The caller's TPC Auth `sub` (for billing idempotency / debit keys). */
+  sub?: string;
+  /** The raw bearer the server received — forwarded to TPC Auth billing endpoints. */
+  tpcToken?: string;
 };
 
 // Shape every MCP tool module (e.g. lib/mcp/tools/email.ts) must export an
@@ -27,6 +31,18 @@ export type McpTool = {
   description: string;
   inputSchema: Record<string, unknown>;
   requiredScopes: ApiKeyScope[];
+  /**
+   * Requires an active Focus Forge Pro subscription or trial. The entitlement
+   * gate (handler.ts) blocks these with a trial-checkout link when the token
+   * claim shows no active entitlement. Free/billing/read tools omit it.
+   */
+  paid?: boolean;
+  /**
+   * Draws from the prepaid AI-credit balance. Before running, the credit gate
+   * checks the balance; after running, it debits actual usage. (No Forge MCP
+   * tool is AI-flagged today — the hook is wired and unused.)
+   */
+  ai?: boolean;
   handler: (
     args: Record<string, unknown>,
     ctx: McpToolContext,
