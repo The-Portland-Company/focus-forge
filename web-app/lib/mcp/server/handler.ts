@@ -11,6 +11,11 @@ import { findMcpTool, MCP_TOOLS } from "./registry";
 import type { McpToolResult } from "./types";
 import type { AuthContext } from "@/src/vendor/tpc-auth/types";
 import { checkMcpRateLimit, checkMcpWriteDailyCap, isWriteLockedDown } from "./quota";
+import { isEntitled, creditBalanceCents } from "./billing-gate";
+import { startCheckout, buyCredits, debitCredits } from "./tpc-billing";
+
+const bearerOf = (authHeader: string | null): string | undefined =>
+  authHeader ? /^Bearer\s+(.+)$/i.exec(authHeader.trim())?.[1] : undefined;
 
 // Our ceiling. Real MCP clients (incl. Claude Code) send the protocolVersion
 // they support in `initialize` params and refuse to proceed if we echo back
@@ -220,10 +225,66 @@ const handleToolsCall = async (
     });
   }
 
+  const token = bearerOf(authHeader);
+
+  // Entitlement gate: a PAID tool (writes + history) needs an active Focus
+  // Forge Pro subscription or trial. Read entitlement from the verified token
+  // claim; when absent, return a trial-checkout link rather than empty data.
+  if (tool.paid && !isEntitled(auth.ctx)) {
+    let url = "";
+    if (token) {
+      const r = await startCheckout(token).catch(() => null);
+      url = r?.data?.url ?? "";
+    }
+    return okResult(id, {
+      content: [
+        {
+          type: "text",
+          text: url
+            ? `Subscribe to unlock Focus Forge Pro (first month free): ${url}`
+            : "Subscribe to unlock Focus Forge Pro (first month free). Use the start_checkout tool to get a checkout link.",
+        },
+      ],
+      isError: true,
+      structuredContent: { error: "subscription_required", app: "forge", checkout_url: url || null },
+    });
+  }
+
+  // AI-metered gate (pre-check): an AI-flagged tool needs a positive prepaid
+  // credit balance. No Forge MCP tool is AI-flagged today, so this is wired and
+  // dormant; it activates the moment a tool sets `ai: true`.
+  if (tool.ai && creditBalanceCents(auth.ctx) <= 0) {
+    let url = "";
+    if (token) {
+      const r = await buyCredits(token, 500).catch(() => null);
+      url = r?.data?.url ?? "";
+    }
+    return okResult(id, {
+      content: [{ type: "text", text: url ? `Top up AI credits (min $5): ${url}` : "Top up AI credits (min $5) with the buy_ai_credits tool." }],
+      isError: true,
+      structuredContent: { error: "insufficient_credits", app: "forge", topup_url: url || null },
+    });
+  }
+
   try {
     const toolResult: McpToolResult = await tool.handler(args, {
       userId: auth.userId,
+      sub: auth.ctx.sub,
+      tpcToken: token,
     });
+
+    // AI-metered gate (debit): after a successful AI-flagged run, debit actual
+    // usage. The tool reports cents via structuredContent.ai_usage_cents; the
+    // debit is idempotent on a per-call key.
+    if (tool.ai && token && !toolResult.isError) {
+      const usage = Number((toolResult.structuredContent as { ai_usage_cents?: number } | undefined)?.ai_usage_cents);
+      if (Number.isFinite(usage) && usage > 0) {
+        await debitCredits(token, Math.round(usage), `${tool.name}:${(id ?? "call")}:${Date.now()}`, "usage", {
+          tool: tool.name,
+        }).catch((e) => console.error("[mcp] debit failed", e));
+      }
+    }
+
     return okResult(id, toolResult);
   } catch (error) {
     return errorResult(
