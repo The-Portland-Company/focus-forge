@@ -30,6 +30,34 @@ export type McpAuthResult =
   | { ok: false; status: number; message: string };
 
 /**
+ * Discovery-only auth: verify the bearer is a valid TPC Auth token for this
+ * resource and nothing more — NO scope gate, NO local-profile resolution.
+ *
+ * `initialize` and `tools/list` are discovery: they expose only tool *schemas*,
+ * never user data, so they must succeed for ANY valid token regardless of the
+ * scopes it was granted (ChatGPT's dynamically-registered MCP client is issued
+ * an `openid profile email` token with no `forge:*` scopes) and regardless of
+ * whether a Focus Forge profile is linked yet. Gating discovery on scope or
+ * profile was the cause of "connected, zero tools": the under-scoped ChatGPT
+ * token made tools/list throw 403, which ChatGPT surfaces as "Couldn't update
+ * the app." Scope + profile enforcement stays where it belongs — per tool at
+ * CALL time (see authenticateFromHeader). Mirrors Focus: Finance, whose
+ * tools/list returns every tool for any verified identity.
+ */
+export async function verifyTokenForDiscovery(
+  authHeader: string | null,
+): Promise<{ ok: true; ctx: AuthContext } | { ok: false; status: number; message: string }> {
+  const request = new Request("https://internal.invalid/mcp", {
+    headers: authHeader ? { authorization: authHeader } : {},
+  });
+  const ctx = await authenticate(request, { resource: TPC_RESOURCE, legacyResources: TPC_LEGACY_RESOURCES });
+  if (!ctx) {
+    return { ok: false, status: 401, message: "Missing or invalid access token" };
+  }
+  return { ok: true, ctx };
+}
+
+/**
  * Authenticate a raw `Authorization` header value against TPC Auth and
  * enforce that the token carries at least one of the requested internal
  * scopes (mapped to their TPC equivalents). Mirrors the shape of the old
@@ -49,11 +77,17 @@ export async function authenticateFromHeader(
     return { ok: false, status: 401, message: "Missing or invalid access token" };
   }
 
-  const wanted = requiredScopes.map((s) => TPC_SCOPE[s]);
-  const hasScope = wanted.some((scope) => ctx.scopes.includes(scope));
-  if (!hasScope) {
+  // Finance parity (app/mcp/auth.js): READS are allowed for any verified
+  // identity — the token need not carry `forge:read`. Data isolation is still
+  // guaranteed because resolveForgeProfile below scopes every query to the
+  // caller's own linked profile. Only WRITES (internal "write"/"admin")
+  // require the explicit `forge:write` grant. This keeps ChatGPT's
+  // `openid profile email`-only token (its DCR client is capped at those
+  // scopes) able to call every read tool, instead of 403ing on all of them.
+  const needsWrite = requiredScopes.some((s) => s === "write" || s === "admin");
+  if (needsWrite && !ctx.scopes.includes("forge:write")) {
     try {
-      requireScope(ctx, wanted[0] ?? "forge:read");
+      requireScope(ctx, "forge:write");
     } catch (error) {
       if (error instanceof TpcAuthError) {
         return { ok: false, status: error.status, message: error.message };
