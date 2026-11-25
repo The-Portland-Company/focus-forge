@@ -18,20 +18,83 @@ import { TPC_RESOURCE, TPC_LEGACY_RESOURCES } from "@/src/vendor/tpc-auth/config
 //
 // Per-tool scope enforcement (requireScope) still happens inside
 // handleMcpRequest for each tools/call, per least-privilege / fail-closed.
+
+// Permissive CORS for the MCP surface only: these requests carry bearer
+// tokens, never cookies, and must be reachable from the ChatGPT web client's
+// origin (chatgpt.com / chat.openai.com). Browser MCP clients fire a CORS
+// preflight for the POST because it carries an Authorization header; without
+// these headers the preflight fails and the client silently discovers zero
+// tools even though OAuth (a full-page redirect, not CORS-gated) succeeded.
+// Mirrors Focus: Finance's known-good MCP CORS (backend app/mcp/index.js).
+function corsHeaders(request: NextRequest): Record<string, string> {
+  const origin = request.headers.get("origin") || "*";
+  return {
+    "Access-Control-Allow-Origin": origin,
+    Vary: "Origin",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers":
+      "Authorization, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version",
+    "Access-Control-Expose-Headers": "WWW-Authenticate, Mcp-Session-Id",
+  };
+}
+
+function withCors(request: NextRequest, response: NextResponse): NextResponse {
+  for (const [k, v] of Object.entries(corsHeaders(request))) {
+    response.headers.set(k, v);
+  }
+  return response;
+}
+
+// CORS preflight: browser MCP clients (ChatGPT web) send OPTIONS before the
+// bearer-bearing POST. Without an explicit handler Next.js auto-answers 204 but
+// omits the Access-Control-* headers, so the preflight fails and the real POST
+// never fires — the exact cause of "connected, zero tools" in ChatGPT.
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: corsHeaders(request) });
+}
+
+// A GET to the MCP endpoint (some clients probe it for an SSE stream) returns a
+// 401 challenge when unauthenticated, else 405 JSON — never an HTML page that
+// would break discovery. CORS headers included so browser clients can read it.
+export async function GET(request: NextRequest) {
+  const ctx = await authenticate(request, { resource: TPC_RESOURCE, legacyResources: TPC_LEGACY_RESOURCES });
+  if (!ctx) {
+    return withCors(request, NextResponse.json(
+      { error: "invalid_token" },
+      {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": `Bearer resource_metadata="${new URL(request.url).origin}/.well-known/oauth-protected-resource", error="invalid_token"`,
+          "Cache-Control": "no-store",
+        },
+      },
+    ));
+  }
+  return withCors(request, NextResponse.json(
+    { error: "method_not_allowed", error_description: "Use POST for MCP JSON-RPC." },
+    { status: 405, headers: { Allow: "POST, OPTIONS" } },
+  ));
+}
+
 export async function POST(request: NextRequest) {
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
+    return withCors(request, NextResponse.json(
       jsonRpcError(null, JSON_RPC_ERRORS.PARSE_ERROR, "Invalid JSON"),
       { status: 400 },
-    );
+    ));
   }
 
   const ctx = await authenticate(request, { resource: TPC_RESOURCE, legacyResources: TPC_LEGACY_RESOURCES });
   if (!ctx) {
-    return unauthorized(TPC_RESOURCE);
+    // unauthorized() returns a plain Response; re-wrap so CORS headers apply and
+    // the browser client can read the WWW-Authenticate challenge.
+    const res = unauthorized(TPC_RESOURCE);
+    const headers = new Headers(res.headers);
+    for (const [k, v] of Object.entries(corsHeaders(request))) headers.set(k, v);
+    return new NextResponse(res.body, { status: res.status, headers });
   }
 
   // handleMcpRequest re-derives auth per-call (via lib/mcp/server/tpc-adapter.ts,
@@ -42,7 +105,7 @@ export async function POST(request: NextRequest) {
 
   const rl = checkApiTokenRateLimit("mcp", ctx.sub);
   if (!rl.allowed) {
-    return NextResponse.json(
+    return withCors(request, NextResponse.json(
       jsonRpcError(
         (typeof body === "object" && body !== null && "id" in body
           ? ((body as { id?: unknown }).id as JsonRpcId)
@@ -55,12 +118,12 @@ export async function POST(request: NextRequest) {
         { retryAfterMs: rl.retryAfterMs },
       ),
       { status: 429 },
-    );
+    ));
   }
 
   const result = await handleMcpRequest(body, authHeader);
 
-  if (result.status === 202) return new NextResponse(null, { status: 202 });
+  if (result.status === 202) return withCors(request, new NextResponse(null, { status: 202 }));
 
-  return NextResponse.json(result.body, { status: result.status });
+  return withCors(request, NextResponse.json(result.body, { status: result.status }));
 }
