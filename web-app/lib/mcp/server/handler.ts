@@ -1,5 +1,5 @@
 import type { ApiKeyScope } from "@/lib/api/keys/types";
-import { authenticateFromHeader } from "./tpc-adapter";
+import { authenticateFromHeader, verifyTokenForDiscovery } from "./tpc-adapter";
 import {
   JSON_RPC_ERRORS,
   jsonRpcError,
@@ -34,10 +34,6 @@ const SERVER_INFO = {
   name: "focus-forge",
   version: "1.0.0",
 };
-
-// Any authenticated caller may negotiate capabilities / list tools; the
-// per-tool scope check happens at dispatch time in handleToolsCall.
-const ANY_SCOPE: ApiKeyScope[] = ["read", "write", "admin"];
 
 export type McpHandlerResult = {
   status: number;
@@ -260,13 +256,23 @@ export const handleMcpRequest = async (
     case "ping":
       return okResult(id, {});
     case "initialize": {
-      const auth = await authenticate(authHeader, ANY_SCOPE, id);
-      if (!auth.ok) return auth.result;
+      // Discovery: a valid token is enough — no scope gate, no profile
+      // resolution. See verifyTokenForDiscovery.
+      const auth = await verifyTokenForDiscovery(authHeader);
+      if (!auth.ok) {
+        return errorResult(auth.status, id, JSON_RPC_ERRORS.UNAUTHORIZED, auth.message);
+      }
       return handleInitialize(id, request.params);
     }
     case "tools/list": {
-      const auth = await authenticate(authHeader, ANY_SCOPE, id);
-      if (!auth.ok) return auth.result;
+      // Discovery: return every tool schema for any valid token, regardless of
+      // its granted scopes or profile linkage. Scope is enforced per tool at
+      // call time (handleToolsCall). This is the fix for "connected, zero
+      // tools": the under-scoped ChatGPT token must still enumerate tools.
+      const auth = await verifyTokenForDiscovery(authHeader);
+      if (!auth.ok) {
+        return errorResult(auth.status, id, JSON_RPC_ERRORS.UNAUTHORIZED, auth.message);
+      }
       return handleToolsList(id);
     }
     case "tools/call":
