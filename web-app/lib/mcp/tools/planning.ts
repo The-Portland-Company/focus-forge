@@ -273,6 +273,7 @@ export const PLANNING_MCP_TOOLS: McpTool[] = [
         parentTaskId: { type: "string", description: "Set to create a sub-task." },
         dueDate: { type: "string" },
         priority: { type: "number" },
+        assignedTo: { type: "string", description: "User id to assign the task to (see list_members)." },
       },
       required: ["projectId", "name"],
       additionalProperties: false,
@@ -298,6 +299,7 @@ export const PLANNING_MCP_TOOLS: McpTool[] = [
         parent_id: typeof args?.parentTaskId === "string" ? args.parentTaskId : undefined,
         due_date: typeof args?.dueDate === "string" ? args.dueDate : undefined,
         priority: typeof args?.priority === "number" ? args.priority : undefined,
+        assigned_to: typeof args?.assignedTo === "string" ? args.assignedTo : undefined,
         created_by: ctx.userId,
       });
       return toResult(task);
@@ -316,8 +318,10 @@ export const PLANNING_MCP_TOOLS: McpTool[] = [
         goalId: { type: "string" },
         sectionId: { type: "string" },
         parentTaskId: { type: "string" },
+        projectId: { type: "string", description: "Move the task to another project." },
         dueDate: { type: "string" },
         priority: { type: "number" },
+        assignedTo: { type: "string", description: "User id to assign the task to (see list_members)." },
         completed: { type: "boolean" },
       },
       required: ["taskId"],
@@ -343,6 +347,16 @@ export const PLANNING_MCP_TOOLS: McpTool[] = [
       if (typeof args?.parentTaskId === "string") updates.parent_id = args.parentTaskId
       if (typeof args?.dueDate === "string") updates.due_date = args.dueDate
       if (typeof args?.priority === "number") updates.priority = args.priority
+      if (typeof args?.assignedTo === "string") updates.assigned_to = args.assignedTo || null
+      if (typeof args?.projectId === "string" && args.projectId) {
+        // Moving to another project requires access to the destination too.
+        try {
+          await assertProjectAccess(ctx.userId, args.projectId)
+        } catch {
+          return errorResult("destination_project_not_found_or_not_accessible")
+        }
+        updates.project_id = args.projectId
+      }
       if (typeof args?.completed === "boolean") {
         updates.completed = args.completed
         updates.completed_at = args.completed ? new Date().toISOString() : null
